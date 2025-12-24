@@ -721,10 +721,11 @@ end
 --- @param w number Width
 --- @param h number Height
 --- @param text string Button label
+--- @param bg_col RGB color array
 --- @return boolean True if clicked
-local function btn(x, y, w, h, text)
+local function btn(x, y, w, h, text, bg_col)
     local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x+w and gfx.mouse_y >= y and gfx.mouse_y <= y+h)
-    set_color(hover and UI.C_BTN_H or UI.C_BTN)
+    set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
     gfx.rect(x, y, w, h, 1)
     set_color(UI.C_TXT)
     gfx.setfont(F.std)
@@ -1438,11 +1439,6 @@ local function fetch_dictionary_category(word, display_name)
     return "Завантаження..." -- Placeholder
 end
 
---- Call Gemini API
---- @param key string API Key
---- @param prompt string Prompt text
---- @return integer status_code
---- @return string response_body
 --- Call Gemini API Asynchronously
 --- @param key string API Key
 --- @param prompt string Prompt text
@@ -2693,6 +2689,298 @@ local function import_vtt(file_path)
     rebuild_regions()
 end
 
+--- Parse timestamp in various formats to seconds
+--- Supports: MM:SS, M:SS, MM.SS, HH:MM:SS, HH:MM:SS.mmm, MM:SS.mmm, HH.MM.SS
+--- @param str string Timestamp string
+--- @return number|nil Time in seconds or nil if invalid
+local function parse_notes_timestamp(str)
+    -- Try HH:MM:SS.mmm format
+    local h, m, s, ms = str:match("^(%d+):(%d+):(%d+)%.(%d+)$")
+    if h then
+        return (tonumber(h) * 3600) + (tonumber(m) * 60) + tonumber(s) + (tonumber(ms) / 1000)
+    end
+    
+    -- Try MM:SS.mmm format (without hours)
+    m, s, ms = str:match("^(%d+):(%d+)%.(%d+)$")
+    if m then
+        return (tonumber(m) * 60) + tonumber(s) + (tonumber(ms) / 1000)
+    end
+    
+    -- Try HH:MM:SS format
+    h, m, s = str:match("^(%d+):(%d+):(%d+)$")
+    if h then
+        return (tonumber(h) * 3600) + (tonumber(m) * 60) + tonumber(s)
+    end
+    
+    -- Try HH.MM.SS format (dots instead of colons)
+    h, m, s = str:match("^(%d+)%.(%d+)%.(%d+)$")
+    if h then
+        return (tonumber(h) * 3600) + (tonumber(m) * 60) + tonumber(s)
+    end
+    
+    -- Try MM:SS format
+    m, s = str:match("^(%d+):(%d+)$")
+    if m then
+        return (tonumber(m) * 60) + tonumber(s)
+    end
+    
+    -- Try MM.SS format (dots instead of colons)
+    m, s = str:match("^(%d+)%.(%d+)$")
+    if m then
+        return (tonumber(m) * 60) + tonumber(s)
+    end
+    
+    return nil
+end
+
+--- Import director notes from text format and create markers
+local function import_notes()
+    -- Show instruction dialog
+    local response = reaper.ShowMessageBox(
+        "Скопіюйте список правок у буфер обміну і натисніть OK.\n\n" ..
+        "Підтримувані формати:\n" ..
+        "• MM:SS - текст\n" ..
+        "• MM:SS - MM:SS - текст (діапазон)\n" ..
+        "• #N - текст (індекс регіону)\n" ..
+        "• Багаторядковий текст",
+        "Імпорт правок",
+        1  -- OK/Cancel
+    )
+
+    if response ~= 1 then return end
+    
+    -- Read from clipboard
+    local input = get_clipboard()
+    if not input or input == "" then
+        show_snackbar("Буфер обміну порожній")
+        return
+    end
+    
+    -- Parse input
+    local notes = {}
+    local failed_lines = {} -- Track lines that couldn't be parsed
+    
+    for line in input:gmatch("[^\r\n]+") do
+        line = line:match("^%s*(.-)%s*$") -- Trim
+        if line ~= "" then
+            local matched = false
+            
+            -- Check if line starts with timestamp or # (new entry)
+            -- If not, it's a continuation of previous note
+            local is_continuation = not line:match("^[#%d]")
+            
+            if is_continuation and #notes > 0 then
+                -- Append to last note's text
+                notes[#notes].text = notes[#notes].text .. "\n" .. line
+                matched = true
+            else
+                -- Try region index format first: #N - text
+                local region_idx, note_text = line:match("^#(%d+)%s*%-%s*(.+)$")
+                if region_idx then
+                    region_idx = tonumber(region_idx)
+                    
+                    -- Find region by index in ass_lines
+                    local found = false
+                    if ass_lines then
+                        for _, ass_line in ipairs(ass_lines) do
+                            if ass_line.index == region_idx then
+                                table.insert(notes, {time = ass_line.t1, text = note_text})
+                                found = true
+                                matched = true
+                                break
+                            end
+                        end
+                    end
+                    
+                    if not found then
+                        table.insert(failed_lines, line)
+                    end
+                else
+                    -- More precise timestamp pattern that doesn't capture text
+                    -- Match: digits, then colons/dots with digits, ending before " - "
+                    -- Examples: 2:26, 02:38.080, 1:2:26, 2.30
+                    
+                    -- Try to match time range format: TIME - TIME - text
+                    -- Pattern: capture timestamp, space-dash-space, another timestamp, space-dash-space, then text
+                    local time1_str, time2_str, note_text = line:match("^([%d:.]+)%s*%-%s*([%d:.]+)%s*%-%s*(.+)$")
+                    
+                    if time1_str and time2_str and note_text then
+                        -- Time range format: create marker at first time with end time in text
+                        local time1 = parse_notes_timestamp(time1_str)
+                        local time2 = parse_notes_timestamp(time2_str)
+                        if time1 and time2 then
+                            local full_text = string.format("аж до %s - %s", time2_str, note_text)
+                            table.insert(notes, {time = time1, text = full_text})
+                            matched = true
+                        else
+                            table.insert(failed_lines, line)
+                        end
+                    else
+                        -- Try single time format: TIME - text
+                        time1_str, note_text = line:match("^([%d:.]+)%s*%-%s*(.+)$")
+                        if time1_str and note_text then
+                            local time = parse_notes_timestamp(time1_str)
+                            if time then
+                                table.insert(notes, {time = time, text = note_text})
+                                matched = true
+                            else
+                                table.insert(failed_lines, line)
+                            end
+                        else
+                            table.insert(failed_lines, line)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if #notes == 0 then
+        show_snackbar("Не знайдено жодної правки у правильному форматі")
+        return
+    end
+    
+    -- Show warning if some lines failed to parse
+    if #failed_lines > 0 then
+        local warning_msg = string.format("⚠️ Не вдалося розпізнати %d рядків:\n\n", #failed_lines)
+        for i, failed_line in ipairs(failed_lines) do
+            if i <= 10 then -- Show max 10 failed lines
+                warning_msg = warning_msg .. "• " .. failed_line .. "\n"
+            end
+        end
+        if #failed_lines > 10 then
+            warning_msg = warning_msg .. string.format("\n... та ще %d рядків", #failed_lines - 10)
+        end
+        warning_msg = warning_msg .. "\n\nПродовжити створення маркерів для розпізнаних рядків?"
+        
+        local response = reaper.ShowMessageBox(warning_msg, "Попередження", 4) -- 4 = Yes/No
+        if response ~= 6 then -- 6 = Yes
+            return
+        end
+    end
+    
+    -- Create markers
+    push_undo("Імпорт правок")
+    
+    reaper.PreventUIRefresh(1)
+    for _, note in ipairs(notes) do
+        -- Always create marker (not region)
+        reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, reaper.ColorToNative(255, 200, 100) | 0x1000000)
+    end
+    reaper.PreventUIRefresh(-1)
+    reaper.UpdateArrange()
+    
+    show_snackbar("Створено маркерів: " .. #notes)
+end
+
+--- Import director notes from CSV file and create markers
+--- CSV format: #,Name,Start
+--- @param file_path string|nil Optional file path, if nil shows file dialog
+local function import_notes_from_csv(file_path)
+    local file = file_path
+    if not file then
+        local retval
+        retval, file = reaper.GetUserFileNameForRead("", "Імпорт правок з CSV", "*.csv")
+        if not retval or not file then return end
+    end
+    
+    local f = io.open(file, "r")
+    if not f then
+        show_snackbar("Не вдалося відкрити файл")
+        return
+    end
+    
+    local content = f:read("*all")
+    f:close()
+    
+    -- Parse CSV
+    local notes = {}
+    local line_num = 0
+    
+    for line in content:gmatch("[^\r\n]+") do
+        line_num = line_num + 1
+        line = line:match("^%s*(.-)%s*$") -- Trim
+
+        -- Skip header line and empty lines
+        if line ~= "" and not line:match("^#,Name,Start") then
+            -- Parse CSV with proper quote handling
+            -- Format: M1,"text with, commas",80.3.00,FFC864
+            -- or: M1,simple text,0:40.273
+            
+            local parts = {}
+            local current = ""
+            local in_quotes = false
+            local i = 1
+            
+            while i <= #line do
+                local char = line:sub(i, i)
+                
+                if char == '"' then
+                    -- Check for escaped quote ""
+                    if i < #line and line:sub(i+1, i+1) == '"' then
+                        current = current .. '"'
+                        i = i + 1
+                    else
+                        in_quotes = not in_quotes
+                    end
+                elseif char == ',' and not in_quotes then
+                    table.insert(parts, current)
+                    current = ""
+                else
+                    current = current .. char
+                end
+                
+                i = i + 1
+            end
+            table.insert(parts, current) -- Add last part
+            
+            if #parts >= 3 then
+                -- parts[1] = ID (M1, M2, etc)
+                -- parts[2] = Name (text)
+                -- parts[3] = Start (time)
+                -- parts[4] = Color (optional)
+                
+                local name = parts[2]
+                local time_str = parts[3]
+                
+                -- Parse REAPER time format: seconds.frames.subframes (e.g., 80.3.00)
+                -- Or standard format: MM:SS.mmm
+                local time
+                
+                -- Try REAPER format first (NNN.F.SS)
+                local sec, frames = time_str:match("^(%d+)%.%d+%.%d+$")
+                if sec then
+                    time = tonumber(sec)
+                else
+                    -- Try standard timestamp formats
+                    time = parse_notes_timestamp(time_str)
+                end
+                
+                if time and name then
+                    table.insert(notes, {time = time, text = name})
+                end
+            end
+        end
+    end
+    
+    if #notes == 0 then
+        show_snackbar("Не знайдено жодного маркера у файлі")
+        return
+    end
+    
+    -- Create markers
+    push_undo("Імпорт правок з CSV")
+    
+    reaper.PreventUIRefresh(1)
+    for _, note in ipairs(notes) do
+        reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, reaper.ColorToNative(255, 200, 100) | 0x1000000)
+    end
+    reaper.PreventUIRefresh(-1)
+    reaper.UpdateArrange()
+    
+    show_snackbar("Створено маркерів: " .. #notes)
+end
+
 --- Import ASS/SSA subtitle file, parsing styles and events
 --- @param file_path string|nil Absolute path to file or nil to prompt user
 local function import_ass(file_path)
@@ -3213,6 +3501,8 @@ local function handle_drag_drop()
                 import_ass(dropped_file)
             elseif ext == "vtt" then
                 import_vtt(dropped_file)
+            elseif ext == "csv" then
+                import_notes_from_csv(dropped_file)
             end
         end
         
@@ -5293,13 +5583,26 @@ local function draw_file()
             end
         end
         
-        -- Filename Display (Next to button)
+        -- Import Notes Button (Top-right corner)
+        local notes_btn_w = 80
+        local notes_btn_x = gfx.w - notes_btn_w - 20
+        if btn(notes_btn_x, b_y, notes_btn_w, 40, "Правки") then
+            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+            local ret = gfx.showmenu("Імпорт з тексту|Імпорт з файлу (CSV)")
+            if ret == 1 then
+                import_notes()
+            elseif ret == 2 then
+                import_notes_from_csv()
+            end
+        end
+        
+        -- Filename Display (Next to import button)
         if ass_file_loaded and current_file_name then
             gfx.setfont(F.std)
             set_color(UI.C_TXT)
             -- Vertical center relative to button
             local str = "Обрано: " .. current_file_name
-            local max_width = gfx.w - 250 - 20 -- Available space from x position to right edge
+            local max_width = notes_btn_x - 265 - 10 -- Space between subtitle button and notes button
             str = fit_text_width(str, max_width)
             gfx.x = 265
             gfx.y = b_y + (40 - gfx.texth) / 2
@@ -5318,7 +5621,7 @@ local function draw_file()
             gfx.drawstr("Фільтр акторів:")
             
             -- Batch Select (left side)
-            if btn(130, t_y - 2, 120, 20, "Швидкий вибір") then
+            if btn(130, t_y - 2, 120, 20, "Швидкий вибір", UI.C_ROW) then
                 local ret, csv = reaper.GetUserInputs("Швидкий вибір акторів", 1, "Список акторів (через кому):,extrawidth=200", "")
                 if ret then
                     push_undo("Швидкий вибір акторів")
@@ -5353,7 +5656,7 @@ local function draw_file()
             gfx.setfont(F.std)
             
             -- Calculate positions from right edge
-            local right_edge = gfx.w - 20
+            local right_edge = gfx.w - 30
             local all_btn_x = right_edge - 40
             local none_btn_x = all_btn_x - 75
             local tw = gfx.measurestr(count_text)
@@ -5365,7 +5668,7 @@ local function draw_file()
             gfx.drawstr(count_text)
             
             -- None button
-            if btn(none_btn_x, t_y - 2, 70, 20, "НІКОГО") then
+            if btn(none_btn_x, t_y - 2, 70, 20, "НІКОГО", UI.C_ROW) then
                 push_undo("Приховати всіх")
                 for k in pairs(ass_actors) do ass_actors[k] = false end
                 for _, l in ipairs(ass_lines) do l.enabled = false end
@@ -5373,7 +5676,7 @@ local function draw_file()
             end
             
             -- All button
-            if btn(all_btn_x, t_y - 2, 50, 20, "ВСІ") then
+            if btn(all_btn_x, t_y - 2, 50, 20, "ВСІ", UI.C_ROW) then
                 push_undo("Показати всіх")
                 for k in pairs(ass_actors) do ass_actors[k] = true end
                 for _, l in ipairs(ass_lines) do l.enabled = true end
@@ -5572,7 +5875,7 @@ local function draw_file()
         -- Apply Stress Marks Button
         local s_y = get_y(y_cursor)
         if s_y + 25 > start_y and s_y < gfx.h then
-            if btn(20, s_y, gfx.w - 40, 40, ">  Застосувати наголоси  <") then
+            if btn(20, s_y, gfx.w - 40, 40, ">  Застосувати наголоси  <", UI.C_TAB_ACT) then
                 push_undo("Застосування наголосів")
                 apply_stress_marks()
             end
@@ -5610,7 +5913,7 @@ local function draw_file()
         -- Text
         set_color({0.5, 0.5, 0.5, 0.6})
         gfx.setfont(F.std)
-        local str = "Перетягніть .SRT, .ASS або .VTT файл сюди для імпорту"
+        local str = "Перетягніть .SRT, .ASS, .VTT або .CSV (правки) файл сюди для імпорту"
         local sw, sh = gfx.measurestr(str)
         gfx.x, gfx.y = dx + (dw - sw) / 2, drop_y + (dh - sh) / 2
         gfx.drawstr(str)
