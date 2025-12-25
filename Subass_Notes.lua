@@ -47,6 +47,8 @@ local cfg = {
     auto_srt_split = get_set("auto_srt_split", "():"),
     prmt_theme = get_set("prmt_theme", "Бетон"),
     gemini_api_key = get_set("gemini_api_key", ""),
+    p_drawer = (get_set("p_drawer", "1") == "1" or get_set("p_drawer", 1) == 1),
+    p_drawer_left = (get_set("p_drawer_left", "1") == "1" or get_set("p_drawer_left", 1) == 1),
     auto_startup = (get_set("auto_startup", "0") == "1" or get_set("auto_startup", 0) == 1)
 }
 
@@ -199,6 +201,20 @@ local word_trigger = {
     triggered = false
 }
 
+-- Prompter Drawer State
+local prompter_drawer = {
+    open = false,
+    width = get_set("prompter_drawer_width", 300),
+    dragging = false,
+    filter = {text = "", cursor = 0, anchor = 0, focus = false},
+    scroll_y = 0,
+    last_click_time = 0,
+    last_click_idx = -1,
+    has_markers_cache = { count = -1, result = false },
+    marker_cache = { count = -1, markers = {} },
+    filtered_cache = { state_count = -1, query = "", width = -1, list = {}, total_h = 0 }
+}
+
 math.random(); math.random(); math.random() -- Warm up
 
 -- Find and Replace State
@@ -253,7 +269,9 @@ local function save_session_state(id)
         find_replace_state = deep_copy(find_replace_state),
         table_selection = deep_copy(table_selection),
         table_sort = deep_copy(table_sort),
-        last_selected_row = last_selected_row
+        last_selected_row = last_selected_row,
+        -- Prompter Drawer state
+        prompter_drawer = deep_copy(prompter_drawer)
     }
 end
 
@@ -291,6 +309,14 @@ local function load_session_state(id)
         if state.table_selection then table_selection = deep_copy(state.table_selection) end
         if state.table_sort then table_sort = deep_copy(state.table_sort) end
         last_selected_row = state.last_selected_row
+        if state.prompter_drawer then 
+            prompter_drawer.open = state.prompter_drawer.open or false
+            prompter_drawer.width = state.prompter_drawer.width or prompter_drawer.width
+            if state.prompter_drawer.filter then
+                prompter_drawer.filter = deep_copy(state.prompter_drawer.filter)
+            end
+            prompter_drawer.scroll_y = state.prompter_drawer.scroll_y or 0
+        end
     else
         -- Defaults for new project session
         text_editor_active = false
@@ -298,6 +324,11 @@ local function load_session_state(id)
         if dict_modal then dict_modal.show = false end
         table_selection = {}
         last_selected_row = nil
+        -- Reset drawer for new project
+        prompter_drawer.open = false
+        prompter_drawer.filter.text = ""
+        prompter_drawer.filter.cursor = 0
+        prompter_drawer.scroll_y = 0
     end
 end
 
@@ -394,6 +425,9 @@ local function save_settings()
     reaper.SetExtState(section_name, "count_timer", cfg.count_timer and "1" or "0", true)
     reaper.SetExtState(section_name, "cps_warning", cfg.cps_warning and "1" or "0", true)
     reaper.SetExtState(section_name, "gemini_api_key", cfg.gemini_api_key, true)
+    reaper.SetExtState(section_name, "p_drawer", cfg.p_drawer and "1" or "0", true)
+    reaper.SetExtState(section_name, "p_drawer_left", cfg.p_drawer_left and "1" or "0", true)
+    reaper.SetExtState(section_name, "prompter_drawer_width", tostring(prompter_drawer.width), true)
 end
 
 -- =============================================================================
@@ -6226,10 +6260,427 @@ local function draw_waveform_bg(map, x, y, w, h, progress)
 end
 
 --- Draw prompter display with current and next subtitles
-local function draw_prompter()
+local function draw_prompter_drawer(input_queue)
+    local drawer_top_y = 25
+    local drawer_x = cfg.p_drawer_left and 0 or (gfx.w - prompter_drawer.width)
+    local max_w = math.floor(gfx.w * 0.8)
+
+    if not prompter_drawer.open then
+        -- Performance-optimized marker check
+        local state_count = reaper.GetProjectStateChangeCount(0)
+        if state_count ~= prompter_drawer.has_markers_cache.count then
+            prompter_drawer.has_markers_cache.count = state_count
+            prompter_drawer.has_markers_cache.result = false
+            local i = 0
+            while true do
+                local retval, isrgn = reaper.EnumProjectMarkers(i)
+                if retval == 0 then break end
+                if not isrgn then
+                    prompter_drawer.has_markers_cache.result = true
+                    break
+                end
+                i = i + 1
+            end
+        end
+
+        if not prompter_drawer.has_markers_cache.result then return end
+
+        -- Draw vertical "ПРАВКИ" button
+        local btn_w = 15
+        local btn_h = 105
+        local btn_x = cfg.p_drawer_left and 0 or (gfx.w - btn_w)
+        local btn_y = drawer_top_y + (gfx.h - drawer_top_y - btn_h) / 2
+        
+        local hover = (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and
+                       gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h)
+        
+        set_color(hover and UI.C_BTN_H or UI.C_BTN)
+        gfx.rect(btn_x, btn_y, btn_w, btn_h, 1)
+        
+        -- Draw vertical text "ПРАВКИ"
+        set_color(UI.C_TXT)
+        gfx.setfont(F.tip)
+        local text = "ПРАВКИ"
+        
+        -- Rotate text 90 degrees (draw character by character vertically)
+        local char_y = btn_y + 8
+        for _, code in utf8.codes(text) do
+            local char = utf8.char(code)
+            local cw, ch = gfx.measurestr(char)
+            gfx.x = btn_x + (btn_w - cw) / 2
+            gfx.y = char_y
+            gfx.drawstr(char)
+            char_y = char_y + ch - 1
+        end
+        
+        -- Use robust click detection
+        if hover and gfx.mouse_cap == 1 and last_mouse_cap == 0 and not mouse_handled then
+            prompter_drawer.open = true
+            mouse_handled = true
+            -- Ensure width is sane when opening
+            if not prompter_drawer.width or prompter_drawer.width < 80 then
+                prompter_drawer.width = 300
+            end
+        end
+    else
+        -- Drawer is open
+        -- Clamp width
+        if prompter_drawer.width > max_w then
+            prompter_drawer.width = max_w
+        end
+        
+        -- Auto-close if too narrow
+        if prompter_drawer.width < 80 and not prompter_drawer.dragging then
+            prompter_drawer.open = false
+            prompter_drawer.width = 300
+            save_settings()
+        else
+            -- Draw drawer panel
+            set_color(UI.C_TAB_INA)
+            gfx.rect(drawer_x, drawer_top_y, prompter_drawer.width, gfx.h - drawer_top_y, 1)
+            
+            -- --- HEADER ROW (Filter + Close) ---
+            local header_h = 34
+            local padding = 5
+            local close_sz = 24
+            local filter_w = prompter_drawer.width - close_sz - (padding * 3)
+            
+            -- Filter Input
+            ui_text_input(drawer_x + padding, drawer_top_y + padding, filter_w, close_sz, prompter_drawer.filter, "Пошук...", input_queue)
+            
+            -- Close Button next to filter
+            local close_x = drawer_x + padding + filter_w + padding
+            local close_y = drawer_top_y + padding
+            local close_hover = (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
+                                 gfx.mouse_y >= close_y and gfx.mouse_y <= close_y + close_sz)
+            
+            if close_hover then
+                set_color({1, 0.3, 0.3, 0.2})
+                gfx.rect(close_x, close_y, close_sz, close_sz, 1)
+            end
+            set_color(close_hover and {1, 0.5, 0.5} or UI.C_TXT)
+            gfx.setfont(F.std)
+            gfx.x = close_x + (close_sz - gfx.measurestr("✕")) / 2
+            gfx.y = close_y + (close_sz - gfx.texth) / 2
+            gfx.drawstr("✕")
+            
+            if close_hover and gfx.mouse_cap == 1 and last_mouse_cap == 0 and not mouse_handled then
+                prompter_drawer.open = false
+                save_settings()
+                mouse_handled = true
+            end
+            
+            -- --- MARKER TABLE ---
+            local table_y = drawer_top_y + header_h
+            local base_row_h = 22
+            local col_id_w = 40
+            local col_text_x = drawer_x + col_id_w
+            local col_text_w = prompter_drawer.width - col_id_w - 5
+            
+            local state_count = reaper.GetProjectStateChangeCount(0)
+            local query = utf8_lower(prompter_drawer.filter.text)
+            
+            -- 1. Update RAW Marker Cache if project changed
+            if state_count ~= prompter_drawer.marker_cache.count then
+                prompter_drawer.marker_cache.count = state_count
+                prompter_drawer.marker_cache.markers = {}
+                local i = 0
+                while true do
+                    local retval, isrgn, pos, rgnend, name, markindex, color = reaper.EnumProjectMarkers3(0, i)
+                    if retval == 0 then break end
+                    if not isrgn then
+                        table.insert(prompter_drawer.marker_cache.markers, {
+                            markindex = markindex,
+                            name = (name == "" and "<пусто>" or name),
+                            pos = pos,
+                            color = (color ~= 0 and color or nil)
+                        })
+                    end
+                    i = i + 1
+                end
+            end
+            
+            -- 2. Update FILTERED and LAYOUT Cache if needed
+            if state_count ~= prompter_drawer.filtered_cache.state_count or 
+               query ~= prompter_drawer.filtered_cache.query or
+               prompter_drawer.width ~= prompter_drawer.filtered_cache.width then
+                
+                prompter_drawer.filtered_cache.state_count = state_count
+                prompter_drawer.filtered_cache.query = query
+                prompter_drawer.filtered_cache.width = prompter_drawer.width
+                prompter_drawer.filtered_cache.list = {}
+                prompter_drawer.filtered_cache.total_h = 0
+                
+                gfx.setfont(F.std)
+                for _, m in ipairs(prompter_drawer.marker_cache.markers) do
+                    local full_id = "M" .. tostring(m.markindex)
+                    local low_name = utf8_lower(m.name)
+                    local low_id = utf8_lower(full_id)
+                    
+                    if query == "" or low_id:find(query, 1, true) or low_name:find(query, 1, true) then
+                        -- Calculate lines
+                        local lines = {}
+                        local current_text = m.name
+                        if col_text_w > 20 then
+                            while #current_text > 0 do
+                                local best_fit = ""
+                                for p, code in utf8.codes(current_text) do
+                                    local char = utf8.char(code)
+                                    local test_sub = current_text:sub(1, p + #char - 1)
+                                    if gfx.measurestr(test_sub) > col_text_w - 10 then break end
+                                    best_fit = test_sub
+                                end
+                                if best_fit == "" then
+                                    for p, code in utf8.codes(current_text) do
+                                        best_fit = utf8.char(code)
+                                        break
+                                    end
+                                    if best_fit == "" then best_fit = current_text:sub(1,1) end
+                                end
+                                table.insert(lines, best_fit)
+                                current_text = current_text:sub(#best_fit + 1)
+                            end
+                        else table.insert(lines, m.name) end
+                        
+                        local m_h = math.max(1, #lines) * base_row_h
+                        table.insert(prompter_drawer.filtered_cache.list, {
+                            id = full_id,
+                            markindex = m.markindex,
+                            name = m.name,
+                            pos = m.pos,
+                            color = m.color,
+                            lines = lines,
+                            h = m_h,
+                            y_start = prompter_drawer.filtered_cache.total_h
+                        })
+                        prompter_drawer.filtered_cache.total_h = prompter_drawer.filtered_cache.total_h + m_h
+                    end
+                end
+            end
+            
+            local filtered_markers = prompter_drawer.filtered_cache.list
+            local total_list_h = prompter_drawer.filtered_cache.total_h
+            
+            -- Draw List with Scroll
+            local view_h = gfx.h - table_y - 10
+            
+            -- Simple Mousewheel (already using gfx.mouse_wheel fixed)
+            if prompter_drawer.width > 50 then
+                if gfx.mouse_x >= drawer_x and gfx.mouse_x <= drawer_x + prompter_drawer.width and
+                   gfx.mouse_y >= table_y and gfx.mouse_y <= gfx.h then
+                    if gfx.mouse_wheel ~= 0 then
+                        prompter_drawer.scroll_y = prompter_drawer.scroll_y - (gfx.mouse_wheel / 120 * base_row_h * 3)
+                        gfx.mouse_wheel = 0
+                    end
+                end
+            end
+            
+            -- Clamp Scroll
+            local max_scroll = math.max(0, total_list_h - view_h)
+            prompter_drawer.scroll_y = math.max(0, math.min(prompter_drawer.scroll_y, max_scroll))
+            
+            -- Draw Rows
+            for idx, m in ipairs(filtered_markers) do
+                local row_y = table_y + m.y_start - prompter_drawer.scroll_y
+                
+                -- Check visibility
+                if row_y + m.h > table_y and row_y < gfx.h then
+                    local row_hover = (gfx.mouse_x >= drawer_x and gfx.mouse_x <= drawer_x + prompter_drawer.width and
+                                       gfx.mouse_y >= row_y and gfx.mouse_y <= row_y + m.h)
+                    
+                    -- Strictly clip backgrounds to table_y
+                    local bg_draw_y = math.max(row_y, table_y)
+                    local bg_draw_h = math.min(row_y + m.h, gfx.h) - bg_draw_y
+                    
+                    if bg_draw_h > 0 then
+                        -- Zebra Stripe
+                        if idx % 2 == 0 then
+                            set_color({1, 1, 1, 0.03})
+                            gfx.rect(drawer_x, bg_draw_y, prompter_drawer.width, bg_draw_h, 1)
+                        end
+                        
+                        if row_hover then
+                            set_color({1, 1, 1, 0.07})
+                            gfx.rect(drawer_x, bg_draw_y, prompter_drawer.width, bg_draw_h, 1)
+                            if gfx.mouse_cap == 1 and last_mouse_cap == 0 and not mouse_handled then
+                                local now = reaper.time_precise()
+                                if prompter_drawer.last_click_idx == m.markindex and (now - prompter_drawer.last_click_time < 0.35) then
+                                    -- Double Click: Cycle Color
+                                    local green = reaper.ColorToNative(0, 255, 0) | 0x1010101 -- Some bits for visibility
+                                    -- Simple Green
+                                    local g_r, g_g, g_b = 0, 255, 0
+                                    local orange_r, orange_g, orange_b = 255, 200, 100
+                                    
+                                    local target_color
+                                    local cur_r, cur_g, cur_b = reaper.ColorFromNative((m.color or 0) & 0xFFFFFF)
+                                    
+                                    -- Check if already green
+                                    if cur_r == 0 and cur_g == 255 and cur_b == 0 then
+                                        target_color = reaper.ColorToNative(orange_r, orange_g, orange_b) | 0x1000000
+                                    else
+                                        target_color = reaper.ColorToNative(g_r, g_g, g_b) | 0x1000000
+                                    end
+                                    
+                                    reaper.SetProjectMarker4(0, m.markindex, false, m.pos, 0, m.name == "<пусто>" and "" or m.name, target_color, 0)
+                                    reaper.UpdateTimeline()
+                                    -- Force BOTH caches to refresh for next frame
+                                    prompter_drawer.marker_cache.count = -1
+                                    prompter_drawer.filtered_cache.state_count = -1
+                                    prompter_drawer.has_markers_cache.count = -1
+                                    prompter_drawer.last_click_idx = -1 -- Reset
+                                else
+                                    -- Single Click: Navigation
+                                    reaper.SetEditCurPos(m.pos, true, false)
+                                    prompter_drawer.last_click_idx = m.markindex
+                                    prompter_drawer.last_click_time = now
+                                end
+                                mouse_handled = true
+                            end
+                        end
+                    end
+                    
+                    -- ID ("M" + ID, respect boundary)
+                    if row_y >= table_y and row_y + base_row_h <= gfx.h then
+                        local draw_x = drawer_x + 5
+                        local draw_y = row_y + (base_row_h - gfx.texth) / 2
+                        
+                        -- Entire ID string with marker color
+                        if m.color and m.color ~= 0 then
+                            local r, g, b = reaper.ColorFromNative(m.color & 0xFFFFFF)
+                            set_color({r/255, g/255, b/255, 1})
+                        else
+                            -- Default marker color (Red in REAPER by default)
+                            set_color({1.0, 0.3, 0.3, 1})
+                        end
+                        gfx.setfont(F.tip)
+                        gfx.x, gfx.y = draw_x, draw_y
+                        gfx.drawstr(m.id)
+                    end
+                    
+                    -- Name (Multiline + Highlighting)
+                    gfx.setfont(F.std)
+                    for l_idx, line_text in ipairs(m.lines) do
+                        local line_y = row_y + (l_idx - 1) * base_row_h
+                        -- Strictly clip each line to table_y
+                        if line_y >= table_y and line_y + base_row_h <= gfx.h then
+                            local lx = col_text_x + 5
+                            local ly = line_y + (base_row_h - gfx.texth) / 2
+                            
+                            -- Search Highlighting
+                            if #query > 0 then
+                                local low_line = utf8_lower(line_text)
+                                local start_pos = 1
+                                while true do
+                                    local s, e = low_line:find(query, start_pos, true)
+                                    if not s then break end
+                                    
+                                    -- Calculate pixel position of the match
+                                    local prefix = line_text:sub(1, s - 1)
+                                    local match_str = line_text:sub(s, e)
+                                    local px = lx + gfx.measurestr(prefix)
+                                    local pw = gfx.measurestr(match_str)
+                                    
+                                    set_color({1, 1, 0, 0.3}) -- Yellow highlight
+                                    gfx.rect(px, line_y + 2, pw, base_row_h - 4, 1)
+                                    
+                                    start_pos = e + 1
+                                end
+                            end
+                            
+                            set_color(UI.C_TXT)
+                            gfx.x, gfx.y = lx, ly
+                            gfx.drawstr(line_text)
+                        end
+                    end
+                end
+            end
+            
+            -- Draw Scrollbar if needed
+            if max_scroll > 0 then
+                local sb_w = 4
+                local sb_h = (view_h / total_list_h) * view_h
+                local sb_y = table_y + (prompter_drawer.scroll_y / total_list_h) * view_h
+                set_color({1, 1, 1, 0.3})
+                gfx.rect(drawer_x + prompter_drawer.width - sb_w - 1, sb_y, sb_w, sb_h, 1)
+            end
+            
+            -- Draw resize handle
+            local strip_w = 2
+            local grab_w = 12
+            local grab_h = 40
+            
+            local grab_x = cfg.p_drawer_left and (drawer_x + prompter_drawer.width) or (drawer_x - grab_w)
+            local grab_y = drawer_top_y + (gfx.h - drawer_top_y - grab_h) / 2
+            
+            -- Hover detection
+            local handle_hover = (gfx.mouse_x >= grab_x - 4 and gfx.mouse_x <= grab_x + grab_w + 4)
+            
+            -- Draw 2px vertical line
+            set_color(handle_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
+            gfx.rect(cfg.p_drawer_left and (drawer_x + prompter_drawer.width - 1) or drawer_x, drawer_top_y, strip_w, gfx.h - drawer_top_y, 1)
+            
+            -- Draw the central grab handle square only on hover
+            if handle_hover or prompter_drawer.dragging then
+                set_color({1, 1, 1, 0.8})
+                gfx.rect(grab_x, grab_y, grab_w, grab_h, 1)
+                
+                -- Subtle border for the grab handle
+                set_color({0, 0, 0, 0.5})
+                gfx.rect(grab_x, grab_y, grab_w, grab_h, 0)
+            end
+            
+            -- Handle dragging
+            if handle_hover and (gfx.mouse_cap & 1 == 1) and last_mouse_cap == 0 and not mouse_handled then
+                prompter_drawer.dragging = true
+                mouse_handled = true
+            end
+            
+            if prompter_drawer.dragging then
+                if (gfx.mouse_cap & 1 == 1) then
+                    local new_width
+                    if cfg.p_drawer_left then
+                        new_width = gfx.mouse_x - drawer_x
+                    else
+                        new_width = (drawer_x + prompter_drawer.width) - gfx.mouse_x
+                    end
+                    new_width = math.max(0, math.min(new_width, max_w))
+                    
+                    if new_width < 80 then
+                        prompter_drawer.open = false
+                        prompter_drawer.dragging = false
+                        prompter_drawer.width = 300
+                        save_settings()
+                    else
+                        prompter_drawer.width = new_width
+                    end
+                else
+                    -- Mouse released
+                    prompter_drawer.dragging = false
+                    save_settings()
+                end
+            end
+        end
+    end
+end
+
+local function draw_prompter(input_queue)
     -- Draw Custom Background
     set_color({cfg.bg_cr, cfg.bg_cg, cfg.bg_cb})
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+    -- === DRAWER CONTENT OFFSET CALCULATION ===
+    local content_offset_left = 0
+    local content_offset_right = 0
+    if prompter_drawer.open and prompter_drawer.width >= 80 then
+        if cfg.p_drawer_left then
+            content_offset_left = prompter_drawer.width
+        else
+            content_offset_right = prompter_drawer.width
+        end
+    end
+    local available_w = gfx.w - content_offset_left - content_offset_right
+    local center_x = content_offset_left + (available_w / 2)
+    -- === END DRAWER OFFSET ===
 
     -- Logic: Use Play Position if playing, otherwise Edit Cursor
     local play_state = reaper.GetPlayState()
@@ -6286,7 +6737,7 @@ local function draw_prompter()
             if max_cps >= 15 then
                 local col = get_cps_color(max_cps)
                 set_color({col[1], col[2], col[3], 0.8})
-                gfx.rect(0, 25, gfx.w, 2, 1) -- Top warning strip
+                gfx.rect(content_offset_left, 25, available_w, 2, 1) -- Top warning strip
             end
         end
     end
@@ -6464,12 +6915,11 @@ local function draw_prompter()
         
         -- 2. Draw
         local start_x 
-        if cfg.p_align == "left" then start_x = 20
-        elseif cfg.p_align == "right" then start_x = gfx.w - total_w - 20
-        else start_x = (gfx.w - total_w) / 2 end
+        if cfg.p_align == "left" then start_x = content_offset_left + 20
+        elseif cfg.p_align == "right" then start_x = gfx.w - content_offset_right - total_w - 20
+        else start_x = center_x - (total_w / 2) end
         
         local cursor_x = start_x
-        
         -- Helper for corrected drawing
         local function draw_string_corrected(text)
              draw_text_with_stress_marks(text, cfg.all_caps)
@@ -6618,7 +7068,7 @@ local function draw_prompter()
         local n_lines = draw_prompter_cache.next_lines
         
         -- Scale Next
-        local max_w = gfx.w - 40
+        local max_w = available_w - 40
         local n_max_raw_w = 0
         local n_flags = 0
         if cfg.karaoke_mode then n_flags = string.byte('b') end
@@ -6658,7 +7108,7 @@ local function draw_prompter()
         
         for i, line in ipairs(n_lines) do
             local y = n_start_y + (i-1) * n_lh
-            local lx, ly, lw, l_h = draw_rich_line(line, gfx.w/2, y, F.nxt, cfg.p_font, n_draw_size)
+            local lx, ly, lw, l_h = draw_rich_line(line, center_x, y, F.nxt, cfg.p_font, n_draw_size)
             
             if lx < n_x1 then n_x1 = lx end
             if ly < n_y1 then n_y1 = ly end
@@ -6700,7 +7150,7 @@ local function draw_prompter()
             -- Collect ALL text blocks to display
             local all_text_blocks = {}
             local total_combined_height = 0
-            local max_w = gfx.w - 40
+            local max_w = available_w - 40
             
             -- Helper: Count words in lines
             local function count_words_in_lines(lines_structure)
@@ -6880,11 +7330,10 @@ local function draw_prompter()
                        karaoke_cache[cache_key] = { empty = true }
                     end
                 elseif not map.empty then
-                    -- Draw centered on screen
-                    -- Height: use a significant portion of the screen
+                    -- Draw centered on screen (accounting for drawer offset)
                     local wave_h = gfx.h * 0.5 
                     local progress = (cur_pos - rgn.pos) / (rgn.rgnend - rgn.pos)
-                    draw_waveform_bg(map, 20, (gfx.h - wave_h) / 2, gfx.w - 40, wave_h, progress)
+                    draw_waveform_bg(map, content_offset_left + 20, (gfx.h - wave_h) / 2, available_w - 40, wave_h, progress)
                 end
             end
 
@@ -6895,7 +7344,7 @@ local function draw_prompter()
                 
                 for i, line in ipairs(block.lines) do
                     local y = current_y + (i-1) * block.lh
-                    local lx, ly, lw, l_h = draw_rich_line(line, gfx.w/2, y, F.lrg, cfg.p_font, block.draw_size)
+                    local lx, ly, lw, l_h = draw_rich_line(line, center_x, y, F.lrg, cfg.p_font, block.draw_size)
                     
                     -- Update bounds for this block
                     if lx < block_x1 then block_x1 = lx end
@@ -6923,14 +7372,14 @@ local function draw_prompter()
                 
                 -- Top Left: Time Range
                 local time_str = format_timestamp(pos + 0.001) .. " - " .. format_timestamp(rgnend + 0.001)
-                gfx.x = 10
+                gfx.x = content_offset_left + 10
                 gfx.y = 30
                 gfx.drawstr(time_str)
                 
                 -- Interaction: Copy Time on Double Click
                 if is_mouse_clicked() then
                     local tw, th = gfx.measurestr(time_str)
-                    if gfx.mouse_x >= 10 and gfx.mouse_x <= 10 + tw and
+                    if gfx.mouse_x >= (content_offset_left + 10) and gfx.mouse_x <= (content_offset_left + 10) + tw and
                        gfx.mouse_y >= 30 and gfx.mouse_y <= 30 + th then
                         
                         local now = reaper.time_precise()
@@ -7018,8 +7467,11 @@ local function draw_prompter()
         else
             set_color(UI.C_TXT)
             gfx.setfont(F.std)
-            gfx.x, gfx.y = 50, 50
-            gfx.drawstr("Нічого немає (Суфлер не активний)")
+            local txt = "Нічого немає (Суфлер не активний)"
+            local tw, th = gfx.measurestr(txt)
+            gfx.x = content_offset_left + (available_w - tw) / 2
+            gfx.y = (gfx.h - th) / 2
+            gfx.drawstr(txt)
         end
     else
         -- Not in any region, but show next upcoming region if enabled
@@ -7038,16 +7490,14 @@ local function draw_prompter()
             else
                 set_color(UI.C_TXT)
                 gfx.setfont(F.std)
-                gfx.x, gfx.y = 50, 50
-                gfx.drawstr("Нічого немає")
+                local txt = "Нічого немає"
+                local tw, th = gfx.measurestr(txt)
+                gfx.x = content_offset_left + (available_w - tw) / 2
+                gfx.y = (gfx.h - th) / 2
+                gfx.drawstr(txt)
             end
-        else
-            set_color(UI.C_TXT)
-            gfx.setfont(F.std)
-            gfx.x, gfx.y = 50, 50
-            gfx.drawstr("Нічого немає")
-        end
     end
+end
     
     -- Draw Countdown Timer (Only in gaps when no active replica is present)
     if cfg.count_timer and next_rgn and #active_regions == 0 then
@@ -7074,9 +7524,9 @@ local function draw_prompter()
             local count_font_size = math.min(gfx.h, gfx.w) * 0.4
             gfx.setfont(10, cfg.p_font or "Arial", count_font_size, string.byte('b'))
             
-            -- Center of screen
+            -- Center of available space
             local tw, th = gfx.measurestr(countdown_str)
-            gfx.x = (gfx.w - tw) / 2
+            gfx.x = content_offset_left + (available_w - tw) / 2
             gfx.y = (gfx.h - th) / 2
             gfx.drawstr(countdown_str)
         end
@@ -7095,13 +7545,19 @@ local function draw_prompter()
             local bar_h = gfx.h * progress
             
             -- Left Bar
-            gfx.rect(0, gfx.h - bar_h + 25, bar_w, bar_h, 1)
+            gfx.rect(content_offset_left, gfx.h - bar_h + 25, bar_w, bar_h, 1)
             -- Right Bar
-            gfx.rect(gfx.w - bar_w, gfx.h - bar_h + 25, bar_w, bar_h, 1)
+            gfx.rect(gfx.w - content_offset_right - bar_w, gfx.h - bar_h + 25, bar_w, bar_h, 1)
         end
 
         gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb)
     end
+
+    -- === DRAWER UI DRAWING (OVER EVERYTHING) ===
+    if cfg.p_drawer then
+        draw_prompter_drawer(input_queue)
+    end
+    -- === END DRAWER UI ===
 end
 
 local last_settings_h = 0 -- Persistent storage for Settings height
@@ -7457,6 +7913,18 @@ local function draw_settings()
     s_section(y_cursor, "ЕКРАН СУФЛЕРА")
     y_cursor = y_cursor + 35
     
+    if checkbox(x_start, y_cursor, "Відображати менеджер правок", cfg.p_drawer, "Додати бічну панель для керування маркерами проекту.\n(Відображається лише при наявності маркерів)") then
+        cfg.p_drawer = not cfg.p_drawer
+        save_settings()
+    end
+    y_cursor = y_cursor + 35
+    if cfg.p_drawer then
+        if checkbox(x_start + 20, y_cursor, "Показувати ліворуч", cfg.p_drawer_left, "Якщо вимкнено — панель буде малюватися праворуч.") then
+            cfg.p_drawer_left = not cfg.p_drawer_left
+            save_settings()
+        end
+        y_cursor = y_cursor + 35
+    end
     if checkbox(x_start, y_cursor, "Відображати метадані (ID, час)", cfg.p_info, "Показувати індекс репліки та час початку зверху.") then
         cfg.p_info = not cfg.p_info
         save_settings()
@@ -7472,16 +7940,6 @@ local function draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + 35
-    if checkbox(x_start, y_cursor, "Режим Караоке", cfg.karaoke_mode, "Підсвічувати активне слово під час відтворення.") then
-        cfg.karaoke_mode = not cfg.karaoke_mode
-        save_settings()
-    end
-    y_cursor = y_cursor + 35
-    if checkbox(x_start, y_cursor, "Режим ВЕЛИКИМИ ЛІТЕРАМИ", cfg.all_caps, "Весь текст відображатиметься ВЕЛИКИМИ ЛІТЕРАМИ.") then
-        cfg.all_caps = not cfg.all_caps
-        save_settings()
-    end
-    y_cursor = y_cursor + 35
     if checkbox(x_start, y_cursor, "Відображати осцилограму (Waveform)", cfg.wave_bg, "Малювати форму хвилі активного треку на фоні.") then
         cfg.wave_bg = not cfg.wave_bg
         save_settings()
@@ -7492,6 +7950,16 @@ local function draw_settings()
             cfg.wave_bg_progress = not cfg.wave_bg_progress
             save_settings()
         end
+        y_cursor = y_cursor + 35
+    end
+    if checkbox(x_start, y_cursor, "Режим Караоке", cfg.karaoke_mode, "Підсвічувати активне слово під час відтворення.") then
+        cfg.karaoke_mode = not cfg.karaoke_mode
+        save_settings()
+    end
+    y_cursor = y_cursor + 35
+    if checkbox(x_start, y_cursor, "Режим ВЕЛИКИМИ ЛІТЕРАМИ", cfg.all_caps, "Весь текст відображатиметься ВЕЛИКИМИ ЛІТЕРАМИ.") then
+        cfg.all_caps = not cfg.all_caps
+        save_settings()
     end
     y_cursor = y_cursor + 60
 
@@ -8508,7 +8976,7 @@ local function main()
             handle_drag_drop()
             draw_file()
         elseif current_tab == 2 then draw_table(input_queue)
-        elseif current_tab == 3 then draw_prompter() 
+        elseif current_tab == 3 then draw_prompter(input_queue) 
         elseif current_tab == 4 then draw_settings() end
         
         -- Draw Tabs LAST (Z-Index top)
