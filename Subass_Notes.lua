@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 2.1
+-- @version 2.2
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v2.1"
+local script_title = "Subass Notes v2.2"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -73,9 +73,28 @@ local F = {
     tip = 9 -- 12px
 }
 
+-- Prompter Rendering Cache (moved to global for invalidation on font change)
+local draw_prompter_cache = {
+    last_text = nil,
+    lines = {},
+    last_next_text = nil,
+    next_lines = {}
+}
+
+--- Re-initialize prompter font slots and invalidate measurements
+local function update_prompter_fonts()
+    gfx.setfont(F.lrg, cfg.p_font, cfg.p_fsize)
+    gfx.setfont(F.nxt, cfg.p_font, cfg.n_fsize)
+    
+    -- Force re-measuring of text layout by clearing cache
+    if draw_prompter_cache then
+        draw_prompter_cache.last_text = nil
+        draw_prompter_cache.last_next_text = nil
+    end
+end
+
 gfx.setfont(F.std, "Arial", 14)
-gfx.setfont(F.lrg, cfg.p_font, cfg.p_fsize)
-gfx.setfont(F.nxt, cfg.p_font, cfg.n_fsize)
+update_prompter_fonts()
 gfx.setfont(F.bld, "Arial", 18, string.byte('b'))
 
 -- Initialize dictionary slots
@@ -103,6 +122,7 @@ local tooltip_state = {
     x = 0,
     y = 0
 }
+
 -- Per-tab scroll positions
 local tab_scroll_y = {0, 0, 0, 0}
 local tab_target_scroll_y = {0, 0, 0, 0}
@@ -339,6 +359,7 @@ end
 -- ASS/Subtitle Data
 local ass_lines = {}
 local ass_actors = {}
+local ass_markers = {} -- { {pos, name, markindex, color}, ... }
 local actor_colors = {} -- {ActorName = integerColor}
 local ass_file_loaded = false
 local current_file_name = nil
@@ -427,7 +448,69 @@ local function save_settings()
     reaper.SetExtState(section_name, "gemini_api_key", cfg.gemini_api_key, true)
     reaper.SetExtState(section_name, "p_drawer", cfg.p_drawer and "1" or "0", true)
     reaper.SetExtState(section_name, "p_drawer_left", cfg.p_drawer_left and "1" or "0", true)
+    update_prompter_fonts()
     reaper.SetExtState(section_name, "prompter_drawer_width", tostring(prompter_drawer.width), true)
+    
+end
+
+-- =============================================================================
+-- SHARED OVERLAY SYNC
+-- =============================================================================
+
+--- Serialize and send Prompter data to ExtState for the satellite Overlay script
+
+function open_overlay_satellite()
+    local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
+    local satellite_path = script_path .. "Lionzz_SubOverlay.lua"
+    
+    -- Check if satellite exists
+    local f_check = io.open(satellite_path, "r")
+    if not f_check then
+        reaper.MB("Файл Lionzz_SubOverlay.lua не знайдено поруч із основним скриптом.", "Помилка", 0)
+        return
+    end
+    f_check:close()
+
+    -- Dependency Check: ReaImGui
+    local has_reapack = reaper.ReaPack_GetOwner ~= nil
+    local has_imgui = reaper.ImGui_CreateContext ~= nil
+
+    if not has_imgui then
+        local msg = "Для роботи нового Оверлея необхідне розширення ReaImGui.\n\n"
+        if not has_reapack then
+            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть ReaImGui через ReaPack"
+        else
+            msg = msg .. "Будь ласка, встановіть 'ReaImGui' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
+        end
+        reaper.MB(msg, "Відсутні компоненти", 0)
+        return -- STRICT STOP
+    end
+
+    -- 1. Try to find the Command ID in reaper-kb.ini
+    local kb_path = reaper.GetResourcePath() .. "/reaper-kb.ini"
+    local f = io.open(kb_path, "r")
+    local cmd_id = nil
+    if f then
+        for line in f:lines() do
+            -- Look for the script name in the action line
+            if line:find("Lionzz_SubOverlay.lua", 1, true) then
+                -- Extract the RS... part (e.g., SCR 4 0 RS7d3...)
+                local rs_part = line:match("RS([%a%d]+)")
+                if rs_part then
+                    cmd_id = "_RS" .. rs_part
+                    break
+                end
+            end
+        end
+        f:close()
+    end
+
+    -- 2. If found, run it. If not, ask the user to register it once.
+    if cmd_id and reaper.NamedCommandLookup(cmd_id) ~= 0 then
+        reaper.Main_OnCommand(reaper.NamedCommandLookup(cmd_id), 0)
+    else
+        reaper.MB("REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл Lionzz_SubOverlay.lua\n\nПісля цього Оверлей буде відкриватися миттєво з меню.", "Потрібна реєстрація", 0)
+    end
 end
 
 -- =============================================================================
@@ -622,10 +705,10 @@ local function run_async_command(shell_cmd, callback)
     if reaper.GetOS():match("Win") then
         out_file = out_file:gsub("/", "\\")
         done_file = done_file:gsub("/", "\\")
-        -- Windows background execution: start /B
-        -- We wrap in cmd /c to handle redirects
-        local full_cmd = 'start /B cmd /c "' .. shell_cmd .. ' > "' .. out_file .. '" && echo DONE > "' .. done_file .. '"'
-        os.execute(full_cmd)
+        -- Windows background execution: Use ExecProcess to avoid console window
+        -- start /B "" runs detached and hidden
+        local full_cmd = 'start /B "" cmd /c "' .. shell_cmd .. ' > "' .. out_file .. '" && echo DONE > "' .. done_file .. '"'
+        reaper.ExecProcess("cmd.exe /C " .. full_cmd, 0)
     else
         -- Unix/Mac background execution: &
         local full_cmd = shell_cmd .. ' > "' .. out_file .. '" && touch "' .. done_file .. '" &'
@@ -724,8 +807,13 @@ end
 
 --- Check if mouse was just clicked (left button down this frame)
 --- @return boolean True if clicked this frame
-local function is_mouse_clicked()
-    return gfx.mouse_cap == 1 and last_mouse_cap == 0
+local function is_mouse_clicked(btn)
+    local cap = btn or 1
+    -- Check specific bit for the requested button (1=L, 2=R)
+    -- Cap 1 is bit 0, Cap 2 is bit 1. 
+    -- But gfx.mouse_cap usually returns 1 for Left, 2 for Right.
+    -- Strict check: 
+    return (gfx.mouse_cap & cap == cap) and (last_mouse_cap & cap == 0)
 end
 
 --- Check if mouse right button was just clicked
@@ -746,6 +834,27 @@ end
 local function draw_selection_border(x, y, w, h)
     gfx.rect(x - 4, y - 4, w + 8, h + 8, 0)
     gfx.rect(x - 3, y - 3, w + 6, h + 6, 0)
+end
+
+--- Return focus to REAPER's Arrange View with internal safeguards and aggressive triggers
+local function return_focus_to_reaper()
+    -- Safeguards: don't steal focus if user is actively typing
+    if text_editor_active then return end
+    
+    local any_filter_focused = (table_filter_state and table_filter_state.focus) or 
+                               (prompter_drawer and prompter_drawer.filter and prompter_drawer.filter.focus) or
+                               (find_replace_state and find_replace_state.show and (find_replace_state.find.focus or find_replace_state.replace.focus))
+    
+    if any_filter_focused then return end
+
+    -- Aggressive focus payload
+    local function exec_focus()
+    reaper.SetCursorContext(1, 0) -- Focus Arrange context
+    reaper.UpdateArrange() -- Nudge UI
+    end
+    
+    exec_focus()
+    reaper.defer(exec_focus) -- Deferred pass to ensure it sticks on macOS
 end
 
 -- --- GUI Components ---
@@ -2139,6 +2248,12 @@ local function save_project_data()
     if current_file_name then
         reaper.SetProjExtState(0, section_name, "ass_fname", current_file_name)
     end
+
+    local mark_dump = ""
+    for _, m in ipairs(ass_markers) do
+        mark_dump = mark_dump .. string.format("%.3f|%s|%d|%d\n", m.pos, m.name:gsub("\n", "\\n"), m.markindex, m.color)
+    end
+    reaper.SetProjExtState(0, section_name, "ass_markers", mark_dump)
 end
 
 --- Load project data from ProjectExtState
@@ -2210,6 +2325,24 @@ local function load_project_data()
                                 end
                             end
                         end
+                    end
+                end
+            end
+        end
+        
+        local okM, m_dump = reaper.GetProjExtState(0, section_name, "ass_markers")
+        if okM then
+            ass_markers = {}
+            for line in m_dump:gmatch("([^\n]*)\n?") do
+                if line ~= "" then
+                    local pos, name, midx, col = line:match("^(.-)|(.-)|(.-)|(.*)$")
+                    if pos and name then
+                        table.insert(ass_markers, {
+                            pos = tonumber(pos),
+                            name = name:gsub("\\n", "\n"),
+                            markindex = tonumber(midx),
+                            color = tonumber(col)
+                        })
                     end
                 end
             end
@@ -2303,6 +2436,25 @@ local function get_next_line_index()
     return max_idx + 1
 end
 
+local function capture_project_markers()
+    local markers = {}
+    local i = 0
+    while true do
+        local retval, isrgn, pos, rgnend, name, markindex, color = reaper.EnumProjectMarkers3(0, i)
+        if retval == 0 then break end
+        if not isrgn then
+            table.insert(markers, {
+                pos = pos,
+                name = name,
+                markindex = markindex,
+                color = color
+            })
+        end
+        i = i + 1
+    end
+    return markers
+end
+
 local function update_regions_cache()
     regions = {}
     local retval, num_markers, num_regions = reaper.CountProjectMarkers(0)
@@ -2380,6 +2532,9 @@ local function update_regions_cache()
             cleanup_actors()
             save_project_data()
         end
+
+        -- Sync markers (non-regions)
+        ass_markers = capture_project_markers()
     end
 end
 
@@ -2432,6 +2587,11 @@ local function rebuild_regions()
             count = count + 1
         end
     end
+
+    -- Add back markers (non-regions) from ass_markers
+    for _, m in ipairs(ass_markers) do
+        reaper.AddProjectMarker2(0, false, m.pos, 0, m.name, m.markindex, m.color)
+    end
     
     reaper.Undo_EndBlock("Update Synced Regions", -1)
     reaper.PreventUIRefresh(-1)
@@ -2444,10 +2604,14 @@ end
 local function push_undo(label)
     if not ass_lines then return end
     
+    -- Capture markers from project
+    ass_markers = capture_project_markers()
+    
     -- Capture state
     local state = {
         lines = deep_copy_table(ass_lines),
         actors = deep_copy_table(ass_actors),
+        markers = deep_copy_table(ass_markers),
         label = label or "Action"
     }
     
@@ -2463,10 +2627,11 @@ end
 local function undo_action()
     if #undo_stack == 0 then return end
     
-    -- Save current state to redo stack before restoring
+    -- Capture current state to redo stack before restoring
     local current_state = {
         lines = deep_copy_table(ass_lines),
         actors = deep_copy_table(ass_actors),
+        markers = capture_project_markers(),
         label = undo_stack[#undo_stack].label
     }
     
@@ -2479,6 +2644,7 @@ local function undo_action()
 
     ass_lines = last_state.lines
     ass_actors = last_state.actors
+    ass_markers = last_state.markers
     
     cleanup_actors()
     rebuild_regions()
@@ -2494,6 +2660,7 @@ local function redo_action()
     local current_state = {
         lines = deep_copy_table(ass_lines),
         actors = deep_copy_table(ass_actors),
+        markers = capture_project_markers(),
         label = next_state.label
     }
     
@@ -2504,6 +2671,7 @@ local function redo_action()
 
     ass_lines = next_state.lines
     ass_actors = next_state.actors
+    ass_markers = next_state.markers
     
     cleanup_actors()
     rebuild_regions()
@@ -2897,13 +3065,20 @@ local function import_notes()
     push_undo("Імпорт правок")
     
     reaper.PreventUIRefresh(1)
+    reaper.Undo_BeginBlock()
     for _, note in ipairs(notes) do
         -- Always create marker (not region)
         reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, reaper.ColorToNative(255, 200, 100) | 0x1000000)
     end
+    reaper.Undo_EndBlock("Імпорт правок", -1)
     reaper.PreventUIRefresh(-1)
     reaper.UpdateArrange()
     
+    -- Force prompter drawer caches to refresh
+    prompter_drawer.marker_cache.count = -1
+    prompter_drawer.filtered_cache.state_count = -1
+    prompter_drawer.has_markers_cache.count = -1
+
     show_snackbar("Створено маркерів: " .. #notes)
 end
 
@@ -3006,12 +3181,19 @@ local function import_notes_from_csv(file_path)
     push_undo("Імпорт правок з CSV")
     
     reaper.PreventUIRefresh(1)
+    reaper.Undo_BeginBlock()
     for _, note in ipairs(notes) do
         reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, reaper.ColorToNative(255, 200, 100) | 0x1000000)
     end
+    reaper.Undo_EndBlock("Імпорт правок з CSV", -1)
     reaper.PreventUIRefresh(-1)
     reaper.UpdateArrange()
     
+    -- Force prompter drawer caches to refresh
+    prompter_drawer.marker_cache.count = -1
+    prompter_drawer.filtered_cache.state_count = -1
+    prompter_drawer.has_markers_cache.count = -1
+
     show_snackbar("Створено маркерів: " .. #notes)
 end
 
@@ -3183,8 +3365,10 @@ local function apply_stress_marks_coroutine()
                 local out_p = temp_out
                 
                 if is_windows then 
-                    -- Check if python command exists on Windows
-                    if not os.execute("where python >nul 2>nul") then 
+                    -- Check if python command exists on Windows (Hidden)
+                    -- ExecProcess returns output, check if valid path returned
+                    local py_check = reaper.ExecProcess("cmd.exe /C where python", 1000)
+                    if not py_check or py_check == "" or py_check:match("Could not find") then 
                         ai_error_type = "PYTHON_MISSING"
                     else
                         python_cmd = "python"
@@ -3194,7 +3378,8 @@ local function apply_stress_marks_coroutine()
                         log_file = log_file:gsub("/", "\\")
                         
                         local cmd = string.format('%s "%s" "%s" -o "%s" > "%s" 2>&1', python_cmd, tool_p, in_p, out_p, log_file)
-                        os.execute('start /B "" cmd /c ' .. cmd)
+                        -- Run tool hidden
+                        reaper.ExecProcess('cmd.exe /C start /B "" cmd /c ' .. cmd, 0)
                     end
                 else
                     -- On macOS/Linux, try to find the full path to python3
@@ -3608,7 +3793,10 @@ local function toggle_reaper_startup(enable)
         elseif line:find(tag_end, 1, true) then
             skip = false
         elseif not skip then
-            table.insert(new_lines, line)
+            -- Cleanup legacy entries (untagged) that might contain unescaped Windows paths
+            if not line:find("Subass_Notes.lua", 1, true) then
+                table.insert(new_lines, line)
+            end
         end
     end
     
@@ -4770,6 +4958,25 @@ end
 --- @param input_queue table List of key inputs
 local function draw_dictionary_modal(input_queue)
     if not dict_modal.show then return end
+
+    -- Keyboard shortcuts handling
+    if input_queue then
+        for i, key in ipairs(input_queue) do
+            if key == 27 then -- ESC
+                dict_modal.show = false
+                return
+            elseif key == 8 then -- BACKSPACE
+                if dict_modal.history and #dict_modal.history > 0 then
+                    local prev_state = table.remove(dict_modal.history)
+                    dict_modal.word = prev_state.word
+                    dict_modal.content = prev_state.content
+                    dict_modal.selected_tab = prev_state.selected_tab
+                    dict_modal.scroll_y = prev_state.scroll_y
+                    dict_modal.target_scroll_y = prev_state.target_scroll_y
+                end
+            end
+        end
+    end
     
     -- Darken background
     gfx.set(0, 0, 0, 0.85)
@@ -4791,6 +4998,28 @@ local function draw_dictionary_modal(input_queue)
     gfx.x = box_x + 15
     gfx.y = box_y
     gfx.drawstr(dict_modal.word)
+    
+    -- Close Button (Top Right)
+    local close_sz = 30
+    local close_x = box_x + box_w - close_sz - 10
+    local close_y = box_y + 10
+    local close_hover = (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
+                        gfx.mouse_y >= close_y and gfx.mouse_y <= close_y + close_sz)
+    
+    if close_hover then
+        set_color({1, 0.3, 0.3, 0.2})
+        gfx.rect(close_x, close_y, close_sz, close_sz, 1)
+    end
+    set_color(close_hover and {1, 0.5, 0.5} or UI.C_TXT)
+    gfx.setfont(F.std)
+    gfx.x = close_x + (close_sz - gfx.measurestr("✕")) / 2
+    gfx.y = close_y + (close_sz - gfx.texth) / 2
+    gfx.drawstr("✕")
+    
+    if close_hover and gfx.mouse_cap == 1 and last_mouse_cap == 0 then
+        dict_modal.show = false
+        return
+    end
     
     -- Tabs UI
     local categories = {"Тлумачення", "Словозміна", "Синоніми", "Фразеологія"}
@@ -7030,16 +7259,29 @@ local function draw_prompter(input_queue)
     end
 
     -- ------------------------------
-    -- Cache for Prompter Parsing (Optimization)    
-    if not draw_prompter_cache then
-        draw_prompter_cache = {
-            last_text = nil,
-            lines = {},
-            last_next_text = nil,
-            next_lines = {}
-        }
+    -- Handle Right-Click Context Menu for Overlay
+    if is_mouse_clicked(2) and not mouse_handled then
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local is_docked = gfx.dock(-1) > 0
+        local dock_check = is_docked and "!" or ""
+        local menu = "Відобразити SubOverlay від Lionzz||" .. dock_check .. "Закріпити вікно (Dock)"
+        
+        local ret = gfx.showmenu(menu)
+        mouse_handled = true -- Tell framework we handled this click
+        
+        if ret == 1 then
+            open_overlay_satellite()
+        elseif ret == 2 then
+            -- Toggle Docking
+            if is_docked then
+                gfx.dock(0)
+                reaper.SetExtState(section_name, "dock", "0", true)
+            else
+                gfx.dock(1) -- Dock to last valid docker
+                reaper.SetExtState(section_name, "dock", tostring(gfx.dock(-1)), true)
+            end
+        end
     end
-    -- ------------------------------
 
     -- Use first active region for interactions (backward compatibility)
     local region_idx = -1
@@ -7496,13 +7738,43 @@ local function draw_prompter(input_queue)
                 gfx.y = (gfx.h - th) / 2
                 gfx.drawstr(txt)
             end
+        end
     end
-end
     
     -- Draw Countdown Timer (Only in gaps when no active replica is present)
     if cfg.count_timer and next_rgn and #active_regions == 0 then
         local gap_to_next = next_rgn.pos - cur_pos
         local total_gap = next_rgn.pos - prev_rgn_end
+
+        -- --- JUMP TO NEXT BUTTON ---
+        if gap_to_next > 10 then
+            local btn_w, btn_h = 60, 100
+            local btn_x = gfx.w - content_offset_right - btn_w - 20
+            local btn_y = (gfx.h - btn_h) / 2
+            
+            local hover = (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and
+                           gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h)
+                   
+            -- Draw arrow (vector)
+            set_color(hover and {cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.8} or {cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.4})
+            local ax = btn_x + 25
+            local ay = btn_y + btn_h / 2
+            local sz = 25
+            gfx.line(ax, ay - sz, ax + sz, ay, 1)
+            gfx.line(ax + sz, ay, ax, ay + sz, 1)
+            -- Double arrow for "fast forward" feel
+            gfx.line(ax - 15, ay - sz, ax + sz - 15, ay, 1)
+            gfx.line(ax + sz - 15, ay, ax - 15, ay + sz, 1)
+
+            if hover and gfx.mouse_cap == 1 and last_mouse_cap == 0 and not mouse_handled then
+                reaper.SetEditCurPos(next_rgn.pos, true, false)
+                
+                -- Robust focus return for macOS
+                return_focus_to_reaper()
+                
+                mouse_handled = true
+            end
+        end
 
         local alpha = 0.04 -- Very faint for long wait
         if gap_to_next <= 3.0 then alpha = 0.25 end -- Prominent for entry
@@ -7930,7 +8202,7 @@ local function draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + 35
-    if checkbox(x_start, y_cursor, "Таймер зворотного відліку", cfg.count_timer, "Показувати час до початку наступної репліки.") then
+    if checkbox(x_start, y_cursor, "Таймер зворотного відліку", cfg.count_timer, "Показувати час до початку наступної репліки.\nТакож відображає стрілку для прокручення до наступної репліки (якщо час більше 10 секунд).") then
         cfg.count_timer = not cfg.count_timer
         save_settings()
     end
@@ -8320,17 +8592,87 @@ local function draw_table(input_queue)
         start_y = start_y + 35 -- Shift content down
     end
     
-    -- Handle Ctrl+A to select all (when no input is focused)
-    if not table_filter_state.focus and not find_replace_state.replace.focus then
-        for _, char in ipairs(input_queue) do
-            -- Check for Ctrl+A (char 1) or Cmd+A
-            if char == 1 then
-                -- Select all visible rows
-                table_selection = {}
-                for i, line in ipairs(ass_lines) do
-                    table_selection[line.index or i] = true
+    -- Helper: Delete Logic
+    local function delete_logic()
+        local selected_entries = {}
+        for p, l in ipairs(ass_lines) do
+            if table_selection[l.index or p] then
+                table.insert(selected_entries, {line = l, pos = p})
+            end
+        end
+        
+        if #selected_entries > 0 then
+            push_undo("Видалення реплік")
+            table.sort(selected_entries, function(a,b) return a.pos > b.pos end)
+            for _, ent in ipairs(selected_entries) do
+                 table.remove(ass_lines, ent.pos)
+            end
+            table_selection = {}
+            last_selected_row = nil
+            cleanup_actors()
+            rebuild_regions()
+            save_project_data(last_project_id)
+            show_snackbar("Видалено реплік: " .. #selected_entries)
+        end
+    end
+
+    -- Keyboard Shortcuts
+    if input_queue then
+        for _, key in ipairs(input_queue) do
+            -- Verify we are not typing in a text field
+            if not table_filter_state.focus and not find_replace_state.replace.focus then
+                -- Ctrl+A (Select All)
+                if key == 1 then
+                    table_selection = {}
+                    for i, l in ipairs(ass_lines) do
+                        table_selection[l.index or i] = true
+                    end
+                    last_selected_row = nil
                 end
-                break
+
+                -- Delete (6579564) or Backspace (8)
+                if key == 6579564 or key == 8 then
+                    delete_logic()
+                end
+
+                -- Navigation: Up (30064), Down (1685026670)
+                if key == 30064 or key == 1685026670 then
+                    local ds = ass_lines
+                    local curr_idx = 0
+                    
+                    -- Find last selected index
+                    for i, l in ipairs(ds) do
+                        if table_selection[l.index or i] then curr_idx = i end
+                    end
+                    
+                    if curr_idx == 0 and #ds > 0 then curr_idx = 1 end
+                    
+                    local new_idx = curr_idx
+                    if key == 30064 then new_idx = new_idx - 1 else new_idx = new_idx + 1 end
+                    
+                    -- Clamp
+                    if new_idx < 1 then new_idx = 1 end
+                    if new_idx > #ds then new_idx = #ds end
+                    
+                    -- Apply Selection
+                    local item = ds[new_idx]
+                    if item then
+                        table_selection = {}
+                        table_selection[item.index or new_idx] = true
+                        last_selected_row = new_idx
+                        
+                        -- Auto-Scroll
+                        local row_h = 24
+                        local item_y = (new_idx - 1) * row_h
+                        local view_h = gfx.h - 110 -- approx start_y + footer
+                        
+                        if item_y < target_scroll_y then
+                            target_scroll_y = item_y
+                        elseif item_y + row_h > target_scroll_y + view_h then
+                            target_scroll_y = item_y + row_h - view_h
+                        end
+                    end
+                end
             end
         end
     end
@@ -8779,31 +9121,7 @@ local function draw_table(input_queue)
                         end
                     elseif (has_merge and ret == 3) or (not has_merge and ret == 2) then
                         -- Delete Selected Replicas
-                        local selected_entries = {}
-                        for p, l in ipairs(ass_lines) do
-                            if table_selection[l.index or p] then
-                                table.insert(selected_entries, {line = l, pos = p})
-                            end
-                        end
-                        
-                        if #selected_entries > 0 then
-                            push_undo("Видалення реплік")
-                            
-                            -- Sort by position descending to safely remove
-                            table.sort(selected_entries, function(a,b) return a.pos > b.pos end)
-                            
-                            for _, ent in ipairs(selected_entries) do
-                                 table.remove(ass_lines, ent.pos)
-                            end
-                            
-                            table_selection = {}
-                            last_selected_row = nil
-                            
-                            cleanup_actors()
-                            rebuild_regions()
-                            save_project_data(last_project_id)
-                            show_snackbar("Видалено реплік: " .. #selected_entries)
-                        end
+                        delete_logic()
                     end
                 end
             end
@@ -8962,7 +9280,19 @@ local function main()
                 else
                     undo_action()
                 end
-                break
+            elseif not dict_modal.show and not text_editor_active then
+                -- Global Pass-Through Shortcuts (Standard Defaults)
+                -- Dynamic lookup of user shortcuts is not supported by API
+                local global_cmds = {
+                    [32] = 40044, -- Space: Play/Stop
+                    [19] = 40026, -- Ctrl+S: Save Project
+                    [18] = 1013   -- Ctrl+R: Record
+                }
+                
+                if global_cmds[c] then
+                    reaper.Main_OnCommand(global_cmds[c], 0)
+                    return_focus_to_reaper(nil, true)
+                end
             end
         end
     end
@@ -9025,7 +9355,6 @@ local function main()
         end
     end
 
-    last_mouse_cap = gfx.mouse_cap
     gfx.update()
 
     -- Handle Async Stress Job
@@ -9049,7 +9378,9 @@ local function main()
 
     check_async_pool()
     draw_loader()
-    
+
+    last_mouse_cap = gfx.mouse_cap
+
     reaper.defer(main)
 end
 
