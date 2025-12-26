@@ -169,16 +169,6 @@ local snackbar_duration = 2.0 -- seconds
 
 -- Constants
 local acute = "\204\129" -- UTF-8 Combining Acute Accent (0xCC 0x81)
-local stress_marks_black_list = {
-    "звук", "звуки", "мене", "уважно", "яке", "можеш", "мені", "саме", "якщо", "такі", "але",
-    "знаю", "коли", "має", "немає", "масовка", "неї", "вона", "буду", "пане", "пані", "усі", "або",
-    "яка", "мого", "того", "твого", "свого", "себе", "одного", "одному", "тому", "цього", "цьому",
-    "тебе", "він", "воно", "вони", "зараз", "дуже", "додому", "мова", "книга", "місто", "село", "мрія",
-    "любов", "добрий", "поганий", "великий", "малий", "мало", "багато", "нехай", "мама", "тато", "думаю",
-    "їсти", "її", "моєму", "твоєму", "своєму", "завжди", "також", "помилка", "назавжди", "весняний", "замок",
-    "брати", "крила", "один", "два", "три", "чотири", "пять", "пʼять", "шість", "сім", "вісім", "девять",
-    "девʼять", "десять",
-}
 
 -- Seed Random
 math.randomseed(os.time())
@@ -705,13 +695,60 @@ local function run_async_command(shell_cmd, callback)
     if reaper.GetOS():match("Win") then
         out_file = out_file:gsub("/", "\\")
         done_file = done_file:gsub("/", "\\")
-        -- Windows background execution: Use ExecProcess to avoid console window
-        -- start /B "" runs detached and hidden
-        local full_cmd = 'start /B "" cmd /c "' .. shell_cmd .. ' > "' .. out_file .. '" && echo DONE > "' .. done_file .. '"'
-        reaper.ExecProcess("cmd.exe /C " .. full_cmd, 0)
+        
+        -- Windows: Create a temporary batch file to avoid quoting hell with 'start' and 'cmd'
+        local bat_file = path .. "async_exec_" .. id .. ".bat"
+        bat_file = bat_file:gsub("/", "\\")
+        
+        local f_bat = io.open(bat_file, "w")
+        if f_bat then
+            f_bat:write("@echo off\n")
+            f_bat:write("chcp 65001 > NUL\n") -- Force UTF-8
+            -- Check if shell_cmd already has specific redirection. If so, don't double redirect stdout.
+            -- IMPORTANT: Escape '%' to '%%' for Batch files, otherwise URL encoded chars (%20) get mangled!
+            local bat_cmd = shell_cmd:gsub("%%", "%%%%")
+            
+            if bat_cmd:find(">") then
+                f_bat:write(bat_cmd .. "\n")
+            else
+                -- Ensure we capture STDERR too (2>&1), otherwise errors (like 'curl not found') result in empty out_file
+                -- f_bat:write('echo DEBUG_BATCH_STARTED > "' .. out_file .. '"\n')
+                f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\n')
+            end
+            f_bat:write('echo DONE > "' .. done_file .. '"\n')
+            f_bat:close()
+            
+            -- Create a VBScript wrapper to run the BATCH file silently (WindowStyle=0, Wait=False)
+            -- This is the only reliable way to suppress the console window COMPLETELY on Windows.
+            local vbs_file = path .. "async_exec_" .. id .. ".vbs"
+            vbs_file = vbs_file:gsub("/", "\\")
+            
+            local f_vbs = io.open(vbs_file, "w")
+            if f_vbs then
+                f_vbs:write('Dim WShell\n')
+                f_vbs:write('Set WShell = CreateObject("WScript.Shell")\n')
+                -- Run bat_file directly. Quotes needed for paths with spaces.
+                f_vbs:write('WShell.Run """' .. bat_file .. '""", 0, False\n')
+                f_vbs:write('Set WShell = Nothing\n')
+                f_vbs:close()
+                
+                -- Execute the VBScript using wscript.exe
+                reaper.ExecProcess('wscript.exe "' .. vbs_file .. '"', 0)
+            else
+                -- Fallback to direct batch execution if VBS creation fails
+                os.execute('start /B "" "' .. bat_file .. '"')
+            end
+        else
+            -- Fallback
+            local full_cmd = 'start /B "" cmd /c "' .. shell_cmd .. ' > "' .. out_file .. '" & echo DONE > "' .. done_file .. '"'
+            os.execute(full_cmd)
+        end
     else
         -- Unix/Mac background execution: &
-        local full_cmd = shell_cmd .. ' > "' .. out_file .. '" && touch "' .. done_file .. '" &'
+        -- Use ';' to ensure done file created even on error
+        -- IMPORTANT: Wrap in parentheses (cmd ; touch) & to ensure the WHOLE sequence is backgrounded.
+        -- Otherwise 'cmd ; touch &' executes cmd in foreground!
+        local full_cmd = '( ' .. shell_cmd .. ' > "' .. out_file .. '" ; touch "' .. done_file .. '" ) &'
         os.execute(full_cmd)
     end
     
@@ -740,6 +777,8 @@ local function check_async_pool()
             if f_out then
                 output = f_out:read("*a")
                 f_out:close()
+                -- DEBUG: Print output start
+                -- reaper.ShowConsoleMsg("Async Output (" .. task.id .. "): " .. output:sub(1, 500) .. "\n")
             end
             
             -- Cleanup files
@@ -1561,8 +1600,11 @@ local function fetch_dictionary_category(word, display_name)
     
     local url = "https://goroh.pp.ua/" .. url_encode(url_part) .. "/" .. encoded
     
-    -- Construct curl command (for background execution)
-    local cmd = "curl -s -L \"" .. url .. "\""
+    -- Construct curl command
+    -- Add User Agent to avoid 403 blocks
+    -- Add --ssl-no-revoke for Windows compatibility
+    -- Production: -s (silent) -S (show errors)
+    local cmd = "curl -s -S -L --ssl-no-revoke -A \"Mozilla/5.0\" \"" .. url .. "\""
     -- Note: run_async_command handles OS specific wrapping / redirects
     
     run_async_command(cmd, function(html)
@@ -3301,407 +3343,275 @@ end
 -- =============================================================================
 
 --- Apply stress marks from dictionary file to all subtitles
-local function apply_stress_marks_coroutine()
+-- Forward declaration
+local global_coroutine = nil
+local apply_stress_marks_async 
+
+-- Callback for when stress tool finishes
+local function on_stress_complete(output, script_path, export_count, temp_out, log_file, temp_in, is_windows, python_success)
+    local changed_lines = 0
+    local ai_error_type = nil
+    
+    script_loading_state.active = false
+    
+    -- Check if success by verifying output file content (run_async_command manages process wait)
+    -- In run_async_command callback, 'output' is the STDOUT of the command wrapper.
+    -- But we care about 'temp_out' file existence/content or log file errors.
+    
+    -- 1. Check temp_out
+    local f_out = io.open(temp_out, "r")
+    if f_out then
+        local head = f_out:read(10) -- Peek
+        f_out:close()
+        
+        if head and head ~= "" then
+            -- SUCCESS: Parse output
+            f_out = io.open(temp_out, "r")
+            local content = f_out:read("*all")
+            f_out:close()
+            
+            local stressed_texts = {}
+            local current_text = ""
+            local state = 0 -- 0: Index, 1: Time, 2: Text
+            for l in (content .. "\n"):gmatch("(.-)\r?\n") do
+                l = l:match("^%s*(.-)%s*$") or l -- Trim
+                if state == 0 then
+                    if l:match("^%d+$") then state = 1 end
+                elseif state == 1 then
+                    if l:match("%-%->") then 
+                        state = 2; current_text = "" 
+                    end
+                elseif state == 2 then
+                    if l == "" then
+                        if current_text ~= "" then table.insert(stressed_texts, current_text:sub(1,-2)) end
+                        state = 0
+                    else
+                        current_text = current_text .. l .. "\n"
+                    end
+                end
+            end
+            if state == 2 and current_text ~= "" then table.insert(stressed_texts, current_text:sub(1,-2)) end
+            
+            if #stressed_texts == export_count then
+                local ptr = 1
+                for i, line in ipairs(ass_lines) do
+                    if ass_actors[line.actor] then
+                        if line.text ~= stressed_texts[ptr] then
+                            line.text = stressed_texts[ptr]
+                            changed_lines = changed_lines + 1
+                        end
+                        ptr = ptr + 1
+                    end
+                end
+                python_success = true
+            else
+                reaper.ShowConsoleMsg(string.format("Warning: AI results count mismatch. Expected %d, got %d.\n", export_count, #stressed_texts))
+            end
+            os.remove(temp_out)
+        end
+    end
+    
+    if not python_success then
+        -- Check logs for errors
+        local f_log = io.open(log_file, "r")
+        if f_log then
+            local logs = f_log:read("*all")
+            f_log:close()
+            if logs:find("PYTHON_VERSION_TOO_OLD") then ai_error_type = "VERSION"
+            elseif logs:find("DEPENDENCY_INSTALL_FAILED") then ai_error_type = "DEPENDENCY"
+            elseif logs:find("Operation not permitted") or logs:find("Access is denied") then ai_error_type = "PERMISSION"
+            elseif logs:find("not recognized") or logs:find("not found") then ai_error_type = "PYTHON_MISSING"
+            else ai_error_type = "UNKNOWN" end
+                reaper.ShowConsoleMsg("AI Tool Failure Info:\n" .. logs .. "\n")
+        else
+            ai_error_type = "TIMEOUT_OR_CRASH"
+        end
+    end
+    os.remove(temp_in)
+    
+    -- ERROR HANDLING (No fallback)
+    if not python_success then
+        script_loading_state.active = false
+        
+        local msg = "Не вдалося розставити наголоси.\n--------------------------------------------------\n\n"
+        if ai_error_type == "PERMISSION" then
+            if is_windows then
+                msg = msg .. "⚠️ ПОМИЛКА ДОСТУПУ (Windows):\n"
+                msg = msg .. "Антивірус або права доступу блокують роботу з файлами.\n\n"
+                msg = msg .. "ЯК ВИПРАВИТИ:\n"
+                msg = msg .. "1. Спробуйте запустити REAPER від імені Адміністратора.\n"
+                msg = msg .. "2. Додайте папку '" .. script_path .. "' у виключення антивірусу.\n\n"
+            else
+                msg = msg .. "⚠️ ПОМИЛКА ДОСТУПУ (macOS Sandbox):\n"
+                msg = msg .. "У REAPER немає прав на читання файлів у цій папці.\n\n"
+                msg = msg .. "ЯК ВИПРАВИТИ:\n"
+                msg = msg .. "1. Відкрийте 'Системні налаштування' -> 'Конфіденційність та безпека'.\n"
+                msg = msg .. "2. Знайдіть 'Повний доступ до диска' (Full Disk Access).\n"
+                msg = msg .. "3. Додайте REAPER до списку та увімкніть перемикач.\n"
+                msg = msg .. "4. ПЕРЕЗАПУСТІТЬ REAPER.\n\n"
+            end
+        elseif ai_error_type == "PYTHON_MISSING" then
+            msg = msg .. "⚠️ PYTHON НЕ ЗНАЙДЕНО:\n"
+            if is_windows then
+                msg = msg .. "Python не встановлено або не додано в PATH.\n\n"
+                msg = msg .. "ЯК ВИПРАВИТИ:\n"
+                msg = msg .. "1. Встановіть Python з Microsoft Store (виберіть версію 3.11+).\n"
+                msg = msg .. "2. АБО завантажте інсталятор з python.org і ОБОВ'ЯЗКОВО поставте галочку 'Add Python to PATH' при встановленні.\n\n"
+            else
+                msg = msg .. "Команда 'python3' не знайдена.\n\n"
+                msg = msg .. "ЯК ВИПРАВИТИ:\n"
+                msg = msg .. "Встановіть Python 3.9+ з офіційного сайту або через Homebrew: 'brew install python'.\n\n"
+            end
+        elseif ai_error_type == "VERSION" then
+            msg = msg .. "⚠️ СТАРА ВЕРСІЯ PYTHON:\n"
+            msg = msg .. "Для роботи AI-наголосів потрібен Python 3.9 або новіше.\n\n"
+            if is_windows then
+                msg = msg .. "ЯК ВИПРАВИТИ:\n"
+                msg = msg .. "Оновіть Python (завантажте нову версію 3.11+ з python.org).\n\n"
+            else
+                msg = msg .. "ЯК ВИПРАВИТИ:\n"
+                msg = msg .. "Встановіть нову версію через Homebrew: 'brew install python@3.11'\n\n"
+            end
+        elseif ai_error_type == "DEPENDENCY" then
+            msg = msg .. "⚠️ ПОМИЛКА ВСТАНОВЛЕННЯ ЗАЛЕЖНОСТЕЙ:\n"
+            msg = msg .. "Не вдалося автоматично встановити 'ukrainian-word-stress'.\n\n"
+            msg = msg .. "ЯК ВИПРАВИТИ:\n"
+            msg = msg .. "1. Перевірте підключення до інтернету (потрібно для завантаження бібліотек).\n"
+            msg = msg .. "2. Спробуйте встановити вручную: відкрийте термінал/CMD і введіть: 'pip install ukrainian-word-stress'\n\n"
+        elseif ai_error_type == "TIMEOUT" or ai_error_type == "TIMEOUT_OR_CRASH" then
+            msg = msg .. "⚠️ ПЕРЕВИЩЕНО ЧАС ОЧІКУВАННЯ (Timeout):\n"
+            msg = msg .. "AI-інструмент не встиг обробити текст (або стався збій).\n\n"
+            msg = msg .. "ЯК ВИПРАВИТИ:\n"
+            msg = msg .. "1. Якщо це перший запуск — можливо, триває завантаження моделей. Спробуйте ще раз.\n"
+            msg = msg .. "2. Перевірте консоль REAPER на наявність помилок.\n"
+        else
+            msg = msg .. "❌ НЕВІДОМА ПОМИЛКА.\n\n"
+        end
+        
+        msg = msg .. "Шлях до скрипта: " .. script_path
+        reaper.MB(msg, "Помилка наголосів", 0)
+        return
+    end
+    
+    script_loading_state.active = false
+    
+    if changed_lines > 0 then
+        push_undo("Авто-наголоси (" .. changed_lines .. ")")
+        cleanup_actors()
+        rebuild_regions()
+        save_project_data(last_project_id)
+        show_snackbar("Наголоси додано: " .. changed_lines .. " рядків")
+    else
+        show_snackbar("Наголоси не потрібні або не знайдені")
+    end
+end
+
+--- Apply stress marks asynchronously
+apply_stress_marks_async = function()
     script_loading_state.active = true
     script_loading_state.text = "Ініціалізація..."
-    coroutine.yield()
-
-    -- OS Detection
-    local os_name = reaper.GetOS()
-    local is_windows = os_name:match("Win") ~= nil
-
-    -- 1. Locate script directory
+    
+    -- Calculate paths OUTSIDE coroutine to avoid debug.getinfo issues
+    local is_windows = reaper.GetOS():match("Win") ~= nil
     local function get_actual_script_path()
         local info = debug.getinfo(1, "S")
         local path = info.source
         if path:sub(1, 1) == "@" then path = path:sub(2) end
-        -- Handle both Windows and Unix paths
         local dir = path:match("(.*[\\/])")
         if not dir then dir = reaper.GetResourcePath() .. "/Scripts/" end
         return dir
     end
-    
     local script_path = get_actual_script_path()
+
+    -- Use global coroutine for setup phase to allow yielding (fix initial freeze)
+    global_coroutine = coroutine.create(function()
+        coroutine.yield() -- Yield once to ensure Loader draws immediately
+        
+        local python_tool = script_path .. "ukrainian_stress_tool.py"
+        
+        -- Check Tool Existence
+        local f_tool = io.open(python_tool, "r")
+        local has_python_tool = (f_tool ~= nil)
+        if f_tool then f_tool:close() end
     
-    local python_tool = script_path .. "ukrainian_stress_tool.py"
-    local has_python_tool = false
-    local f_tool, err_tool = io.open(python_tool, "r")
-    if f_tool then
-        has_python_tool = true
-        f_tool:close()
-    end
-
-    local changed_lines = 0
-    local python_success = false
-    local ai_error_type = nil -- "PERMISSION", "VERSION", "DEPENDENCY", "UNKNOWN"
-    local di_error_type = nil -- "PERMISSION", "MISSING"
-    if has_python_tool then
-        script_loading_state.text = "Використання AI-наголосів..."
-        coroutine.yield()
-
+        local export_count = 0
         local temp_in = script_path .. "temp_stress_in.srt"
         local temp_out = script_path .. "temp_stress_out.srt"
+        local log_file = script_path .. "stress_debug.log"
         
-        os.remove(temp_out) -- Remove old result if exists
-        
-        local f_in = io.open(temp_in, "w")
-        if f_in then
-            local export_count = 0
-            for i, line in ipairs(ass_lines) do
-                if ass_actors[line.actor] then
-                    export_count = export_count + 1
-                    f_in:write(export_count .. "\n")
-                    f_in:write("00:00:00,000 --> 00:00:01,000\n")
-                    f_in:write(line.text:gsub("\n", "\n") .. "\n\n")
+        -- Prepare Data
+        if has_python_tool then
+            script_loading_state.text = "Експорт тексту..."
+            coroutine.yield()
+            
+            os.remove(temp_out)
+            local f_in = io.open(temp_in, "w")
+            if f_in then
+                local time_batch_start = os.clock()
+                for i, line in ipairs(ass_lines) do
+                    if ass_actors[line.actor] then
+                        export_count = export_count + 1
+                        f_in:write(export_count .. "\n")
+                        f_in:write("00:00:00,000 --> 00:00:01,000\n")
+                        f_in:write(line.text:gsub("\n", "\n") .. "\n\n")
+                    end
+                    -- More aggressive yielding to prevent "Export Text" freeze
+                    if (i % 50 == 0) and (os.clock() - time_batch_start > 0.01) then
+                         coroutine.yield()
+                         time_batch_start = os.clock()
+                    end
                 end
-            end
-            f_in:close()
-
-            if export_count > 0 then
-                local log_file = script_path .. "stress_debug.log"
-                local python_cmd = "python3"
-                local tool_p = python_tool
-                local in_p = temp_in
-                local out_p = temp_out
                 
-                if is_windows then 
-                    -- Check if python command exists on Windows (Hidden)
-                    -- ExecProcess returns output, check if valid path returned
-                    local py_check = reaper.ExecProcess("cmd.exe /C where python", 1000)
-                    if not py_check or py_check == "" or py_check:match("Could not find") then 
-                        ai_error_type = "PYTHON_MISSING"
-                    else
-                        python_cmd = "python"
+                -- Yield before closing file (heavy flush)
+                coroutine.yield() 
+                f_in:close()
+                
+                if export_count > 0 then
+                    script_loading_state.text = "AI обробка..."
+                    coroutine.yield()
+                    
+                    local tool_p = python_tool
+                    local in_p = temp_in
+                    local out_p = temp_out
+                    
+                    local cmd_to_run = ""
+                    
+                    if is_windows then 
+                        -- Windows: Directly run command to avoid blocking 'where python' check.
+                        -- If python is missing, cmd will print error to log_file.
                         tool_p = tool_p:gsub("/", "\\")
                         in_p = in_p:gsub("/", "\\")
                         out_p = out_p:gsub("/", "\\")
                         log_file = log_file:gsub("/", "\\")
-                        
-                        local cmd = string.format('%s "%s" "%s" -o "%s" > "%s" 2>&1', python_cmd, tool_p, in_p, out_p, log_file)
-                        -- Run tool hidden
-                        reaper.ExecProcess('cmd.exe /C start /B "" cmd /c ' .. cmd, 0)
-                    end
-                else
-                    -- On macOS/Linux, try to find the full path to python3
-                    local p_handle = io.popen("which python3")
-                    if p_handle then
-                        local found_path = p_handle:read("*l")
-                        p_handle:close()
-                        if found_path and found_path ~= "" then
-                            python_cmd = found_path
-                        end
-                    end
-                    
-                    -- Verify python executable
-                    if not os.execute(string.format('command -v "%s" >/dev/null 2>&1', python_cmd)) then
-                        ai_error_type = "PYTHON_MISSING"
+                        cmd_to_run = string.format('python "%s" "%s" -o "%s" > "%s" 2>&1', tool_p, in_p, out_p, log_file)
                     else
-                        local cmd = string.format('"%s" "%s" "%s" -o "%s" > "%s" 2>&1', python_cmd, tool_p, in_p, out_p, log_file)
-                        os.execute(cmd .. " &")
+                        -- Mac/Linux: Assume python3
+                        cmd_to_run = string.format('python3 "%s" "%s" -o "%s" > "%s" 2>&1', tool_p, in_p, out_p, log_file)
                     end
-                end
-                
-                -- Polling Loop (Non-blocking wait)
-                local start_time = os.clock()
-                local timeout = 120 -- 2 minutes for model loading/processing
-                local success = false
-                
-                if not ai_error_type then
-                    while os.clock() - start_time < timeout do
-                        local f_check = io.open(temp_out, "r")
-                        if f_check then
-                            local head = f_check:read(10)
-                            f_check:close()
-                            if head and head ~= "" then
-                                success = true
-                                break
-                            end
-                        end
-                        
-                        local elapsed = math.floor(os.clock() - start_time)
-                        script_loading_state.text = "AI-наголоси (" .. elapsed .. "с)..."
-                        coroutine.yield()
-                    end
-                    if not success then ai_error_type = "TIMEOUT" end
-                end
-                
-                if success then
-                    local f_out = io.open(temp_out, "r")
-                    if f_out then
-                        local content = f_out:read("*all")
-                        f_out:close()
                     
-                        local stressed_texts = {}
-                        local current_text = ""
-                        local state = 0 -- 0: Index, 1: Time, 2: Text
-                        for l in (content .. "\n"):gmatch("(.-)\r?\n") do
-                            l = l:match("^%s*(.-)%s*$") or l -- Trim whitespace
-                            if state == 0 then
-                                if l:match("^%d+$") then state = 1 end
-                            elseif state == 1 then
-                                if l:match("%-%->") then 
-                                    state = 2 
-                                    current_text = "" 
-                                end
-                            elseif state == 2 then
-                                if l == "" then
-                                    if current_text ~= "" then
-                                        table.insert(stressed_texts, current_text:sub(1,-2))
-                                    end
-                                    state = 0
-                                else
-                                    current_text = current_text .. l .. "\n"
-                                end
-                            end
-                        end
-                        -- Force add last block if file didn't end with empty line
-                        if state == 2 and current_text ~= "" then
-                            table.insert(stressed_texts, current_text:sub(1,-2))
-                        end
-                        
-                        if #stressed_texts == export_count then
-                            local ptr = 1
-                            for i, line in ipairs(ass_lines) do
-                                if ass_actors[line.actor] then
-                                    if line.text ~= stressed_texts[ptr] then
-                                        line.text = stressed_texts[ptr]
-                                        changed_lines = changed_lines + 1
-                                    end
-                                    ptr = ptr + 1
-                                end
-                            end
-                            python_success = true
-                        else
-                            reaper.ShowConsoleMsg(string.format("Warning: AI results count mismatch. Expected %d, got %d.\n", export_count, #stressed_texts))
-                        end
-                        os.remove(temp_out)
-                    end
-                else
-                    -- Check log file for specific errors
-                    local f_log = io.open(log_file, "r")
-                    if f_log then
-                        local logs = f_log:read("*all")
-                        f_log:close()
-                        
-                        if logs:find("PYTHON_VERSION_TOO_OLD") then
-                            ai_error_type = "VERSION"
-                        elseif logs:find("DEPENDENCY_INSTALL_FAILED") then
-                            ai_error_type = "DEPENDENCY"
-                        elseif logs:find("Operation not permitted") or logs:find("Access is denied") then
-                            ai_error_type = "PERMISSION"
-                        else
-                            ai_error_type = "UNKNOWN"
-                        end
-                        reaper.ShowConsoleMsg("AI Tool Failure Info:\n" .. logs .. "\n")
+                    if cmd_to_run ~= "" then
+                        -- We are done with coroutine setup, hand off to async system
+                        run_async_command(cmd_to_run, function(out)
+                            on_stress_complete(out, script_path, export_count, temp_out, log_file, temp_in, is_windows, false)
+                        end)
+                        global_coroutine = nil -- Coroutine finished its job
+                        return 
                     end
                 end
-                os.remove(temp_in)
-            end
-        else
-            if err_tool and (err_tool:find("not permitted") or err_tool:find("Access is denied")) then
-                ai_error_type = "PERMISSION"
-            end
-        end
-    end
-
-    -- --- STRATEGY 2: MANUAL DICTIONARY (FALLBACK) ---
-    if not python_success then
-        local dict_file = script_path .. "stress_dictionary.txt"
-        local f, err_dict = io.open(dict_file, "r")
-        if not f then
-            if err_dict and (err_dict:find("not permitted") or err_dict:find("Access is denied")) then
-                di_error_type = "PERMISSION"
-            else
-                di_error_type = "MISSING"
-            end
-
-            script_loading_state.active = false
-            
-            local msg = "Жодна стратегія наголосів не спрацювала.\n--------------------------------------------------\n\n"
-            
-            if ai_error_type == "PERMISSION" or di_error_type == "PERMISSION" then
-                if is_windows then
-                    msg = msg .. "⚠️ ПОМИЛКА ДОСТУПУ (Windows):\n"
-                    msg = msg .. "Антивірус або права доступу блокують роботу з файлами.\n\n"
-                    msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                    msg = msg .. "1. Спробуйте запустити REAPER від імені Адміністратора.\n"
-                    msg = msg .. "2. Додайте папку '" .. script_path .. "' у виключення антивірусу.\n\n"
-                else
-                    msg = msg .. "⚠️ ПОМИЛКА ДОСТУПУ (macOS Sandbox):\n"
-                    msg = msg .. "У REAPER немає прав на читання файлів у цій папці.\n\n"
-                    msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                    msg = msg .. "1. Відкрийте 'Системні налаштування' -> 'Конфіденційність та безпека'.\n"
-                    msg = msg .. "2. Знайдіть 'Повний доступ до диска' (Full Disk Access).\n"
-                    msg = msg .. "3. Додайте REAPER до списку та увімкніть перемикач.\n"
-                    msg = msg .. "4. ПЕРЕЗАПУСТІТЬ REAPER.\n\n"
-                end
-            elseif ai_error_type == "PYTHON_MISSING" then
-                msg = msg .. "⚠️ PYTHON НЕ ЗНАЙДЕНО:\n"
-                if is_windows then
-                    msg = msg .. "Python не встановлено або не додано в PATH.\n\n"
-                    msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                    msg = msg .. "1. Встановіть Python з Microsoft Store (виберіть версію 3.11+).\n"
-                    msg = msg .. "2. АБО завантажте інсталятор з python.org і ОБОВ'ЯЗКОВО поставте галочку 'Add Python to PATH' при встановленні.\n\n"
-                else
-                    msg = msg .. "Команда 'python3' не знайдена.\n\n"
-                    msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                    msg = msg .. "Встановіть Python 3.9+ з офіційного сайту або через Homebrew: 'brew install python'.\n\n"
-                end
-            elseif ai_error_type == "VERSION" then
-                msg = msg .. "⚠️ СТАРА ВЕРСІЯ PYTHON:\n"
-                msg = msg .. "Для роботи AI-наголосів потрібен Python 3.9 або новіше.\n\n"
-                if is_windows then
-                    msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                    msg = msg .. "Оновіть Python (завантажте нову версію 3.11+ з python.org).\n\n"
-                else
-                    msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                    msg = msg .. "Встановіть нову версію через Homebrew: 'brew install python@3.11'\n\n"
-                end
-            elseif ai_error_type == "DEPENDENCY" then
-                msg = msg .. "⚠️ ПОМИЛКА ВСТАНОВЛЕННЯ ЗАЛЕЖНОСТЕЙ:\n"
-                msg = msg .. "Не вдалося автоматично встановити 'ukrainian-word-stress'.\n\n"
-                msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                msg = msg .. "1. Перевірте підключення до інтернету (потрібно для завантаження бібліотек).\n"
-                msg = msg .. "2. Спробуйте встановити вручную: відкрийте термінал/CMD і введіть: 'pip install ukrainian-word-stress'\n\n"
-            elseif ai_error_type == "TIMEOUT" then
-                msg = msg .. "⚠️ ПЕРЕВИЩЕНО ЧАС ОЧІКУВАННЯ (Timeout):\n"
-                msg = msg .. "AI-інструмент не встиг обробити текст за 120 секунд.\n\n"
-                msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                msg = msg .. "1. Якщо це перший запуск — можливо, триває завантаження моделей (залежить від швидкості інтернету). Спробуйте ще раз.\n"
-                msg = msg .. "2. Перевірте консоль REAPER (View -> Show console) на наявність помилок.\n\n"
-            elseif not has_python_tool then
-                msg = msg .. "❌ ФАЙЛ НЕ ЗНАЙДЕНО:\n"
-                msg = msg .. "Скрипт не знаходить 'ukrainian_stress_tool.py'.\n"
-                msg = msg .. "Переконайтеся, що всі файли плагіна лежать в одній папці.\n\n"
-            else
-                msg = msg .. "❌ AI-МОДЕЛЬ: Не вдалося отримати результат (див. консоль).\n"
-                if di_error_type == "MISSING" then
-                    msg = msg .. "❌ СЛОВНИК: Файл '" .. dict_file .. "' не знайдено.\n\n"
-                end
-            end
-            
-            msg = msg .. "Шлях до скрипта: " .. script_path
-            
-            reaper.MB(msg, "Помилка наголосів", 0)
-            return
-        end
-
-        -- 1.5 Prepare blacklist lookup
-        local blacklist_lookup = {}
-        if stress_marks_black_list then
-            for _, word in ipairs(stress_marks_black_list) do
-                blacklist_lookup[utf8_lower(word)] = true
             end
         end
         
-        -- 2. Build NEEDED words list
-        script_loading_state.text = "Аналіз субтитрів..."
-        coroutine.yield()
-        local needed_words = {}
-        local time_batch_start = os.clock()
-        for i, line in ipairs(ass_lines) do
-            if ass_actors[line.actor] then
-                for word in line.text:gmatch("[%a\128-\255\']+[\128-\255]*") do
-                     local lower = utf8_lower(word)
-                     if not needed_words[lower] then needed_words[lower] = true end
-                end
-            end
-            if (i % 100 == 0) and (os.clock() - time_batch_start > 0.03) then 
-                coroutine.yield()
-                time_batch_start = os.clock()
-            end
-        end
-        
-        -- 3. Scan Dictionary
-        script_loading_state.text = "Сканування словника..."
-        coroutine.yield()
-        local replacements = {}
-        local file_size = f:seek("end")
-        f:seek("set", 0)
-        time_batch_start = os.clock()
-        local chunk_counter = 0
-        for line in f:lines() do
-            chunk_counter = chunk_counter + 1
-            if chunk_counter % 2000 == 0 then
-                if os.clock() - time_batch_start > 0.03 then
-                    local cur_pos = f:seek("cur")
-                    local pct = math.floor((cur_pos / file_size) * 100)
-                    script_loading_state.text = "AI-наголоси НЕ СПРАЦЮВАЛИ !!!, застосовую наголосів через словник: " .. pct .. "%"
-                    coroutine.yield()
-                    time_batch_start = os.clock()
-                end
-            end
-            line = line:match("^%s*(.-)%s*$")
-            if line ~= "" then
-                local key = line:gsub(acute, "")
-                key = utf8_lower(key)
-                if needed_words[key] and not replacements[key] then
-                    replacements[key] = line
-                end
-            end
-        end
-        f:close()
-        
-        -- 4. Apply Replacements
-        script_loading_state.text = "Застосування..."
-        coroutine.yield()
-        time_batch_start = os.clock()
-        for i, line in ipairs(ass_lines) do
-            if ass_actors[line.actor] then
-                local original_text = line.text
-                local new_text = line.text:gsub("([%a\128-\255\']+[\128-\255]*)", function(w)
-                    local lower = utf8_lower(w)
-                    if blacklist_lookup[lower] then return w end
-        
-                    if replacements[lower] then
-                        local dict_word = replacements[lower]
-                        local upper = utf8_upper(w)
-                        if w == upper then return utf8_upper(dict_word)
-                        elseif w:sub(1,1) == upper:sub(1,1) then
-                            local first_len = 1
-                            local b = string.byte(w, 1)
-                            if b >= 240 then first_len = 4
-                            elseif b >= 224 then first_len = 3
-                            elseif b >= 192 then first_len = 2 end
-                            local first_char = utf8_upper(dict_word:sub(1, first_len))
-                            return first_char .. dict_word:sub(first_len + 1)
-                        else return dict_word end
-                    end
-                    return w
-                end)
-                if new_text ~= original_text then
-                    line.text = new_text
-                    changed_lines = changed_lines + 1
-                end
-            end
-            if (i % 50 == 0) and (os.clock() - time_batch_start > 0.03) then 
-                coroutine.yield()
-                time_batch_start = os.clock()
-            end
-        end
-    end
-
-    rebuild_regions()
-    script_loading_state.active = false
-    local strategy_name = python_success and "AI-модель" or "Словник"
-    reaper.MB("Наголоси застосовано (" .. strategy_name .. ")!\nЗмінено рядків: " .. changed_lines, "Успіх", 0)
-    save_project_data()
-    update_regions_cache()
-    draw_prompter_cache = {} 
-    reaper.UpdateArrange()
-end
-
-local current_stress_job = nil
-local function apply_stress_marks()
-    -- Start async job
-    current_stress_job = coroutine.create(apply_stress_marks_coroutine)
+        -- If we got here, AI failed or tool missing, proceed immediately to fallback
+        global_coroutine = nil
+        on_stress_complete("", script_path, export_count, temp_out, log_file, temp_in, is_windows, false)
+    end)
     
-    -- Initial resume to start
-    local ok, err = coroutine.resume(current_stress_job)
-    if not ok then 
-        reaper.ShowConsoleMsg("Error in stress coroutine: " .. tostring(err) .. "\n")
+    -- Initial resume
+    local ok, err = coroutine.resume(global_coroutine)
+    if not ok then
+        reaper.ShowConsoleMsg("Coroutine Error: " .. tostring(err) .. "\n")
         script_loading_state.active = false
-        current_stress_job = nil
+        global_coroutine = nil
     end
 end
 
@@ -5418,7 +5328,7 @@ local function draw_tabs()
         gfx.drawstr(name)
         
         -- Click
-        if is_mouse_clicked() then
+        if is_mouse_clicked() and not dict_modal.show then
             if gfx.mouse_x >= x and gfx.mouse_x < x+tab_w and gfx.mouse_y >= 0 and gfx.mouse_y <= h then
                 -- Save current tab's scroll position
                 tab_scroll_y[current_tab] = scroll_y
@@ -5446,7 +5356,7 @@ local function draw_tabs()
     gfx.y = (h - bh)/2
     gfx.drawstr("#")
     
-    if is_mouse_clicked() then
+    if is_mouse_clicked() and not dict_modal.show then
         if gfx.mouse_x >= btn_x and gfx.mouse_x <= gfx.w and
            gfx.mouse_y >= 0 and gfx.mouse_y <= h then
             
@@ -6140,7 +6050,7 @@ local function draw_file()
         if s_y + 25 > start_y and s_y < gfx.h then
             if btn(20, s_y, gfx.w - 40, 40, ">  Застосувати наголоси  <", UI.C_TAB_ACT) then
                 push_undo("Застосування наголосів")
-                apply_stress_marks()
+                apply_stress_marks_async()
             end
         end
         y_cursor = y_cursor + 50
@@ -9355,29 +9265,30 @@ local function main()
         end
     end
 
+    -- Async handling and Loader must be drawn BEFORE gfx.update
+    check_async_pool()
+    draw_loader()
+
     gfx.update()
 
-    -- Handle Async Stress Job
-    if current_stress_job then
-        local status = coroutine.status(current_stress_job)
+    -- Coroutine Handling (for heavy sync tasks like Dictionary scan)
+    if global_coroutine then
+        local status = coroutine.status(global_coroutine)
         if status == "suspended" then
-            local ok, err = coroutine.resume(current_stress_job)
+            local ok, err = coroutine.resume(global_coroutine)
             if not ok then
                 reaper.ShowConsoleMsg("Coroutine Error: " .. tostring(err) .. "\n")
-                current_stress_job = nil
+                global_coroutine = nil
                 script_loading_state.active = false
             end
         elseif status == "dead" then
-            current_stress_job = nil
-            -- Only hide loader if no other async tasks are running
+            global_coroutine = nil
+            -- Only turn off loader if no other async tasks are pending
             if #global_async_pool == 0 then
                 script_loading_state.active = false
             end
         end
     end
-
-    check_async_pool()
-    draw_loader()
 
     last_mouse_cap = gfx.mouse_cap
 
