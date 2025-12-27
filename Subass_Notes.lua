@@ -2259,6 +2259,8 @@ local function parse_rich_text(str)
     local state = {b=false, i=false, u=false, s=false}
     local cursor = 1
     local pending_comment = nil
+    local global_comment = nil
+    local has_text = false
     
     -- Wrap long text first (configurable max length)
     str = wrap_long_text(str, cfg.wrap_length)
@@ -2274,20 +2276,21 @@ local function parse_rich_text(str)
             -- Rest is text
             local remainder = str:sub(cursor)
             if remainder ~= "" then
-                if pending_comment then
+                if pending_comment or global_comment then
                     local word_end = remainder:find("%s")
                     if word_end and word_end < #remainder then
                         local word = remainder:sub(1, word_end - 1)
                         local rest = remainder:sub(word_end)
-                        table.insert(current_line, {text=word, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment})
-                        table.insert(current_line, {text=rest, b=state.b, i=state.i, u=state.u, s=state.s})
+                        table.insert(current_line, {text=word, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
+                        table.insert(current_line, {text=rest, b=state.b, i=state.i, u=state.u, s=state.s, comment=global_comment})
                     else
-                        table.insert(current_line, {text=remainder, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment})
+                        table.insert(current_line, {text=remainder, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
                     end
                     pending_comment = nil
                 else
                     table.insert(current_line, {text=remainder, b=state.b, i=state.i, u=state.u, s=state.s})
                 end
+                has_text = true
             end
             break
         end
@@ -2295,20 +2298,21 @@ local function parse_rich_text(str)
         -- Append text before tag
         if tag_start > cursor then
             local segment = str:sub(cursor, tag_start - 1)
-            if pending_comment then
+            if pending_comment or global_comment then
                 local word_end = segment:find("%s")
                 if word_end and word_end < #segment then
                     local word = segment:sub(1, word_end - 1)
                     local rest = segment:sub(word_end)
-                    table.insert(current_line, {text=word, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment})
-                    table.insert(current_line, {text=rest, b=state.b, i=state.i, u=state.u, s=state.s})
+                    table.insert(current_line, {text=word, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
+                    table.insert(current_line, {text=rest, b=state.b, i=state.i, u=state.u, s=state.s, comment=global_comment})
                 else
-                    table.insert(current_line, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment})
+                    table.insert(current_line, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
                 end
                 pending_comment = nil
             else
                 table.insert(current_line, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s})
             end
+            if segment:find("%S") then has_text = true end
         end
         
         -- Handle Newline
@@ -2342,7 +2346,9 @@ local function parse_rich_text(str)
                 end
                 
                 if not is_formatting and content ~= "" then
-                    if #current_line > 0 then
+                    if not has_text and not global_comment then
+                        global_comment = content
+                    elseif #current_line > 0 then
                         -- SPLIT LAST SPAN to attach only to the last word
                         local last_span = current_line[#current_line]
                         local text = last_span.text
@@ -7480,14 +7486,14 @@ local function draw_prompter(input_queue)
             if span.comment then
                 local sr, sg, sb, sa = gfx.r, gfx.g, gfx.b, gfx.a
                 set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.15}) -- Lower alpha for more subtlety
-                local strip_h = 2
+                local strip_h = 3
                 
                 -- DYNAMIC DASH LOGIC: More text = smaller/denser dashes
                 local comm_len = utf8.len(span.comment) or #span.comment
-                -- Map length (1-60+) to dash (8 down to 2)
-                local dash_w = 8 - math.min(6, math.floor(comm_len / 10))
-                dash_w = math.max(2, dash_w)
-                local gap_w = math.max(2, dash_w - 1)
+                -- Map length (1-75+) to dash (8 down to 3)
+                local dash_w = 8 - math.min(5, math.floor(comm_len / 15))
+                dash_w = math.max(3, dash_w)
+                local gap_w = math.max(3, dash_w - 1)
                 
                 local cur_dash_x = cursor_x
                 while cur_dash_x < cursor_x + span.width do
