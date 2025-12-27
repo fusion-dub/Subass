@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 2.2
+-- @version 2.3
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v2.2"
+local script_title = "Subass Notes v2.3"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -985,43 +985,83 @@ local function draw_tooltip()
     if not tooltip_state.text or tooltip_state.text == "" then return end
     
     local now = reaper.time_precise()
-    if now - tooltip_state.start_time < 1.0 then return end
+    if not tooltip_state.immediate and (now - tooltip_state.start_time < 1.0) then return end
     
     gfx.setfont(F.tip)
     
-    -- Split by newline and measure max width
-    local lines = {}
-    local max_w = 0
-    for line in tooltip_state.text:gmatch("[^\r\n]+") do
-        table.insert(lines, line)
-        local w, h = gfx.measurestr(line)
-        if w > max_w then max_w = w end
+    local max_allowed_w = math.min(400, gfx.w - 40)
+    local padding = 8
+    local line_spacing = 2
+    local char_h = gfx.texth
+    local line_h = char_h + line_spacing
+    
+    -- 1. Word Wrap the text
+    local wrapped_lines = {}
+    local current_max_w = 0
+    
+    for paragraph in tooltip_state.text:gmatch("[^\r\n]+") do
+        local words = {}
+        for w in paragraph:gmatch("%S+") do table.insert(words, w) end
+        
+        local current_line = ""
+        for i, word in ipairs(words) do
+            local test_line = (current_line == "") and word or (current_line .. " " .. word)
+            local tw, th = gfx.measurestr(test_line)
+            
+            if tw > max_allowed_w and current_line ~= "" then
+                table.insert(wrapped_lines, current_line)
+                local lw = gfx.measurestr(current_line)
+                if lw > current_max_w then current_max_w = lw end
+                current_line = word
+            else
+                current_line = test_line
+            end
+        end
+        if current_line ~= "" then
+            table.insert(wrapped_lines, current_line)
+            local lw = gfx.measurestr(current_line)
+            if lw > current_max_w then current_max_w = lw end
+        end
     end
     
-    local padding = 6
-    local line_h = 15
-    local total_h = #lines * line_h
+    if #wrapped_lines == 0 then return end
     
+    local total_h = #wrapped_lines * line_h - line_spacing
+    local box_w = current_max_w + padding * 2
+    local box_h = total_h + padding * 2
+    
+    -- 2. Position with Screen Clamping
     local tx = gfx.mouse_x + 15
     local ty = gfx.mouse_y + 15
     
-    -- Ensure it stays on screen
-    if tx + max_w + (padding * 2) > gfx.w then tx = gfx.mouse_x - max_w - (padding * 2) - 5 end
-    if ty + total_h + (padding * 2) > gfx.h then ty = gfx.mouse_y - total_h - (padding * 2) - 5 end
-    if tx < 0 then tx = 0 end
-    if ty < 0 then ty = 0 end
+    -- Horizontal check
+    if tx + box_w > gfx.w - 10 then
+        tx = gfx.mouse_x - box_w - 10
+    end
+    if tx < 10 then tx = 10 end
+    
+    -- Vertical check
+    if ty + box_h > gfx.h - 10 then
+        ty = gfx.mouse_y - box_h - 10
+    end
+    if ty < 10 then ty = 10 end
+    
+    -- 3. Draw
+    -- Shadow (subtle)
+    set_color({0, 0, 0, 0.3})
+    gfx.rect(tx + 2, ty + 2, box_w, box_h, 1)
     
     -- Background
     set_color({0.1, 0.1, 0.1, 0.95})
-    gfx.rect(tx, ty, max_w + padding * 2, total_h + padding * 2, 1)
+    gfx.rect(tx, ty, box_w, box_h, 1)
     
     -- Border
-    set_color({0.7, 0.7, 0.7, 0.8})
-    gfx.rect(tx, ty, max_w + padding * 2, total_h + padding * 2, 0)
+    set_color({0.6, 0.6, 0.6, 0.6})
+    gfx.rect(tx, ty, box_w, box_h, 0)
     
     -- Text
     set_color(UI.C_TXT)
-    for i, line in ipairs(lines) do
+    for i, line in ipairs(wrapped_lines) do
         gfx.x = tx + padding
         gfx.y = ty + padding + (i-1) * line_h
         gfx.drawstr(line)
@@ -2172,6 +2212,7 @@ local function parse_rich_text(str)
     
     local state = {b=false, i=false, u=false, s=false}
     local cursor = 1
+    local pending_comment = nil
     
     -- Wrap long text first (configurable max length)
     str = wrap_long_text(str, cfg.wrap_length)
@@ -2187,7 +2228,20 @@ local function parse_rich_text(str)
             -- Rest is text
             local remainder = str:sub(cursor)
             if remainder ~= "" then
-                table.insert(current_line, {text=remainder, b=state.b, i=state.i, u=state.u, s=state.s})
+                if pending_comment then
+                    local word_end = remainder:find("%s")
+                    if word_end and word_end < #remainder then
+                        local word = remainder:sub(1, word_end - 1)
+                        local rest = remainder:sub(word_end)
+                        table.insert(current_line, {text=word, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment})
+                        table.insert(current_line, {text=rest, b=state.b, i=state.i, u=state.u, s=state.s})
+                    else
+                        table.insert(current_line, {text=remainder, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment})
+                    end
+                    pending_comment = nil
+                else
+                    table.insert(current_line, {text=remainder, b=state.b, i=state.i, u=state.u, s=state.s})
+                end
             end
             break
         end
@@ -2195,7 +2249,20 @@ local function parse_rich_text(str)
         -- Append text before tag
         if tag_start > cursor then
             local segment = str:sub(cursor, tag_start - 1)
-            table.insert(current_line, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s})
+            if pending_comment then
+                local word_end = segment:find("%s")
+                if word_end and word_end < #segment then
+                    local word = segment:sub(1, word_end - 1)
+                    local rest = segment:sub(word_end)
+                    table.insert(current_line, {text=word, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment})
+                    table.insert(current_line, {text=rest, b=state.b, i=state.i, u=state.u, s=state.s})
+                else
+                    table.insert(current_line, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment})
+                end
+                pending_comment = nil
+            else
+                table.insert(current_line, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s})
+            end
         end
         
         -- Handle Newline
@@ -2205,12 +2272,13 @@ local function parse_rich_text(str)
             cursor = tag_start + 2
             
         elseif str:sub(tag_start, tag_start) == "{" then
-            -- Handle ASS Tag
+            -- Handle ASS Tag or Comment
             local tag_end = str:find("}", tag_start)
             if tag_end then
                 local content = str:sub(tag_start+1, tag_end-1)
-                -- Parse supported tags
-                -- \b1, \b0, \i1, \u1, \s1
+                
+                local is_formatting = false
+                -- Parse supported tags: \b1, \b0, \i1, \u1, \s1
                 for tag in content:gmatch("\\[bius]%d") do
                     local t = tag:sub(2,2)
                     local v = (tag:sub(3,3) == "1")
@@ -2219,7 +2287,36 @@ local function parse_rich_text(str)
                     elseif t == "u" then state.u = v
                     elseif t == "s" then state.s = v
                     end
+                    is_formatting = true
                 end
+                
+                -- Check for other formatting tags (starting with backslash)
+                if not is_formatting and content:find("^\\") then
+                    is_formatting = true
+                end
+                
+                if not is_formatting and content ~= "" then
+                    if #current_line > 0 then
+                        -- SPLIT LAST SPAN to attach only to the last word
+                        local last_span = current_line[#current_line]
+                        local text = last_span.text
+                        local word_start = text:find("[^%s]+%s*$")
+                        if word_start and word_start > 1 then
+                            local prefix = text:sub(1, word_start - 1)
+                            local word = text:sub(word_start)
+                            last_span.text = prefix
+                            table.insert(current_line, {
+                                text = word, b=last_span.b, i=last_span.i, u=last_span.u, s=last_span.s, 
+                                comment = content
+                            })
+                        else
+                            last_span.comment = content
+                        end
+                    else
+                        pending_comment = content
+                    end
+                end
+                
                 cursor = tag_end + 1
             else
                 -- Broken tag
@@ -4993,7 +5090,7 @@ local function draw_dictionary_modal(input_queue)
     local tab_w = 115 -- Wider tabs as requested
     local tab_h = 30
     
-    gfx.setfont(F.std, "Arial", 16)
+    gfx.setfont(F.dict_std_sm)
     for _, cat in ipairs(categories) do
         local is_sel = (dict_modal.selected_tab == cat)
         local bx = tab_x
@@ -5043,7 +5140,7 @@ local function draw_dictionary_modal(input_queue)
     local content_w = box_w - 30
     local content_h = box_h - (content_y - box_y) - 5
     
-    gfx.setfont(F.std, "Arial", 17)
+    gfx.setfont(F.dict_std)
     local line_h = gfx.texth + 4
     
     -- Inputs (ESC to close)
@@ -5328,8 +5425,6 @@ local function draw_dictionary_modal(input_queue)
             dict_modal.show = false
         end
     end
-
-    gfx.setfont(F.std, "Arial", 14)
 end
 
 --- Open the text editor modal
@@ -7075,10 +7170,10 @@ local function draw_prompter(input_queue)
     -- returns x, y, w, h
     -- line is { {text="foo", b=true, ...}, ... }
     
-    local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name, base_size)
+    local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name, base_size, no_assimilation)
     
         -- ASSIMILATION LOGIC
-        if cfg.text_assimilations then
+        if cfg.text_assimilations and not no_assimilation then
             local rules = {
                 {"ться", "цця"},
                 {"зш", "шш"},
@@ -7142,7 +7237,7 @@ local function draw_prompter(input_queue)
                     
                     -- Add Before
                     if before ~= "" then
-                        table.insert(new_spans, {text=before, b=style_span.b, i=style_span.i, u=style_span.u, s=style_span.s, orig_word=orig_word})
+                        table.insert(new_spans, {text=before, b=style_span.b, i=style_span.i, u=style_span.u, s=style_span.s, orig_word=orig_word, comment=style_span.comment})
                     end
                     
                     -- Add Replacement (forcing Wavy Underline)
@@ -7153,14 +7248,15 @@ local function draw_prompter(input_queue)
                         u=false, -- standard underline OFF
                         u_wave=true, -- Wavy underline ON
                         s=style_span.s,
-                        orig_word=orig_word
+                        orig_word=orig_word,
+                        comment=style_span.comment
                     })
                     
                     -- Process Remainder
                     process_text(remainder, style_span, orig_word)
                 else
                     -- No matches, keep as is
-                    table.insert(new_spans, {text=text, b=style_span.b, i=style_span.i, u=style_span.u, s=style_span.s, orig_word=orig_word})
+                    table.insert(new_spans, {text=text, b=style_span.b, i=style_span.i, u=style_span.u, s=style_span.s, orig_word=orig_word, comment=style_span.comment})
                 end
             end
 
@@ -7171,7 +7267,7 @@ local function draw_prompter(input_queue)
                     if seg.is_word and (not dict_modal.show) then
                         process_text(seg.text, span, seg.text:gsub(acute, ""))
                     else
-                        table.insert(new_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s})
+                        table.insert(new_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, comment=span.comment})
                     end
                 end
             end
@@ -7314,9 +7410,41 @@ local function draw_prompter(input_queue)
             if word_trigger.active and gfx.mouse_cap & 1 == 0 then
                 word_trigger.active = false
             end
+            
+            -- COMMENT TOOLTIP HOVER DETECTION
+            if span.comment and (not dict_modal.show) then
+                local is_over = gfx.mouse_x >= cursor_x and gfx.mouse_x <= cursor_x + span.width and
+                                gfx.mouse_y >= y_base and gfx.mouse_y <= y_base + span.height
+                
+                if is_over then
+                    local id = tostring(span)
+                    if tooltip_state.hover_id ~= id then
+                        tooltip_state.hover_id = id
+                        tooltip_state.start_time = reaper.time_precise()
+                    end
+                    tooltip_state.text = span.comment
+                    tooltip_state.immediate = true
+                end
+            end
 
             -- USE CORRECTED DRAWING
             draw_string_corrected(span.text)
+            
+            -- VISUAL INDICATOR FOR COMMENT (dashed semi-transparent line)
+            if span.comment then
+                local sr, sg, sb, sa = gfx.r, gfx.g, gfx.b, gfx.a
+                set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.2}) -- Lower alpha for more subtlety
+                local strip_h = 4
+                local dash_w = 4
+                local gap_w = 4
+                local cur_dash_x = cursor_x
+                while cur_dash_x < cursor_x + span.width do
+                    local draw_w = math.min(dash_w, cursor_x + span.width - cur_dash_x)
+                    gfx.rect(cur_dash_x, y_base + span.height - 2, draw_w, strip_h, 1)
+                    cur_dash_x = cur_dash_x + dash_w + gap_w
+                end
+                gfx.r, gfx.g, gfx.b, gfx.a = sr, sg, sb, sa
+            end
             
             -- Manual Rendering of Underline / Strikeout
             if span.u then
@@ -7573,7 +7701,7 @@ local function draw_prompter(input_queue)
             local spans = parse_rich_text(name)[1]
             local y = y_offset + total_h
             
-            draw_rich_line(spans, center_x, y, F.cor, cfg.p_font, cfg.c_fsize)
+            draw_rich_line(spans, center_x, y, F.cor, cfg.p_font, cfg.c_fsize, true)
             total_h = total_h + line_h
         end
     end
@@ -7624,8 +7752,9 @@ local function draw_prompter(input_queue)
                                 if #remainder > 0 then
                                     table.insert(new_line, {
                                         text = remainder,
-                                        b = (word_counter < active_idx) or span.b, -- If we finished words, this is trailing space
-                                        i = span.i, u = span.u, s = span.s, u_wave = span.u_wave
+                                        b = (word_counter < active_idx) or span.b,
+                                        i = span.i, u = span.u, s = span.s, u_wave = span.u_wave,
+                                        comment = span.comment
                                     })
                                 end
                                 break
@@ -7641,10 +7770,10 @@ local function draw_prompter(input_queue)
                                     -- Generally, if we just finished word X, the space after it is passed.
                                     -- Here we are BEFORE word (word_counter is not incremented yet).
                                     -- So this space is effectively AFTER the previous word.
-                                    -- `word_counter` is currently at previous count.
                                     
                                     b = (word_counter < active_idx) or span.b,
-                                    i = span.i, u = span.u, s = span.s, u_wave = span.u_wave
+                                    i = span.i, u = span.u, s = span.s, u_wave = span.u_wave,
+                                    comment = span.comment
                                 })
                             end
                             
@@ -7654,7 +7783,8 @@ local function draw_prompter(input_queue)
                              table.insert(new_line, {
                                 text = word,
                                 b = (word_counter <= active_idx) or span.b,
-                                i = span.i, u = span.u, s = span.s, u_wave = span.u_wave
+                                i = span.i, u = span.u, s = span.s, u_wave = span.u_wave,
+                                comment = span.comment
                             })
                             
                             current_idx = s_end + 1
@@ -8337,6 +8467,7 @@ local function draw_settings()
         gfx.rect(x_start, screen_y + 10, gfx.w - 40, 1, 1)
         
         -- Title background
+        gfx.setfont(F.std)
         local tw = gfx.measurestr(title)
         set_color(UI.C_BG)
         gfx.rect(x_start, screen_y, tw + 10, 20, 1)
@@ -8571,6 +8702,7 @@ local function draw_settings()
             if is_sel then set_color({0.2, 0.8, 0.2}) gfx.rect(bx - 2, sy - 2, theme_btn_w + 4, 34, 0) end
             set_color(theme_options[i][1]) gfx.rect(bx, sy, theme_btn_w, 30, 1)
             set_color(theme_options[i][2])
+            gfx.setfont(F.std)
             local lw, lh = gfx.measurestr(opt)
             gfx.x, gfx.y = bx + (theme_btn_w - lw)/2, sy + (30 - lh)/2
             gfx.drawstr(opt)
@@ -9584,6 +9716,8 @@ end
 
 -- --- Main Loop ---
 local function main()
+    tooltip_state.text = ""
+    tooltip_state.immediate = false
     mouse_handled = false
     -- Check if project changed (tab switch)
     local current_project_id = tostring(reaper.EnumProjects(-1))
