@@ -2158,49 +2158,95 @@ end
 --- @return string Wrapped text
 local wrap_cache = {}
 local function wrap_long_text(text, max_length)
-    -- Ignore tags for length calculation
-    local clean_for_len = text:gsub("{.-}", "")
-    local len = utf8.len(clean_for_len) or #clean_for_len
-    if len <= max_length then return text end
+    if not text or text == "" then return "" end
     
     -- Check cache
     local cache_key = text .. "|" .. max_length
-    if wrap_cache[cache_key] then
-        return wrap_cache[cache_key]
-    end
+    if wrap_cache[cache_key] then return wrap_cache[cache_key] end
+
+    -- Normalize existing newlines to \N for uniform processing
+    local normalized_text = text:gsub("\n", "\\N"):gsub("\\n", "\\N")
     
+    -- Tokenizer: tags, newlines, spaces, words
+    local tokens = {}
+    local cursor = 1
+    while cursor <= #normalized_text do
+        local token
+        local nl_s, nl_e = normalized_text:find("^\\N", cursor)
+        if nl_s then
+            token = "\\N"
+            cursor = nl_e + 1
+        else
+            local tag_s, tag_e = normalized_text:find("^{.-}", cursor)
+            if tag_s == cursor then
+                token = normalized_text:sub(tag_s, tag_e)
+                cursor = tag_e + 1
+            else
+                local htm_s, htm_e = normalized_text:find("^<.->", cursor)
+                if htm_s == cursor then
+                    token = normalized_text:sub(htm_s, htm_e)
+                    cursor = htm_e + 1
+                else
+                    local sp_s, sp_e = normalized_text:find("^%s+", cursor)
+                    if sp_s == cursor then
+                        token = normalized_text:sub(sp_s, sp_e)
+                        cursor = sp_e + 1
+                    else
+                        -- Find word until next special char or space
+                        local wd_s, wd_e = normalized_text:find("^[^%s{}<\\]+", cursor)
+                        if wd_s then
+                            token = normalized_text:sub(wd_s, wd_e)
+                            cursor = wd_e + 1
+                        else
+                            -- Fallback for backslash or single special char
+                            token = normalized_text:sub(cursor, cursor)
+                            cursor = cursor + 1
+                        end
+                    end
+                end
+            end
+        end
+        if token then table.insert(tokens, token) end
+    end
+
     local result = ""
     local current_line = ""
     local current_line_len = 0
     
-    -- Split by space but preserve it
-    for word in text:gmatch("%S+") do
-        local clean_word = word:gsub("{.-}", "")
-        local word_len = utf8.len(clean_word) or #clean_word
-        
-        if current_line == "" then
-            current_line = word
-            current_line_len = word_len
+    for _, t in ipairs(tokens) do
+        if t == "\\N" then
+            result = result .. (result == "" and "" or "\\N") .. current_line:gsub("%s+$", "")
+            current_line = ""
+            current_line_len = 0
+        elseif t:find("^{") or t:find("^<") then
+            -- Tags/Comments don't add to layout length
+            current_line = current_line .. t
+        elseif t:find("^%s+$") then
+            -- Only count spaces if they aren't at the start of a line
+            if current_line_len > 0 then
+                current_line = current_line .. t
+                current_line_len = current_line_len + (utf8.len(t) or #t)
+            end
         else
-            if current_line_len + 1 + word_len > max_length then
-                result = result .. (result == "" and "" or "\\N") .. current_line
-                current_line = word
-                current_line_len = word_len
+            -- Word
+            local w_len = utf8.len(t) or #t
+            if current_line_len + w_len > max_length and current_line_len > 0 then
+                -- Wrap
+                result = result .. (result == "" and "" or "\\N") .. current_line:gsub("%s+$", "")
+                current_line = t
+                current_line_len = w_len
             else
-                current_line = current_line .. " " .. word
-                current_line_len = current_line_len + 1 + word_len
+                current_line = current_line .. t
+                current_line_len = current_line_len + w_len
             end
         end
     end
     
     if current_line ~= "" then
-        result = result .. (result == "" and "" or "\\N") .. current_line
+        result = result .. (result == "" and "" or "\\N") .. current_line:gsub("%s+$", "")
     end
-    
-    -- Store in cache (limit cache size to prevent memory issues)
-    if #wrap_cache > 100 then
-        wrap_cache = {} -- Clear cache if too large
-    end
+
+    if #wrap_cache > 100 then wrap_cache = {} end
     wrap_cache[cache_key] = result
     
     return result
@@ -7433,10 +7479,16 @@ local function draw_prompter(input_queue)
             -- VISUAL INDICATOR FOR COMMENT (dashed semi-transparent line)
             if span.comment then
                 local sr, sg, sb, sa = gfx.r, gfx.g, gfx.b, gfx.a
-                set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.2}) -- Lower alpha for more subtlety
-                local strip_h = 4
-                local dash_w = 4
-                local gap_w = 4
+                set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.15}) -- Lower alpha for more subtlety
+                local strip_h = 2
+                
+                -- DYNAMIC DASH LOGIC: More text = smaller/denser dashes
+                local comm_len = utf8.len(span.comment) or #span.comment
+                -- Map length (1-60+) to dash (8 down to 2)
+                local dash_w = 8 - math.min(6, math.floor(comm_len / 10))
+                dash_w = math.max(2, dash_w)
+                local gap_w = math.max(2, dash_w - 1)
+                
                 local cur_dash_x = cursor_x
                 while cur_dash_x < cursor_x + span.width do
                     local draw_w = math.min(dash_w, cursor_x + span.width - cur_dash_x)
