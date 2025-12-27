@@ -496,12 +496,12 @@ end
 
 function open_overlay_satellite()
     local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
-    local satellite_path = script_path .. "Lionzz_SubOverlay.lua"
+    local satellite_path = script_path .. "Lionzz_SubOverlay_Subass.lua"
     
     -- Check if satellite exists
     local f_check = io.open(satellite_path, "r")
     if not f_check then
-        reaper.MB("Файл Lionzz_SubOverlay.lua не знайдено поруч із основним скриптом.", "Помилка", 0)
+        reaper.MB("Файл Lionzz_SubOverlay_Subass.lua не знайдено поруч із основним скриптом.", "Помилка", 0)
         return
     end
     f_check:close()
@@ -528,7 +528,7 @@ function open_overlay_satellite()
     if f then
         for line in f:lines() do
             -- Look for the script name in the action line
-            if line:find("Lionzz_SubOverlay.lua", 1, true) then
+            if line:find("Lionzz_SubOverlay_Subass.lua", 1, true) then
                 -- Extract the RS... part (e.g., SCR 4 0 RS7d3...)
                 local rs_part = line:match("RS([%a%d]+)")
                 if rs_part then
@@ -544,7 +544,7 @@ function open_overlay_satellite()
     if cmd_id and reaper.NamedCommandLookup(cmd_id) ~= 0 then
         reaper.Main_OnCommand(reaper.NamedCommandLookup(cmd_id), 0)
     else
-        reaper.MB("REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл Lionzz_SubOverlay.lua\n\nПісля цього Оверлей буде відкриватися миттєво з меню.", "Потрібна реєстрація", 0)
+        reaper.MB("REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл Lionzz_SubOverlay_Subass.lua\n\nПісля цього Оверлей буде відкриватися миттєво з меню.", "Потрібна реєстрація", 0)
     end
 end
 
@@ -9774,7 +9774,87 @@ local function draw_table(input_queue)
 end
 
 -- --- Main Loop ---
+reaper.gmem_attach("SubassSync")
+
+local function handle_remote_commands()
+    local cmd_id = reaper.gmem_read(0)
+    if cmd_id == 0 then return end
+    
+    -- Clear command immediately
+    reaper.gmem_write(0, 0)
+    
+    if cmd_id == 1 then -- EDIT
+        local play_state = reaper.GetPlayState()
+        local pos = (play_state & 1) == 1 and reaper.GetPlayPosition() or reaper.GetCursorPosition()
+        update_regions_cache()
+        
+        for _, r in ipairs(regions) do
+            if pos >= r.pos and pos < r.rgnend then
+                for i, line in ipairs(ass_lines) do
+                    if math.abs(line.t1 - r.pos) < 0.01 and math.abs(line.t2 - r.rgnend) < 0.01 then
+                        open_text_editor(line.text, function(new_text)
+                            push_undo("Редагування тексту (Remote)")
+                            line.text = new_text
+                            rebuild_regions()
+                        end, i, ass_lines)
+                        return
+                    end
+                end
+            end
+        end
+    elseif cmd_id == 3 then -- EDIT_NEXT
+        local play_state = reaper.GetPlayState()
+        local pos = (play_state & 1) == 1 and reaper.GetPlayPosition() or reaper.GetCursorPosition()
+        update_regions_cache()
+        
+        local current_rgn_idx = nil
+        -- Find current region index
+        for idx, r in ipairs(regions) do
+            if pos >= r.pos and pos < r.rgnend then
+                current_rgn_idx = idx
+                break
+            end
+        end
+        
+        -- If current found, try to get next
+        if current_rgn_idx and regions[current_rgn_idx + 1] then
+            local next_rgn = regions[current_rgn_idx + 1]
+             for i, line in ipairs(ass_lines) do
+                if math.abs(line.t1 - next_rgn.pos) < 0.01 and math.abs(line.t2 - next_rgn.rgnend) < 0.01 then
+                    open_text_editor(line.text, function(new_text)
+                        push_undo("Редагування тексту (Remote Next)")
+                        line.text = new_text
+                        rebuild_regions()
+                    end, i, ass_lines)
+                    return
+                end
+            end
+        end
+    elseif cmd_id == 2 then -- DICT
+        local word = reaper.GetExtState("SubassSync", "WORD")
+        if word ~= "" then trigger_dictionary_lookup(word) end
+    elseif cmd_id == 4 then -- EDIT_SPECIFIC (with exact times)
+        local t1 = reaper.gmem_read(1)
+        local t2 = reaper.gmem_read(2)
+        
+        -- Find exact match by time
+        for i, line in ipairs(ass_lines) do
+            if math.abs(line.t1 - t1) < 0.01 and math.abs(line.t2 - t2) < 0.01 then
+                open_text_editor(line.text, function(new_text)
+                    push_undo("Редагування тексту (Remote Specific)")
+                    line.text = new_text
+                    rebuild_regions()
+                end, i, ass_lines)
+                return
+            end
+        end
+    end
+end
+
 local function main()
+    -- Heartbeat for Lionzz
+    reaper.gmem_write(100, reaper.time_precise())
+    handle_remote_commands()
     tooltip_state.text = ""
     tooltip_state.immediate = false
     mouse_handled = false
