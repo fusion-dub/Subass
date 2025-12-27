@@ -42,49 +42,27 @@ local show_wrap_guides = false  -- прапорець для відображе�
 
 
 -- Налаштування шрифту та масштабу
-local BASE_FONT_SIZE = 14 -- базовий розмір шрифту для створення об'єктів
+local BASE_FONT_SIZE = 14 -- base creation size
+local is_mac = reaper.GetOS():match("OSX") or reaper.GetOS():match("macOS")
 local available_fonts = {
-    "Arial","Calibri","Roboto","Segoe UI","Tahoma","Verdana",
-    "Cambria","CooperMediumC BT","Georgia","Times New Roman",
+    "Arial","Helvetica","Calibri","Roboto","Segoe UI","Tahoma","Verdana",
+    "Cambria","Georgia","Times New Roman",
     "Consolas","Courier New", "Comic Sans MS"
 }
 local font_objects = {}
-local italic_font_objects = {}
 
+-- Load fonts
 for i, name in ipairs(available_fonts) do
-    local f = reaper.ImGui_CreateFont(name, BASE_FONT_SIZE)
+    local f = reaper.ImGui_CreateFont(name, 14)
     font_objects[i] = f
     reaper.ImGui_Attach(ctx, f)
-    
-    -- Try to load italic variant
-    -- Common heuristic: append " Italic" or look for specific names
-    local italic_name = name .. " Italic"
-    
-    -- Specific overrides for macOS/Windows compatibility
-    if name == "Arial" then italic_name = "Arial-Italic" -- macOS often uses hyphen
-    elseif name == "Times New Roman" then italic_name = "TimesNewRomanPS-ItalicMT" -- specific for Mac
-    elseif name == "Courier New" then italic_name = "CourierNewPS-ItalicMT"
-    elseif name == "Georgia" then italic_name = "Georgia-Italic"
-    elseif name == "Verdana" then italic_name = "Verdana-Italic"
-    elseif name == "Trebuchet MS" then italic_name = "TrebuchetMS-Italic"
-    elseif name == "Tahoma" then italic_name = "Tahoma-Italic" -- may not exist on Mac default
-    end
-    
-    -- Note: On Windows "Arial Italic" might work better, but ImGui often handles standard names.
-    -- If this fails, it often falls back to default.
-    -- Ideally we would check OS and decide. But let's try hyphenated for 'Standard' web fonts which often work.
-    
-    -- Note: ImGui doesn't return failure easily on CreateFont, but if system doesn't have it, it might fallback
-    local fi = reaper.ImGui_CreateFont(italic_name, BASE_FONT_SIZE)
-    italic_font_objects[i] = fi
-    reaper.ImGui_Attach(ctx, fi)
 end
 
 local ui_font = font_objects[1]         -- перший шрифт завжди для UI
 local UI_FONT_SCALE = 14                -- фіксований масштаб для інтерфейсу
 local CONTEXT_MENU_MIN_WIDTH = 200      -- мінімальна ширина контекстного меню
 local next_region_offset = 20           -- відступ між поточним та наступним регіоном
-local show_progress = true              -- показувати прогрессбар
+local show_progress = false              -- показувати прогрессбар
 local progress_width = 400              -- ширина за замовчуванням
 local progress_height = 4               -- висота за замовчуванням
 local progress_offset = 20              -- відступ від першого рядка
@@ -106,10 +84,10 @@ local wrap_margin = 0                   -- відступ від краю вік
 local enable_second_line = true         -- показувати другий рядок
 local align_center = true               -- вирівнювання по центру (горизонтально, за замовчуванням увімкн.)
 local align_vertical = false            -- вирівнювання по вертикалі (центрування контенту у вікні)
-local align_bottom = false              -- вирівнювання по низу
-local show_assimilation = false         -- показувати асиміляцію (незалежно від Subass Notes)
-local always_show_next = false          -- завжди показувати наступну репліку (навіть у прогалинах)
-local fill_gaps = true                  -- показувати найближчий регіон/ітем між об'єктами
+local align_bottom = true              -- вирівнювання по низу
+local show_assimilation = true         -- показувати асиміляцію (незалежно від Subass Notes)
+local always_show_next = true          -- завжди показувати наступну репліку (навіть у прогалинах)
+local fill_gaps = false                  -- показувати найближчий регіон/ітем між об'єктами
 local show_tooltips = true              -- показувати підказки
 local tooltip_delay = 0.5
 local tooltip_state = {}
@@ -122,8 +100,6 @@ local last_window_click = 0
 
 reaper.gmem_attach("SubassSync") -- Shared memory for lightning-fast sync
 
-
-
 local flags = {
     NoTitle = false,
     NoResize = false,
@@ -133,14 +109,12 @@ local flags = {
     NoMove = false
 }
 
-
-
 -- ==========================
 -- БЛОК ФУНКЦІЙ
 -- ==========================
 
 -- Зберігаємо/завантажуємо налаштування
-local SETTINGS_SECTION = "LionzzSubOverlay"
+local SETTINGS_SECTION = "LionzzSubOverlaySubass"
 
 -- ==========================
 -- TEXT PROCESSING HELPERS
@@ -262,8 +236,9 @@ local assimilation_rules = {
     {"нтст", "нст"}, {"стськ", "сськ"}, {"нтськ", "нськ"}, {"стс", "сс"}, {"тс", "ц"}
 }
 
-local function apply_assimilation_recursive(text)
-    if text == "" then return "" end
+local function apply_assimilation_recursive(text, offset)
+    offset = offset or 0
+    if text == "" then return "", {} end
     local l_text = utf8_lower(text)
     local best_pos, best_rule = nil, nil
     
@@ -290,9 +265,18 @@ local function apply_assimilation_recursive(text)
             replacement = utf8_capitalize(replacement)
         end
         
-        return before .. replacement .. apply_assimilation_recursive(remainder)
+        local current_ranges = { {start_idx = offset + #before + 1, stop_idx = offset + #before + #replacement} }
+        
+        local final_remainder, remainder_ranges = apply_assimilation_recursive(remainder, offset + #before + #replacement)
+        
+        -- Merge ranges
+        for _, rg in ipairs(remainder_ranges) do
+            table.insert(current_ranges, rg)
+        end
+        
+        return before .. replacement .. final_remainder, current_ranges
     else
-        return text
+        return text, {}
     end
 end
 
@@ -358,11 +342,15 @@ local function parse_to_tokens(text)
                 end
                 
                 -- Parse supported tags: \b1, \b0, \i1, \u1, \s1
-                for tag in content:gmatch("\\[bius]%d") do
-                    local t = tag:sub(2,2)
-                    local v = (tag:sub(3,3) == "1")
+                -- Parse supported tags: \b1, \b0, \i1, \i0, \u1, \u0, \s1, \s0
+                -- Also handle case-insensitive and tags without digits (defaults to 1)
+                for tag in content:gmatch("\\[bius]%d?") do
+                    local t = tag:sub(2,2):lower()
+                    local val_str = tag:sub(3,3)
+                    local v = (val_str == "" or val_str == "1")
                     if t == "b" then state.b = v
-                    elseif t == "i" then state.i = v
+                    elseif t == "i" then 
+                        state.i = v 
                     elseif t == "u" then state.u = v
                     elseif t == "s" then state.s = v
                     end
@@ -425,7 +413,9 @@ end
 local function process_assimilation_tokens(tokens)
     for _, tok in ipairs(tokens) do
         if not tok.is_newline then
-            tok.text = apply_assimilation_recursive(tok.text)
+            local new_text, ranges = apply_assimilation_recursive(tok.text)
+            tok.text = new_text
+            tok.assimilation_ranges = ranges
         end
     end
     return tokens
@@ -486,8 +476,8 @@ local function load_settings()
     current_font_index = tonumber(reaper.GetExtState(SETTINGS_SECTION, "current_font_index")) or 1
     font_scale = tonumber(reaper.GetExtState(SETTINGS_SECTION, "font_scale")) or 30
     second_font_index = tonumber(reaper.GetExtState(SETTINGS_SECTION, "second_font_index")) or 1
-    second_font_scale = tonumber(reaper.GetExtState(SETTINGS_SECTION, "second_font_scale")) or 30
-    next_region_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "next_region_offset")) or 40
+    second_font_scale = tonumber(reaper.GetExtState(SETTINGS_SECTION, "second_font_scale")) or 22
+    next_region_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "next_region_offset")) or 30
     local txt_col = reaper.GetExtState(SETTINGS_SECTION, "text_color")
     if txt_col ~= "" then text_color = tonumber(txt_col,16) or text_color end
     local shd_col = reaper.GetExtState(SETTINGS_SECTION, "shadow_color")
@@ -501,17 +491,17 @@ local function load_settings()
     border = (reaper.GetExtState(SETTINGS_SECTION, "border") == "true")
     enable_wrap = (reaper.GetExtState(SETTINGS_SECTION, "enable_wrap") ~= "false")
     wrap_margin = tonumber(reaper.GetExtState(SETTINGS_SECTION, "wrap_margin")) or 0
-    enable_second_line = (reaper.GetExtState(SETTINGS_SECTION, "enable_second_line") == "true")
+    enable_second_line = (reaper.GetExtState(SETTINGS_SECTION, "enable_second_line") ~= "false")
     show_progress = (reaper.GetExtState(SETTINGS_SECTION, "show_progress") == "true")
     progress_width = tonumber(reaper.GetExtState(SETTINGS_SECTION, "progress_width")) or 400
     progress_height = tonumber(reaper.GetExtState(SETTINGS_SECTION, "progress_height")) or 4
     progress_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "progress_offset")) or 20
     align_center = (reaper.GetExtState(SETTINGS_SECTION, "align_center") ~= "false")
     align_vertical = (reaper.GetExtState(SETTINGS_SECTION, "align_vertical") == "true")
-    align_bottom = (reaper.GetExtState(SETTINGS_SECTION, "align_bottom") == "true")
-    show_assimilation = (reaper.GetExtState(SETTINGS_SECTION, "show_assimilation") == "true")
-    always_show_next = (reaper.GetExtState(SETTINGS_SECTION, "always_show_next") == "true")
-    fill_gaps = (reaper.GetExtState(SETTINGS_SECTION, "fill_gaps") ~= "false")
+    align_bottom = (reaper.GetExtState(SETTINGS_SECTION, "align_bottom") ~= "false")
+    show_assimilation = (reaper.GetExtState(SETTINGS_SECTION, "show_assimilation") ~= "false")
+    always_show_next = (reaper.GetExtState(SETTINGS_SECTION, "always_show_next") ~= "false")
+    fill_gaps = (reaper.GetExtState(SETTINGS_SECTION, "fill_gaps") == "true")
     show_tooltips = (reaper.GetExtState(SETTINGS_SECTION, "show_tooltips") ~= "false")
     attach_to_video = (reaper.GetExtState(SETTINGS_SECTION, "attach_to_video") == "true")
     attach_bottom = (reaper.GetExtState(SETTINGS_SECTION, "attach_bottom") == "true")
@@ -738,16 +728,17 @@ local function draw_context_menu()
         if enable_second_line then
             if reaper.ImGui_BeginCombo(ctx, "шрифт 2", available_fonts[second_font_index]) then
                 for i, name in ipairs(available_fonts) do
-                    if reaper.ImGui_Selectable(ctx, name, i == second_font_index) then
-                        second_font_index = i
-                        changes = 1
-                    end
+                if reaper.ImGui_Selectable(ctx, name, i == second_font_index) then
+                    second_font_index = i
+                    changes = 1
+                end
                 end
                 reaper.ImGui_EndCombo(ctx)
             end
             second_font_scale   = add_change(reaper.ImGui_SliderInt(ctx, "масштаб 2", second_font_scale, 10, 100))
             next_region_offset  = add_change(reaper.ImGui_SliderInt(ctx, "відступ 2", next_region_offset, 0, 200))
             second_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір 2", second_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            second_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь 2", second_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         end
 
         fill_gaps             = add_change(reaper.ImGui_Checkbox(ctx, "Заповнювати прогалини", fill_gaps))
@@ -762,6 +753,7 @@ local function draw_context_menu()
         
         show_tooltips   = add_change(reaper.ImGui_Checkbox(ctx, "Підказки", show_tooltips))
         tooltip("Увімкнує відображення спливаючих підказок")
+
         -- Зберігаємо налаштування, якщо були зміни
         if changes > 0 then save_settings() end
 
@@ -777,12 +769,28 @@ local function draw_context_menu()
     end
 end
 
+-- Helper function to draw wavy line (for assimilation)
+local function draw_wavy_line(draw_list, x, y, width, color, step, amplitude)
+    if width <= 0 then return end
+    step = step or 3 -- Frequency of the wave
+    amplitude = amplitude or 1.3
+    local cur_x = x
+    local up = true
+    while cur_x < x + width do
+        local next_x = math.min(cur_x + step, x + width)
+        local y1 = y + (up and amplitude or -amplitude)
+        local y2 = y + (up and -amplitude or amplitude)
+        reaper.ImGui_DrawList_AddLine(draw_list, cur_x, y1, next_x, y2, color, 1.2)
+        cur_x = next_x
+        up = not up
+    end
+end
+
 -- Helper function to calculate actual line count including wrapping
 local function calculate_line_count(tokens, font_index, font_scale, win_w)
     if #tokens == 0 then return 1 end
     
     local font_main = font_objects[font_index] or font_objects[1]
-    local font_italic = italic_font_objects[font_index] or italic_font_objects[1]
     
     reaper.ImGui_PushFont(ctx, font_main, font_scale)
     
@@ -796,9 +804,7 @@ local function calculate_line_count(tokens, font_index, font_scale, win_w)
             line_count = line_count + 1
             current_line_width = 0
         else
-            if tok.i then reaper.ImGui_PushFont(ctx, font_italic, font_scale) end
             local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
-            if tok.i then reaper.ImGui_PopFont(ctx) end
             
             if enable_wrap and current_line_width + w > max_width and current_line_width > 0 then
                 line_count = line_count + 1
@@ -816,7 +822,6 @@ end
 -- Функція відображення токенів
 local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shadow_color, win_w, is_next_line)
     local font_main = font_objects[font_index] or font_objects[1]
-    local font_italic = italic_font_objects[font_index] or italic_font_objects[1]
 
     -- We push Main font as default
     reaper.ImGui_PushFont(ctx, font_main, font_scale)
@@ -834,9 +839,10 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
             current_line_width = 0
         else
             -- Measure with correct font
-            if tok.i then reaper.ImGui_PushFont(ctx, font_italic, font_scale) end
             local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
-            if tok.i then reaper.ImGui_PopFont(ctx) end
+            if tok.i then
+                w = w + (font_scale * 0.2)
+            end
 
             local space_w = space_w_main -- Simplify: use main font space width to avoid constant switching for spaces
             
@@ -859,9 +865,7 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
         -- Measure line total width for centering
         local line_total_w = 0
         for i, tok in ipairs(line) do
-            if tok.i then reaper.ImGui_PushFont(ctx, font_italic, font_scale) end
             local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
-            if tok.i then reaper.ImGui_PopFont(ctx) end
             
             line_total_w = line_total_w + w
             if i < #line then line_total_w = line_total_w + space_w_main end
@@ -893,9 +897,7 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
 
             for i, tok in ipairs(line) do
                 -- Measure (again, needed for positioning)
-                if tok.i then reaper.ImGui_PushFont(ctx, font_italic, font_scale) end
                 local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
-                if tok.i then reaper.ImGui_PopFont(ctx) end
 
                 -- 1. Interaction (Invisible Button)
                 -- Use line index + token index for unique ID
@@ -942,25 +944,23 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                     end
                 end
 
-                -- 2. Draw Text (Shadow + Main)
-                -- Push font for rendering if italic
-                if tok.i then reaper.ImGui_PushFont(ctx, font_italic, font_scale) end
+                -- 2. Draw Text (Shadow + Main + Bold)
+                local function draw_text_inner(x, y, color)
+                    reaper.ImGui_DrawList_AddText(draw_list, x, y, color, tok.text)
+                end
 
-                reaper.ImGui_SetCursorScreenPos(ctx, temp_x + shadow_offset, line_base_y + shadow_offset)
-                reaper.ImGui_TextColored(ctx, shadow_color, tok.text)
+                draw_text_inner(temp_x + shadow_offset, line_base_y + shadow_offset, shadow_color)
+                draw_text_inner(temp_x, line_base_y, text_color)
                 
-                reaper.ImGui_SetCursorScreenPos(ctx, temp_x, line_base_y)
-                reaper.ImGui_TextColored(ctx, text_color, tok.text)
-
-                if tok.i then reaper.ImGui_PopFont(ctx) end -- POP ITALIC
-
-                -- BOLD Simulation (Needs to re-push font if Italic for correct offset drawing?) 
-                -- Ideally Bold + Italic needs BOTH. But simple simulation: just draw offset.
+                -- BOLD Simulation
                 if tok.b then
-                     if tok.i then reaper.ImGui_PushFont(ctx, font_italic, font_scale) end
-                    reaper.ImGui_SetCursorScreenPos(ctx, temp_x + 1, line_base_y)
-                    reaper.ImGui_TextColored(ctx, text_color, tok.text)
-                     if tok.i then reaper.ImGui_PopFont(ctx) end
+                    draw_text_inner(temp_x + 1, line_base_y, text_color)
+                end
+
+                -- ITALIC (Wavy Underline) - Less intense wave
+                if tok.i then
+                    local wave_y = line_base_y + line_h - 2
+                    draw_wavy_line(draw_list, temp_x, wave_y, w, text_color, 8, 2.0)
                 end
 
                 -- UNDERLINE
@@ -971,8 +971,22 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
 
                 -- STRIKEOUT
                 if tok.s then
-                    local s_y = line_base_y + (line_h / 2)
-                    reaper.ImGui_DrawList_AddLine(draw_list, temp_x, s_y, temp_x + w, s_y, text_color, 1.0)
+                    local st_y = line_base_y + line_h / 2
+                    reaper.ImGui_DrawList_AddLine(draw_list, temp_x, st_y, temp_x + w, st_y, text_color, 1.2)
+                end
+
+                -- ASSIMILATION WAVY UNDERLINE
+                if show_assimilation and tok.assimilation_ranges and #tok.assimilation_ranges > 0 then
+                    for _, rg in ipairs(tok.assimilation_ranges) do
+                        local before_text = tok.text:sub(1, rg.start_idx - 1)
+                        local match_text = tok.text:sub(rg.start_idx, rg.stop_idx)
+                        local offset_w, _ = reaper.ImGui_CalcTextSize(ctx, before_text)
+                        local match_w, _ = reaper.ImGui_CalcTextSize(ctx, match_text)
+                        
+                        -- No additional slant offset needed for waves now
+                        local wave_y = line_base_y + line_h - 2
+                        draw_wavy_line(draw_list, temp_x + offset_w, wave_y, match_w, text_color, 3, 1.3)
+                    end
                 end
 
                 -- 3. Draw Comment Dash
@@ -1435,7 +1449,7 @@ local function loop()
         if #current_tokens > 0 or (#next_tokens > 0 and enable_second_line) then
             local max_iterations = 50 -- збільшено для більш агресивного масштабування
             local iteration = 0
-            local min_scale = 6 -- зменшено мінімальний розмір
+            local min_scale = 6
             
             while iteration < max_iterations and actual_font_scale > min_scale do
                 -- Розраховуємо загальну висоту з поточними масштабами
@@ -1455,8 +1469,8 @@ local function loop()
                     total_height = total_height + progress_offset + progress_height
                 end
                 
-                -- Другий рядок
-                if enable_second_line and #next_tokens > 0 then
+                -- Другий рядок - завжди резервуємо місце якщо увімкнено
+                if enable_second_line then
                     reaper.ImGui_PushFont(ctx, font_objects[second_font_index] or font_objects[1], actual_second_font_scale)
                     local second_line_h = reaper.ImGui_GetTextLineHeight(ctx)
                     reaper.ImGui_PopFont(ctx)
@@ -1494,7 +1508,7 @@ local function loop()
                 total_height = total_height + progress_offset + progress_height
             end
             
-            -- Висота другого рядка (якщо увімкнено)
+            -- Висота другого рядка - завжди враховуємо для стабільності
             if enable_second_line then
                 reaper.ImGui_PushFont(ctx, font_objects[second_font_index] or font_objects[1], actual_second_font_scale)
                 local second_line_h = reaper.ImGui_GetTextLineHeight(ctx)
@@ -1517,7 +1531,7 @@ local function loop()
         end
         
         -- відображення тексту (використовуємо auto-scaled значення)
-        draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, text_color, shadow_color, win_w, false) -- перший рядок
+            draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, text_color, shadow_color, win_w, false) -- перший рядок
 
         -- прогресс-бар
         if show_progress then
@@ -1536,10 +1550,24 @@ local function loop()
             end
         end
 
-        if enable_second_line then -- перевірка на увімкнення другого рядка
-            local cur_y = reaper.ImGui_GetCursorPosY(ctx)
-            reaper.ImGui_SetCursorPosY(ctx, cur_y + next_region_offset) -- відступ до другого рядка
-            draw_tokens(ctx, next_tokens, second_font_index, actual_second_font_scale, second_text_color, shadow_color, win_w, true) -- другий рядок
+        if enable_second_line then 
+            -- СТАБІЛЬНЕ ВИРІВНЮВАННЯ ПО НИЗУ
+            if align_bottom then
+                reaper.ImGui_PushFont(ctx, font_objects[second_font_index] or font_objects[1], actual_second_font_scale)
+                local second_line_h = reaper.ImGui_GetTextLineHeight(ctx)
+                reaper.ImGui_PopFont(ctx)
+                local next_line_count = calculate_line_count(next_tokens, second_font_index, actual_second_font_scale, win_w)
+                local next_total_h = second_line_h * next_line_count
+                
+                -- Фіксована позиція для другого рядка відносно низу вікна
+                local bottom_y = win_h - next_total_h - padding_y * 12
+                reaper.ImGui_SetCursorPosY(ctx, bottom_y)
+            else
+                local cur_y = reaper.ImGui_GetCursorPosY(ctx)
+                reaper.ImGui_SetCursorPosY(ctx, cur_y + next_region_offset) 
+            end
+            
+            draw_tokens(ctx, next_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true)
         end
         
         win_X, win_Y = reaper.ImGui_GetWindowPos(ctx)
