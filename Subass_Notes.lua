@@ -9776,9 +9776,21 @@ end
 -- --- Main Loop ---
 reaper.gmem_attach("SubassSync")
 
+local function focus_plugin_window()
+    if reaper.JS_Window_Find then
+        local hwnd = reaper.JS_Window_Find(script_title, true)
+        if hwnd then
+            reaper.JS_Window_SetFocus(hwnd)
+        end
+    end
+end
+
 local function handle_remote_commands()
     local cmd_id = reaper.gmem_read(0)
     if cmd_id == 0 then return end
+    
+    -- Focus window when any command received
+    focus_plugin_window()
     
     -- Clear command immediately
     reaper.gmem_write(0, 0)
@@ -9832,7 +9844,13 @@ local function handle_remote_commands()
         end
     elseif cmd_id == 2 then -- DICT
         local word = reaper.GetExtState("SubassSync", "WORD")
-        if word ~= "" then trigger_dictionary_lookup(word) end
+        if word ~= "" then
+            trigger_dictionary_lookup(word)
+
+            if text_editor_active then
+                show_snackbar("Потрібно закрити редактор, аби побачити ГОРОХ", "error")
+            end
+        end
     elseif cmd_id == 4 then -- EDIT_SPECIFIC (with exact times)
         local t1 = reaper.gmem_read(1)
         local t2 = reaper.gmem_read(2)
