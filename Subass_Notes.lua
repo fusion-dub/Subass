@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 2.4
+-- @version 2.5
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v2.4"
+local script_title = "Subass Notes v2.5"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -61,9 +61,11 @@ local cfg = {
     c_cr = get_set("c_cr", 1.0),
     c_cg = get_set("c_cg", 0.3),
     c_cb = get_set("c_cb", 0.3),
+    reader_mode = (get_set("reader_mode", "0") == "1" or get_set("reader_mode", 0) == 1),
 
     auto_startup = (get_set("auto_startup", "0") == "1" or get_set("auto_startup", 0) == 1),
 
+    col_table_index = (get_set("col_table_index", "1") == "1" or get_set("col_table_index", 1) == 1),
     col_table_start = (get_set("col_table_start", "1") == "1" or get_set("col_table_start", 1) == 1),
     col_table_end = (get_set("col_table_end", "1") == "1" or get_set("col_table_end", 1) == 1),
     col_table_cps = (get_set("col_table_cps", "1") == "1" or get_set("col_table_cps", 1) == 1),
@@ -111,7 +113,8 @@ local F = {
     dict_std_sm = 7, -- 16px
     dict_bld_sm = 8, -- 16px
     tip = 9, -- 12px
-    cor = 10 -- Corrections font
+    cor = 10, -- Corrections font
+    table_reader = 11 -- Dedicated slot for table scaling
 }
 
 -- Prompter Rendering Cache (moved to global for invalidation on font change)
@@ -141,6 +144,9 @@ local function update_prompter_fonts()
     
     -- Tooltip / Small Font
     gfx.setfont(F.tip, "Arial", S(12))
+
+    -- Reader Mode Table Font
+    gfx.setfont(F.table_reader, cfg.p_font, S(20))
 
     -- Force re-measuring of text layout by clearing cache
     if draw_prompter_cache then
@@ -206,7 +212,8 @@ local table_filter_state = {
 
 -- Table Sort State
 local table_sort = { col = "start", dir = 1 }
-
+local table_layout_cache = {} -- Stores {y, h} for each row
+local last_layout_state = { w = 0, count = 0, mode = nil, filter = "", sort_col = "", sort_dir = 0, gui_scale = 0 }
 local table_selection = {} -- { [row_index] = true }
 local last_selected_row = nil -- for Shift range selection
 
@@ -556,10 +563,12 @@ local function save_settings()
     reaper.SetExtState(section_name, "p_drawer_left", cfg.p_drawer_left and "1" or "0", true)
     reaper.SetExtState(section_name, "prompter_drawer_width", tostring(prompter_drawer.width), true)
 
+    reaper.SetExtState(section_name, "col_table_index", cfg.col_table_index and "1" or "0", true)
     reaper.SetExtState(section_name, "col_table_start", cfg.col_table_start and "1" or "0", true)
     reaper.SetExtState(section_name, "col_table_end", cfg.col_table_end and "1" or "0", true)
     reaper.SetExtState(section_name, "col_table_cps", cfg.col_table_cps and "1" or "0", true)
     reaper.SetExtState(section_name, "col_table_actor", cfg.col_table_actor and "1" or "0", true)
+    reaper.SetExtState(section_name, "reader_mode", cfg.reader_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "gui_scale", tostring(cfg.gui_scale), true)
 
     update_prompter_fonts()
@@ -6181,7 +6190,7 @@ local function draw_file()
     
      local diff = target_scroll_y - scroll_y
     if math.abs(diff) > 0.5 then
-        scroll_y = scroll_y + (diff * 0.2)
+        scroll_y = scroll_y + (diff * 0.8)
     else
         scroll_y = target_scroll_y
     end
@@ -8866,7 +8875,7 @@ local function draw_settings()
     -- Smoothly interpolate
     local diff = target_scroll_y - scroll_y
     if math.abs(diff) > 0.5 then
-        scroll_y = scroll_y + (diff * 0.2)
+        scroll_y = scroll_y + (diff * 0.8)
     else
         scroll_y = target_scroll_y
     end
@@ -9532,11 +9541,57 @@ local function get_sort_value(item, col, is_ass)
     return 0
 end
 
+-- Helper for manual text wrapping with character fallback
+local function wrap_text_manual(text, max_w)
+    local lines = {}
+    local words = {}
+    local display_txt = text:gsub("[\n\r]", " ")
+    for word in display_txt:gmatch("%S+") do table.insert(words, word) end
+    if #words == 0 and #display_txt > 0 then words = {display_txt} end
+    
+    local current_line = ""
+    for _, word in ipairs(words) do
+        local test = current_line == "" and word or current_line .. " " .. word
+        if gfx.measurestr(test) <= max_w then
+            current_line = test
+        else
+            if current_line ~= "" then table.insert(lines, current_line) end
+            
+            -- If single word is still too long, character wrap it
+            if gfx.measurestr(word) > max_w then
+                local partial = ""
+                local word_len = utf8.len(word) or #word
+                for j = 1, word_len do
+                    local char_start = utf8.offset(word, j)
+                    local char_end = (utf8.offset(word, j+1) or #word+1) - 1
+                    local char = word:sub(char_start, char_end)
+                    
+                    if gfx.measurestr(partial .. char) > max_w then
+                        if partial ~= "" then table.insert(lines, partial) end
+                        partial = char
+                    else
+                        partial = partial .. char
+                    end
+                end
+                current_line = partial
+            else
+                current_line = word
+            end
+        end
+    end
+    if current_line ~= "" then table.insert(lines, current_line) end
+    return lines
+end
+
 -- =============================================================================
 -- UI: TABLE TAB (SUBTITLE EDITOR)
 -- =============================================================================
 
 local last_table_h = 0
+local target_scroll_y = 0
+local scroll_y = 0
+local last_auto_scroll_idx = nil
+
 local function draw_table(input_queue)
     local show_actor = ass_file_loaded
     local start_y = S(65)
@@ -9555,10 +9610,15 @@ local function draw_table(input_queue)
         return false
     end
 
-    local h_header = S(25)
-    local row_h = S(24)
-    
+    local h_header = cfg.reader_mode and 0 or S(25)
+    local row_h = cfg.reader_mode and S(80) or S(24)
+
+    -- DO NOT modify F.std/F.bld globally
+    -- Table Specific Font
+    gfx.setfont(F.table_reader, cfg.p_font, cfg.reader_mode and S(20) or S(16))
+
     -- --- FILTER INPUT ---
+    gfx.setfont(F.std) -- Use the (possibly locally scaled) standard font for global elements
     local filter_y = S(35)
     local filter_h = S(25)
     local filter_x = S(10)
@@ -9604,20 +9664,28 @@ local function draw_table(input_queue)
                 col_vis_menu.show = false
                 time_shift_menu.show = false
             else
-                local any_hidden = not (cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
-                local col_label = "Колонки..."
-                if any_hidden then col_label = "• Колонки..." end
+                local any_hidden = not (cfg.col_table_index and cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
+                local col_label = (any_hidden and "• " or "") .. "Колонки..."
+                local reader_label = (cfg.reader_mode and "• " or "") .. "Режим читача"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. col_label .. "|Здвиг часу"
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     find_replace_state.show = true
                 elseif ret == 2 then
+                    cfg.reader_mode = not cfg.reader_mode
+                    if cfg.reader_mode then
+                        table_sort.col = "start"
+                        table_sort.dir = 1
+                    end
+                    save_settings()
+                    update_prompter_fonts()
+                elseif ret == 3 then
                     col_vis_menu.show = true
                     col_vis_menu.x = (btn_x + opt_btn_w) - S(180)
                     col_vis_menu.y = filter_y + filter_h + gap
-                elseif ret == 3 then
+                elseif ret == 4 then
                     time_shift_menu.show = true
                     time_shift_menu.x = (btn_x + opt_btn_w) - S(280)
                     time_shift_menu.y = filter_y + filter_h + gap
@@ -9626,7 +9694,7 @@ local function draw_table(input_queue)
         end
 
         -- Red Dot indicator for hidden columns
-        local any_hidden = not (cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
+        local any_hidden = cfg.reader_mode or not (cfg.col_table_index and cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
         if any_hidden then
             set_color({1, 0, 0, 1}) -- Red
             gfx.circle(btn_x + opt_btn_w - 4, filter_y + 4, 3, 1)
@@ -9786,15 +9854,18 @@ local function draw_table(input_queue)
                         table_selection[item.index or new_idx] = true
                         last_selected_row = new_idx
                         
-                        -- Auto-Scroll
-                        local row_h = 24
-                        local item_y = (new_idx - 1) * row_h
-                        local view_h = gfx.h - 110 -- approx start_y + footer
-                        
-                        if item_y < target_scroll_y then
-                            target_scroll_y = item_y
-                        elseif item_y + row_h > target_scroll_y + view_h then
-                            target_scroll_y = item_y + row_h - view_h
+                        -- Auto-Scroll (Dynamic)
+                        local layout = table_layout_cache[new_idx]
+                        if layout then
+                            local item_y = layout.y
+                            local row_h_local = layout.h
+                            local view_h = gfx.h - S(110) -- Approximate available height
+                            
+                            if item_y < target_scroll_y then
+                                target_scroll_y = item_y
+                            elseif item_y + row_h_local > target_scroll_y + view_h then
+                                target_scroll_y = item_y + row_h_local - view_h
+                            end
                         end
                     end
                 end
@@ -9860,7 +9931,13 @@ local function draw_table(input_queue)
         
         table.sort(temp, function(a, b)
             if a.val == b.val then
-                -- Stable sort fallback to index
+                -- Stable sort fallback
+                if (table_sort.col == "Ак." or table_sort.col == "enabled") then
+                    local t1_a = a.item.t1 or a.item.pos or 0
+                    local t1_b = b.item.t1 or b.item.pos or 0
+                    if t1_a ~= t1_b then return t1_a < t1_b end
+                end
+                
                 local idx_a = a.item.index or 0
                 local idx_b = b.item.index or 0
                 return idx_a < idx_b
@@ -9878,8 +9955,6 @@ local function draw_table(input_queue)
         end
     end
 
-    local row_count = #data_source
-    
     -- Column layout: Build x_off based on visible columns only
     local x_off = {S(10)} -- Always starts with 10 for first column
     local col_keys = {}
@@ -9889,20 +9964,58 @@ local function draw_table(input_queue)
     end
 
     -- Checkbox(25), #(35), Start(75), End(73), CPS(55), Actor(100)
-    add_col(S(cfg.col_w_enabled), "col_w_enabled") -- #
-    add_col(S(cfg.col_w_index), "col_w_index") -- #
-    if cfg.col_table_start then add_col(S(cfg.col_w_start), "col_w_start") end
-    if cfg.col_table_end then add_col(S(cfg.col_w_end), "col_w_end") end
-    if cfg.col_table_cps then add_col(S(cfg.col_w_cps), "col_w_cps") end
-    if cfg.col_table_actor then add_col(S(cfg.col_w_actor), "col_w_actor") end
-    -- Text column starts at x_off[#x_off] and takes remaining width
-    
-    -- Header will be drawn at the end to stay on top
-    
+    if not cfg.reader_mode then
+        add_col(S(cfg.col_w_enabled), "col_w_enabled") -- Ak.
+        if cfg.col_table_index then add_col(S(cfg.col_w_index), "col_w_index") end -- #
+        if cfg.col_table_start then add_col(S(cfg.col_w_start), "col_w_start") end
+        if cfg.col_table_end then add_col(S(cfg.col_w_end), "col_w_end") end
+        if cfg.col_table_cps then add_col(S(cfg.col_w_cps), "col_w_cps") end
+        if cfg.col_table_actor then add_col(S(cfg.col_w_actor), "col_w_actor") end
+    end
+
+    -- Calculate Layout Cache (Required for Dynamic Heights in Reader Mode)
+    local layout_changed = (last_layout_state.w ~= gfx.w or 
+                            last_layout_state.count ~= #raw_data or 
+                            last_layout_state.mode ~= cfg.reader_mode or
+                            last_layout_state.filter ~= table_filter_state.text or
+                            last_layout_state.sort_col ~= table_sort.col or
+                            last_layout_state.sort_dir ~= table_sort.dir or
+                            last_layout_state.gui_scale ~= cfg.gui_scale)
+
+    if layout_changed then
+        table_layout_cache = {}
+        local current_y_offset = 0
+        local min_row_h = cfg.reader_mode and S(60) or S(24)
+        local padding_v = cfg.reader_mode and 20 or 8
+        
+        -- Calculate height for each row using the already prepared data_source
+        local content_x_start = x_off[#x_off] or S(10)
+        local max_w = gfx.w - content_x_start - 30 -- padding + scrollbar
+        
+        gfx.setfont(F.table_reader)
+        local line_h = gfx.texth
+
+        for i, line in ipairs(data_source) do
+            local h = min_row_h
+            if cfg.reader_mode then
+                local display_txt = (line.text or ""):gsub("[\n\r]", " ")
+                local wrapped_lines = wrap_text_manual(display_txt, max_w)
+                h = math.max(min_row_h, #wrapped_lines * line_h + padding_v)
+            end
+            table.insert(table_layout_cache, {y = current_y_offset, h = h})
+            current_y_offset = current_y_offset + h
+        end
+        
+        last_layout_state = {
+            w = gfx.w, count = #raw_data, mode = cfg.reader_mode, 
+            filter = table_filter_state.text, sort_col = table_sort.col, 
+            sort_dir = table_sort.dir, gui_scale = cfg.gui_scale
+        }
+    end
+
+    local total_h = #table_layout_cache > 0 and (table_layout_cache[#table_layout_cache].y + table_layout_cache[#table_layout_cache].h) or 0
     local content_y = start_y + h_header
     local avail_h = gfx.h - content_y
-    
-    local total_h = row_count * row_h
     local max_scroll = math.max(0, total_h - avail_h)
     
     -- Auto-scroll to current playback position (only when position changes)
@@ -9910,26 +10023,30 @@ local function draw_table(input_queue)
     local edit_pos = reaper.GetCursorPosition()
     local current_pos = reaper.GetPlayState() > 0 and play_pos or edit_pos
     
-    -- Only auto-scroll if position changed significantly (user jumped) AND not skipped
+    -- Only auto-scroll if position changed significantly (user jumped) OR line changed
     local pos_changed = math.abs(current_pos - last_tracked_pos) > 0.5
     
-    if pos_changed and not skip_auto_scroll then
-        last_tracked_pos = current_pos
-        
-        -- Find which line corresponds to current position
-        local current_line_idx = nil
-        for i, line in ipairs(data_source) do
-            if current_pos >= line.t1 and current_pos < line.t2 then
-                current_line_idx = i
-                break
-            end
+    -- Find which line corresponds to current position
+    local active_line_idx = nil
+    for i, line in ipairs(data_source) do
+        if current_pos >= line.t1 and current_pos < line.t2 then
+            active_line_idx = i
+            break
         end
+    end
+
+    -- Trigger auto-scroll if:
+    -- 1. Playhead jumped significantly (>0.5s)
+    -- 2. OR the active line index changed (progression)
+    local line_changed = (active_line_idx ~= last_auto_scroll_idx)
+    if (pos_changed or line_changed) and not skip_auto_scroll then
+        last_tracked_pos = current_pos
+        last_auto_scroll_idx = active_line_idx
         
-        -- Always center current line when position changes
-        if current_line_idx then
-            local line_y = (current_line_idx - 1) * row_h
+        if active_line_idx and table_layout_cache[active_line_idx] then
+            local layout = table_layout_cache[active_line_idx]
             -- Center the line
-            target_scroll_y = math.max(0, math.min(max_scroll, line_y - avail_h / 2))
+            target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
         end
     end
     
@@ -9943,22 +10060,43 @@ local function draw_table(input_queue)
 
     local diff = target_scroll_y - scroll_y
     if math.abs(diff) > 0.5 then
-        scroll_y = scroll_y + (diff * 0.2)
+        scroll_y = scroll_y + (diff * 0.8)
     else
         scroll_y = target_scroll_y
     end
 
+    -- Prepare Buffer 98 for Rows (Clipping)
+    local prev_dest = gfx.dest
+    gfx.dest = 98
+    gfx.setimgdim(98, gfx.w, math.max(1, avail_h))
+    set_color(UI.C_BG)
+    gfx.rect(0, 0, gfx.w, avail_h, 1)
+
     -- Draw Rows
-    local start_idx = math.floor(scroll_y / row_h) + 1
-    local visible_rows = math.ceil(avail_h / row_h) + 1
+    -- Find starting index based on scroll_y and layout cache
+    local start_idx = 1
+    for i, layout in ipairs(table_layout_cache) do
+        if layout.y + layout.h > scroll_y then
+            start_idx = i
+            break
+        end
+    end
     
-    for i = start_idx, math.min(row_count, start_idx + visible_rows) do
-        local y_rel = (i-1) * row_h
-        local screen_y = content_y + y_rel - math.floor(scroll_y)
+    for i = start_idx, #data_source do
+        local layout = table_layout_cache[i]
+        if not layout then break end
+        
+        local screen_y = content_y + (layout.y - scroll_y)
+        local row_h_dynamic = layout.h
+        
+        -- Stop if we are below visible area
+        if screen_y > content_y + avail_h then break end
+        
+        local buf_y = layout.y - scroll_y
 
         -- zebra
         if i % 2 == 0 then set_color(UI.C_ROW) else set_color(UI.C_ROW_ALT) end
-        gfx.rect(0, screen_y, gfx.w, row_h, 1)
+        gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
         
         -- ASS mode: show all lines with checkbox
         local line = data_source[i]
@@ -9977,56 +10115,71 @@ local function draw_table(input_queue)
             
             if is_selected then
                 set_color({0.1, 0.35, 0.2}) -- Darker Green Selection
-                gfx.rect(0, screen_y, gfx.w, row_h, 1)
+                gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
             end
             
             if is_active_row then
                 set_color({0.2, 0.9, 0.2}) -- Bright Green Border
-                gfx.rect(0, screen_y, 5, row_h, 1)
+                gfx.rect(0, buf_y, 5, row_h_dynamic, 1)
             end
             
-            -- Checkbox column
             local chk_sz = S(16)
             local chk_x = x_off[1]
-            local chk_y = screen_y + (row_h - chk_sz)/2
-            
-            set_color({0.5, 0.5, 0.5})
-            gfx.rect(chk_x, chk_y, chk_sz, chk_sz, 0)
-            
-            if is_enabled then
-                set_color(UI.C_TXT)
-                -- Checkmark
-                gfx.line(chk_x + S(3), chk_y + S(8), chk_x + S(7), chk_y + S(12))
-                gfx.line(chk_x + S(4), chk_y + S(8), chk_x + S(8), chk_y + S(12))
-                gfx.line(chk_x + S(7), chk_y + S(12), chk_x + S(13), chk_y + S(4))
-                gfx.line(chk_x + S(8), chk_y + S(12), chk_x + S(14), chk_y + S(4))
+            if not cfg.reader_mode then
+                -- Checkbox column
+                local chk_y = buf_y + (row_h_dynamic - chk_sz)/2
+                
+                set_color({0.5, 0.5, 0.5})
+                gfx.rect(chk_x, chk_y, chk_sz, chk_sz, 0)
+                
+                if line.enabled ~= false then
+                    set_color(UI.C_TXT)
+                    -- Checkmark
+                    gfx.line(chk_x + S(3), chk_y + S(8), chk_x + S(7), chk_y + S(12))
+                    gfx.line(chk_x + S(4), chk_y + S(8), chk_x + S(8), chk_y + S(12))
+                    gfx.line(chk_x + S(7), chk_y + S(12), chk_x + S(13), chk_y + S(4))
+                    gfx.line(chk_x + S(8), chk_y + S(12), chk_x + S(14), chk_y + S(4))
+                end
             end
             
-            set_color(UI.C_TXT)
-            local y_text = screen_y + 4
+            local row_base_color = UI.C_TXT
+            if cfg.reader_mode then
+                if is_enabled then
+                    row_base_color = UI.C_TXT -- Enabled = White
+                else
+                    row_base_color = {0.5, 0.5, 0.5, 1} -- Disabled = Gray
+                end
+            end
+            set_color(row_base_color)
+            local buf_y_text = buf_y + (cfg.reader_mode and 10 or 4)
+            gfx.setfont(F.table_reader) -- Always use our dedicated slot for row content
             
             -- Use original index if possible
             -- Helper to draw truncated text in cell
-            local col_ptr = 2
+            local col_ptr = cfg.reader_mode and 1 or 2
             local function draw_cell_txt(txt, idx)
                 if not idx or not x_off[idx] then return end
                 local x = x_off[idx]
                 local next_x = x_off[idx + 1] or gfx.w
                 local w = next_x - x - S(4) -- padding
                 if w > S(5) then
-                    gfx.x = x; gfx.y = y_text
+                    gfx.x = x; gfx.y = buf_y_text
                     gfx.drawstr(fit_text_width(txt, w))
                 end
             end
 
-            draw_cell_txt(tostring(line.index or i), col_ptr); col_ptr = col_ptr + 1
+            if not cfg.reader_mode then
+                if cfg.col_table_index then
+                    draw_cell_txt(tostring(line.index or i), col_ptr); col_ptr = col_ptr + 1
+                end
 
-            if cfg.col_table_start then
-                draw_cell_txt(reaper.format_timestr(line.t1, ""), col_ptr); col_ptr = col_ptr + 1
-            end
+                if cfg.col_table_start then
+                    draw_cell_txt(reaper.format_timestr(line.t1, ""), col_ptr); col_ptr = col_ptr + 1
+                end
 
-            if cfg.col_table_end then
-                draw_cell_txt(reaper.format_timestr(line.t2, ""), col_ptr); col_ptr = col_ptr + 1
+                if cfg.col_table_end then
+                    draw_cell_txt(reaper.format_timestr(line.t2, ""), col_ptr); col_ptr = col_ptr + 1
+                end
             end
 
             -- CPS Calculation
@@ -10035,58 +10188,97 @@ local function draw_table(input_queue)
             local char_count = utf8.len(clean_text) or #clean_text
             local cps = duration > 0 and (char_count / duration) or 0
             
-            if cfg.col_table_cps then
+            if not cfg.reader_mode and cfg.col_table_cps then
                 local cps_color = get_cps_color(cps)
                 set_color(cps_color)
                 draw_cell_txt(string.format("%.1f", cps), col_ptr); col_ptr = col_ptr + 1
             end
             
-            -- Helper for highlighting
-            local function draw_highlighted_text(txt, x, y, max_w)
-                local display_txt = fit_text_width(txt, max_w)
+            -- Helper for highlighting and wrapping
+            local function draw_highlighted_text(txt, x, y, max_w, row_h_passed)
+                set_color(row_base_color)
+                local display_txt = txt:gsub("[\n\r]", " ")
                 local query = table_filter_state.text
                 
-                -- Only highlight if filter is active
-                if #query > 0 then
-                    local s_start, s_end
-                    if find_replace_state.case_sensitive then
-                        s_start, s_end = display_txt:find(query, 1, true)
-                    else
-                        s_start, s_end = utf8_find_accent_blind(display_txt, query)
-                    end
+                if not cfg.reader_mode then
+                    -- Standard Mode: Truncate and draw single line
+                    display_txt = fit_text_width(display_txt, max_w)
                     
-                    if s_start then
-                        local pre_match = display_txt:sub(1, s_start - 1)
-                        local match_str = display_txt:sub(s_start, s_end)
+                    if #query > 0 then
+                        local s_start, s_end
+                        if find_replace_state.case_sensitive then
+                            s_start, s_end = display_txt:find(query, 1, true)
+                        else
+                            s_start, s_end = utf8_find_accent_blind(display_txt, query)
+                        end
+                        if s_start then
+                            local pre_match = display_txt:sub(1, s_start - 1)
+                            local match_str = display_txt:sub(s_start, s_end)
+                            local pre_w = gfx.measurestr(pre_match)
+                            local match_w = gfx.measurestr(match_str)
+                            set_color({1, 1, 0, 0.4})
+                            gfx.rect(x + pre_w, y, match_w, gfx.texth, 1)
+                            set_color(row_base_color)
+                        end
+                    end
+                    gfx.x, gfx.y = x, y
+                    gfx.drawstr(display_txt)
+                else
+                    -- Reader Mode: Use manual wrapping helper
+                    local lines = wrap_text_manual(display_txt, max_w)
+                    
+                    -- Draw wrapped lines (Vertically Centered)
+                    local total_text_h = #lines * gfx.texth
+                    local cur_y = buf_y + (row_h_passed - total_text_h) / 2
+                    local first_match_done = false
+                    for _, line_str in ipairs(lines) do
+                        -- Use current font's height for next line
+                        local line_h = gfx.texth
+                        if cur_y + line_h > buf_y + row_h_passed then break end
                         
-                        local pre_w = gfx.measurestr(pre_match)
-                        local match_w = gfx.measurestr(match_str)
+                        if #query > 0 and not first_match_done then
+                            local s_start, s_end
+                            if find_replace_state.case_sensitive then
+                                s_start, s_end = line_str:find(query, 1, true)
+                            else
+                                s_start, s_end = utf8_find_accent_blind(line_str, query)
+                            end
+                            if s_start then
+                                local pre_match = line_str:sub(1, s_start - 1)
+                                local match_str = line_str:sub(s_start, s_end)
+                                local pre_w = gfx.measurestr(pre_match)
+                                local match_w = gfx.measurestr(match_str)
+                                set_color({1, 1, 0, 0.4})
+                                gfx.rect(x + pre_w, cur_y, match_w, line_h, 1)
+                                set_color(row_base_color)
+                                first_match_done = true 
+                            end
+                        end
                         
-                        set_color({1, 1, 0, 0.4}) -- Yellow Highlight
-                        gfx.rect(x + pre_w, y, match_w, row_h - 4, 1) -- Slightly smaller height
-                        set_color(UI.C_TXT) -- Reset to text color
+                        gfx.x, gfx.y = x, cur_y
+                        gfx.drawstr(line_str)
+                        cur_y = cur_y + line_h
                     end
                 end
-                
-                gfx.x = x; gfx.y = y; gfx.drawstr(display_txt)
             end
 
-            set_color(UI.C_TXT)
-            if cfg.col_table_actor then
-                gfx.x = x_off[col_ptr]; gfx.y = y_text; 
-                draw_highlighted_text(actor, x_off[col_ptr], y_text, x_off[col_ptr+1] - x_off[col_ptr] - 10)
+            if not cfg.reader_mode and cfg.col_table_actor then
+                gfx.x = x_off[col_ptr]; gfx.y = buf_y_text; 
+                draw_highlighted_text(actor, x_off[col_ptr], buf_y_text, x_off[col_ptr+1] - x_off[col_ptr] - 10, row_h_dynamic)
                 col_ptr = col_ptr + 1
             end
             
             local replica_text = (line.text or ""):gsub("[\n\r]", " ")
-            draw_highlighted_text(replica_text, x_off[col_ptr], y_text, gfx.w - x_off[col_ptr] - 10)
+            draw_highlighted_text(replica_text, x_off[col_ptr], buf_y_text, gfx.w - x_off[col_ptr] - 10, row_h_dynamic)
             
             -- Click logic
             -- FIX: Check bit 1 (Left Mouse) regardless of other flags
-            if (gfx.mouse_cap & 1 == 1) and (last_mouse_cap & 1 == 0) and not mouse_in_menu then
-                if gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h then
-                    -- Checkbox click?
-                    if gfx.mouse_x >= chk_x - S(5) and gfx.mouse_x <= chk_x + chk_sz + S(10) then
+            if (gfx.mouse_cap & 1 == 1) and (last_mouse_cap & 1 == 0) and not mouse_in_menu and not col_vis_menu.handled then
+                -- Safety check: click must be within both the visible content area AND the row itself
+                if gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h and
+                   gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h_dynamic then
+                    -- Checkbox click? (Only if visible)
+                    if not cfg.reader_mode and chk_x and gfx.mouse_x >= chk_x - S(5) and gfx.mouse_x <= chk_x + chk_sz + S(10) then
                         -- BULK CHECKBOX LOGIC
                         push_undo("Перемикання видимості")
                         local new_state = not is_enabled
@@ -10119,6 +10311,7 @@ local function draw_table(input_queue)
                             else
                                 table_selection[original_idx] = true
                                 last_selected_row = i -- Update anchor to current visual index
+                                last_auto_scroll_idx = i -- Sync to prevent auto-scroll jump
                             end
                         elseif is_shift and last_selected_row then
                             -- Range Selection ONLY (No navigation)
@@ -10132,14 +10325,17 @@ local function draw_table(input_queue)
                                     table_selection[d_line.index or k] = true
                                 end
                             end
+                            last_auto_scroll_idx = i -- Sync to prevent auto-scroll jump
                         else
                             -- Single Click (Standard) -> Navigate & Clear Selection
                             table_selection = {}
                             table_selection[original_idx] = true
                             last_selected_row = i 
+                            last_auto_scroll_idx = i -- Sync to prevent auto-scroll jump
                             
                             -- Navigate logic
-                             if gfx.mouse_x >= x_off[#x_off] then
+                            local replica_x_start = cfg.reader_mode and 0 or x_off[#x_off]
+                            if gfx.mouse_x >= replica_x_start then
                                 local now = reaper.time_precise()
                                 if last_click_row == i and (now - last_click_time) < 0.5 then
                                     -- Double-click on text - open custom editor
@@ -10165,8 +10361,9 @@ local function draw_table(input_queue)
                     end
                 end
             elseif (gfx.mouse_cap & 2 == 2) and (last_mouse_cap & 2 == 0) and not mouse_in_menu then
-                -- Right Click on Row
-                if gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h then
+                -- Right Click on Row (with safety check)
+                if gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h and
+                   gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h_dynamic then
                     mouse_handled = true -- Suppress global menu
                     
                     -- If right-clicked on non-selected row, select it first
@@ -10277,12 +10474,20 @@ local function draw_table(input_queue)
         ::continue::
     end
     
+    -- Blit back to screen
+    gfx.dest = prev_dest
+    gfx.blit(98, 1, 0, 0, 0, gfx.w, avail_h, 0, content_y)
+    
+    gfx.setfont(F.std) -- RESTORE standard font for menus and bars
+    
     -- Scrollbar
     target_scroll_y = draw_scrollbar(gfx.w - 10, content_y, 10, avail_h, total_h, avail_h, target_scroll_y)
     
     -- Draw Header LAST (always on top)
-    set_color({0.1, 0.1, 0.1})
-    gfx.rect(0, start_y, gfx.w, h_header, 1)
+    if not cfg.reader_mode then
+        set_color({0.1, 0.1, 0.1})
+        gfx.rect(0, start_y, gfx.w, h_header, 1)
+    end
     
     local function draw_header_cell(idx, label, x, y, col_name)
         local next_x = x_off[idx + 1] or gfx.w
@@ -10294,11 +10499,16 @@ local function draw_table(input_queue)
         -- Header cells should only draw if they have space
         if cell_w <= 0 then return end
 
-        gfx.setfont(F.bld) -- Use Bold for headers
-
+        -- Use (locally scaled) F.bld for headers
+        gfx.setfont(F.bld)
+        
         local max_text_w = cell_w - text_padding
         if table_sort.col == col_name then max_text_w = max_text_w - arrow_w end
-        local display_label = fit_text_width(label, max_text_w)
+        
+        local display_label = label
+        if not cfg.reader_mode then
+            display_label = fit_text_width(label, max_text_w)
+        end
         
         -- Hover & Click detection
         local is_hover = false
@@ -10366,7 +10576,11 @@ local function draw_table(input_queue)
         gfx.x = x + text_padding; 
         gfx.y = y + (h_header - gfx.texth) / 2; 
         
-        gfx.drawstr(display_label)
+        if cfg.reader_mode then
+            gfx.drawstr(display_label, 4, x + max_text_w, y + h_header)
+        else
+            gfx.drawstr(display_label)
+        end
         local dspt_w, dspt_h = gfx.measurestr(display_label)
         
         -- Draw vector arrow if sorted
@@ -10389,13 +10603,15 @@ local function draw_table(input_queue)
     end
 
     local col_ptr = 1
-    draw_header_cell(col_ptr, "Ак.", x_off[col_ptr], start_y, "enabled"); col_ptr = col_ptr + 1
-    draw_header_cell(col_ptr, "#", x_off[col_ptr], start_y, "index"); col_ptr = col_ptr + 1
-    if cfg.col_table_start then draw_header_cell(col_ptr, "Початок", x_off[col_ptr], start_y, "start"); col_ptr = col_ptr + 1 end
-    if cfg.col_table_end then draw_header_cell(col_ptr, "Кінець", x_off[col_ptr], start_y, "end"); col_ptr = col_ptr + 1 end
-    if cfg.col_table_cps then draw_header_cell(col_ptr, "CPS", x_off[col_ptr], start_y, "cps"); col_ptr = col_ptr + 1 end
-    if cfg.col_table_actor then draw_header_cell(col_ptr, "Актор", x_off[col_ptr], start_y, "actor"); col_ptr = col_ptr + 1 end
-    draw_header_cell(col_ptr, "Репліка", x_off[col_ptr], start_y, "text")
+    if not cfg.reader_mode then
+        draw_header_cell(col_ptr, "Ак.", x_off[col_ptr], start_y, "enabled"); col_ptr = col_ptr + 1
+        if cfg.col_table_index then draw_header_cell(col_ptr, "#", x_off[col_ptr], start_y, "index"); col_ptr = col_ptr + 1 end
+        if cfg.col_table_start then draw_header_cell(col_ptr, "Початок", x_off[col_ptr], start_y, "start"); col_ptr = col_ptr + 1 end
+        if cfg.col_table_end then draw_header_cell(col_ptr, "Кінець", x_off[col_ptr], start_y, "end"); col_ptr = col_ptr + 1 end
+        if cfg.col_table_cps then draw_header_cell(col_ptr, "CPS", x_off[col_ptr], start_y, "cps"); col_ptr = col_ptr + 1 end
+        if cfg.col_table_actor then draw_header_cell(col_ptr, "Актор", x_off[col_ptr], start_y, "actor"); col_ptr = col_ptr + 1 end
+        draw_header_cell(col_ptr, "Репліка", x_off[col_ptr], start_y, "text")
+    end
 
     -- --- COLUMN VISIBILITY FLOATING MENU ---
     if col_vis_menu.show then
@@ -10403,6 +10619,7 @@ local function draw_table(input_queue)
         local m_x, m_y = col_vis_menu.x, col_vis_menu.y
         local item_h = S(24)
         local items = {
+            {label = "#", key = "col_table_index"},
             {label = "Початок", key = "col_table_start"},
             {label = "Кінець", key = "col_table_end"},
             {label = "CPS", key = "col_table_cps"},
@@ -10416,39 +10633,58 @@ local function draw_table(input_queue)
         set_color(UI.C_BTN_H); gfx.rect(m_x, m_y, m_w, m_h, 0)
         
         for idx, item in ipairs(items) do
-            local iy = m_y + S(5) + (idx-1) * item_h
-            local hover = (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= iy and gfx.mouse_y < iy + item_h)
-            
-            if hover then
-                set_color({1, 1, 1, 0.1})
-                gfx.rect(m_x, iy, m_w, item_h, 1)
-            end
-            
-            -- Checkbox
-            local chk_sz = S(14)
-            local chk_x = m_x + S(8)
-            local chk_y = iy + (item_h - chk_sz)/2
-            set_color({0.5, 0.5, 0.5})
-            gfx.rect(chk_x, chk_y, chk_sz, chk_sz, 0)
-            
-            if cfg[item.key] then
-                set_color(UI.C_TXT)
-                gfx.line(chk_x+S(3), chk_y+S(7), chk_x+S(6), chk_y+S(10))
-                gfx.line(chk_x+S(6), chk_y+S(10), chk_x+S(11), chk_y+S(3))
-            end
-            
-            set_color(UI.C_TXT)
-            gfx.x, gfx.y = chk_x + chk_sz + S(8), iy + S(4)
-            gfx.drawstr(item.label)
-            
-            if hover and is_mouse_clicked() then
-                cfg[item.key] = not cfg[item.key]
-                reaper.SetExtState(section_name, item.key, cfg[item.key] and "1" or "0", true)
+            if item.separator then
+                set_color({0.5, 0.5, 0.5, 0.3})
+                gfx.line(m_x + S(5), m_y + S(5) + (idx-1) * item_h + item_h/2, m_x + m_w - S(5), m_y + S(5) + (idx-1) * item_h + item_h/2)
+            else
+                local iy = m_y + S(5) + (idx-1) * item_h
+                local hover = (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= iy and gfx.mouse_y < iy + item_h)
                 
-                -- Fallback sorting to # if hidden
-                if not cfg[item.key] and tostring(table_sort.col) == tostring(item.label) then
-                    table_sort.col = "#"
-                    table_sort.dir = 1
+                if hover then
+                    set_color({1, 1, 1, 0.1})
+                    gfx.rect(m_x, iy, m_w, item_h, 1)
+                end
+                
+                -- Checkbox
+                local chk_sz = S(14)
+                local chk_x = m_x + S(8)
+                local chk_y = iy + (item_h - chk_sz)/2
+                set_color({0.5, 0.5, 0.5})
+                gfx.rect(chk_x, chk_y, chk_sz, chk_sz, 0)
+                
+                if cfg[item.key] then
+                    set_color(UI.C_TXT)
+                    if item.key == "reader_mode" then
+                        gfx.circle(chk_x + chk_sz/2, chk_y + chk_sz/2, S(4), 1) -- Bullet point
+                    else
+                        gfx.line(chk_x+S(3), chk_y+S(7), chk_x+S(6), chk_y+S(10))
+                        gfx.line(chk_x+S(6), chk_y+S(10), chk_x+S(11), chk_y+S(3))
+                    end
+                end
+                
+                set_color(UI.C_TXT)
+                gfx.x = m_x + S(30)
+                gfx.y = iy + (item_h - gfx.texth) / 2
+                local label = item.label
+                if cfg[item.key] and item.key == "reader_mode" then label = "• " .. label end
+                gfx.drawstr(label)
+                
+                if hover and is_mouse_clicked() then
+                    col_vis_menu.handled = true
+                    if item.action then
+                        item.action()
+                        update_prompter_fonts()
+                    else
+                        cfg[item.key] = not cfg[item.key]
+                        save_settings()
+                        update_prompter_fonts()
+                        
+                        -- Fallback sorting to # if hidden
+                        if not cfg[item.key] and tostring(table_sort.col) == tostring(item.label) then
+                            table_sort.col = "#"
+                            table_sort.dir = 1
+                        end
+                    end
                 end
             end
         end
@@ -10549,6 +10785,11 @@ local function draw_table(input_queue)
              end
         end
     end
+
+    -- --- FINAL FONT RESET ---
+    -- Ensure F.std and F.bld are returned to standard 14px size for other UI elements (Tabs etc.)
+    gfx.setfont(F.std, "Arial", S(14))
+    gfx.setfont(F.bld, "Arial", S(14), string.byte('b'))
 end
 
 -- --- Main Loop ---
