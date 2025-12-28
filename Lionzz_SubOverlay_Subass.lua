@@ -1,22 +1,6 @@
---[[ 
-    Lionzz Sub Overlay (Subass)
-    Версія: 0.0.4
-
-    checklist:
-    ОСНОВНЕ ВІКНО
-        Ресайз, закриття, згортання, перетягування
-        пін вікна
-    КОНТЕКСТНЕ МЕНЮ
-        відкриття, закриття
-        перемикання всіх налаштувань
-        збереження/завантаження налаштувань
-    ВІДОБРАЖЕННЯ
-        відображення обох рядків та прогрессбара
-        поведінка при відсутності регіонів/ітемів
-        відображення на початку та в кінці проекту в обох режимах
-
-    to do list:        
-]]
+-- @description Lionzz Sub Overlay (Subass)
+-- @version 0.0.4
+-- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
     reaper.ShowMessageBox("ReaImGui не знайдено. Встановіть ReaImGui.", "Помилка", 0)
@@ -62,7 +46,7 @@ local ui_font = font_objects[1]         -- перший шрифт завжди 
 local UI_FONT_SCALE = 14                -- фіксований масштаб для інтерфейсу
 local CONTEXT_MENU_MIN_WIDTH = 200      -- мінімальна ширина контекстного меню
 local next_region_offset = 20           -- відступ між поточним та наступним регіоном
-local show_progress = false              -- показувати прогрессбар
+local show_progress = false              -- показувати прогрес-бар
 local progress_width = 400              -- ширина за замовчуванням
 local progress_height = 4               -- висота за замовчуванням
 local progress_offset = 20              -- відступ від першого рядка
@@ -91,9 +75,10 @@ local fill_gaps = false                  -- показувати найближ�
 local show_tooltips = true              -- показувати підказки
 local tooltip_delay = 0.5
 local tooltip_state = {}
-local attach_to_video = false           -- прив'язувати до відеоокна
-local attach_bottom = false             -- режим прив'язки: "bottom"
+local attach_to_video = false           -- прив'язувати до відеовікна
 local attach_offset = 0                 -- відступ у відсотках (0-100)
+local attach_manual_y = 0               -- ручна корекція Y (пікселі)
+local invert_y_axis = false             -- інвертувати вісь Y (для macOS)
 local ignore_newlines = false           -- ігнорувати символи переносу рядка при читанні
 local word_hold = { start_time = 0, word = "", triggered = false }
 local last_window_click = 0
@@ -103,7 +88,6 @@ reaper.gmem_attach("SubassSync") -- Shared memory for lightning-fast sync
 local flags = {
     NoTitle = false,
     NoResize = false,
-    AlwaysAutoResize = false,
     NoDocking = true,
     HideBackground = false,
     NoMove = false
@@ -454,7 +438,6 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "NoTitle", tostring(flags.NoTitle), true)
     reaper.SetExtState(SETTINGS_SECTION, "HideBackground", tostring(flags.HideBackground), true)
     reaper.SetExtState(SETTINGS_SECTION, "NoResize", tostring(flags.NoResize), true)
-    reaper.SetExtState(SETTINGS_SECTION, "AlwaysAutoResize", tostring(flags.AlwaysAutoResize), true)
     reaper.SetExtState(SETTINGS_SECTION, "NoMove", tostring(flags.NoMove), true)
     reaper.SetExtState(SETTINGS_SECTION, "NoDocking", tostring(flags.NoDocking), true)  
     reaper.SetExtState(SETTINGS_SECTION, "current_font_index", tostring(current_font_index), true)
@@ -483,10 +466,11 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "fill_gaps", tostring(fill_gaps), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_tooltips", tostring(show_tooltips), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_to_video", tostring(attach_to_video), true)
-    reaper.SetExtState(SETTINGS_SECTION, "attach_bottom", tostring(attach_bottom), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_offset", tostring(attach_offset), true)
+    reaper.SetExtState(SETTINGS_SECTION, "attach_manual_y", tostring(attach_manual_y), true)
+    reaper.SetExtState(SETTINGS_SECTION, "invert_y_axis", tostring(invert_y_axis), true)
     reaper.SetExtState(SETTINGS_SECTION, "ignore_newlines", tostring(ignore_newlines), true)
-    -- Зберігаємо висоту тільки якщо увімкнено прив'язку до відеоокна
+    -- Зберігаємо висоту тільки якщо увімкнено прив'язку до відеовікна
     if attach_to_video then
         reaper.SetExtState(SETTINGS_SECTION, "win_h", tostring(win_h), true)
     end
@@ -499,7 +483,6 @@ local function load_settings()
     flags.NoTitle = reaper.GetExtState(SETTINGS_SECTION, "NoTitle") == "true"
     flags.HideBackground = reaper.GetExtState(SETTINGS_SECTION, "HideBackground") == "true"
     flags.NoResize = reaper.GetExtState(SETTINGS_SECTION, "NoResize") == "true"
-    flags.AlwaysAutoResize = reaper.GetExtState(SETTINGS_SECTION, "AlwaysAutoResize") == "true"
     flags.NoMove = reaper.GetExtState(SETTINGS_SECTION, "NoMove") == "true"
     flags.NoDocking = reaper.GetExtState(SETTINGS_SECTION, "NoDocking") == "true"
     current_font_index = tonumber(reaper.GetExtState(SETTINGS_SECTION, "current_font_index")) or 1
@@ -533,10 +516,11 @@ local function load_settings()
     fill_gaps = (reaper.GetExtState(SETTINGS_SECTION, "fill_gaps") == "true")
     show_tooltips = (reaper.GetExtState(SETTINGS_SECTION, "show_tooltips") ~= "false")
     attach_to_video = (reaper.GetExtState(SETTINGS_SECTION, "attach_to_video") == "true")
-    attach_bottom = (reaper.GetExtState(SETTINGS_SECTION, "attach_bottom") == "true")
     attach_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "attach_offset")) or 0
+    attach_manual_y = tonumber(reaper.GetExtState(SETTINGS_SECTION, "attach_manual_y")) or 0
+    invert_y_axis = (reaper.GetExtState(SETTINGS_SECTION, "invert_y_axis") == "true")
     ignore_newlines = (reaper.GetExtState(SETTINGS_SECTION, "ignore_newlines") == "true")
-    -- Завантажуємо висоту тільки якщо увімкнено прив'язку до відеоокна
+    -- Завантажуємо висоту тільки якщо увімкнено прив'язку до відеовікна
     if attach_to_video then
         win_h = tonumber(reaper.GetExtState(SETTINGS_SECTION, "win_h")) or 300
     end
@@ -708,19 +692,21 @@ local function draw_context_menu()
         tooltip("Дозволяє відображати рядки і за межами регіонів/ітемів")
         flags.NoResize        = add_change(reaper.ImGui_Checkbox(ctx, "Не змінювати розміри", flags.NoResize))
         tooltip("Вимикає можливість змінювати розміри вікна")
-        flags.AlwaysAutoResize= add_change(reaper.ImGui_Checkbox(ctx, "Авторесайз вікна", flags.AlwaysAutoResize))
-        tooltip("Автоматично підбирає розмір вікна під довжину рядків та прогрессбара")
-        attach_to_video       = add_change(reaper.ImGui_Checkbox(ctx, "Прив'язати до відеоокна", attach_to_video))
-        tooltip("Автоматично позиціонує вікно відносно відеоокна REAPER\nПотрібно js_ReaScriptAPI")
+        attach_to_video       = add_change(reaper.ImGui_Checkbox(ctx, "Прив'язати до відеовікна", attach_to_video))
+        tooltip("Автоматично позиціонує вікно відносно відеовікна REAPER\nПотрібно js_ReaScriptAPI")
         -- Додаткові налаштування прив'язки (показуємо тільки якщо attach_to_video = true)
         if attach_to_video then
-            -- Чекбокс режиму прив'язки
-            attach_bottom = add_change(reaper.ImGui_Checkbox(ctx, "Прив'язати до нижньої межі відеоокна", attach_bottom))
-            tooltip("Вибір сторони прив'язки")
+            -- Слайдер позиції (0% - зверху, 100% - знизу)
+            attach_offset = add_change(reaper.ImGui_SliderInt(ctx, "Верт. позиція %", attach_offset, 0, 100))
+            tooltip("Позиція оверлею відносно висоти відеовікна")
             
-            -- Слайдер відступу
-            attach_offset = add_change(reaper.ImGui_SliderInt(ctx, "відступ##attach", attach_offset, 0, 100))
-            tooltip("Позиція у відсотках відносно висоти відеоокна")
+            -- Ручна корекція Y
+            attach_manual_y = add_change(reaper.ImGui_SliderInt(ctx, "Корекція Y (px)", attach_manual_y, -2000, 2000))
+            tooltip("Додаткове зміщення по вертикалі для виправлення позиції на macOS")
+
+            -- macOS Fix
+            invert_y_axis = add_change(reaper.ImGui_Checkbox(ctx, "Інвертувати рух (macOS Fix)", invert_y_axis))
+            tooltip("Увімкніть, якщо при зміні розміру вікна оверлей рухається в протилежний бік.\nВиправляє різницю в системах координат Cocoa/ImGui.")
         end
         
         
@@ -740,9 +726,9 @@ local function draw_context_menu()
         text_color      = add_change(reaper.ImGui_ColorEdit4(ctx, "колір", text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         shadow_color    = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь", shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
 
-        -- Прогресс-бар
+        -- прогрес-бар
         reaper.ImGui_Separator(ctx)
-        show_progress = add_change(reaper.ImGui_Checkbox(ctx, "Прогрессбар", show_progress))
+        show_progress = add_change(reaper.ImGui_Checkbox(ctx, "Прогрес-бар", show_progress))
         tooltip("Увімкнує анімацію тривалості поточного регіону/ітема")
         if show_progress then
             progress_width  = add_change(reaper.ImGui_SliderInt(ctx, "довжина", progress_width, 200, 2000))
@@ -1232,65 +1218,99 @@ local function get_current_and_next_items(track)
     return "", "", 0, 0
 end
 
--- Функція для отримання координат відеоокна REAPER
+-- Функція для отримання координат відеовікна REAPER
 local function get_video_window_pos()
     if not reaper.JS_Window_Find then
         return nil, nil, nil, nil  -- js_ReaScriptAPI не встановлено
     end
     
-    -- Шукаємо відеоокно (Video Window)
+    -- Шукаємо основне відеовікно
     local video_hwnd = reaper.JS_Window_Find("Video Window", true)
+    
+    -- На деяких ОС або версіях REAPER в доці вікно може мати іншу назву або бути обгорнутим
+    if not video_hwnd then
+        -- Спробуємо знайти за назвою, яка часта для дока
+        video_hwnd = reaper.JS_Window_Find("Video", false)
+    end
     
     if video_hwnd then
         local retval, x1, y1, x2, y2 = reaper.JS_Window_GetRect(video_hwnd)
         if retval then
-            return x1, y1, x2, y2
+            -- Конвертуємо нативні координати ОС (screen space) в координати ImGui (може відрізнятися на macOS)
+            if reaper.ImGui_PointConvertNative then
+                local rv1, im_x1, im_y1 = reaper.ImGui_PointConvertNative(ctx, x1, y1, false)
+                local rv2, im_x2, im_y2 = reaper.ImGui_PointConvertNative(ctx, x2, y2, false)
+                
+                -- Verify we actually got numbers back
+                if rv1 and rv2 and 
+                   type(im_x1) == "number" and type(im_y1) == "number" and 
+                   type(im_x2) == "number" and type(im_y2) == "number" then
+                    return im_x1, im_y1, im_x2, im_y2
+                end
+            end
+            return x1, y1, x2, y2 -- fallback
         end
     end
     
     return nil, nil, nil, nil
 end
 
--- Перевірка зміни позиції відеоокна та перерахунок координат прив'язки
+-- Перевірка зміни позиції відеовікна та перерахунок координат прив'язки
 local function check_video_window_moved()
-    -- Отримуємо поточні координати відеоокна
     local x1, y1, x2, y2 = get_video_window_pos()
     
-    -- Якщо відеоокна немає - виходимо
     if not x1 then
         video_cache_valid = false
         return false
     end
     
-    -- Перевіряємо, чи змінилися координати
     if video_cache_valid and cached_video_x1 == x1 and cached_video_y1 == y1 and 
        cached_video_x2 == x2 and cached_video_y2 == y2 then
-        -- Координати не змінилися, використовуємо кеш
         return true
     end
     
-    -- Координати змінилися або кеш невалідний - перераховуємо позиції
-    local video_width = x2 - x1
-    local video_height = y2 - y1
+    local video_width = math.abs(x2 - x1)
+    local video_height = math.abs(y2 - y1)
     
-    -- Вікно розтягується по ширині відеоокна
-    attach_x = x1
+    -- Determine actual top-left even if coordinates are inverted
+    local top_y = math.min(y1, y2)
+    local left_x = math.min(x1, x2)
+    
+    attach_x = left_x
     attach_w = video_width
     
-    -- Розраховуємо Y позицію в залежності від режиму прив'язки
-    -- Обмежуємо offset, щоб вікно не виходило за межі відеоокна
-    local max_offset = math.max(0, video_height - win_h)
-    local offset_pixels = math.min(attach_offset * video_height / 100, max_offset)
+    -- Unified Vertical Position logic (0% top, 100% bottom)
+    local available_range = math.max(0, video_height - win_h)
+    local offset_pixels = (attach_offset / 100) * available_range
     
-    if attach_bottom then
-        -- Прив'язка до низу: y2 - висота вікна - offset
-        attach_y = y2 - win_h - offset_pixels
+    if invert_y_axis then
+        -- Logic for inverted coordinate change (macOS Cocoa logic: Y=0 is bottom, Y increases Up)
+        -- To convert to ImGui (Top-Left): ImGui_Y = ScreenHeight - Cocoa_Y
+        
+        local main_viewport = reaper.ImGui_GetMainViewport(ctx)
+        local vp_x, vp_y = reaper.ImGui_Viewport_GetPos(main_viewport)
+        local vp_w, vp_h = reaper.ImGui_Viewport_GetSize(main_viewport)
+        
+        -- We assume the video window is on the main screen for this calculation to hold well
+        local video_top_y = math.max(y1, y2)
+        
+        -- Formula: ScreenHeight - VideoTop + Offset + Manual
+        attach_y = vp_h - video_top_y + offset_pixels + attach_manual_y
     else
-        -- Прив'язка до верху: y1 + offset
-        attach_y = y1 + offset_pixels
+        attach_y = top_y + offset_pixels + attach_manual_y
     end
     
-    -- Зберігаємо в кеш
+    -- SAFETY CLAMP: Ensure window is never fully off-screen
+    -- This allows the user to recover the window even if settings are wrong
+    local main_viewport = reaper.ImGui_GetMainViewport(ctx)
+    local vp_w, vp_h = reaper.ImGui_Viewport_GetSize(main_viewport)
+    
+    -- Clamp X to be within [0, vp_w - 50]
+    attach_x = math.max(0, math.min(attach_x, vp_w - 50))
+    
+    -- Clamp Y to be within [0, vp_h - 50]
+    attach_y = math.max(0, math.min(attach_y, vp_h - 50))
+    
     cached_video_x1, cached_video_y1, cached_video_x2, cached_video_y2 = x1, y1, x2, y2
     cached_attach_x, cached_attach_y, cached_attach_w = attach_x, attach_y, attach_w
     video_cache_valid = true
@@ -1344,9 +1364,14 @@ local function debug_window()
         reaper.ImGui_Text(ctx, "=== Current Attach Position ===")
         reaper.ImGui_Separator(ctx)
         if attach_x and attach_y then
-            reaper.ImGui_Text(ctx, string.format("Attach X: %.0f", attach_x))
-            reaper.ImGui_Text(ctx, string.format("Attach Y: %.0f", attach_y))
-            reaper.ImGui_Text(ctx, string.format("Attach W: %.0f", attach_w or 0))
+            reaper.ImGui_Text(ctx, string.format("Attach X: %.1f", attach_x))
+            reaper.ImGui_Text(ctx, string.format("Attach Y: %.1f", attach_y))
+            reaper.ImGui_Text(ctx, string.format("Attach W: %.1f", attach_w or 0))
+            
+            local x1, y1, x2, y2 = get_video_window_pos()
+            if x1 then
+                reaper.ImGui_Text(ctx, string.format("Relative to Video Top: %.1f px", attach_y - y1))
+            end
         else
             reaper.ImGui_Text(ctx, "Not attached or video window not found")
         end
@@ -1367,7 +1392,6 @@ local function loop()
     local window_flags = reaper.ImGui_WindowFlags_NoScrollbar() | reaper.ImGui_WindowFlags_NoScrollWithMouse()
     if flags.NoTitle then window_flags = window_flags | reaper.ImGui_WindowFlags_NoTitleBar() end
     if flags.NoResize then window_flags = window_flags | reaper.ImGui_WindowFlags_NoResize() end
-    if flags.AlwaysAutoResize then window_flags = window_flags | reaper.ImGui_WindowFlags_AlwaysAutoResize() end
     if flags.NoDocking then window_flags = window_flags | reaper.ImGui_WindowFlags_NoDocking() end
     if flags.NoMove then window_flags = window_flags | reaper.ImGui_WindowFlags_NoMove() end
 
@@ -1379,7 +1403,7 @@ local function loop()
     reaper.ImGui_SetNextWindowSize(ctx, win_w, win_h, reaper.ImGui_Cond_FirstUseEver())
     reaper.ImGui_SetNextWindowPos(ctx, win_X, win_Y, reaper.ImGui_Cond_FirstUseEver())
     
-    -- Якщо увімкнено прив'язку до відеоокна та користувач НЕ змінює розмір - застосовуємо позиції
+    -- Якщо увімкнено прив'язку до відеовікна та користувач НЕ змінює розмір - застосовуємо позиції
     if attach_to_video and not is_user_resizing and check_video_window_moved() then
         reaper.ImGui_SetNextWindowPos(ctx, attach_x, attach_y)
         reaper.ImGui_SetNextWindowSize(ctx, attach_w, win_h)
@@ -1470,54 +1494,9 @@ local function loop()
             end
         end
 
-        -- AUTO-SCALING: зменшуємо шрифт якщо контент не поміщається
+        -- USE FIXED FONT SCALES (Auto-scaling removed)
         local actual_font_scale = font_scale
         local actual_second_font_scale = second_font_scale
-        
-        -- Виконуємо auto-scaling тільки якщо є контент
-        if #current_tokens > 0 or (#next_tokens > 0 and enable_second_line) then
-            local max_iterations = 50 -- збільшено для більш агресивного масштабування
-            local iteration = 0
-            local min_scale = 6
-            
-            while iteration < max_iterations and actual_font_scale > min_scale do
-                -- Розраховуємо загальну висоту з поточними масштабами
-                local total_height = 0
-                
-                -- Висота першого рядка
-                if #current_tokens > 0 then
-                    reaper.ImGui_PushFont(ctx, font_objects[current_font_index] or font_objects[1], actual_font_scale)
-                    local line_h = reaper.ImGui_GetTextLineHeight(ctx)
-                    reaper.ImGui_PopFont(ctx)
-                    local current_line_count = calculate_line_count(current_tokens, current_font_index, actual_font_scale, win_w)
-                    total_height = total_height + (line_h * current_line_count)
-                end
-                
-                -- Прогресс-бар
-                if show_progress then
-                    total_height = total_height + progress_offset + progress_height
-                end
-                
-                -- Другий рядок - завжди резервуємо місце якщо увімкнено
-                if enable_second_line then
-                    reaper.ImGui_PushFont(ctx, font_objects[second_font_index] or font_objects[1], actual_second_font_scale)
-                    local second_line_h = reaper.ImGui_GetTextLineHeight(ctx)
-                    reaper.ImGui_PopFont(ctx)
-                    local next_line_count = calculate_line_count(next_tokens, second_font_index, actual_second_font_scale, win_w)
-                    total_height = total_height + next_region_offset + (second_line_h * next_line_count)
-                end
-                
-                -- Перевіряємо чи поміщається (залишаємо більше padding для безпеки)
-                if total_height <= (win_h - padding_y * 10) then
-                    break -- Поміщається!
-                end
-                
-                -- Зменшуємо масштаб: основний текст більш агресивно (10%), наступний менше (5%)
-                actual_font_scale = actual_font_scale * 0.90
-                actual_second_font_scale = actual_second_font_scale * 0.95
-                iteration = iteration + 1
-            end
-        end
 
         -- Вертикальне вирівнювання (центр або низ)
         if align_vertical or align_bottom then
@@ -1532,7 +1511,7 @@ local function loop()
             local current_line_count = calculate_line_count(current_tokens, current_font_index, actual_font_scale, win_w)
             total_height = total_height + (line_h * current_line_count)
             
-            -- Висота прогресс-бара (якщо увімкнено)
+            -- Висота прогрес-бара (якщо увімкнено)
             if show_progress then
                 total_height = total_height + progress_offset + progress_height
             end
@@ -1562,7 +1541,7 @@ local function loop()
         -- відображення тексту (використовуємо auto-scaled значення)
             draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, text_color, shadow_color, win_w, false) -- перший рядок
 
-        -- прогресс-бар
+        -- прогрес-бар
         if show_progress then
             local cur_y = reaper.ImGui_GetCursorPosY(ctx)
             reaper.ImGui_SetCursorPosY(ctx, cur_y + progress_offset)
