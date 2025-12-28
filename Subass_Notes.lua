@@ -54,7 +54,13 @@ local cfg = {
     c_cr = get_set("c_cr", 1.0),
     c_cg = get_set("c_cg", 0.3),
     c_cb = get_set("c_cb", 0.3),
-    auto_startup = (get_set("auto_startup", "0") == "1" or get_set("auto_startup", 0) == 1)
+
+    auto_startup = (get_set("auto_startup", "0") == "1" or get_set("auto_startup", 0) == 1),
+
+    col_table_start = (get_set("col_table_start", "1") == "1" or get_set("col_table_start", 1) == 1),
+    col_table_end = (get_set("col_table_end", "1") == "1" or get_set("col_table_end", 1) == 1),
+    col_table_cps = (get_set("col_table_cps", "1") == "1" or get_set("col_table_cps", 1) == 1),
+    col_table_actor = (get_set("col_table_actor", "1") == "1" or get_set("col_table_actor", 1) == 1),
 }
 
 local gemini_key_status = tonumber(reaper.GetExtState(section_name, "gemini_key_status")) or 0
@@ -268,6 +274,23 @@ local find_replace_state = {
     replace = {text = "", cursor = 0, anchor = 0, focus = false},
     case_sensitive = false,
     bounds = {x=0, y=0, w=0, h=0}
+}
+ 
+-- Column Visibility Menu State
+local col_vis_menu = {
+    show = false,
+    x = 0,
+    y = 0,
+    w = 180,
+    h = 0 -- Calculated dynamically
+}
+
+local time_shift_menu = {
+    show = false,
+    x = 0,
+    y = 0,
+    w = 280,
+    only_selected = false
 }
 
 -- Session Management (Isolate UI state per project tab)
@@ -484,6 +507,11 @@ local function save_settings()
     reaper.SetExtState(section_name, "p_drawer", cfg.p_drawer and "1" or "0", true)
     reaper.SetExtState(section_name, "p_drawer_left", cfg.p_drawer_left and "1" or "0", true)
     reaper.SetExtState(section_name, "prompter_drawer_width", tostring(prompter_drawer.width), true)
+
+    reaper.SetExtState(section_name, "col_table_start", cfg.col_table_start and "1" or "0", true)
+    reaper.SetExtState(section_name, "col_table_end", cfg.col_table_end and "1" or "0", true)
+    reaper.SetExtState(section_name, "col_table_cps", cfg.col_table_cps and "1" or "0", true)
+    reaper.SetExtState(section_name, "col_table_actor", cfg.col_table_actor and "1" or "0", true)
 
     update_prompter_fonts()
 end
@@ -2146,6 +2174,22 @@ local function format_timestamp(seconds)
     end
 end
 
+--- Format seconds to simple timestamp string (HH:MM:SS or MM:SS) without milliseconds
+--- @param seconds number Time in seconds
+--- @return string Formatted timestamp
+local function format_time_hms(seconds)
+    local s = math.floor(seconds)
+    local hours = math.floor(s / 3600)
+    local minutes = math.floor((s % 3600) / 60)
+    local secs = s % 60
+    
+    if hours > 0 then
+        return string.format("%d:%02d:%02d", hours, minutes, secs)
+    else
+        return string.format("%02d:%02d", minutes, secs)
+    end
+end
+
 -- =============================================================================
 -- RICH TEXT PARSING
 -- =============================================================================
@@ -2252,6 +2296,24 @@ local function wrap_long_text(text, max_length)
     return result
 end
 
+--- Merge two comments with dash prefixes and newline separation
+--- @param old string|nil Previous comment
+--- @param new string Current comment
+--- @return string Merged comment
+local function merge_comments(old, new)
+    if not new or new == "" then return old end
+    local s2 = new:gsub("^%s+", ""):gsub("%s+$", "")
+    if s2 == "" then return old end
+    
+    if not old or old == "" then return s2 end
+    local s1 = old:gsub("^%s+", ""):gsub("%s+$", "")
+    
+    if not s1:match("^%-") then s1 = "-" .. s1 end
+    if not s2:match("^%-") then s2 = "-" .. s2 end
+    
+    return s1 .. "\n" .. s2
+end
+
 local function parse_rich_text(str)
     local lines = {}
     local current_line = {}
@@ -2346,26 +2408,31 @@ local function parse_rich_text(str)
                 end
                 
                 if not is_formatting and content ~= "" then
-                    if not has_text and not global_comment then
-                        global_comment = content
+                    content = content:gsub("^%s+", ""):gsub("%s+$", "") -- Trim
+                    if not has_text or #current_line == 0 then
+                        global_comment = merge_comments(global_comment, content)
                     elseif #current_line > 0 then
                         -- SPLIT LAST SPAN to attach only to the last word
                         local last_span = current_line[#current_line]
-                        local text = last_span.text
-                        local word_start = text:find("[^%s]+%s*$")
-                        if word_start and word_start > 1 then
-                            local prefix = text:sub(1, word_start - 1)
-                            local word = text:sub(word_start)
-                            last_span.text = prefix
-                            table.insert(current_line, {
-                                text = word, b=last_span.b, i=last_span.i, u=last_span.u, s=last_span.s, 
-                                comment = content
-                            })
+                        if last_span.comment then
+                            last_span.comment = merge_comments(last_span.comment, content)
                         else
-                            last_span.comment = content
+                            local text = last_span.text
+                            local word_start = text:find("[^%s]+%s*$")
+                            if word_start and word_start > 1 then
+                                local prefix = text:sub(1, word_start - 1)
+                                local word = text:sub(word_start)
+                                last_span.text = prefix
+                                table.insert(current_line, {
+                                    text = word, b=last_span.b, i=last_span.i, u=last_span.u, s=last_span.s, 
+                                    comment = content
+                                })
+                            else
+                                last_span.comment = content
+                            end
                         end
                     else
-                        pending_comment = content
+                        pending_comment = merge_comments(pending_comment, content)
                     end
                 end
                 
@@ -2409,6 +2476,17 @@ local function parse_rich_text(str)
     elseif #lines == 0 then
         -- Empty string
         table.insert(lines, {})
+    end
+    
+    -- Final Pass: Apply global_comment to all spans that don't have a specific comment
+    if global_comment then
+        for _, line in ipairs(lines) do
+            for _, span in ipairs(line) do
+                if not span.comment then
+                    span.comment = global_comment
+                end
+            end
+        end
     end
     
     return lines
@@ -6227,6 +6305,7 @@ local function draw_file()
         -- Statistics: Count Replicas and Words for Selected Actors
         local stats_replicas = 0
         local stats_words = 0
+        local stats_time = 0
         
         for _, line in ipairs(ass_lines) do
             if line.enabled then
@@ -6235,6 +6314,10 @@ local function draw_file()
                 local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
                 local _, count = clean:gsub("%S+", "")
                 stats_words = stats_words + count
+                -- Calculate time
+                if line.t1 and line.t2 then
+                    stats_time = stats_time + (line.t2 - line.t1)
+                end
             end
         end
         
@@ -6244,7 +6327,8 @@ local function draw_file()
             gfx.setfont(F.std)
             gfx.x = 20
             gfx.y = stats_y
-            gfx.drawstr("Обрано: " .. stats_replicas .. " реплік, " .. stats_words .. " слів")
+            local time_str = format_time_hms(stats_time)
+            gfx.drawstr("Обрано: " .. stats_replicas .. " реплік, " .. stats_words .. " слів, час:" .. time_str)
         end
         y_cursor = y_cursor + 45
 
@@ -6630,7 +6714,7 @@ local function draw_prompter_drawer(input_queue)
     
     local drawer_top_y = 25
     local drawer_x = cfg.p_drawer_left and 0 or (gfx.w - prompter_drawer.width)
-    local max_w = math.floor(gfx.w * 0.8)
+    local max_w = math.floor(gfx.w * 0.95)
 
     if not prompter_drawer.open then
         -- Performance-optimized marker check
@@ -9031,6 +9115,17 @@ local function draw_table(input_queue)
     -- Options / Close Toggle Button
     local btn_x = chk_x + chk_w + gap
     
+    local mouse_in_menu = false
+    if col_vis_menu.show then
+        local m_h = 4 * 24 + 10 -- 4 items * 24h
+        mouse_in_menu = gfx.mouse_x >= col_vis_menu.x and gfx.mouse_x <= col_vis_menu.x + col_vis_menu.w and
+                        gfx.mouse_y >= col_vis_menu.y and gfx.mouse_y <= col_vis_menu.y + m_h
+    elseif time_shift_menu.show then
+        local m_h = 125 -- Matches the visual height
+        mouse_in_menu = gfx.mouse_x >= time_shift_menu.x and gfx.mouse_x <= time_shift_menu.x + time_shift_menu.w and
+                        gfx.mouse_y >= time_shift_menu.y and gfx.mouse_y <= time_shift_menu.y + m_h
+    end
+
     if find_replace_state.show then
         -- CLOSE BUTTON (Reddish)
         if draw_btn_inline(btn_x, filter_y, opt_btn_w, filter_h, "✕", {0.3, 0.2, 0.2}) then
@@ -9039,11 +9134,36 @@ local function draw_table(input_queue)
     else
         -- MENU BUTTON (Standard)
         if draw_btn_inline(btn_x, filter_y, opt_btn_w, filter_h, "≡", UI.C_BTN) then
-            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-            local ret = gfx.showmenu("Знайти та замінити")
-            if ret == 1 then
-                find_replace_state.show = true
+            if col_vis_menu.show or time_shift_menu.show then
+                col_vis_menu.show = false
+                time_shift_menu.show = false
+            else
+                local any_hidden = not (cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
+                local col_label = "Колонки..."
+                if any_hidden then col_label = "• Колонки..." end
+                
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local menu_str = "Знайти та замінити|" .. col_label .. "|Здвиг часу"
+                local ret = gfx.showmenu(menu_str)
+                if ret == 1 then
+                    find_replace_state.show = true
+                elseif ret == 2 then
+                    col_vis_menu.show = true
+                    col_vis_menu.x = (btn_x + opt_btn_w) - col_vis_menu.w
+                    col_vis_menu.y = filter_y + filter_h + gap
+                elseif ret == 3 then
+                    time_shift_menu.show = true
+                    time_shift_menu.x = (btn_x + opt_btn_w) - time_shift_menu.w
+                    time_shift_menu.y = filter_y + filter_h + gap
+                end
             end
+        end
+
+        -- Red Dot indicator for hidden columns
+        local any_hidden = not (cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
+        if any_hidden then
+            set_color({1, 0, 0, 1}) -- Red
+            gfx.circle(btn_x + opt_btn_w - 4, filter_y + 4, 3, 1)
         end
     end
     
@@ -9210,9 +9330,8 @@ local function draw_table(input_queue)
         end
     end
 
-    -- Choose data source: ASS lines or Project Regions
-    local show_actor = ass_file_loaded and #ass_lines > 0
-    local raw_data = show_actor and ass_lines or regions
+    -- Choose data source: ASS lines
+    local raw_data = ass_lines
     local data_source = {}
     
     -- Ensure index is populated for all lines for stable sorting and selection
@@ -9283,15 +9402,19 @@ local function draw_table(input_queue)
     end
 
     local row_count = #data_source
-    local show_actor = ass_file_loaded and #raw_data > 0
     
-    -- Column layout: [On][#][Start][End][CPS][Actor?][Text]
-    local x_off
-    if show_actor then
-        x_off = {10, 35, 70, 145, 218, 273, 373} -- On, #, Start, End, CPS, Actor, Text
-    else
-        x_off = {10, 45, 120, 193, 248, 348} -- #, Start, End, CPS, Text (fallback to regions)
-    end
+    -- Column layout: Build x_off based on visible columns only
+    local x_off = {10} -- Always starts with 10 for first column
+    local function add_col(w) table.insert(x_off, x_off[#x_off] + w) end
+
+    -- Checkbox(25), #(35), Start(75), End(73), CPS(55), Actor(100)
+    add_col(25) -- #
+    add_col(35) -- Start or next
+    if cfg.col_table_start then add_col(75) end
+    if cfg.col_table_end then add_col(73) end
+    if cfg.col_table_cps then add_col(55) end
+    if cfg.col_table_actor then add_col(100) end
+    -- Text column starts at x_off[#x_off] and takes remaining width
     
     -- Header will be drawn at the end to stay on top
     local header_y = start_y + 5
@@ -9315,19 +9438,10 @@ local function draw_table(input_queue)
         
         -- Find which line corresponds to current position
         local current_line_idx = nil
-        if show_actor then
-            for i, line in ipairs(data_source) do
-                if current_pos >= line.t1 and current_pos < line.t2 then
-                    current_line_idx = i
-                    break
-                end
-            end
-        else
-            for i, rgn in ipairs(data_source) do
-                if current_pos >= rgn.pos and current_pos < rgn.rgnend then
-                    current_line_idx = i
-                    break
-                end
+        for i, line in ipairs(data_source) do
+            if current_pos >= line.t1 and current_pos < line.t2 then
+                current_line_idx = i
+                break
             end
         end
         
@@ -9366,9 +9480,8 @@ local function draw_table(input_queue)
         if i % 2 == 0 then set_color(UI.C_ROW) else set_color(UI.C_ROW_ALT) end
         gfx.rect(0, screen_y, gfx.w, row_h, 1)
         
-        if show_actor then
-            -- ASS mode: show all lines with checkbox
-            local line = data_source[i]
+        -- ASS mode: show all lines with checkbox
+        local line = data_source[i]
             local actor = line.actor or ""
             local is_enabled = (line.enabled ~= false) -- Per-line enabled state
             
@@ -9413,24 +9526,32 @@ local function draw_table(input_queue)
             local y_text = screen_y + 4
             
             -- Use original index if possible
-            gfx.x = x_off[2]; gfx.y = y_text; gfx.drawstr(tostring(line.index or i))
-            gfx.x = x_off[3]; gfx.y = y_text; gfx.drawstr(reaper.format_timestr(line.t1, ""))
-            gfx.x = x_off[4]; gfx.y = y_text; gfx.drawstr(reaper.format_timestr(line.t2, ""))
-            -- Truncate Actor
-            local max_act_w = x_off[7] - x_off[6] - 10
-            local display_act = fit_text_width(actor, max_act_w)
-            
+            local col_ptr = 2
+            gfx.x = x_off[col_ptr]; gfx.y = y_text; gfx.drawstr(tostring(line.index or i))
+            col_ptr = col_ptr + 1
+
+            if cfg.col_table_start then
+                gfx.x = x_off[col_ptr]; gfx.y = y_text; gfx.drawstr(reaper.format_timestr(line.t1, ""))
+                col_ptr = col_ptr + 1
+            end
+
+            if cfg.col_table_end then
+                gfx.x = x_off[col_ptr]; gfx.y = y_text; gfx.drawstr(reaper.format_timestr(line.t2, ""))
+                col_ptr = col_ptr + 1
+            end
+
             -- CPS Calculation
             local duration = line.t2 - line.t1
             local clean_text = (line.text or ""):gsub(acute, ""):gsub("%s+", "")
             local char_count = utf8.len(clean_text) or #clean_text
             local cps = duration > 0 and (char_count / duration) or 0
             
-            -- CPS Color
-            local cps_color = get_cps_color(cps)
-            
-            set_color(cps_color)
-            gfx.x = x_off[5]; gfx.y = y_text; gfx.drawstr(string.format("%.1f", cps))
+            if cfg.col_table_cps then
+                local cps_color = get_cps_color(cps)
+                set_color(cps_color)
+                gfx.x = x_off[col_ptr]; gfx.y = y_text; gfx.drawstr(string.format("%.1f", cps))
+                col_ptr = col_ptr + 1
+            end
             
             -- Helper for highlighting
             local function draw_highlighted_text(txt, x, y, max_w)
@@ -9459,15 +9580,18 @@ local function draw_table(input_queue)
             end
 
             set_color(UI.C_TXT)
-            gfx.x = x_off[6]; gfx.y = y_text; 
-            draw_highlighted_text(actor, x_off[6], y_text, x_off[7] - x_off[6] - 10)
+            if cfg.col_table_actor then
+                gfx.x = x_off[col_ptr]; gfx.y = y_text; 
+                draw_highlighted_text(actor, x_off[col_ptr], y_text, x_off[col_ptr+1] - x_off[col_ptr] - 10)
+                col_ptr = col_ptr + 1
+            end
             
             local replica_text = (line.text or ""):gsub("[\n\r]", " ")
-            draw_highlighted_text(replica_text, x_off[7], y_text, gfx.w - x_off[7] - 10)
+            draw_highlighted_text(replica_text, x_off[col_ptr], y_text, gfx.w - x_off[col_ptr] - 10)
             
             -- Click logic
             -- FIX: Check bit 1 (Left Mouse) regardless of other flags
-            if (gfx.mouse_cap & 1 == 1) and (last_mouse_cap & 1 == 0) then
+            if (gfx.mouse_cap & 1 == 1) and (last_mouse_cap & 1 == 0) and not mouse_in_menu then
                 if gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h then
                     -- Checkbox click?
                     if gfx.mouse_x >= chk_x - 5 and gfx.mouse_x <= chk_x + chk_sz + 10 then
@@ -9523,7 +9647,7 @@ local function draw_table(input_queue)
                             last_selected_row = i 
                             
                             -- Navigate logic
-                             if gfx.mouse_x >= x_off[7] then
+                             if gfx.mouse_x >= x_off[#x_off] then
                                 local now = reaper.time_precise()
                                 if last_click_row == i and (now - last_click_time) < 0.5 then
                                     -- Double-click on text - open custom editor
@@ -9548,7 +9672,7 @@ local function draw_table(input_queue)
                         end
                     end
                 end
-            elseif (gfx.mouse_cap & 2 == 2) and (last_mouse_cap & 2 == 0) then
+            elseif (gfx.mouse_cap & 2 == 2) and (last_mouse_cap & 2 == 0) and not mouse_in_menu then
                 -- Right Click on Row
                 if gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h then
                     mouse_handled = true -- Suppress global menu
@@ -9658,46 +9782,6 @@ local function draw_table(input_queue)
                     end
                 end
             end
-        else
-            -- Fallback: regions mode (no ASS)
-            local rgn = data_source[i]
-            if rgn then
-                local play_pos = reaper.GetPlayPosition()
-                if play_pos >= rgn.pos and play_pos < rgn.rgnend then
-                     set_color({0.3, 0.4, 0.2, 0.4})
-                     gfx.rect(0, screen_y, gfx.w, row_h, 1)
-                end
-                
-                set_color(UI.C_TXT)
-                local y_text = screen_y + 4
-                
-                gfx.x = x_off[1]; gfx.y = y_text; gfx.drawstr(tostring(rgn.index or i))
-                gfx.x = x_off[2]; gfx.y = y_text; gfx.drawstr(reaper.format_timestr(rgn.pos, ""))
-                gfx.x = x_off[3]; gfx.y = y_text; gfx.drawstr(reaper.format_timestr(rgn.rgnend, ""))
-                
-                -- CPS for regions
-                local duration = rgn.rgnend - rgn.pos
-                local clean_text = (rgn.name or ""):gsub(acute, ""):gsub("%s+", "")
-                local char_count = utf8.len(clean_text) or #clean_text
-                local cps = duration > 0 and (char_count / duration) or 0
-                
-                local cps_color = get_cps_color(cps)
-                
-                set_color(cps_color)
-                gfx.x = x_off[4]; gfx.y = y_text; gfx.drawstr(string.format("%.1f", cps))
-                
-                set_color(UI.C_TXT)
-                local rgn_text = (rgn.name or ""):gsub("[\n\r]", " ")
-                local display_rgn = fit_text_width(rgn_text, gfx.w - x_off[5] - 10)
-                gfx.x = x_off[5]; gfx.y = y_text; gfx.drawstr(display_rgn)
-                
-                if is_mouse_clicked() then
-                    if gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h then
-                        reaper.SetEditCurPos(rgn.pos, true, false)
-                    end
-                end
-            end
-        end
         ::continue::
     end
     
@@ -9714,7 +9798,9 @@ local function draw_table(input_queue)
         local arrow_w = 12
         local text_padding = 5
         
-        -- Truncate label if it doesn't fit with arrow
+        -- Header cells should only draw if they have space
+        if cell_w <= 0 then return end
+
         local max_text_w = cell_w - arrow_w - text_padding
         local display_label = fit_text_width(label, max_text_w)
         
@@ -9742,7 +9828,7 @@ local function draw_table(input_queue)
         end
         
         -- Click detection
-        if is_mouse_clicked() then
+        if is_mouse_clicked() and not mouse_in_menu then
             if gfx.mouse_y >= start_y and gfx.mouse_y < start_y + h_header then
                 if gfx.mouse_x >= x and gfx.mouse_x < next_x then
                     if table_sort.col == col_name then
@@ -9756,20 +9842,164 @@ local function draw_table(input_queue)
         end
     end
 
-    if show_actor then
-        draw_header_cell(1, "Ак.", x_off[1], header_y, "Ак.")
-        draw_header_cell(2, "#", x_off[2], header_y, "#")
-        draw_header_cell(3, "Початок", x_off[3], header_y, "Початок")
-        draw_header_cell(4, "Кінець", x_off[4], header_y, "Кінець")
-        draw_header_cell(5, "CPS", x_off[5], header_y, "CPS")
-        draw_header_cell(6, "Актор", x_off[6], header_y, "Актор")
-        draw_header_cell(7, "Репліка", x_off[7], header_y, "Репліка")
-    else
-        draw_header_cell(1, "#", x_off[1], header_y, "#")
-        draw_header_cell(2, "Початок", x_off[2], header_y, "Початок")
-        draw_header_cell(3, "Кінець", x_off[3], header_y, "Кінець")
-        draw_header_cell(4, "CPS", x_off[4], header_y, "CPS")
-        draw_header_cell(5, "Репліка", x_off[5], header_y, "Репліка")
+    local col_ptr = 1
+    draw_header_cell(col_ptr, "Ак.", x_off[col_ptr], header_y, "Ак."); col_ptr = col_ptr + 1
+    draw_header_cell(col_ptr, "#", x_off[col_ptr], header_y, "#"); col_ptr = col_ptr + 1
+    if cfg.col_table_start then draw_header_cell(col_ptr, "Початок", x_off[col_ptr], header_y, "Початок"); col_ptr = col_ptr + 1 end
+    if cfg.col_table_end then draw_header_cell(col_ptr, "Кінець", x_off[col_ptr], header_y, "Кінець"); col_ptr = col_ptr + 1 end
+    if cfg.col_table_cps then draw_header_cell(col_ptr, "CPS", x_off[col_ptr], header_y, "CPS"); col_ptr = col_ptr + 1 end
+    if cfg.col_table_actor then draw_header_cell(col_ptr, "Актор", x_off[col_ptr], header_y, "Актор"); col_ptr = col_ptr + 1 end
+    draw_header_cell(col_ptr, "Репліка", x_off[col_ptr], header_y, "Репліка")
+
+    -- --- COLUMN VISIBILITY FLOATING MENU ---
+    if col_vis_menu.show then
+        local m_x, m_y, m_w = col_vis_menu.x, col_vis_menu.y, col_vis_menu.w
+        local item_h = 24
+        local items = {
+            {label = "Початок", key = "col_table_start"},
+            {label = "Кінець", key = "col_table_end"},
+            {label = "CPS", key = "col_table_cps"},
+            {label = "Актор", key = "col_table_actor"}
+        }
+        local m_h = #items * item_h + 10
+        
+        -- Background with shadow
+        set_color({0, 0, 0, 0.4}); gfx.rect(m_x+2, m_y+2, m_w, m_h, 1) -- Shadow
+        set_color(UI.C_BG); gfx.rect(m_x, m_y, m_w, m_h, 1)
+        set_color(UI.C_BTN_H); gfx.rect(m_x, m_y, m_w, m_h, 0)
+        
+        for idx, item in ipairs(items) do
+            local iy = m_y + 5 + (idx-1) * item_h
+            local hover = (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= iy and gfx.mouse_y < iy + item_h)
+            
+            if hover then
+                set_color({1, 1, 1, 0.1})
+                gfx.rect(m_x, iy, m_w, item_h, 1)
+            end
+            
+            -- Checkbox
+            local chk_sz = 14
+            local chk_x = m_x + 8
+            local chk_y = iy + (item_h - chk_sz)/2
+            set_color({0.5, 0.5, 0.5})
+            gfx.rect(chk_x, chk_y, chk_sz, chk_sz, 0)
+            
+            if cfg[item.key] then
+                set_color(UI.C_TXT)
+                gfx.line(chk_x+3, chk_y+7, chk_x+6, chk_y+10)
+                gfx.line(chk_x+6, chk_y+10, chk_x+11, chk_y+3)
+            end
+            
+            set_color(UI.C_TXT)
+            gfx.x, gfx.y = chk_x + chk_sz + 8, iy + 4
+            gfx.drawstr(item.label)
+            
+            if hover and is_mouse_clicked() then
+                cfg[item.key] = not cfg[item.key]
+                reaper.SetExtState(section_name, item.key, cfg[item.key] and "1" or "0", true)
+                
+                -- Fallback sorting to # if hidden
+                if not cfg[item.key] and tostring(table_sort.col) == tostring(item.label) then
+                    table_sort.col = "#"
+                    table_sort.dir = 1
+                end
+            end
+        end
+        
+        -- Close if clicked outside
+        if is_mouse_clicked() and not (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= m_y and gfx.mouse_y <= m_y + m_h) then
+             -- BUT check if it was the menu button itself (to avoid immediate close-reopen)
+             if not (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + opt_btn_w and 
+                     gfx.mouse_y >= filter_y and gfx.mouse_y <= filter_y + filter_h) then
+                 col_vis_menu.show = false
+             end
+        end
+    end
+
+    -- --- TIME SHIFT FLOATING MENU ---
+    if time_shift_menu.show then
+        local m_x, m_y, m_w = time_shift_menu.x, time_shift_menu.y, time_shift_menu.w
+        local m_h = 125
+        
+        -- Background with shadow
+        set_color({0, 0, 0, 0.4}); gfx.rect(m_x+2, m_y+2, m_w, m_h, 1) -- Shadow
+        set_color(UI.C_BG); gfx.rect(m_x, m_y, m_w, m_h, 1)
+        set_color(UI.C_BTN_H); gfx.rect(m_x, m_y, m_w, m_h, 0)
+        
+        -- Header/Checkbox Row
+        local iy = m_y + 10
+        local chk_sz = 14
+        local chk_x = m_x + 10
+        local hover_chk = (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= iy and gfx.mouse_y < iy + 24)
+        
+        if hover_chk then
+            set_color({1, 1, 1, 0.05})
+            gfx.rect(m_x, iy-4, m_w, 24, 1)
+        end
+        
+        set_color({0.5, 0.5, 0.5})
+        gfx.rect(chk_x, iy + 4, chk_sz, chk_sz, 0)
+        if time_shift_menu.only_selected then
+            set_color(UI.C_TXT)
+            gfx.line(chk_x+3, iy+4+7, chk_x+6, iy+4+10)
+            gfx.line(chk_x+6, iy+4+10, chk_x+11, iy+4+3)
+        end
+        
+        set_color(UI.C_TXT)
+        gfx.x, gfx.y = chk_x + chk_sz + 8, iy + 4
+        gfx.drawstr("Лише для вибраних")
+        
+        if hover_chk and is_mouse_clicked() then
+            time_shift_menu.only_selected = not time_shift_menu.only_selected
+        end
+        
+        -- Buttons Grid (2 Rows)
+        local btn_w = (m_w - 20 - 5*4) / 6
+        local btn_h = 24
+        local neg_offsets = {-5, -2, -1, -0.5, -0.25, -0.1}
+        local pos_offsets = {5, 2, 1, 0.5, 0.25, 0.1}
+        
+        local function draw_row(offsets, start_y)
+            for i, off in ipairs(offsets) do
+                local bx = m_x + 10 + (i-1) * (btn_w + 4)
+                local by = start_y
+                
+                local label = (off > 0 and "+" or "") .. off .. "s"
+                if math.abs(off) < 1 then
+                    label = (off < 0 and "-" or "+") .. tostring(math.abs(off)):gsub("^0", "") .. "s"
+                end
+                
+                if draw_btn_inline(bx, by, btn_w, btn_h, label, UI.C_BTN) then
+                    push_undo("Здвиг часу (" .. off .. "s)")
+                    local affected = 0
+                    for _, line in ipairs(ass_lines) do
+                        if not time_shift_menu.only_selected or table_selection[line.index or 0] then
+                            line.t1 = line.t1 + off
+                            line.t2 = line.t2 + off
+                            affected = affected + 1
+                        end
+                    end
+                    rebuild_regions()
+                    show_snackbar("Здвинуто на " .. label .. " (" .. affected .. ")", "success")
+                end
+            end
+        end
+
+        draw_row(neg_offsets, m_y + 42)
+        
+        -- Separator
+        set_color({1, 1, 1, 0.1})
+        gfx.line(m_x + 10, m_y + 76, m_x + m_w - 10, m_y + 76)
+        
+        draw_row(pos_offsets, m_y + 90)
+        
+        -- Close if clicked outside
+        if is_mouse_clicked() and not (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= m_y and gfx.mouse_y <= m_y + m_h) then
+             if not (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + opt_btn_w and 
+                     gfx.mouse_y >= filter_y and gfx.mouse_y <= filter_y + filter_h) then
+                 time_shift_menu.show = false
+             end
+        end
     end
 end
 
