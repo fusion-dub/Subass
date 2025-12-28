@@ -31,6 +31,9 @@ local cfg = {
     n_cg = get_set("n_cg", 0.17),
     n_cb = get_set("n_cb", 0.17),
     
+    next_attach = (get_set("next_attach", "0") == "1" or get_set("next_attach", 0) == 1),
+    next_padding = get_set("next_padding", 30),
+
     wrap_length = get_set("wrap_length", 42),
     always_next = (get_set("always_next", "1") == "1" or get_set("always_next", 1) == 1),
     random_color_actors = (get_set("random_color_actors", "1") == "1" or get_set("random_color_actors", 1) == 1),
@@ -45,6 +48,7 @@ local cfg = {
     bg_cg = get_set("bg_cg", 0.69),
     bg_cb = get_set("bg_cb", 0.69),
     p_align = get_set("p_align", "center"),
+    p_valign = get_set("p_valign", "center"),
     p_font = get_set("p_font", "Arial"),
     p_info = (get_set("p_info", "1") == "1" or get_set("p_info", 1) == 1),
     auto_srt_split = get_set("auto_srt_split", "():"),
@@ -500,6 +504,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "p_cb", tostring(cfg.p_cb), true)
     reaper.SetExtState(section_name, "p_next", cfg.p_next and "1" or "0", true)
     reaper.SetExtState(section_name, "p_align", cfg.p_align, true)
+    reaper.SetExtState(section_name, "p_valign", cfg.p_valign, true)
     reaper.SetExtState(section_name, "auto_srt_split", cfg.auto_srt_split, true)
     reaper.SetExtState(section_name, "prmt_theme", cfg.prmt_theme, true)
 
@@ -529,6 +534,13 @@ local function save_settings()
 
     reaper.SetExtState(section_name, "wrap_length", tostring(cfg.wrap_length), true)
     reaper.SetExtState(section_name, "always_next", cfg.always_next and "1" or "0", true)
+    reaper.SetExtState(section_name, "next_attach", cfg.next_attach and "1" or "0", true)
+    reaper.SetExtState(section_name, "next_padding", tostring(cfg.next_padding), true)
+    
+    reaper.SetExtState(section_name, "p_lheight", tostring(cfg.p_lheight), true)
+    reaper.SetExtState(section_name, "n_lheight", tostring(cfg.n_lheight), true)
+    reaper.SetExtState(section_name, "c_lheight", tostring(cfg.c_lheight), true)
+
     reaper.SetExtState(section_name, "random_color_actors", cfg.random_color_actors and "1" or "0", true)
     reaper.SetExtState(section_name, "text_assimilations", cfg.text_assimilations and "1" or "0", true)
     reaper.SetExtState(section_name, "karaoke_mode", cfg.karaoke_mode and "1" or "0", true)
@@ -7917,8 +7929,14 @@ local function draw_prompter(input_queue)
         local n_start_y
         if type(y_position_mode) == "number" then
             n_start_y = y_position_mode
+            -- GUARD: Don't allow next replica to go off-screen
+            if n_start_y + n_total_h > gfx.h - S(10) then
+                n_start_y = gfx.h - n_total_h - S(10)
+            end
         elseif y_position_mode == "bottom" then
             n_start_y = gfx.h - n_total_h - S(10)
+        elseif y_position_mode == "top" then
+            n_start_y = S(50)
         else -- "center"
             n_start_y = (gfx.h - n_total_h) / 2
         end
@@ -8405,10 +8423,16 @@ local function draw_prompter(input_queue)
             -- --- END VERTICAL SCALING ---
 
             -- Calculate starting Y position: 
-            -- Stable Centering: Target absolute screen center, then resolve collisions
             local start_y = (gfx.h - active_corr_h) / 2
+            if cfg.p_valign == "top" then
+                start_y = S(60)
+            elseif cfg.p_valign == "bottom" then
+                local next_reserve = (cfg.p_next and next_r and not cfg.next_attach) and (next_h + S(30)) or S(30)
+                start_y = gfx.h - active_corr_h - next_reserve
+            end
+
             local top_limit = S(50) -- Account for info overlay and top margin
-            local bottom_limit = (next_h > 0) and (gfx.h - next_h - S(30)) or (gfx.h - S(50))
+            local bottom_limit = (next_h > 0 and not cfg.next_attach) and (gfx.h - next_h - S(30)) or (gfx.h - S(50))
             
             -- Resolve collisions: if we hit boundaries, shift text
             if start_y < top_limit then start_y = top_limit end
@@ -8570,9 +8594,13 @@ local function draw_prompter(input_queue)
                 current_y = current_y + corrections_h + S_GAP
             end
             
-            -- Draw Next Line at Bottom
+            -- Draw Next Line
             if cfg.p_next and next_r then
-                render_next_replica(next_r, "bottom", scaled_n_fsize)
+                local next_y = "bottom"
+                if cfg.next_attach then
+                    next_y = current_y + S(cfg.next_padding)
+                end
+                render_next_replica(next_r, next_y, scaled_n_fsize)
             end
         else
             set_color(UI.C_TXT)
@@ -8581,6 +8609,8 @@ local function draw_prompter(input_queue)
             local tw, th = gfx.measurestr(txt)
             gfx.x = content_offset_left + (available_w - tw) / 2
             gfx.y = (gfx.h - th) / 2
+            if cfg.p_valign == "top" then gfx.y = S(70)
+            elseif cfg.p_valign == "bottom" then gfx.y = gfx.h - th - S(50) end
             gfx.drawstr(txt)
         end
     else
@@ -8636,14 +8666,12 @@ local function draw_prompter(input_queue)
                 prompter_drawer.active_markindex = (ch > 0) and cms[1].markindex or nil
 
                 if ch > 0 then
-                    render_corrections(cms, gfx.h - ch - 40, cfg.c_fsize)
-                else
-                    set_color(UI.C_TXT)
-                    gfx.setfont(F.std)
-                    local txt = "Нічого немає"
+                    local txt = "Нічого немає" -- Context from missing regions
                     local tw, th = gfx.measurestr(txt)
                     gfx.x = content_offset_left + (available_w - tw) / 2
                     gfx.y = (gfx.h - th) / 2
+                    if cfg.p_valign == "top" then gfx.y = S(70)
+                    elseif cfg.p_valign == "bottom" then gfx.y = gfx.h - th - S(50) end
                     gfx.drawstr(txt)
                 end
             end
@@ -9281,6 +9309,21 @@ local function draw_settings()
     end
     y_cursor = y_cursor + S(50)
 
+    s_text(x_start, y_cursor, "Вирівнювання по вертикалі:")
+    y_cursor = y_cursor + S(25)
+    local valign_options = {"top", "center", "bottom"}
+    local valign_labels = {"Вгорі", "Центр", "Внизу"}
+    for i, opt in ipairs(valign_options) do
+        local bx = x_start + ((i-1) * S(100))
+        local is_sel = (cfg.p_valign == opt)
+        local btn_bg = is_sel and {0.3, 0.5, 0.3} or UI.C_BTN
+        if s_btn(bx, y_cursor, S(90), S(30), valign_labels[i], nil, btn_bg) then
+            cfg.p_valign = opt
+            save_settings()
+        end
+    end
+    y_cursor = y_cursor + S(50)
+
     -- Font Selection
     s_text(x_start, y_cursor, "Шрифт:")
     y_cursor = y_cursor + S(25)
@@ -9356,6 +9399,26 @@ local function draw_settings()
             save_settings()
         end
         y_cursor = y_cursor + S(40)
+
+        if checkbox(x_start + S(30), y_cursor, "Прикріпити до основної репліки", cfg.next_attach, "Наступна репліка не прикріплюватиметься до низу екрану, а буде під основною.") then
+            cfg.next_attach = not cfg.next_attach
+            save_settings()
+        end
+        y_cursor = y_cursor + S(45)
+
+        if cfg.next_attach then
+            s_text(x_start + S(60), y_cursor, "Відступ до репліки: " .. cfg.next_padding)
+            if s_btn(x_start + S(225), y_cursor - S(10), S(30), S(30), "－") then
+                cfg.next_padding = math.max(0, cfg.next_padding - 5)
+                save_settings()
+            end
+            if s_btn(x_start + S(260), y_cursor - S(10), S(30), S(30), "＋") then
+                cfg.next_padding = math.min(500, cfg.next_padding + 5)
+                save_settings()
+            end
+            y_cursor = y_cursor + S(45)
+        end
+
         y_cursor = y_cursor + draw_color_palette(x_start + S(30), text_palette, cfg.n_cr, cfg.n_cg, cfg.n_cb, function(r, g, b)
             cfg.n_cr, cfg.n_cg, cfg.n_cb = r, g, b
             save_settings()
