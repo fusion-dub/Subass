@@ -985,21 +985,31 @@ local function draw_selection_border(x, y, w, h)
     gfx.rect(x - 3, y - 3, w + 6, h + 6, 0)
 end
 
+--- Check if any UI text input (filter, find/replace) is currently focused
+--- @return boolean
+local function is_any_text_input_focused()
+    if text_editor_active then return true end
+    if table_filter_state and table_filter_state.focus then return true end
+    if prompter_drawer and prompter_drawer.filter and prompter_drawer.filter.focus then return true end
+    if find_replace_state and find_replace_state.show then
+        if find_replace_state.find and find_replace_state.find.focus then return true end
+        if find_replace_state.replace and find_replace_state.replace.focus then return true end
+    end
+    return false
+end
+
 --- Return focus to REAPER's Arrange View with internal safeguards and aggressive triggers
-local function return_focus_to_reaper()
-    -- Safeguards: don't steal focus if user is actively typing
-    if text_editor_active then return end
-    
-    local any_filter_focused = (table_filter_state and table_filter_state.focus) or 
-                               (prompter_drawer and prompter_drawer.filter and prompter_drawer.filter.focus) or
-                               (find_replace_state and find_replace_state.show and (find_replace_state.find.focus or find_replace_state.replace.focus))
-    
-    if any_filter_focused then return end
+local function return_focus_to_reaper(force)
+    -- Safeguards: don't steal focus if user is actively typing or manipulating UI
+    if not force then
+        if is_any_text_input_focused() then return end
+        if gfx.mouse_cap ~= 0 then return end -- Don't return focus if mouse is held
+    end
 
     -- Aggressive focus payload
     local function exec_focus()
-    reaper.SetCursorContext(1, 0) -- Focus Arrange context
-    reaper.UpdateArrange() -- Nudge UI
+        reaper.SetCursorContext(1, 0) -- Focus Arrange context
+        reaper.UpdateArrange() -- Nudge UI
     end
     
     exec_focus()
@@ -1249,6 +1259,22 @@ local function utf8_lower(s)
     return table.concat(res)
 end
 
+--- Remove combining acute accents (stress marks) from a UTF-8 string
+--- @param s string Input string
+--- @return string Clean string
+local function strip_accents(s)
+    if not s then return "" end
+    return s:gsub(acute, "")
+end
+
+--- Remove ASS/RTF style tags and newline codes from a string
+--- @param s string Input string
+--- @return string Clean string
+local function strip_tags(s)
+    if not s then return "" end
+    return s:gsub("{.-}", ""):gsub("\\N", " "):gsub("\\n", " ")
+end
+
 -- Helper: UTF-8 safe uppercase
 --- Convert UTF-8 string to uppercase (supports Cyrillic)
 --- @param s string Input string
@@ -1302,6 +1328,65 @@ local function utf8_upper(s)
         end
     end
     return table.concat(res)
+end
+
+--- Find substring in a UTF-8 string ignoring case and stress marks
+--- Returns the START and END byte indices in the ORIGINAL string
+--- @param s string Source string
+--- @param query string Query string (unnormalized)
+--- @return number, number Start and End indices
+local function utf8_find_accent_blind(s, query)
+    if not s or not query or query == "" then return nil end
+    local q_clean = strip_accents(utf8_lower(query))
+    if q_clean == "" then return nil end
+    
+    local s_lower = utf8_lower(s)
+    local s_clean = strip_accents(s_lower)
+    
+    local start_c, end_c = s_clean:find(q_clean, 1, true)
+    if not start_c then return nil end
+    
+    -- Map byte positions from s_clean back to s_lower
+    local byte_map = {} 
+    local clean_byte_idx = 1
+    local i = 1
+    local len = #s_lower
+    
+    while i <= len do
+        local b = s_lower:byte(i)
+        if b == 204 and (i < len and s_lower:byte(i+1) == 129) then
+            i = i + 2 -- skip acute in mapping
+        else
+            local clen = 1
+            if b >= 240 then clen = 4
+            elseif b >= 224 then clen = 3
+            elseif b >= 192 then clen = 2
+            end
+            
+            for k = 0, clen - 1 do
+                byte_map[clean_byte_idx + k] = i + k
+            end
+            
+            i = i + clen
+            clean_byte_idx = clean_byte_idx + clen
+        end
+    end
+    
+    local start_orig = byte_map[start_c]
+    local end_orig = byte_map[end_c]
+    
+    if not start_orig or not end_orig then return nil end
+    
+    -- Include trailing stress marks in the final range
+    while end_orig + 2 <= #s_lower do
+        if s_lower:byte(end_orig + 1) == 204 and s_lower:byte(end_orig + 2) == 129 then
+            end_orig = end_orig + 2
+        else
+            break
+        end
+    end
+    
+    return start_orig, end_orig
 end
 
 --- Capitalize first character of UTF-8 string
@@ -6912,7 +6997,8 @@ local function draw_prompter_drawer(input_queue)
             local col_text_w = prompter_drawer.width - col_id_w - S(5)
             
             local state_count = reaper.GetProjectStateChangeCount(0)
-            local query = utf8_lower(prompter_drawer.filter.text)
+            local raw_query = prompter_drawer.filter.text
+            local query = strip_accents(utf8_lower(raw_query))
             
             -- 1. Update RAW Marker Cache if project changed
             update_marker_cache()
@@ -6933,10 +7019,10 @@ local function draw_prompter_drawer(input_queue)
                 gfx.setfont(F.std)
                 for _, m in ipairs(prompter_drawer.marker_cache.markers) do
                     local full_id = "M" .. tostring(m.markindex)
-                    local low_name = utf8_lower(m.name)
-                    local low_id = utf8_lower(full_id)
+                    local clean_name = strip_accents(utf8_lower(m.name))
+                    local clean_id = utf8_lower(full_id)
                     
-                    if query == "" or low_id:find(query, 1, true) or low_name:find(query, 1, true) then
+                    if query == "" or clean_id:find(query, 1, true) or clean_name:find(query, 1, true) then
                         local lines = {}
                         local current_text = m.name
                         while #current_text > 0 do
@@ -9180,7 +9266,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(45)
     
     -- Alignment
-    s_text(x_start, y_cursor, "Вирівнювання:")
+    s_text(x_start, y_cursor, "Вирівнювання по горизонталі:")
     y_cursor = y_cursor + S(25)
     local align_options = {"left", "center", "right"}
     local align_labels = {"Ліворуч", "Центр", "Праворуч"}
@@ -9522,16 +9608,22 @@ local function draw_table(input_queue)
                     else
                         local res_tbl = {}
                         local last_pos = 1
-                        local s_lower = utf8_lower(search)
-                        local t_lower = utf8_lower(txt)
                         
-                        local start_idx, end_idx = t_lower:find(s_lower, 1, true)
+                        local start_idx, end_idx = utf8_find_accent_blind(txt, search)
                         while start_idx do
                             table.insert(res_tbl, txt:sub(last_pos, start_idx - 1))
                             table.insert(res_tbl, replace)
                             last_pos = end_idx + 1
                             count = count + 1 
-                            start_idx, end_idx = t_lower:find(s_lower, last_pos, true)
+                            
+                            local remaining = txt:sub(last_pos)
+                            local next_s, next_e = utf8_find_accent_blind(remaining, search)
+                            if next_s then
+                                start_idx = last_pos + next_s - 1
+                                end_idx = last_pos + next_e - 1
+                            else
+                                start_idx = nil
+                            end
                         end
                         table.insert(res_tbl, txt:sub(last_pos))
                         new_txt = table.concat(res_tbl)
@@ -9659,26 +9751,31 @@ local function draw_table(input_queue)
 
     -- Filter Data
     if #table_filter_state.text > 0 then
-        local query = utf8_lower(table_filter_state.text)
         local raw_query = table_filter_state.text
+        local query_lower = utf8_lower(raw_query)
+        local query_clean = strip_accents(query_lower)
         
         for i, line in ipairs(raw_data) do
             -- ASS mode uses .text, Regions mode uses .name
-            local target_text = show_actor and line.text or line.name
-            -- Strip accents for filtering
-            local clean_text = target_text and target_text:gsub(acute, "") or ""
+            local target_text = show_actor and (line.text or "") or (line.name or "")
             local text_match = false
             local actor_match = false
             
             if find_replace_state.case_sensitive then
-                text_match = clean_text:find(raw_query, 1, true)
+                -- Strict match: literal search
+                text_match = target_text:find(raw_query, 1, true)
                 if show_actor and line.actor then
                     actor_match = line.actor:find(raw_query, 1, true)
                 end
             else
-                text_match = utf8_lower(clean_text):find(query, 1, true)
+                -- Loose match: ignore case, ignore tags, ignore accents
+                -- Strip tags first, then lower, then accents
+                local clean_text = strip_accents(utf8_lower(strip_tags(target_text)))
+                text_match = clean_text:find(query_clean, 1, true)
+                
                 if show_actor and line.actor then
-                    actor_match = utf8_lower(line.actor):find(query, 1, true)
+                    local clean_actor = strip_accents(utf8_lower(line.actor))
+                    actor_match = clean_actor:find(query_clean, 1, true)
                 end
             end
             
@@ -9884,12 +9981,16 @@ local function draw_table(input_queue)
             -- Helper for highlighting
             local function draw_highlighted_text(txt, x, y, max_w)
                 local display_txt = fit_text_width(txt, max_w)
-                local filter_s = utf8_lower(table_filter_state.text)
+                local query = table_filter_state.text
                 
                 -- Only highlight if filter is active
-                if #filter_s > 0 then
-                    local lower_display = utf8_lower(display_txt)
-                    local s_start, s_end = lower_display:find(filter_s, 1, true)
+                if #query > 0 then
+                    local s_start, s_end
+                    if find_replace_state.case_sensitive then
+                        s_start, s_end = display_txt:find(query, 1, true)
+                    else
+                        s_start, s_end = utf8_find_accent_blind(display_txt, query)
+                    end
                     
                     if s_start then
                         local pre_match = display_txt:sub(1, s_start - 1)
@@ -10537,8 +10638,10 @@ local function main()
                 }
                 
                 if global_cmds[c] then
-                    reaper.Main_OnCommand(global_cmds[c], 0)
-                    return_focus_to_reaper(nil, true)
+                    if not is_any_text_input_focused() then
+                        reaper.Main_OnCommand(global_cmds[c], 0)
+                        return_focus_to_reaper(true)
+                    end
                 end
             end
         end
