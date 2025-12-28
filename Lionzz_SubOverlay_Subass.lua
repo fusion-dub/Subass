@@ -1,6 +1,6 @@
 --[[ 
     Lionzz Sub Overlay (Subass)
-    Версія: 0.0.3
+    Версія: 0.0.4
 
     checklist:
     ОСНОВНЕ ВІКНО
@@ -280,6 +280,24 @@ local function apply_assimilation_recursive(text, offset)
     end
 end
 
+--- Merge two comments with dash prefixes and newline separation
+--- @param old string|nil Previous comment
+--- @param new string Current comment
+--- @return string Merged comment
+local function merge_comments(old, new)
+    if not new or new == "" then return old end
+    local s2 = new:gsub("^%s+", ""):gsub("%s+$", "")
+    if s2 == "" then return old end
+    
+    if not old or old == "" then return s2 end
+    local s1 = old:gsub("^%s+", ""):gsub("%s+$", "")
+    
+    if not s1:match("^%-") then s1 = "-" .. s1 end
+    if not s2:match("^%-") then s2 = "-" .. s2 end
+    
+    return s1 .. "\n" .. s2
+end
+
 local function parse_to_tokens(text)
     local tokens = {}
     local cursor = 1
@@ -302,7 +320,7 @@ local function parse_to_tokens(text)
         
         if segment ~= "" then
             for word in segment:gmatch("%S+") do 
-                 local effective_comment = pending_comment or global_comment
+                 local effective_comment = pending_comment or nil -- Initially use nil, global_comment applied in final pass
                  table.insert(tokens, {
                      text = word,
                      orig_text = word, 
@@ -322,6 +340,7 @@ local function parse_to_tokens(text)
         
         if char == "\n" then
              table.insert(tokens, { is_newline = true, text = "\n" })
+             has_text = false -- Reset for new line
              cursor = tag_start + 1
              
         elseif char == "{" then
@@ -364,13 +383,14 @@ local function parse_to_tokens(text)
 
                 -- If not formatting (and not empty), it's a comment
                 if not is_formatting and content ~= "" then
-                    if not has_text and not global_comment then
-                        global_comment = content
+                    content = content:gsub("^%s+", ""):gsub("%s+$", "") -- Trim
+                    if not has_text or (#tokens > 0 and tokens[#tokens].is_newline) then
+                        global_comment = merge_comments(global_comment, content)
                     elseif #tokens > 0 and not tokens[#tokens].is_newline then
                         -- Attach to last token
-                         tokens[#tokens].comment = content
+                        tokens[#tokens].comment = merge_comments(tokens[#tokens].comment, content)
                     else
-                        pending_comment = content
+                        pending_comment = merge_comments(pending_comment, content)
                     end
                 end
                 cursor = tag_end + 1
@@ -403,6 +423,15 @@ local function parse_to_tokens(text)
                 cursor = tag_end + 1
             else
                 cursor = tag_start + 1
+            end
+        end
+    end
+    
+    -- Final Pass: Apply global_comment to all tokens that don't have a specific comment
+    if global_comment then
+        for _, tok in ipairs(tokens) do
+            if not tok.is_newline and not tok.comment then
+                tok.comment = global_comment
             end
         end
     end
