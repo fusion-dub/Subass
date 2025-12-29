@@ -61,9 +61,10 @@ local cfg = {
     c_cr = get_set("c_cr", 1.0),
     c_cg = get_set("c_cg", 0.3),
     c_cb = get_set("c_cb", 0.3),
+    
     reader_mode = (get_set("reader_mode", "0") == "1" or get_set("reader_mode", 0) == 1),
-
     auto_startup = (get_set("auto_startup", "0") == "1" or get_set("auto_startup", 0) == 1),
+    gemini_key_status = tonumber(reaper.GetExtState(section_name, "gemini_key_status")) or 0,
 
     col_table_index = (get_set("col_table_index", "1") == "1" or get_set("col_table_index", 1) == 1),
     col_table_start = (get_set("col_table_start", "1") == "1" or get_set("col_table_start", 1) == 1),
@@ -95,8 +96,6 @@ local col_resize = {
 local function S(val)
     return math.floor(val * cfg.gui_scale)
 end
-
-local gemini_key_status = tonumber(reaper.GetExtState(section_name, "gemini_key_status")) or 0
 
 -- OS Detection for hybrid stress mark rendering
 local os_name = reaper.GetOS()
@@ -190,17 +189,19 @@ local regions = {}
 local proj_change_count = reaper.GetProjectStateChangeCount(0)
 
 -- Text Editor Modal State
-local text_editor_text = ""
-local text_editor_cursor = 0
-local text_editor_sel_anchor = 0 -- Anchor for text selection
-local text_editor_line_idx = nil
-local text_editor_callback = nil
-local text_editor_history = {}
-local text_editor_history_pos = 0
-local text_editor_scroll = 0
-local text_editor_active = false
-local text_editor_context_line_idx = nil -- Index of current line being edited
-local text_editor_context_all_lines = nil -- All lines for context
+local text_editor_state = {
+    text = "",
+    cursor = 0,
+    sel_anchor = 0, -- Anchor for text selection
+    line_idx = nil,
+    callback = nil,
+    history = {},
+    history_pos = 0,
+    scroll = 0,
+    active = false,
+    context_line_idx = nil, -- Index of current line being edited
+    context_all_lines = nil -- All lines for context
+}
 
 -- Table Filter State
 local table_filter_state = {
@@ -220,10 +221,12 @@ local table_selection = {} -- { [row_index] = true }
 local last_selected_row = nil -- for Shift range selection
 
 -- Snackbar State
-local snackbar_text = ""
-local snackbar_show_time = 0
-local snackbar_duration = 3.0 -- seconds
-local snackbar_type = "info" -- "info" (yellow), "success" (green), "error" (red)
+local snackbar_state = {
+    text = "",
+    show_time = 0,
+    duration = 3.0, -- seconds
+    type = "info" -- "info" (yellow), "success" (green), "error" (red)
+}
 
 -- Constants
 local acute = "\204\129" -- UTF-8 Combining Acute Accent (0xCC 0x81)
@@ -365,17 +368,7 @@ local function save_session_state(id)
         tab_scroll_y = {table.unpack(tab_scroll_y)},
         tab_target_scroll_y = {table.unpack(tab_target_scroll_y)},
         -- Editor state
-        text_editor_active = text_editor_active,
-        text_editor_text = text_editor_text,
-        text_editor_cursor = text_editor_cursor,
-        text_editor_sel_anchor = text_editor_sel_anchor,
-        text_editor_line_idx = text_editor_line_idx,
-        text_editor_callback = text_editor_callback,
-        text_editor_history = deep_copy(text_editor_history),
-        text_editor_history_pos = text_editor_history_pos,
-        text_editor_scroll = text_editor_scroll,
-        text_editor_context_line_idx = text_editor_context_line_idx,
-        text_editor_context_all_lines = text_editor_context_all_lines,
+        text_editor_state = deep_copy(text_editor_state),
         -- Modal states (minimal)
         ai_modal_show = ai_modal.show,
         ai_modal_step = ai_modal.current_step,
@@ -405,17 +398,9 @@ local function load_session_state(id)
         scroll_y = tab_scroll_y[current_tab] or 0
         target_scroll_y = tab_target_scroll_y[current_tab] or 0
         -- Editor
-        text_editor_active = state.text_editor_active or false
-        text_editor_text = state.text_editor_text or ""
-        text_editor_cursor = state.text_editor_cursor or 0
-        text_editor_sel_anchor = state.text_editor_sel_anchor or 0
-        text_editor_line_idx = state.text_editor_line_idx
-        text_editor_callback = state.text_editor_callback
-        text_editor_history = deep_copy(state.text_editor_history or {})
-        text_editor_history_pos = state.text_editor_history_pos or 0
-        text_editor_scroll = state.text_editor_scroll or 0
-        text_editor_context_line_idx = state.text_editor_context_line_idx
-        text_editor_context_all_lines = state.text_editor_context_all_lines
+        if state.text_editor_state then
+            text_editor_state = deep_copy(state.text_editor_state)
+        end
         -- Modals
         if ai_modal then 
             ai_modal.show = state.ai_modal_show or false 
@@ -440,7 +425,7 @@ local function load_session_state(id)
         end
     else
         -- Defaults for new project session
-        text_editor_active = false
+        text_editor_state.active = false
         if ai_modal then ai_modal.show = false ai_modal.current_step = "SELECT_TASK" end
         if dict_modal then dict_modal.show = false end
         table_selection = {}
@@ -1012,7 +997,7 @@ end
 --- Check if any UI text input (filter, find/replace) is currently focused
 --- @return boolean
 local function is_any_text_input_focused()
-    if text_editor_active then return true end
+    if text_editor_state.active then return true end
     if table_filter_state and table_filter_state.focus then return true end
     if prompter_drawer and prompter_drawer.filter and prompter_drawer.filter.focus then return true end
     if find_replace_state and find_replace_state.show then
@@ -1073,10 +1058,10 @@ end
 --- @param type string? Notification type: "success", "error", "info" (default)
 --- @param delay number? Optional duration in seconds
 local function show_snackbar(text, type, delay)
-    snackbar_duration = delay or 3.0
-    snackbar_text = text
-    snackbar_type = type or "info"
-    snackbar_show_time = reaper.time_precise()
+    snackbar_state.duration = delay or 3.0
+    snackbar_state.text = text
+    snackbar_state.type = type or "info"
+    snackbar_state.show_time = reaper.time_precise()
 end
 
 --- Draw tooltip at mouse position
@@ -1169,26 +1154,26 @@ end
 
 --- Draw snackbar notification with fade-out animation
 local function draw_snackbar()
-    if snackbar_text == "" then return end
+    if snackbar_state.text == "" then return end
     
     local current_time = reaper.time_precise()
-    local elapsed = current_time - snackbar_show_time
+    local elapsed = current_time - snackbar_state.show_time
     
-    if elapsed > snackbar_duration then
-        snackbar_text = "" -- Hide snackbar
+    if elapsed > snackbar_state.duration then
+        snackbar_state.text = "" -- Hide snackbar
         return
     end
     
     -- Calculate fade-out alpha
     local alpha = 1.0
-    if elapsed > snackbar_duration - 0.2 then
+    if elapsed > snackbar_state.duration - 0.2 then
         -- Fade out in last 0.2 seconds
-        alpha = (snackbar_duration - elapsed) / 0.2
+        alpha = (snackbar_state.duration - elapsed) / 0.2
     end
     
     -- Measure text
     gfx.setfont(F.std)
-    local text_w, text_h = gfx.measurestr(snackbar_text)
+    local text_w, text_h = gfx.measurestr(snackbar_state.text)
     
     -- Snackbar dimensions
     local padding = 15
@@ -1199,9 +1184,9 @@ local function draw_snackbar()
     
     -- Background
     -- Background based on type
-    if snackbar_type == "success" then
+    if snackbar_state.type == "success" then
         set_color({0.1, 0.35, 0.1, alpha * 0.95}) -- Dark Green
-    elseif snackbar_type == "error" then
+    elseif snackbar_state.type == "error" then
         set_color({0.4, 0.1, 0.1, alpha * 0.95}) -- Dark Red
     else
         set_color({0.35, 0.3, 0.1, alpha * 0.95}) -- Dark Yellow (Amber)
@@ -1216,7 +1201,7 @@ local function draw_snackbar()
     set_color({1, 1, 1, alpha})
     gfx.x = snack_x + padding
     gfx.y = snack_y + padding / 2
-    gfx.drawstr(snackbar_text)
+    gfx.drawstr(snackbar_state.text)
 end
 
 -- =============================================================================
@@ -2108,7 +2093,7 @@ end
 local function validate_gemini_key(key)
     show_snackbar("Перевірка ключа...", "info")
     gemini_api_call_async(key, "hi", function(status, body)
-        gemini_key_status = status
+        cfg.gemini_key_status = status
         reaper.SetExtState(section_name, "gemini_key_status", tostring(status), true)
         
         if status == 200 then
@@ -2135,9 +2120,9 @@ local function request_ai_assistant_task(task_name, text, variant_count)
     local context_before = ""
     local context_after = ""
     
-    if text_editor_context_line_idx and text_editor_context_all_lines then
-        local idx = text_editor_context_line_idx
-        local lines = text_editor_context_all_lines
+    if text_editor_state.context_line_idx and text_editor_state.context_all_lines then
+        local idx = text_editor_state.context_line_idx
+        local lines = text_editor_state.context_all_lines
         
         -- Get 3 previous replicas
         for i = math.max(1, idx - 3), idx - 1 do
@@ -4429,11 +4414,11 @@ local function draw_ai_modal(skip_draw)
                                 if gfx.mouse_x >= bx and gfx.mouse_x <= bx + bw and
                                    gfx.mouse_y >= by and gfx.mouse_y <= by + block_h then
                                     ai_modal.last_click_time = now
-                                    local before = text_editor_text:sub(1, ai_modal.sel_min)
-                                    local after = text_editor_text:sub(ai_modal.sel_max + 1)
-                                    text_editor_text = before .. sugg.text .. after
-                                    text_editor_cursor = ai_modal.sel_min + #sugg.text
-                                    text_editor_sel_anchor = text_editor_cursor
+                                    local before = text_editor_state.text:sub(1, ai_modal.sel_min)
+                                    local after = text_editor_state.text:sub(ai_modal.sel_max + 1)
+                                    text_editor_state.text = before .. sugg.text .. after
+                                    text_editor_state.cursor = ai_modal.sel_min + #sugg.text
+                                    text_editor_state.sel_anchor = text_editor_state.cursor
                                     
                                     changed = true
                                     ai_modal.show = false
@@ -4642,28 +4627,28 @@ end
 --- @param input_queue table Input events queue
 --- @return boolean True if editor consumed the input
 local function draw_text_editor(input_queue)
-    if not text_editor_active then return false end
+    if not text_editor_state.active then return false end
     
     -- History Helper and Changed flag
     local content_changed = false
     local function record_history()
         -- Truncate future if we diverged
-        if text_editor_history_pos < #text_editor_history then
-            for i = #text_editor_history, text_editor_history_pos + 1, -1 do
-                table.remove(text_editor_history, i)
+        if text_editor_state.history_pos < #text_editor_state.history then
+            for i = #text_editor_state.history, text_editor_state.history_pos + 1, -1 do
+                table.remove(text_editor_state.history, i)
             end
         end
         -- Push
-        table.insert(text_editor_history, {
-            text = text_editor_text,
-            cursor = text_editor_cursor,
-            anchor = text_editor_sel_anchor
+        table.insert(text_editor_state.history, {
+            text = text_editor_state.text,
+            cursor = text_editor_state.cursor,
+            anchor = text_editor_state.sel_anchor
         })
-        text_editor_history_pos = #text_editor_history
+        text_editor_state.history_pos = #text_editor_state.history
         -- Cap size (e.g. 100)
-        if #text_editor_history > 100 then
-            table.remove(text_editor_history, 1)
-            text_editor_history_pos = text_editor_history_pos - 1
+        if #text_editor_state.history > 100 then
+            table.remove(text_editor_state.history, 1)
+            text_editor_state.history_pos = text_editor_state.history_pos - 1
         end
     end
 
@@ -4756,12 +4741,12 @@ local function draw_text_editor(input_queue)
     end
 
     -- AI Button interaction
-    local sel_min = math.min(text_editor_cursor, text_editor_sel_anchor)
-    local sel_max = math.max(text_editor_cursor, text_editor_sel_anchor)
+    local sel_min = math.min(text_editor_state.cursor, text_editor_state.sel_anchor)
+    local sel_max = math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
     local has_sel = (sel_min ~= sel_max)
 
     if btn(ai_btn_x, ai_btn_y, ai_btn_w, ai_btn_h, "AI") then
-        if not cfg.gemini_api_key or cfg.gemini_api_key == "" or (gemini_key_status ~= 200 and gemini_key_status ~= 429) then
+        if not cfg.gemini_api_key or cfg.gemini_api_key == "" or (cfg.gemini_key_status ~= 200 and cfg.gemini_key_status ~= 429) then
             show_snackbar("Ключ Gemini API не валідний або відсутній", "error")
         else
             -- Expand selection to words if any word is partially touched
@@ -4769,8 +4754,8 @@ local function draw_text_editor(input_queue)
                 local word_pattern = "[%a\128-\255\'%-]+[\128-\255]*"
                 local new_min, new_max = sel_min, sel_max
                 local pos = 1
-                while pos <= #text_editor_text do
-                    local s, e = text_editor_text:find(word_pattern, pos)
+                while pos <= #text_editor_state.text do
+                    local s, e = text_editor_state.text:find(word_pattern, pos)
                     if not s then break end
                     local w_min = s - 1
                     local w_max = e
@@ -4783,10 +4768,10 @@ local function draw_text_editor(input_queue)
                 end
                 sel_min, sel_max = new_min, new_max
                 -- Update actual editor state
-                if text_editor_cursor > text_editor_sel_anchor then
-                    text_editor_cursor, text_editor_sel_anchor = sel_max, sel_min
+                if text_editor_state.cursor > text_editor_state.sel_anchor then
+                    text_editor_state.cursor, text_editor_state.sel_anchor = sel_max, sel_min
                 else
-                    text_editor_cursor, text_editor_sel_anchor = sel_min, sel_max
+                    text_editor_state.cursor, text_editor_state.sel_anchor = sel_min, sel_max
                 end
             end
 
@@ -4794,7 +4779,7 @@ local function draw_text_editor(input_queue)
 
             local function init_selection(s_min, s_max)
                 -- Open Modal with new selection
-                ai_modal.text = text_editor_text:sub(s_min + 1, s_max)
+                ai_modal.text = text_editor_state.text:sub(s_min + 1, s_max)
                 ai_modal.sel_min = s_min
                 ai_modal.sel_max = s_max
                 ai_modal.current_step = "SELECT_TASK"
@@ -4817,18 +4802,18 @@ local function draw_text_editor(input_queue)
                 end
             elseif can_restore then
                 -- Restore selection and show modal
-                text_editor_cursor = ai_modal.sel_max
-                text_editor_sel_anchor = ai_modal.sel_min
+                text_editor_state.cursor = ai_modal.sel_max
+                text_editor_state.sel_anchor = ai_modal.sel_min
                 ai_modal.anchor_x = ai_btn_x
                 ai_modal.anchor_y = ai_btn_y + ai_btn_h
                 ai_modal.show = true
-            elseif #text_editor_text > 0 then
+            elseif #text_editor_state.text > 0 then
                 -- Auto-select ALL text if nothing is selected (First-click convenience)
-                text_editor_sel_anchor = 0
-                text_editor_cursor = #text_editor_text
+                text_editor_state.sel_anchor = 0
+                text_editor_state.cursor = #text_editor_state.text
 
                 -- Open Modal with new selection
-                init_selection(0, #text_editor_text)
+                init_selection(0, #text_editor_state.text)
             else
                 show_snackbar("Треба виділити цільовий текст для роботи", "error")
             end
@@ -4846,7 +4831,7 @@ local function draw_text_editor(input_queue)
     if gfx.mouse_x >= text_x and gfx.mouse_x <= text_x + text_w and
        gfx.mouse_y >= text_y and gfx.mouse_y <= text_y + text_h then
         if gfx.mouse_wheel ~= 0 then
-            text_editor_scroll = text_editor_scroll + (gfx.mouse_wheel > 0 and -line_h * 3 or line_h * 3)
+            text_editor_state.scroll = text_editor_state.scroll + (gfx.mouse_wheel > 0 and -line_h * 3 or line_h * 3)
             gfx.mouse_wheel = 0
         end
     end
@@ -4860,7 +4845,7 @@ local function draw_text_editor(input_queue)
     local visual_lines = {}
     
     local raw_pos = 0
-    for ln in (text_editor_text .. "\n"):gmatch("(.-)\n") do
+    for ln in (text_editor_state.text .. "\n"):gmatch("(.-)\n") do
         if ln == "" then
             table.insert(visual_lines, {text = "", start_idx = raw_pos, is_wrapped = false})
         else
@@ -4911,14 +4896,14 @@ local function draw_text_editor(input_queue)
 
     -- Scroll Clamping
     local total_text_h = #visual_lines * line_h
-    if text_editor_scroll > total_text_h - text_h + 10 then 
-        text_editor_scroll = math.max(0, total_text_h - text_h + 10) 
+    if text_editor_state.scroll > total_text_h - text_h + 10 then 
+        text_editor_state.scroll = math.max(0, total_text_h - text_h + 10) 
     end
-    if text_editor_scroll < 0 then text_editor_scroll = 0 end
+    if text_editor_state.scroll < 0 then text_editor_state.scroll = 0 end
 
     -- Helper: Convert X/Y to Cursor Index
     local function get_cursor_from_xy(mx, my)
-        local click_rel_y = my - (text_y + 5) + text_editor_scroll
+        local click_rel_y = my - (text_y + 5) + text_editor_state.scroll
         local click_line_idx = math.floor(click_rel_y / line_h) + 1
         
         if click_line_idx < 1 then click_line_idx = 1 end
@@ -4963,8 +4948,8 @@ local function draw_text_editor(input_queue)
     end
 
     -- Selection Logic
-    local sel_min = math.min(text_editor_cursor, text_editor_sel_anchor)
-    local sel_max = math.max(text_editor_cursor, text_editor_sel_anchor)
+    local sel_min = math.min(text_editor_state.cursor, text_editor_state.sel_anchor)
+    local sel_max = math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
     local has_sel = (sel_min ~= sel_max)
 
     -- MOUSE HANDLING
@@ -4975,41 +4960,41 @@ local function draw_text_editor(input_queue)
         if last_mouse_cap == 0 and in_rect then
             local now = reaper.time_precise()
             if last_click_row == -999 and (now - last_click_time) < 0.5 then
-                text_editor_sel_anchor = 0
-                text_editor_cursor = #text_editor_text
+                text_editor_state.sel_anchor = 0
+                text_editor_state.cursor = #text_editor_state.text
                 last_click_row = 0
             elseif last_click_row == 999 and (now - last_click_time) < 0.5 then
                 local cx = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
                 local s, e = cx, cx
                 local i = cx
                 while i > 0 do
-                    local c = text_editor_text:sub(i, i)
+                    local c = text_editor_state.text:sub(i, i)
                     if c:match("[%s%p]") then break end
                     i = i - 1
                 end
                 s = i
                 i = cx + 1
-                while i <= #text_editor_text do
-                    local c = text_editor_text:sub(i, i)
+                while i <= #text_editor_state.text do
+                    local c = text_editor_state.text:sub(i, i)
                     if c:match("[%s%p]") then i = i - 1; break end
                     i = i + 1
                 end
                 e = i
-                text_editor_sel_anchor, text_editor_cursor = s, math.max(s, e)
+                text_editor_state.sel_anchor, text_editor_state.cursor = s, math.max(s, e)
                 last_click_row, last_click_time = -999, now
             else
                 local new_cur = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
-                text_editor_cursor, text_editor_sel_anchor = new_cur, new_cur
+                text_editor_state.cursor, text_editor_state.sel_anchor = new_cur, new_cur
                 last_click_row, last_click_time = 999, now
             end
         elseif in_rect and last_click_row ~= -999 then 
-            text_editor_cursor = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
+            text_editor_state.cursor = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
         end
     end
 
     -- DRAW TEXT & SELECTION
     for i, v_line in ipairs(visual_lines) do
-        local y = text_y + 5 + (i-1) * line_h - text_editor_scroll
+        local y = text_y + 5 + (i-1) * line_h - text_editor_state.scroll
         if y >= text_y + text_h - 10 then break end
         if y >= text_y then
             local line_start = v_line.start_idx
@@ -5043,16 +5028,16 @@ local function draw_text_editor(input_queue)
     if math.floor(reaper.time_precise() * 2) % 2 == 0 then
         local cur_v_line_idx = 1
         for i, v_line in ipairs(visual_lines) do
-            if text_editor_cursor <= v_line.start_idx + #v_line.text then
+            if text_editor_state.cursor <= v_line.start_idx + #v_line.text then
                 cur_v_line_idx = i; break
             else
                 cur_v_line_idx = i
             end
         end
         local target_v_line = visual_lines[cur_v_line_idx]
-        local cur_rel_offset = text_editor_cursor - target_v_line.start_idx
+        local cur_rel_offset = text_editor_state.cursor - target_v_line.start_idx
         local cur_x = text_x + 5 + gfx.measurestr(target_v_line.text:sub(1, math.max(0, cur_rel_offset)))
-        local cur_y = text_y + 5 + (cur_v_line_idx - 1) * line_h - text_editor_scroll
+        local cur_y = text_y + 5 + (cur_v_line_idx - 1) * line_h - text_editor_state.scroll
         
         if cur_y >= text_y and cur_y < text_y + text_h - 10 then
             set_color({1, 1, 1})
@@ -5064,7 +5049,7 @@ local function draw_text_editor(input_queue)
     if total_text_h > text_h then
         local sb_w = S(6)
         local sb_h = (text_h / total_text_h) * text_h
-        local sb_y = text_y + (text_editor_scroll / total_text_h) * text_h
+        local sb_y = text_y + (text_editor_state.scroll / total_text_h) * text_h
         local sb_x = text_x + text_w - sb_w - S(2)
         set_color({0.4, 0.4, 0.4, 0.6})
         gfx.rect(sb_x, sb_y, sb_w, sb_h, 1)
@@ -5073,21 +5058,21 @@ local function draw_text_editor(input_queue)
     -- Buttons
     local btn_y = box_y + box_h - S(40)
     if btn(box_x + S(10), btn_y, S(90), S(30), "Скасування") then 
-        text_editor_active = false 
+        text_editor_state.active = false 
         ai_modal.text = ""
         ai_modal.suggestions = {}
         ai_modal.history = {} -- Clear history
-        text_editor_context_line_idx = nil
-        text_editor_context_all_lines = nil
+        text_editor_state.context_line_idx = nil
+        text_editor_state.context_all_lines = nil
     end
     if btn(box_x + box_w - S(90), btn_y, S(80), S(30), "Зберегти") then
-        if text_editor_callback then text_editor_callback(text_editor_text) end
-        text_editor_active = false
+        if text_editor_state.callback then text_editor_state.callback(text_editor_state.text) end
+        text_editor_state.active = false
         ai_modal.text = ""
         ai_modal.suggestions = {}
         ai_modal.history = {} -- Clear history
-        text_editor_context_line_idx = nil
-        text_editor_context_all_lines = nil
+        text_editor_state.context_line_idx = nil
+        text_editor_state.context_all_lines = nil
     end
 
     -- Handle Keyboard Input from QUEUE
@@ -5101,12 +5086,12 @@ local function draw_text_editor(input_queue)
         -- Helper: Delete Selection
         local function delete_selection()
             if not has_sel then return end
-            local s_min, s_max = math.min(text_editor_cursor, text_editor_sel_anchor), math.max(text_editor_cursor, text_editor_sel_anchor)
-            local before = text_editor_text:sub(1, s_min)
-            local after = text_editor_text:sub(s_max + 1)
-            text_editor_text = before .. after
-            text_editor_cursor = s_min
-            text_editor_sel_anchor = s_min
+            local s_min, s_max = math.min(text_editor_state.cursor, text_editor_state.sel_anchor), math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
+            local before = text_editor_state.text:sub(1, s_min)
+            local after = text_editor_state.text:sub(s_max + 1)
+            text_editor_state.text = before .. after
+            text_editor_state.cursor = s_min
+            text_editor_state.sel_anchor = s_min
         end
 
         for _, char in ipairs(input_queue) do
@@ -5116,17 +5101,17 @@ local function draw_text_editor(input_queue)
             if ((char == 26) or (is_paste_mod and (char == 122 or char == 90))) then
                 if is_shift then
                     -- Redo
-                    if text_editor_history_pos < #text_editor_history then
-                        text_editor_history_pos = text_editor_history_pos + 1
-                        local snapshot = text_editor_history[text_editor_history_pos]
-                        text_editor_text, text_editor_cursor, text_editor_sel_anchor = snapshot.text, snapshot.cursor, snapshot.anchor
+                    if text_editor_state.history_pos < #text_editor_state.history then
+                        text_editor_state.history_pos = text_editor_state.history_pos + 1
+                        local snapshot = text_editor_state.history[text_editor_state.history_pos]
+                        text_editor_state.text, text_editor_state.cursor, text_editor_state.sel_anchor = snapshot.text, snapshot.cursor, snapshot.anchor
                     end
                 else
                     -- Undo
-                    if text_editor_history_pos > 1 then
-                        text_editor_history_pos = text_editor_history_pos - 1
-                        local snapshot = text_editor_history[text_editor_history_pos]
-                        text_editor_text, text_editor_cursor, text_editor_sel_anchor = snapshot.text, snapshot.cursor, snapshot.anchor
+                    if text_editor_state.history_pos > 1 then
+                        text_editor_state.history_pos = text_editor_state.history_pos - 1
+                        local snapshot = text_editor_state.history[text_editor_state.history_pos]
+                        text_editor_state.text, text_editor_state.cursor, text_editor_state.sel_anchor = snapshot.text, snapshot.cursor, snapshot.anchor
                     end
                 end
                 handled_history = true
@@ -5134,16 +5119,16 @@ local function draw_text_editor(input_queue)
 
             if not handled_history then
                 if char == 1 or (is_cmd and (char == 97 or char == 65)) then -- Select All
-                    text_editor_sel_anchor, text_editor_cursor = 0, #text_editor_text
+                    text_editor_state.sel_anchor, text_editor_state.cursor = 0, #text_editor_state.text
                 elseif (char == 3) or (is_paste_mod and (char == 99 or char == 67)) then -- Copy
                     if has_sel then
-                        local sm, sx = math.min(text_editor_cursor, text_editor_sel_anchor), math.max(text_editor_cursor, text_editor_sel_anchor)
-                        set_clipboard(text_editor_text:sub(sm + 1, sx))
+                        local sm, sx = math.min(text_editor_state.cursor, text_editor_state.sel_anchor), math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
+                        set_clipboard(text_editor_state.text:sub(sm + 1, sx))
                     end
                 elseif (char == 24) or (is_paste_mod and (char == 120 or char == 88)) then -- Cut
                     if has_sel then
-                        local sm, sx = math.min(text_editor_cursor, text_editor_sel_anchor), math.max(text_editor_cursor, text_editor_sel_anchor)
-                        set_clipboard(text_editor_text:sub(sm + 1, sx))
+                        local sm, sx = math.min(text_editor_state.cursor, text_editor_state.sel_anchor), math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
+                        set_clipboard(text_editor_state.text:sub(sm + 1, sx))
                         delete_selection()
                         content_changed = true
                     end
@@ -5152,67 +5137,67 @@ local function draw_text_editor(input_queue)
                     local clp = get_clipboard()
                     if clp and clp ~= "" then
                         clp = clp:gsub("\r\n", "\n"):gsub("\r", "\n")
-                        text_editor_text = text_editor_text:sub(1, text_editor_cursor) .. clp .. text_editor_text:sub(text_editor_cursor + 1)
-                        text_editor_cursor = text_editor_cursor + #clp
-                        text_editor_sel_anchor = text_editor_cursor 
+                        text_editor_state.text = text_editor_state.text:sub(1, text_editor_state.cursor) .. clp .. text_editor_state.text:sub(text_editor_state.cursor + 1)
+                        text_editor_state.cursor = text_editor_state.cursor + #clp
+                        text_editor_state.sel_anchor = text_editor_state.cursor 
                         content_changed = true
                     end
                 elseif char == 27 then -- Esc
-                    text_editor_active = false
+                    text_editor_state.active = false
                     ai_modal.text = ""
                     ai_modal.suggestions = {}
                     ai_modal.history = {} -- Clear history
-                    text_editor_context_line_idx = nil
-                    text_editor_context_all_lines = nil
+                    text_editor_state.context_line_idx = nil
+                    text_editor_state.context_all_lines = nil
                     return true
                 elseif char == 13 then -- Enter
                     delete_selection()
-                    text_editor_text = text_editor_text:sub(1, text_editor_cursor) .. "\n" .. text_editor_text:sub(text_editor_cursor + 1)
-                    text_editor_cursor, text_editor_sel_anchor = text_editor_cursor + 1, text_editor_cursor + 1
+                    text_editor_state.text = text_editor_state.text:sub(1, text_editor_state.cursor) .. "\n" .. text_editor_state.text:sub(text_editor_state.cursor + 1)
+                    text_editor_state.cursor, text_editor_state.sel_anchor = text_editor_state.cursor + 1, text_editor_state.cursor + 1
                     content_changed = true
                 elseif char == 8 then -- Backspace
                     if has_sel then delete_selection(); content_changed = true
-                    elseif text_editor_cursor > 0 then
-                        local cur = text_editor_cursor
+                    elseif text_editor_state.cursor > 0 then
+                        local cur = text_editor_state.cursor
                         while cur > 1 do
-                            local b = text_editor_text:byte(cur)
+                            local b = text_editor_state.text:byte(cur)
                             if b < 128 or b >= 192 then break end
                             cur = cur - 1
                         end
-                        text_editor_text = text_editor_text:sub(1, cur - 1) .. text_editor_text:sub(text_editor_cursor + 1)
-                        text_editor_cursor = cur - 1
-                        text_editor_sel_anchor = text_editor_cursor
+                        text_editor_state.text = text_editor_state.text:sub(1, cur - 1) .. text_editor_state.text:sub(text_editor_state.cursor + 1)
+                        text_editor_state.cursor = cur - 1
+                        text_editor_state.sel_anchor = text_editor_state.cursor
                         content_changed = true
                     end
                 elseif char == 1818584692 then -- Left
-                    if text_editor_cursor > 0 then
-                        local cur = text_editor_cursor
+                    if text_editor_state.cursor > 0 then
+                        local cur = text_editor_state.cursor
                         while cur > 1 do
-                            local b = text_editor_text:byte(cur); if b < 128 or b >= 192 then break end
+                            local b = text_editor_state.text:byte(cur); if b < 128 or b >= 192 then break end
                             cur = cur - 1
                         end
-                        text_editor_cursor = cur - 1
-                        if not is_shift then text_editor_sel_anchor = text_editor_cursor end
+                        text_editor_state.cursor = cur - 1
+                        if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
                     end
                 elseif char == 1919379572 then -- Right
-                    if text_editor_cursor < #text_editor_text then
-                        local cur = text_editor_cursor + 1
-                        while cur < #text_editor_text do
-                            local b = text_editor_text:byte(cur + 1); if b < 128 or b >= 192 then break end
+                    if text_editor_state.cursor < #text_editor_state.text then
+                        local cur = text_editor_state.cursor + 1
+                        while cur < #text_editor_state.text do
+                            local b = text_editor_state.text:byte(cur + 1); if b < 128 or b >= 192 then break end
                             cur = cur + 1
                         end
-                        text_editor_cursor = cur
-                        if not is_shift then text_editor_sel_anchor = text_editor_cursor end
+                        text_editor_state.cursor = cur
+                        if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
                     end
                 elseif char == 30064 then -- Up
                     -- Greedy lookup: prefer later line at wrap boundary to move to the one above it
                     local cur_vi = 1
                     for i, v_line in ipairs(visual_lines) do
-                        if text_editor_cursor >= v_line.start_idx then cur_vi = i else break end
+                        if text_editor_state.cursor >= v_line.start_idx then cur_vi = i else break end
                     end
                     if cur_vi > 1 then
                         local cvl, pvl = visual_lines[cur_vi], visual_lines[cur_vi-1]
-                        local rx = gfx.measurestr(cvl.text:sub(1, math.max(0, text_editor_cursor - cvl.start_idx)))
+                        local rx = gfx.measurestr(cvl.text:sub(1, math.max(0, text_editor_state.cursor - cvl.start_idx)))
                         local bd, bi = math.huge, 0
                         local coff = 0
                         while coff <= #pvl.text do
@@ -5224,14 +5209,14 @@ local function draw_text_editor(input_queue)
                             if b >= 240 then len = 4 elseif b >= 224 then len = 3 elseif b >= 192 then len = 2 end
                             coff = coff + len
                         end
-                        text_editor_cursor = pvl.start_idx + bi
-                        if not is_shift then text_editor_sel_anchor = text_editor_cursor end
+                        text_editor_state.cursor = pvl.start_idx + bi
+                        if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
                     end
                 elseif char == 1685026670 then -- Down
                     -- Determine current visual line (use simple boundary-based lookup)
                     local cur_vi = 1
                     for i, v_line in ipairs(visual_lines) do
-                        if text_editor_cursor <= v_line.start_idx + #v_line.text then
+                        if text_editor_state.cursor <= v_line.start_idx + #v_line.text then
                             cur_vi = i
                             break
                         end
@@ -5240,7 +5225,7 @@ local function draw_text_editor(input_queue)
                     
                     if cur_vi < #visual_lines then
                         local cvl, nvl = visual_lines[cur_vi], visual_lines[cur_vi+1]
-                        local rx = gfx.measurestr(cvl.text:sub(1, math.max(0, text_editor_cursor - cvl.start_idx)))
+                        local rx = gfx.measurestr(cvl.text:sub(1, math.max(0, text_editor_state.cursor - cvl.start_idx)))
                         local bd, bi = math.huge, 0
                         local coff = 0
                         while coff <= #nvl.text do
@@ -5252,27 +5237,27 @@ local function draw_text_editor(input_queue)
                             if b >= 240 then len = 4 elseif b >= 224 then len = 3 elseif b >= 192 then len = 2 end
                             coff = coff + len
                         end
-                        text_editor_cursor = nvl.start_idx + bi
-                        if not is_shift then text_editor_sel_anchor = text_editor_cursor end
+                        text_editor_state.cursor = nvl.start_idx + bi
+                        if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
                     end
                 elseif char == 6647396 then -- Home
                     local cur_vi = 1
                     for i, v_line in ipairs(visual_lines) do
-                        if text_editor_cursor >= v_line.start_idx and text_editor_cursor <= v_line.start_idx + #v_line.text then
+                        if text_editor_state.cursor >= v_line.start_idx and text_editor_state.cursor <= v_line.start_idx + #v_line.text then
                             cur_vi = i; break
                         end
                     end
-                    text_editor_cursor = visual_lines[cur_vi].start_idx
-                    if not is_shift then text_editor_sel_anchor = text_editor_cursor end
+                    text_editor_state.cursor = visual_lines[cur_vi].start_idx
+                    if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
                 elseif char == 1752132965 then -- End
                     local cur_vi = 1
                     for i, v_line in ipairs(visual_lines) do
-                        if text_editor_cursor >= v_line.start_idx and text_editor_cursor <= v_line.start_idx + #v_line.text then
+                        if text_editor_state.cursor >= v_line.start_idx and text_editor_state.cursor <= v_line.start_idx + #v_line.text then
                             cur_vi = i; break
                         end
                     end
-                    text_editor_cursor = visual_lines[cur_vi].start_idx + #visual_lines[cur_vi].text
-                    if not is_shift then text_editor_sel_anchor = text_editor_cursor end
+                    text_editor_state.cursor = visual_lines[cur_vi].start_idx + #visual_lines[cur_vi].text
+                    if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
                 elseif not is_paste_mod then
                     local unicode_flag = 0x75000000 
                     local cp, is_u = char, false
@@ -5287,9 +5272,9 @@ local function draw_text_editor(input_queue)
                         elseif cp < 0x10000 then cs = string.char(0xE0 + math.floor(cp / 4096), 0x80 + math.floor((cp % 4096) / 64), 0x80 + (cp % 64))
                         else cs = string.char(0xF0 + math.floor(cp / 262144), 0x80 + math.floor((cp % 262144) / 4096), 0x80 + math.floor((cp % 4096) / 64), 0x80 + (cp % 64))
                         end
-                        text_editor_text = text_editor_text:sub(1, text_editor_cursor) .. cs .. text_editor_text:sub(text_editor_cursor + 1)
-                        text_editor_cursor = text_editor_cursor + #cs
-                        text_editor_sel_anchor = text_editor_cursor
+                        text_editor_state.text = text_editor_state.text:sub(1, text_editor_state.cursor) .. cs .. text_editor_state.text:sub(text_editor_state.cursor + 1)
+                        text_editor_state.cursor = text_editor_state.cursor + #cs
+                        text_editor_state.sel_anchor = text_editor_state.cursor
                         content_changed = true
                     end
                 end
@@ -5298,12 +5283,12 @@ local function draw_text_editor(input_queue)
 
         -- Auto-scroll to cursor (Only on input)
         if #input_queue > 0 then
-            local cur_v_line_idx = get_cur_vi(text_editor_cursor)
+            local cur_v_line_idx = get_cur_vi(text_editor_state.cursor)
             local cursor_y_rel = (cur_v_line_idx - 1) * line_h
-            if cursor_y_rel < text_editor_scroll then
-                text_editor_scroll = cursor_y_rel
-            elseif cursor_y_rel > text_editor_scroll + text_h - line_h * 2 then
-                text_editor_scroll = cursor_y_rel - text_h + line_h * 2
+            if cursor_y_rel < text_editor_state.scroll then
+                text_editor_state.scroll = cursor_y_rel
+            elseif cursor_y_rel > text_editor_state.scroll + text_h - line_h * 2 then
+                text_editor_state.scroll = cursor_y_rel - text_h + line_h * 2
             end
         end
     end -- if input_queue
@@ -5734,23 +5719,23 @@ end
 --- @param line_idx number|nil Optional context line index
 --- @param all_lines table|nil Optional context all lines
 local function open_text_editor(initial_text, callback, line_idx, all_lines)
-    text_editor_active = true
-    text_editor_text = initial_text or ""
-    text_editor_cursor = #text_editor_text
-    text_editor_sel_anchor = text_editor_cursor
-    text_editor_callback = callback
-    text_editor_context_line_idx = line_idx
-    text_editor_context_all_lines = all_lines
+    text_editor_state.active = true
+    text_editor_state.text = initial_text or ""
+    text_editor_state.cursor = #text_editor_state.text
+    text_editor_state.sel_anchor = text_editor_state.cursor
+    text_editor_state.callback = callback
+    text_editor_state.context_line_idx = line_idx
+    text_editor_state.context_all_lines = all_lines
     
     -- Init History
-    text_editor_history = {
+    text_editor_state.history = {
         {
-            text = text_editor_text,
-            cursor = text_editor_cursor,
-            anchor = text_editor_sel_anchor
+            text = text_editor_state.text,
+            cursor = text_editor_state.cursor,
+            anchor = text_editor_state.sel_anchor
         }
     }
-    text_editor_history_pos = 1
+    text_editor_state.history_pos = 1
 end
 
 --- Draw main navigation tabs
@@ -9088,9 +9073,9 @@ local function draw_settings()
     
     -- Gemini API Key
     local gemini_btn_col = UI.C_BTN
-    if gemini_key_status == 200 or gemini_key_status == 429 then
+    if cfg.gemini_key_status == 200 or cfg.gemini_key_status == 429 then
         gemini_btn_col = {0.2, 0.4, 0.2} -- Greenish
-    elseif cfg.gemini_api_key ~= "" and gemini_key_status ~= 0 then
+    elseif cfg.gemini_api_key ~= "" and cfg.gemini_key_status ~= 0 then
         gemini_btn_col = {0.5, 0.2, 0.2} -- Reddish
     end
 
@@ -9699,6 +9684,9 @@ local function draw_table(input_queue)
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     find_replace_state.show = true
+                    if cfg.show_markers_in_table then
+                        show_snackbar("Знайти та замінити не працюватиме для правок", "info")
+                    end
                 elseif ret == 2 then
                     cfg.reader_mode = not cfg.reader_mode
                     if cfg.reader_mode then
@@ -9898,9 +9886,22 @@ local function draw_table(input_queue)
                 -- Ctrl+A (Select All)
                 if key == 1 then
                     table_selection = {}
+                    -- Select ASS lines
                     for i, l in ipairs(ass_lines) do
                         table_selection[l.index or i] = true
                     end
+                    
+                    -- Select Markers if visible
+                    if cfg.show_markers_in_table then
+                        local m_count = reaper.CountProjectMarkers(0)
+                        for i = 0, m_count - 1 do
+                            local retval, isrgn, pos, rgnend, name, markindex = reaper.EnumProjectMarkers3(0, i)
+                            if retval and not isrgn then
+                                table_selection["M" .. markindex] = true
+                            end
+                        end
+                    end
+                    
                     last_selected_row = nil
                 end
 
@@ -9999,6 +10000,7 @@ local function draw_table(input_queue)
             local target_text = show_actor and (line.text or "") or (line.name or "")
             local text_match = false
             local actor_match = false
+            local index_match = false
             
             if find_replace_state.case_sensitive then
                 -- Strict match: literal search
@@ -10006,6 +10008,10 @@ local function draw_table(input_queue)
                 if show_actor and line.actor then
                     actor_match = line.actor:find(raw_query, 1, true)
                 end
+                
+                -- Strict Index Match
+                local idx_str = tostring(line.index or "")
+                if idx_str:find(raw_query, 1, true) then index_match = true end
             else
                 -- Loose match: ignore case, ignore tags, ignore accents
                 -- Strip tags first, then lower, then accents
@@ -10016,9 +10022,13 @@ local function draw_table(input_queue)
                     local clean_actor = strip_accents(utf8_lower(line.actor))
                     actor_match = clean_actor:find(query_clean, 1, true)
                 end
+                
+                -- Loose Index Match
+                local idx_str = tostring(line.index or ""):lower()
+                if idx_str:find(query_clean, 1, true) then index_match = true end
             end
             
-            if text_match or actor_match then
+            if text_match or actor_match or index_match then
                 table.insert(data_source, line)
             end
         end
@@ -10269,7 +10279,11 @@ local function draw_table(input_queue)
             local is_active_row = (current_time >= line.t1 and current_time < line.t2)
             
             if is_selected then
-                set_color({0.1, 0.35, 0.2}) -- Darker Green Selection
+                if line.is_marker then
+                    set_color({0.4, 0.2, 0.0, 1}) -- Dark Orange Selection for markers
+                else
+                    set_color({0.1, 0.35, 0.2}) -- Darker Green Selection
+                end
                 gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
             end
             
@@ -10346,15 +10360,21 @@ local function draw_table(input_queue)
             local cps = duration > 0 and (char_count / duration) or 0
             
             if not cfg.reader_mode and cfg.col_table_cps then
+                local cps_str = line.is_marker and "" or string.format("%.1f", cps)
                 local cps_color = get_cps_color(cps)
                 set_color(cps_color)
-                draw_cell_txt(string.format("%.1f", cps), col_ptr); col_ptr = col_ptr + 1
+                draw_cell_txt(cps_str, col_ptr); col_ptr = col_ptr + 1
             end
             
             -- Helper for highlighting and wrapping
             local function draw_highlighted_text(txt, x, y, max_w, row_h_passed)
                 set_color(row_base_color)
                 local display_txt = txt:gsub("[\n\r]", " ")
+                
+                -- Add Marker Index Prefix in Reader Mode
+                if cfg.reader_mode and line.is_marker and line.markindex then
+                    display_txt = "(M" .. line.markindex .. ") - " .. display_txt
+                end
                 local query = table_filter_state.text
                 
                 if not cfg.reader_mode then
@@ -11074,7 +11094,7 @@ local function handle_remote_commands()
         if word ~= "" then
             trigger_dictionary_lookup(word)
 
-            if text_editor_active then
+            if text_editor_state.active then
                 show_snackbar("Потрібно закрити редактор, аби побачити ГОРОХ", "error")
             end
         end
@@ -11132,7 +11152,7 @@ local function main()
     end
 
     -- --- UNDO HANDLING (GLOBAL) ---
-    if not text_editor_active then
+    if not text_editor_state.active then
         for _, c in ipairs(input_queue) do
             if c == 26 then -- Ctrl+Z / Cmd+Z
                 if gfx.mouse_cap & 8 ~= 0 then -- Shift is held
@@ -11140,7 +11160,7 @@ local function main()
                 else
                     undo_action()
                 end
-            elseif not dict_modal.show and not text_editor_active then
+            elseif not dict_modal.show and not text_editor_state.active then
                 -- Global Pass-Through Shortcuts (Standard Defaults)
                 -- Dynamic lookup of user shortcuts is not supported by API
                 local global_cmds = {
@@ -11163,7 +11183,7 @@ local function main()
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
     
     -- Only draw main content if text editor not active
-    if not text_editor_active then
+    if not text_editor_state.active then
         if current_tab == 1 then 
             handle_drag_drop()
             draw_file()
