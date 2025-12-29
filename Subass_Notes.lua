@@ -70,6 +70,8 @@ local cfg = {
     col_table_end = (get_set("col_table_end", "1") == "1" or get_set("col_table_end", 1) == 1),
     col_table_cps = (get_set("col_table_cps", "1") == "1" or get_set("col_table_cps", 1) == 1),
     col_table_actor = (get_set("col_table_actor", "1") == "1" or get_set("col_table_actor", 1) == 1),
+    
+    show_markers_in_table = (get_set("show_markers_in_table", "0") == "1" or get_set("show_markers_in_table", 0) == 1),
 
     -- Column Widths
     col_w_enabled = get_set("col_w_enabled", 25),
@@ -569,6 +571,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "col_table_cps", cfg.col_table_cps and "1" or "0", true)
     reaper.SetExtState(section_name, "col_table_actor", cfg.col_table_actor and "1" or "0", true)
     reaper.SetExtState(section_name, "reader_mode", cfg.reader_mode and "1" or "0", true)
+    reaper.SetExtState(section_name, "show_markers_in_table", cfg.show_markers_in_table and "1" or "0", true)
     reaper.SetExtState(section_name, "gui_scale", tostring(cfg.gui_scale), true)
 
     update_prompter_fonts()
@@ -6955,7 +6958,7 @@ local function draw_prompter_drawer(input_queue)
         end
         
         -- Use robust click detection
-        if hover and gfx.mouse_cap == 1 and last_mouse_cap == 0 and not mouse_handled then
+        if hover and is_mouse_clicked(1) and not mouse_handled then
             prompter_drawer.open = true
             mouse_handled = true
             -- Ensure width is sane when opening
@@ -7192,7 +7195,8 @@ local function draw_prompter_drawer(input_queue)
                 -- Check visibility
                 if row_y + m.h > table_y and row_y < gfx.h then
                     local row_hover = (gfx.mouse_x >= drawer_x and gfx.mouse_x <= drawer_x + prompter_drawer.width and
-                                       gfx.mouse_y >= row_y and gfx.mouse_y <= row_y + m.h)
+                                       gfx.mouse_y >= row_y and gfx.mouse_y <= row_y + m.h and
+                                       gfx.mouse_y >= table_y)
                     
                     -- Strictly clip backgrounds to table_y
                     local bg_draw_y = math.max(row_y, table_y)
@@ -7455,6 +7459,26 @@ local function draw_prompter(input_queue)
     -- Draw Custom Background
     set_color({cfg.bg_cr, cfg.bg_cg, cfg.bg_cb})
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+    -- === EARLY DRAWER BUTTON CLICK CHECK ===
+    if not prompter_drawer.open and prompter_drawer.has_markers_cache and prompter_drawer.has_markers_cache.result then
+        local drawer_top_y = S(25)
+        local btn_w = S(15)
+        local btn_h = S(105)
+        local btn_x = cfg.p_drawer_left and 0 or (gfx.w - btn_w)
+        local btn_y = drawer_top_y + (gfx.h - drawer_top_y - btn_h) / 2
+        
+        if gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and
+           gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h then
+             if is_mouse_clicked(1) and not mouse_handled then
+                prompter_drawer.open = true
+                mouse_handled = true
+                if not prompter_drawer.width or prompter_drawer.width < S(80) then
+                    prompter_drawer.width = S(300)
+                end
+             end
+        end
+    end
 
     -- === DRAWER CONTENT OFFSET CALCULATION ===
     local content_offset_left = 0
@@ -9668,9 +9692,10 @@ local function draw_table(input_queue)
                 local any_hidden = not (cfg.col_table_index and cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
                 local col_label = (any_hidden and "• " or "") .. "Колонки..."
                 local reader_label = (cfg.reader_mode and "• " or "") .. "Режим читача"
+                local markers_label = (cfg.show_markers_in_table and "• " or "") .. "Відображати правки в таблиці"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу"
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу|" .. markers_label
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     find_replace_state.show = true
@@ -9690,12 +9715,15 @@ local function draw_table(input_queue)
                     time_shift_menu.show = true
                     time_shift_menu.x = (btn_x + opt_btn_w) - S(280)
                     time_shift_menu.y = filter_y + filter_h + gap
+                elseif ret == 5 then
+                    cfg.show_markers_in_table = not cfg.show_markers_in_table
+                    save_settings()
                 end
             end
         end
 
-        -- Red Dot indicator for hidden columns
-        local any_hidden = cfg.reader_mode or not (cfg.col_table_index and cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
+        -- Red Dot indicator for hidden columns or enabled markers
+        local any_hidden = cfg.reader_mode or cfg.show_markers_in_table or not (cfg.col_table_index and cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
         if any_hidden then
             set_color({1, 0, 0, 1}) -- Red
             gfx.circle(btn_x + opt_btn_w - 4, filter_y + 4, 3, 1)
@@ -9788,25 +9816,77 @@ local function draw_table(input_queue)
     
     -- Helper: Delete Logic
     local function delete_logic()
-        local selected_entries = {}
+        -- Separate ASS lines and markers
+        local selected_ass_entries = {}
+        local selected_marker_indices = {}
+        
+        -- Collect selected ASS lines
         for p, l in ipairs(ass_lines) do
             if table_selection[l.index or p] then
-                table.insert(selected_entries, {line = l, pos = p})
+                table.insert(selected_ass_entries, {line = l, pos = p})
             end
         end
         
-        if #selected_entries > 0 then
-            push_undo("Видалення реплік")
-            table.sort(selected_entries, function(a,b) return a.pos > b.pos end)
-            for _, ent in ipairs(selected_entries) do
-                 table.remove(ass_lines, ent.pos)
+        -- Collect selected markers (string indices like "M12")
+        for idx in pairs(table_selection) do
+            if type(idx) == "string" and idx:sub(1,1) == "M" then
+                local markindex = tonumber(idx:sub(2))
+                if markindex then
+                    table.insert(selected_marker_indices, markindex)
+                end
             end
-            table_selection = {}
-            last_selected_row = nil
+        end
+        
+        local total_deleted = 0
+        
+        -- Delete markers (Robust Method)
+        if #selected_marker_indices > 0 then
+            push_undo("Видалення правок")
+            
+            -- Build a lookup set of IDs to delete
+            local markers_to_delete = {}
+            for _, id in ipairs(selected_marker_indices) do markers_to_delete[id] = true end
+            
+            -- 1. Sync internal ass_markers table (Prevent resurrection by rebuild_regions)
+            local new_ass_markers = {}
+            for _, m in ipairs(ass_markers) do
+                if not markers_to_delete[m.markindex] then
+                    table.insert(new_ass_markers, m)
+                end
+            end
+            ass_markers = new_ass_markers
+            
+            -- 2. Delete from Project
+            local i = reaper.CountProjectMarkers(0) - 1
+            while i >= 0 do
+                local _, isrgn, _, _, _, mark_id = reaper.EnumProjectMarkers3(0, i)
+                if not isrgn and markers_to_delete[mark_id] then
+                     reaper.DeleteProjectMarkerByIndex(0, i)
+                     total_deleted = total_deleted + 1
+                end
+                i = i - 1
+            end
+        end
+        
+        -- Delete ASS lines
+        if #selected_ass_entries > 0 then
+            if #selected_marker_indices == 0 then
+                push_undo("Видалення реплік")
+            end
+            table.sort(selected_ass_entries, function(a,b) return a.pos > b.pos end)
+            for _, ent in ipairs(selected_ass_entries) do
+                 table.remove(ass_lines, ent.pos)
+                 total_deleted = total_deleted + 1
+            end
             cleanup_actors()
             rebuild_regions()
             save_project_data(last_project_id)
-            show_snackbar("Видалено реплік: " .. #selected_entries, "error")
+        end
+        
+        if total_deleted > 0 then
+            table_selection = {}
+            last_selected_row = nil
+            show_snackbar("Видалено: " .. total_deleted, "error")
         end
     end
 
@@ -9874,8 +9954,32 @@ local function draw_table(input_queue)
         end
     end
 
-    -- Choose data source: ASS lines
-    local raw_data = ass_lines
+    -- Choose data source: ASS lines (create a copy to avoid modifying original)
+    local raw_data = {}
+    for i, line in ipairs(ass_lines) do
+        raw_data[i] = line
+    end
+    
+    -- Add markers if enabled
+    if cfg.show_markers_in_table then
+        local num_markers = reaper.CountProjectMarkers(0)
+        for i = 0, num_markers - 1 do
+            local retval, isrgn, pos, rgnend, name, markindex, color = reaper.EnumProjectMarkers3(0, i)
+            if retval and not isrgn then -- Only markers, not regions
+                table.insert(raw_data, {
+                    t1 = pos,
+                    t2 = pos, -- Markers don't have end time
+                    text = name,
+                    actor = ":ПРАВКА:",
+                    is_marker = true,
+                    marker_color = color,
+                    markindex = markindex, -- Store original markindex
+                    index = "M" .. markindex -- String ID to distinguish from ASS lines
+                })
+            end
+        end
+    end
+    
     local data_source = {}
     
     -- Ensure index is populated for all lines for stable sorting and selection
@@ -9941,8 +10045,30 @@ local function draw_table(input_queue)
                 
                 local idx_a = a.item.index or 0
                 local idx_b = b.item.index or 0
+                
+                -- Safe comparison for mixed types (string markers vs numeric ASS lines)
+                local type_a = type(idx_a)
+                local type_b = type(idx_b)
+                if type_a ~= type_b then
+                    -- Sort strings (markers) after numbers (ASS lines)
+                    return type_a == "number"
+                end
+                
                 return idx_a < idx_b
             end
+            
+            -- Safe comparison for mixed types in sort values
+            local type_a = type(a.val)
+            local type_b = type(b.val)
+            if type_a ~= type_b then
+                -- Sort strings after numbers
+                if table_sort.dir == 1 then
+                    return type_a == "number"
+                else
+                    return type_a == "string"
+                end
+            end
+            
             if table_sort.dir == 1 then
                 return a.val < b.val
             else
@@ -10085,6 +10211,17 @@ local function draw_table(input_queue)
     gfx.rect(0, 0, gfx.w, avail_h, 1)
 
     -- Draw Rows
+    -- Clean up stale marker indices from selection (markers are regenerated each frame)
+    local valid_indices = {}
+    for _, line in ipairs(data_source) do
+        valid_indices[line.index] = true
+    end
+    for idx in pairs(table_selection) do
+        if not valid_indices[idx] then
+            table_selection[idx] = nil
+        end
+    end
+    
     -- Find starting index based on scroll_y and layout cache
     local start_idx = 1
     for i, layout in ipairs(table_layout_cache) do
@@ -10106,12 +10243,18 @@ local function draw_table(input_queue)
         
         local buf_y = layout.y - scroll_y
 
-        -- zebra
-        if i % 2 == 0 then set_color(UI.C_ROW) else set_color(UI.C_ROW_ALT) end
-        gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
-        
         -- ASS mode: show all lines with checkbox
         local line = data_source[i]
+        
+        -- Special background for markers
+        if line.is_marker then
+            set_color({0.3, 0.1, 0.1}) -- Dark reddish background for markers
+            gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
+        else
+            -- zebra
+            if i % 2 == 0 then set_color(UI.C_ROW) else set_color(UI.C_ROW_ALT) end
+            gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
+        end
             local actor = line.actor or ""
             local is_enabled = (line.enabled ~= false) -- Per-line enabled state
             
@@ -10137,8 +10280,8 @@ local function draw_table(input_queue)
             
             local chk_sz = S(16)
             local chk_x = x_off[1]
-            if not cfg.reader_mode then
-                -- Checkbox column
+            if not cfg.reader_mode and not line.is_marker then
+                -- Checkbox column (skip for markers)
                 local chk_y = buf_y + (row_h_dynamic - chk_sz)/2
                 
                 set_color({0.5, 0.5, 0.5})
@@ -10190,7 +10333,9 @@ local function draw_table(input_queue)
                 end
 
                 if cfg.col_table_end then
-                    draw_cell_txt(reaper.format_timestr(line.t2, ""), col_ptr); col_ptr = col_ptr + 1
+                    -- Don't show end time for markers
+                    local end_time_str = line.is_marker and "" or reaper.format_timestr(line.t2, "")
+                    draw_cell_txt(end_time_str, col_ptr); col_ptr = col_ptr + 1
                 end
             end
 
@@ -10289,8 +10434,8 @@ local function draw_table(input_queue)
                 -- Safety check: click must be within both the visible content area AND the row itself
                 if gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h and
                    gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h_dynamic then
-                    -- Checkbox click? (Only if visible)
-                    if not cfg.reader_mode and chk_x and gfx.mouse_x >= chk_x - S(5) and gfx.mouse_x <= chk_x + chk_sz + S(10) then
+                    -- Checkbox click? (Only if visible and not a marker)
+                    if not cfg.reader_mode and not line.is_marker and chk_x and gfx.mouse_x >= chk_x - S(5) and gfx.mouse_x <= chk_x + chk_sz + S(10) then
                         -- BULK CHECKBOX LOGIC
                         push_undo("Перемикання видимості")
                         local new_state = not is_enabled
@@ -10348,13 +10493,37 @@ local function draw_table(input_queue)
                             if gfx.mouse_x >= replica_x_start then
                                 local now = reaper.time_precise()
                                 if last_click_row == i and (now - last_click_time) < 0.5 then
-                                    -- Double-click on text - open custom editor
-                                    local edit_line = line
-                                    open_text_editor(line.text, function(new_text)
-                                        push_undo("Редагування тексту")
-                                        edit_line.text = new_text
-                                        rebuild_regions()
-                                    end, original_idx, ass_lines)
+                                    -- Double-click on text
+                                    if line.is_marker then
+                                        -- Edit marker name
+                                        local edit_marker = line
+                                        open_text_editor(line.text, function(new_text)
+                                            push_undo("Редагування правки")
+                                            -- Find marker index
+                                            local target_idx = -1
+                                            local m_count = reaper.CountProjectMarkers(0)
+                                            for j = 0, m_count - 1 do
+                                                local _, isrgn, pos, _, _, markindex = reaper.EnumProjectMarkers3(0, j)
+                                                if not isrgn and (markindex == edit_marker.markindex or math.abs(pos - edit_marker.t1) < 0.001) then
+                                                    target_idx = j
+                                                    break
+                                                end
+                                            end
+                                            if target_idx ~= -1 then
+                                                reaper.SetProjectMarkerByIndex(0, target_idx, false, edit_marker.t1, 0, edit_marker.markindex, new_text, edit_marker.marker_color or 0)
+                                            else
+                                                reaper.SetProjectMarker4(0, edit_marker.markindex, false, edit_marker.t1, 0, new_text, edit_marker.marker_color or 0, 0)
+                                            end
+                                        end, original_idx, nil)
+                                    else
+                                        -- Edit ASS line
+                                        local edit_line = line
+                                        open_text_editor(line.text, function(new_text)
+                                            push_undo("Редагування тексту")
+                                            edit_line.text = new_text
+                                            rebuild_regions()
+                                        end, original_idx, ass_lines)
+                                    end
                                     last_click_row = 0
                                 else
                                     last_click_time = now
@@ -10368,13 +10537,15 @@ local function draw_table(input_queue)
                         end
                     end
                 end
+            -- Fixed duplicate block logic
+                    
             elseif (gfx.mouse_cap & 2 == 2) and (last_mouse_cap & 2 == 0) and not mouse_in_menu then
                 -- Right Click on Row (with safety check)
                 if gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h and
                    gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h_dynamic then
                     mouse_handled = true -- Suppress global menu
                     
-                    -- If right-clicked on non-selected row, select it first
+                    -- If right-clicked on non-selected row (marker or line), select it first
                     if not table_selection[original_idx] then
                         table_selection = {}
                         table_selection[original_idx] = true
@@ -10383,100 +10554,129 @@ local function draw_table(input_queue)
                     
                     -- Count selected
                     local sel_indices = {}
-                    for idx, _ in pairs(table_selection) do table.insert(sel_indices, idx) end
+                    local marker_count = 0
+                    local ass_count = 0
+                    
+                    for idx, _ in pairs(table_selection) do
+                        if type(idx) == "number" then
+                            table.insert(sel_indices, idx)
+                            ass_count = ass_count + 1
+                        elseif type(idx) == "string" and idx:sub(1,1) == "M" then
+                            marker_count = marker_count + 1
+                        end
+                    end
                     table.sort(sel_indices)
                     
-                    local menu_str = "Змінити ім'я актора"
-                    local has_merge = #sel_indices > 1 and #sel_indices <= 5
-                    if has_merge then
-                        menu_str = menu_str .. "|Об'єднати репліки в одну"
-                    end
+                    local menu_str = ""
                     
-                    if #sel_indices == 1 then
-                        menu_str = menu_str .. "|Видалити репліку"
-                    else
-                        menu_str = menu_str .. "|Видалити вибрані репліки"
-                    end
-                    
-                    gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y -- Set menu position
-                    local ret = gfx.showmenu(menu_str)
-                    if ret == 1 then
-                        -- Change Actor Name
-                        local selected_entries = {}
-                        for p, l in ipairs(ass_lines) do
-                            if table_selection[l.index or p] then
-                                table.insert(selected_entries, l)
-                            end
+                    -- If only markers are selected
+                    if ass_count == 0 and marker_count > 0 then
+                        if marker_count == 1 then
+                            menu_str = "Видалити правку"
+                        else
+                            menu_str = "Видалити правки"
                         end
                         
-                        if #selected_entries > 0 then
-                            local first_actor = selected_entries[1].actor or ""
-                            local ok, new_actor = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", first_actor)
-                            if ok then
-                                push_undo("Зміна імені актора")
-                                -- Add to actors list if new
-                                if ass_actors[new_actor] == nil then 
-                                    ass_actors[new_actor] = true 
+                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                        local ret = gfx.showmenu(menu_str)
+                        if ret == 1 then
+                            delete_logic()
+                        end
+
+                    -- Mixed Selection (Markers + ASS lines)
+                    elseif ass_count > 0 and marker_count > 0 then
+                        menu_str = "Видалити вибрані репліки та правки"
+                        
+                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                        local ret = gfx.showmenu(menu_str)
+                        if ret == 1 then
+                            delete_logic()
+                        end
+
+                    -- Only ASS lines selected
+                    else
+                        menu_str = "Змінити ім'я актора"
+                        local has_merge = #sel_indices > 1 and #sel_indices <= 5
+                        if has_merge then
+                            menu_str = menu_str .. "|Об'єднати репліки в одну"
+                        end
+                        
+                        if #sel_indices == 1 then
+                            menu_str = menu_str .. "|Видалити репліку"
+                        else
+                            menu_str = menu_str .. "|Видалити вибрані репліки"
+                        end
+                        
+                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                        local ret = gfx.showmenu(menu_str)
+                        
+                        if ret == 1 then
+                            -- Change Actor Name
+                            local selected_entries = {}
+                            for p, l in ipairs(ass_lines) do
+                                if table_selection[l.index or p] then
+                                    table.insert(selected_entries, l)
+                                end
+                            end
+                            
+                            if #selected_entries > 0 then
+                                local first_actor = selected_entries[1].actor or ""
+                                local ok, new_actor = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", first_actor)
+                                if ok then
+                                    push_undo("Зміна імені актора")
+                                    if ass_actors[new_actor] == nil then ass_actors[new_actor] = true end
+                                    for _, l in ipairs(selected_entries) do
+                                        l.actor = new_actor
+                                    end
+                                    cleanup_actors()
+                                    rebuild_regions()
+                                    show_snackbar("Ім'я актора змінено (" .. #selected_entries .. ")", "success")
+                                end
+                            end
+                        elseif has_merge and ret == 2 then
+                            -- Merge Replicas
+                            local selected_entries = {}
+                            for p, l in ipairs(ass_lines) do
+                                if table_selection[l.index or p] then
+                                    table.insert(selected_entries, {line = l, pos = p})
+                                end
+                            end
+                            table.sort(selected_entries, function(a,b) return a.pos < b.pos end)
+                            
+                            if #selected_entries > 1 then
+                                push_undo("Об'єднання реплік")
+                                local merged_text = ""
+                                local t1_min = math.huge
+                                local t2_max = -math.huge
+                                local base_pos = selected_entries[1].pos
+                                local base_id = selected_entries[1].line.index or base_pos
+                                
+                                for _, ent in ipairs(selected_entries) do
+                                    local l = ent.line
+                                    merged_text = (merged_text == "") and (l.text or "") or (merged_text .. "\n" .. (l.text or ""))
+                                    if l.t1 < t1_min then t1_min = l.t1 end
+                                    if l.t2 > t2_max then t2_max = l.t2 end
                                 end
                                 
-                                for _, l in ipairs(selected_entries) do
-                                    l.actor = new_actor
+                                ass_lines[base_pos].text = merged_text
+                                ass_lines[base_pos].t1 = t1_min
+                                ass_lines[base_pos].t2 = t2_max
+                                
+                                for i = #selected_entries, 2, -1 do
+                                    table.remove(ass_lines, selected_entries[i].pos)
                                 end
+                                
+                                table_selection = {}
+                                table_selection[base_id] = true
                                 cleanup_actors()
                                 rebuild_regions()
-                                show_snackbar("Ім'я актора змінено (" .. #selected_entries .. ")", "success")
+                                show_snackbar("Репліки об'єднано (" .. #selected_entries .. ")", "success")
                             end
+                        elseif (has_merge and ret == 3) or (not has_merge and ret == 2) then
+                            -- Delete Selected Replicas
+                            delete_logic()
                         end
-                    elseif has_merge and ret == 2 then
-                        -- Merge Replicas
-                        local selected_entries = {}
-                        for p, l in ipairs(ass_lines) do
-                            if table_selection[l.index or p] then
-                                table.insert(selected_entries, {line = l, pos = p})
-                            end
-                        end
-                        
-                        table.sort(selected_entries, function(a,b) return a.pos < b.pos end)
-                        
-                        if #selected_entries > 1 then
-                            push_undo("Об'єднання реплік")
-                            local merged_text = ""
-                            local t1_min = math.huge
-                            local t2_max = -math.huge
-                            local base_pos = selected_entries[1].pos
-                            local base_id = selected_entries[1].line.index or base_pos
-                            
-                            for _, ent in ipairs(selected_entries) do
-                                local l = ent.line
-                                if merged_text == "" then
-                                    merged_text = l.text or ""
-                                else
-                                    merged_text = merged_text .. "\n" .. (l.text or "")
-                                end
-                                if l.t1 < t1_min then t1_min = l.t1 end
-                                if l.t2 > t2_max then t2_max = l.t2 end
-                            end
-                            
-                            ass_lines[base_pos].text = merged_text
-                            ass_lines[base_pos].t1 = t1_min
-                            ass_lines[base_pos].t2 = t2_max
-                            
-                            -- Remove others in reverse
-                            for i = #selected_entries, 2, -1 do
-                                table.remove(ass_lines, selected_entries[i].pos)
-                            end
-                            
-                            table_selection = {}
-                            table_selection[base_id] = true
-                            
-                            cleanup_actors()
-                            rebuild_regions()
-                            show_snackbar("Репліки об'єднано (" .. #selected_entries .. ")", "success")
-                        end
-                    elseif (has_merge and ret == 3) or (not has_merge and ret == 2) then
-                        -- Delete Selected Replicas
-                        delete_logic()
-                    end
+                    end -- End of selection type check
                 end
             end
         ::continue::
