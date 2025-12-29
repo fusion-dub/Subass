@@ -9507,19 +9507,6 @@ local function draw_settings()
     target_scroll_y = draw_scrollbar(gfx.w - S(10), start_y, S(10), avail_h, last_settings_h, avail_h, target_scroll_y)
 end
 
--- Helper to find actor by timestamp
-local function get_actor_at_time(t)
-    -- Simple fuzzy match in ass_lines
-    if ass_lines then
-        for _, l in ipairs(ass_lines) do
-            if math.abs(l.t1 - t) < 0.01 then -- Tolerance
-                return l.actor
-            end
-        end
-    end
-    return nil
-end
-
 -- Helper to calculate sort value for a table row
 local function get_sort_value(item, col, is_ass)
     if col == "#" or col == "index" then return item.index or 0 end
@@ -9596,9 +9583,6 @@ end
 -- UI: TABLE TAB (SUBTITLE EDITOR)
 -- =============================================================================
 
-local last_table_h = 0
-local target_scroll_y = 0
-local scroll_y = 0
 local last_auto_scroll_idx = nil
 local suppress_auto_scroll_frames = 0
 
@@ -10280,7 +10264,7 @@ local function draw_table(input_queue)
             
             if is_selected then
                 if line.is_marker then
-                    set_color({0.4, 0.2, 0.0, 1}) -- Dark Orange Selection for markers
+                    set_color({0.5, 0.4, 0.0, 1}) -- Dark Orange Selection for markers
                 else
                     set_color({0.1, 0.35, 0.2}) -- Darker Green Selection
                 end
@@ -10507,6 +10491,7 @@ local function draw_table(input_queue)
                             table_selection[original_idx] = true
                             last_selected_row = i 
                             last_tracked_pos = line.t1 -- Always sync position on click
+                            last_auto_scroll_idx = i -- Sync to prevent auto-centering immediately after click
                             
                             -- Navigate logic
                             local replica_x_start = cfg.reader_mode and 0 or x_off[#x_off]
