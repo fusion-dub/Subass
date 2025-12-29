@@ -3161,6 +3161,10 @@ local function import_srt(file_path)
     local content = f:read("*all")
     f:close()
     content = content:gsub("\r\n", "\n")
+    -- Ensure trailing double newline for matching last block
+    if not content:match("\n\n$") then
+        content = content .. "\n\n"
+    end
     
     -- Derive Actor Name from Filename
     local actor_name = current_file_name:gsub("%.srt$", ""):gsub("%.SRT$", "")
@@ -3182,7 +3186,8 @@ local function import_srt(file_path)
     -- Just populate ass_lines.
     local line_idx_counter = 1
     
-    for s_start, s_end, text in content:gmatch("(%d%d:%d%d:%d%d,%d%d%d) %-%-> (%d%d:%d%d:%d%d,%d%d%d)\n(.-)\n\n") do
+    -- Robust SRT parsing: handle comma/dot, optional spaces, and ensure last block is captured
+    for s_start, s_end, text in content:gmatch("(%d+:%d+:%d+[,.]%d+)%s*%-%->%s*(%d+:%d+:%d+[,.]%d+)%s*\n(.-)\n%s*\n") do
         local t1 = parse_timestamp(s_start)
         local t2 = parse_timestamp(s_end)
         
