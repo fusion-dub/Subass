@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.0.4
+-- @version 0.0.5
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -77,6 +77,7 @@ local tooltip_delay = 0.5
 local tooltip_state = {}
 local attach_to_video = false           -- прив'язувати до відеовікна
 local attach_offset = 0                 -- відступ у відсотках (0-100)
+local attach_manual_x = 0               -- ручна корекція X (пікселі)
 local attach_manual_y = 0               -- ручна корекція Y (пікселі)
 local invert_y_axis = false             -- інвертувати вісь Y (для macOS)
 local ignore_newlines = false           -- ігнорувати символи переносу рядка при читанні
@@ -88,7 +89,7 @@ reaper.gmem_attach("SubassSync") -- Shared memory for lightning-fast sync
 local flags = {
     NoTitle = false,
     NoResize = false,
-    NoDocking = true,
+    NoDocking = false,
     HideBackground = false,
     NoMove = false
 }
@@ -467,6 +468,7 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "show_tooltips", tostring(show_tooltips), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_to_video", tostring(attach_to_video), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_offset", tostring(attach_offset), true)
+    reaper.SetExtState(SETTINGS_SECTION, "attach_manual_x", tostring(attach_manual_x), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_manual_y", tostring(attach_manual_y), true)
     reaper.SetExtState(SETTINGS_SECTION, "invert_y_axis", tostring(invert_y_axis), true)
     reaper.SetExtState(SETTINGS_SECTION, "ignore_newlines", tostring(ignore_newlines), true)
@@ -484,7 +486,7 @@ local function load_settings()
     flags.HideBackground = reaper.GetExtState(SETTINGS_SECTION, "HideBackground") == "true"
     flags.NoResize = reaper.GetExtState(SETTINGS_SECTION, "NoResize") == "true"
     flags.NoMove = reaper.GetExtState(SETTINGS_SECTION, "NoMove") == "true"
-    flags.NoDocking = reaper.GetExtState(SETTINGS_SECTION, "NoDocking") == "true"
+    flags.NoDocking = (reaper.GetExtState(SETTINGS_SECTION, "NoDocking") ~= "false")
     current_font_index = tonumber(reaper.GetExtState(SETTINGS_SECTION, "current_font_index")) or 1
     font_scale = tonumber(reaper.GetExtState(SETTINGS_SECTION, "font_scale")) or 30
     second_font_index = tonumber(reaper.GetExtState(SETTINGS_SECTION, "second_font_index")) or 1
@@ -517,6 +519,7 @@ local function load_settings()
     show_tooltips = (reaper.GetExtState(SETTINGS_SECTION, "show_tooltips") ~= "false")
     attach_to_video = (reaper.GetExtState(SETTINGS_SECTION, "attach_to_video") == "true")
     attach_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "attach_offset")) or 0
+    attach_manual_x = tonumber(reaper.GetExtState(SETTINGS_SECTION, "attach_manual_x")) or 0
     attach_manual_y = tonumber(reaper.GetExtState(SETTINGS_SECTION, "attach_manual_y")) or 0
     invert_y_axis = (reaper.GetExtState(SETTINGS_SECTION, "invert_y_axis") == "true")
     ignore_newlines = (reaper.GetExtState(SETTINGS_SECTION, "ignore_newlines") == "true")
@@ -700,9 +703,13 @@ local function draw_context_menu()
             attach_offset = add_change(reaper.ImGui_SliderInt(ctx, "Верт. позиція %", attach_offset, 0, 100))
             tooltip("Позиція оверлею відносно висоти відеовікна")
             
+            -- Ручна корекція X
+            attach_manual_x = add_change(reaper.ImGui_SliderInt(ctx, "Корекція X (px)", attach_manual_x, -2000, 2000))
+            tooltip("Додаткове зміщення по горизонталі")
+
             -- Ручна корекція Y
             attach_manual_y = add_change(reaper.ImGui_SliderInt(ctx, "Корекція Y (px)", attach_manual_y, -2000, 2000))
-            tooltip("Додаткове зміщення по вертикалі для виправлення позиції на macOS")
+            tooltip("Додаткове зміщення по вертикалі")
 
             -- macOS Fix
             invert_y_axis = add_change(reaper.ImGui_Checkbox(ctx, "Інвертувати рух (macOS Fix)", invert_y_axis))
@@ -1235,31 +1242,64 @@ local function get_video_window_pos()
     
     if video_hwnd then
         local retval, x1, y1, x2, y2 = reaper.JS_Window_GetRect(video_hwnd)
-        if retval then
-            -- Конвертуємо нативні координати ОС (screen space) в координати ImGui (може відрізнятися на macOS)
+        if retval and x1 and y1 and x2 and y2 then
+            -- 1. Try automated conversion (best, works with both viewports ON and OFF)
             if reaper.ImGui_PointConvertNative then
-                local rv1, im_x1, im_y1 = reaper.ImGui_PointConvertNative(ctx, x1, y1, false)
-                local rv2, im_x2, im_y2 = reaper.ImGui_PointConvertNative(ctx, x2, y2, false)
+                -- TRUE = from native screen coordinates to ImGui logical points
+                local rv1, im_x1, im_y1 = reaper.ImGui_PointConvertNative(ctx, x1, y1, true)
+                local rv2, im_x2, im_y2 = reaper.ImGui_PointConvertNative(ctx, x2, y2, true)
                 
-                -- Verify we actually got numbers back
-                if rv1 and rv2 and 
-                   type(im_x1) == "number" and type(im_y1) == "number" and 
-                   type(im_x2) == "number" and type(im_y2) == "number" then
-                    return im_x1, im_y1, im_x2, im_y2
+                -- Ensure we got valid numbers
+                if rv1 and rv2 and type(im_x1) == 'number' and type(im_y2) == 'number' then 
+                    return im_x1, im_y1, im_x2, im_y2, true 
                 end
             end
-            return x1, y1, x2, y2 -- fallback
+            
+            -- 2. Manual Fallback (must account for DPI and Viewports state)
+            local dpi = reaper.ImGui_GetWindowDpiScale(ctx)
+            if not dpi or dpi == 0 then dpi = 1.0 end
+            
+            local main_viewport = reaper.ImGui_GetMainViewport(ctx)
+            local vp_x, vp_y = 0, 0
+            if main_viewport and reaper.ValidatePtr(main_viewport, 'ImGui_Viewport*') then
+                vp_x, vp_y = reaper.ImGui_Viewport_GetPos(main_viewport)
+            end
+            
+            local has_viewports = false
+            if reaper.ImGui_GetConfigFlags then
+                local config = reaper.ImGui_GetConfigFlags(ctx)
+                has_viewports = (config & 0x400) ~= 0 -- reaper.ImGui_ConfigFlags_ViewportsBinding()
+            end
+            
+            -- If viewports are off, coordinates must be relative to the main window.
+            -- If viewports are on, they are absolute screen coordinates in points.
+            local off_x = has_viewports and 0 or vp_x
+            local off_y = has_viewports and 0 or vp_y
+            
+            -- Explicitly ensure we return numbers
+            local os = reaper.GetOS()
+            if os:match("Win") then
+                local res_x1 = tonumber(x1)/dpi - off_x
+                local res_y1 = tonumber(y1)/dpi - off_y
+                local res_x2 = tonumber(x2)/dpi - off_x
+                local res_y2 = tonumber(y2)/dpi - off_y
+                return res_x1, res_y1, res_x2, res_y2
+            else
+                -- Mac/Linux fallback: return raw, let check_video_window_moved handle inversion
+                return x1 - off_x, y1 - off_y, x2 - off_x, y2 - off_y, false
+            end
         end
     end
     
-    return nil, nil, nil, nil
+    return nil, nil, nil, nil, false
 end
 
 -- Перевірка зміни позиції відеовікна та перерахунок координат прив'язки
 local function check_video_window_moved()
-    local x1, y1, x2, y2 = get_video_window_pos()
+    local x1, y1, x2, y2, is_points = get_video_window_pos()
     
-    if not x1 then
+    -- Strict numeric check to prevent "arithmetic on boolean" errors
+    if not x1 or type(x1) ~= 'number' or type(y2) ~= 'number' then
         video_cache_valid = false
         return false
     end
@@ -1276,19 +1316,16 @@ local function check_video_window_moved()
     local top_y = math.min(y1, y2)
     local left_x = math.min(x1, x2)
     
-    attach_x = left_x
+    -- Final positions
     attach_w = video_width
-    
-    -- Unified Vertical Position logic (0% top, 100% bottom)
     local available_range = math.max(0, video_height - win_h)
     local offset_pixels = (attach_offset / 100) * available_range
+    attach_x = left_x + attach_manual_x
     
-    if invert_y_axis then
+    if invert_y_axis and not is_points then
         -- Logic for inverted coordinate change (macOS Cocoa logic: Y=0 is bottom, Y increases Up)
         -- To convert to ImGui (Top-Left): ImGui_Y = ScreenHeight - Cocoa_Y
-        
         local main_viewport = reaper.ImGui_GetMainViewport(ctx)
-        local vp_x, vp_y = reaper.ImGui_Viewport_GetPos(main_viewport)
         local vp_w, vp_h = reaper.ImGui_Viewport_GetSize(main_viewport)
         
         -- We assume the video window is on the main screen for this calculation to hold well
@@ -1299,17 +1336,6 @@ local function check_video_window_moved()
     else
         attach_y = top_y + offset_pixels + attach_manual_y
     end
-    
-    -- SAFETY CLAMP: Ensure window is never fully off-screen
-    -- This allows the user to recover the window even if settings are wrong
-    local main_viewport = reaper.ImGui_GetMainViewport(ctx)
-    local vp_w, vp_h = reaper.ImGui_Viewport_GetSize(main_viewport)
-    
-    -- Clamp X to be within [0, vp_w - 50]
-    attach_x = math.max(0, math.min(attach_x, vp_w - 50))
-    
-    -- Clamp Y to be within [0, vp_h - 50]
-    attach_y = math.max(0, math.min(attach_y, vp_h - 50))
     
     cached_video_x1, cached_video_y1, cached_video_x2, cached_video_y2 = x1, y1, x2, y2
     cached_attach_x, cached_attach_y, cached_attach_w = attach_x, attach_y, attach_w
