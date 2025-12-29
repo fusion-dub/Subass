@@ -6972,8 +6972,17 @@ local function draw_prompter_drawer(input_queue)
         if not prompter_drawer.has_markers_cache.result then return end
 
         -- Draw vertical "ПРАВКИ" button
+        gfx.setfont(F.tip)
+        local text = "ПРАВКИ"
         local btn_w = S(15)
-        local btn_h = S(105)
+        
+        -- Calculate dynamic height based on text
+        local btn_h = S(16) -- Top/Bottom padding S(8)*2
+        for _, code in utf8.codes(text) do
+            local _, ch = gfx.measurestr(utf8.char(code))
+            btn_h = btn_h + ch - 1
+        end
+
         local btn_x = cfg.p_drawer_left and 0 or (gfx.w - btn_w)
         local btn_y = drawer_top_y + (gfx.h - drawer_top_y - btn_h) / 2
         
@@ -6985,9 +6994,7 @@ local function draw_prompter_drawer(input_queue)
         
         -- Draw vertical text "ПРАВКИ"
         set_color(UI.C_TXT)
-        gfx.setfont(F.tip)
-        local text = "ПРАВКИ"
-        
+
         -- Rotate text 90 degrees (draw character by character vertically)
         local char_y = btn_y + S(8)
         for _, code in utf8.codes(text) do
@@ -7511,7 +7518,15 @@ local function draw_prompter(input_queue)
     if not prompter_drawer.open and prompter_drawer.has_markers_cache and prompter_drawer.has_markers_cache.result then
         local drawer_top_y = S(25)
         local btn_w = S(15)
-        local btn_h = S(105)
+        
+        -- Calculate dynamic height (consistent with draw_prompter_drawer)
+        gfx.setfont(F.tip)
+        local btn_h = S(16)
+        for _, code in utf8.codes("ПРАВКИ") do
+            local _, ch = gfx.measurestr(utf8.char(code))
+            btn_h = btn_h + ch - 1
+        end
+
         local btn_x = cfg.p_drawer_left and 0 or (gfx.w - btn_w)
         local btn_y = drawer_top_y + (gfx.h - drawer_top_y - btn_h) / 2
         
