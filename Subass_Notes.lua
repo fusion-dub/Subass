@@ -10040,6 +10040,12 @@ local function draw_table(input_queue)
     -- 1. Playhead jumped significantly (>0.5s)
     -- 2. OR the active line index changed (progression)
     -- 3. AND not suppressed by manual interaction
+    
+    -- Suppress auto-scroll immediately if user just clicked in the table area
+    if (gfx.mouse_cap & 1 == 1) and (last_mouse_cap & 1 == 0) and gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h then
+        suppress_auto_scroll_frames = 5
+    end
+    
     if suppress_auto_scroll_frames > 0 then
         suppress_auto_scroll_frames = suppress_auto_scroll_frames - 1
     end
@@ -10317,7 +10323,6 @@ local function draw_table(input_queue)
                             else
                                 table_selection[original_idx] = true
                                 last_selected_row = i -- Update anchor to current visual index
-                                suppress_auto_scroll_frames = 3 -- Suppress auto-scroll for 3 frames
                             end
                         elseif is_shift and last_selected_row then
                             -- Range Selection ONLY (No navigation)
@@ -10331,13 +10336,11 @@ local function draw_table(input_queue)
                                     table_selection[d_line.index or k] = true
                                 end
                             end
-                            suppress_auto_scroll_frames = 3 -- Suppress auto-scroll for 3 frames
                         else
                             -- Single Click (Standard) -> Navigate & Clear Selection
                             table_selection = {}
                             table_selection[original_idx] = true
                             last_selected_row = i 
-                            suppress_auto_scroll_frames = 3 -- Suppress auto-scroll for 3 frames
                             last_tracked_pos = line.t1 -- Always sync position on click
                             
                             -- Navigate logic
