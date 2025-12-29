@@ -2720,6 +2720,29 @@ local function save_project_data()
     reaper.SetProjExtState(0, section_name, "ass_markers", mark_dump)
 end
 
+--- Ensure all ass_lines have unique numeric indices
+local function sanitize_indices()
+    if not ass_lines then return end
+    local used = {}
+    local next_id = 1
+    
+    -- First pass: find max used numeric index to avoid collisions
+    for _, l in ipairs(ass_lines) do
+        if type(l.index) == "number" and l.index >= next_id then
+            next_id = l.index + 1
+        end
+    end
+    
+    -- Second pass: fix missing or duplicate indices
+    for _, l in ipairs(ass_lines) do
+        if not l.index or type(l.index) ~= "number" or used[l.index] then
+            l.index = next_id
+            next_id = next_id + 1
+        end
+        used[l.index] = true
+    end
+end
+
 --- Load project data from ProjectExtState
 local function load_project_data()
     -- ALWAYS reset state first
@@ -2839,6 +2862,7 @@ local function load_project_data()
 end
 -- LOAD DATA ON STARTUP
 load_project_data()
+sanitize_indices()
 
 -- =============================================================================
 -- REAPER REGIONS MANAGEMENT
@@ -3184,7 +3208,7 @@ local function import_srt(file_path)
     
     -- We will rebuild ALL regions at the end, so we don't need to add markers manually here.
     -- Just populate ass_lines.
-    local line_idx_counter = 1
+    local line_idx_counter = get_next_line_index()
     
     -- Robust SRT parsing: handle comma/dot, optional spaces, and ensure last block is captured
     for s_start, s_end, text in content:gmatch("(%d+:%d+:%d+[,.]%d+)%s*%-%->%s*(%d+:%d+:%d+[,.]%d+)%s*\n(.-)\n%s*\n") do
@@ -5125,6 +5149,8 @@ local function draw_text_editor(input_queue)
             if not handled_history then
                 if char == 1 or (is_cmd and (char == 97 or char == 65)) then -- Select All
                     text_editor_state.sel_anchor, text_editor_state.cursor = 0, #text_editor_state.text
+                elseif char == 4 then -- Ctrl+D (Deselect All)
+                    text_editor_state.sel_anchor = text_editor_state.cursor
                 elseif (char == 3) or (is_paste_mod and (char == 99 or char == 67)) then -- Copy
                     if has_sel then
                         local sm, sx = math.min(text_editor_state.cursor, text_editor_state.sel_anchor), math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
@@ -5877,6 +5903,8 @@ local function process_input_events(input_queue, state, is_multiline)
         if char == 1 or (is_cmd and (char == 97 or char == 65)) then
             anchor = 0
             cursor = #text
+        elseif char == 4 then -- Ctrl+D (Deselect All)
+            anchor = cursor
         -- Copy
         elseif (char == 3) or (is_paste_mod and (char == 99 or char == 67)) then
             if has_sel then
@@ -7087,6 +7115,11 @@ local function draw_prompter_drawer(input_queue)
                             for _, m in ipairs(prompter_drawer.marker_cache.markers) do
                                 prompter_drawer.selection[m.markindex] = true
                             end
+                            prompter_drawer.last_selected_idx = nil
+                        end
+                        -- Ctrl+D (Deselect All)
+                        if key == 4 then
+                            prompter_drawer.selection = {}
                             prompter_drawer.last_selected_idx = nil
                         end
                         -- Delete (6579564) or Backspace (8)
@@ -9899,6 +9932,12 @@ local function draw_table(input_queue)
                     delete_logic()
                 end
 
+                -- Ctrl+D (Deselect All)
+                if key == 4 then
+                    table_selection = {}
+                    last_selected_row = nil
+                end
+
                 -- Navigation: Up (30064), Down (1685026670)
                 if key == 30064 or key == 1685026670 then
                     local ds = ass_lines
@@ -9973,9 +10012,13 @@ local function draw_table(input_queue)
     local data_source = {}
     
     -- Ensure index is populated for all lines for stable sorting and selection
-    -- For Regions, we use the Enum index if available, else k
+    -- We NO LONGER auto-assign index here based on table position (i) because it led to
+    -- inconsistent selection when sorting or filtering. Indices must be unique and stable.
     for i, line in ipairs(raw_data) do
-        line.index = line.index or i
+        -- Markers already have string index "M123", ASS lines should already have numeric index.
+        -- If an ASS line arrives here without an index, we still need a fallback for safety,
+        -- but sanitize_indices should have caught it.
+        if not line.index then line.index = i end
     end
 
     -- Filter Data
