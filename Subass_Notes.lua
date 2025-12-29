@@ -2579,6 +2579,7 @@ local function parse_rich_text(str)
             local tag_end = str:find(">", tag_start)
             if tag_end then
                 local content = str:sub(tag_start+1, tag_end-1):lower()
+                local tag_found = true
                 if content == "b" then state.b = true
                 elseif content == "/b" then state.b = false
                 elseif content == "i" then state.i = true
@@ -2587,8 +2588,19 @@ local function parse_rich_text(str)
                 elseif content == "/u" then state.u = false
                 elseif content == "s" then state.s = true
                 elseif content == "/s" then state.s = false
+                else
+                    tag_found = false
                 end
-                cursor = tag_end + 1
+                
+                if tag_found then
+                    cursor = tag_end + 1
+                else
+                    -- Treat as text
+                    local segment = str:sub(tag_start, tag_end)
+                    table.insert(current_line, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s})
+                    if segment:find("%S") then has_text = true end
+                    cursor = tag_end + 1
+                end
             else
                 -- Broken tag, treat as text
                 table.insert(current_line, {text="<", b=state.b, i=state.i, u=state.u, s=state.s})
@@ -7928,7 +7940,7 @@ local function draw_prompter(input_queue)
         end
         
         -- Return Bounding Rect for Click detection
-        local h = 0
+        local h = gfx.texth
         if #line_spans > 0 then h = line_spans[1].height end -- assume uniform height
         return start_x, y_base, total_w, h
     end
@@ -7953,9 +7965,11 @@ local function draw_prompter(input_queue)
         set_color({cfg.n_cr, cfg.n_cg, cfg.n_cb})
         
         -- Parse Text (with Cache)
-        if next_rgn.name ~= draw_prompter_cache.last_next_text then
-            draw_prompter_cache.next_lines = parse_rich_text(next_rgn.name)
-            draw_prompter_cache.last_next_text = next_rgn.name
+        local display_name = next_rgn.name
+        if not display_name or display_name:gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
+        if display_name ~= draw_prompter_cache.last_next_text then
+            draw_prompter_cache.next_lines = parse_rich_text(display_name)
+            draw_prompter_cache.last_next_text = display_name
         end
         local n_lines = draw_prompter_cache.next_lines
         
@@ -8345,9 +8359,11 @@ local function draw_prompter(input_queue)
                 
                 -- Use cache for first region (optimization)
                 if region_num == 1 then
-                    if name ~= draw_prompter_cache.last_text then
-                        draw_prompter_cache.lines = parse_rich_text(name)
-                        draw_prompter_cache.last_text = name
+                    local display_name = rgn.name
+                    if not display_name or display_name:gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
+                    if display_name ~= draw_prompter_cache.last_text then
+                        draw_prompter_cache.lines = parse_rich_text(display_name)
+                        draw_prompter_cache.last_text = display_name
                     end
                     lines = draw_prompter_cache.lines
                     
@@ -8370,7 +8386,9 @@ local function draw_prompter(input_queue)
                     end
                 else
                     -- Parse text for other regions
-                    lines = parse_rich_text(rgn.name)
+                    local display_name = rgn.name
+                    if not display_name or display_name:gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
+                    lines = parse_rich_text(display_name)
                     if cfg.karaoke_mode then
                         local w_count = count_words_in_lines(lines)
                         local k_idx = get_karaoke_word_index(rgn.pos, rgn.rgnend, cur_pos, w_count)
@@ -8424,11 +8442,13 @@ local function draw_prompter(input_queue)
             end
             
             -- --- VERTICAL SCALING LOGIC ---
-            local current_k = -1
-            for k, rgn in ipairs(regions) do
-                 if rgn.rgn_index == region_idx then current_k = k break end
+            local next_r = nil
+            for _, r in ipairs(regions) do
+                if r.pos > cur_pos then
+                    next_r = r
+                    break
+                end
             end
-            local next_r = (current_k ~= -1) and regions[current_k + 1] or nil
             
             -- --- COORDINATED LAYOUT LOGIC ---
             -- 1. Estimate Unscaled Heights
