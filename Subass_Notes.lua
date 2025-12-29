@@ -3731,26 +3731,29 @@ local function import_ass(file_path)
                 format_def = {}
                 local fmt_str = line:match("^Format:%s*(.*)")
                 local idx = 1
-                for field in fmt_str:gmatch("([^,]+)") do
+                for field in (fmt_str .. ","):gmatch("(.-),") do
                     field = field:match("^%s*(.-)%s*$")
-                    format_def[field] = idx
-                    idx = idx + 1
+                    if field ~= "" then
+                        format_def[field] = idx
+                        idx = idx + 1
+                    end
                 end
             elseif line:match("^Dialogue:") and format_def then
                 local body = line:match("^Dialogue:%s*(.*)")
                 local fields = {}
-                local current_idx = 1
-                local max_idx = 0
-                for _ in pairs(format_def) do max_idx = max_idx + 1 end
+                local max_field_idx = 0
+                for _, f_idx in pairs(format_def) do
+                    if f_idx > max_field_idx then max_field_idx = f_idx end
+                end
                 
                 local search_start = 1
-                while current_idx < max_idx do
+                for i = 1, max_field_idx - 1 do
                     local comma_pos = body:find(",", search_start)
                     if not comma_pos then break end
                     table.insert(fields, body:sub(search_start, comma_pos - 1))
                     search_start = comma_pos + 1
-                    current_idx = current_idx + 1
                 end
+                -- The rest of the line is the last field (usually 'Text')
                 table.insert(fields, body:sub(search_start))
                 
                 local i_start = format_def["Start"]
