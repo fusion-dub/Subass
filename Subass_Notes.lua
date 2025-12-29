@@ -2678,46 +2678,39 @@ end
 
 --- Save subtitle data to project extended state
 local function save_project_data()
-    -- Create a simplified structure to save
-    local data = {
-        lines = ass_lines,
-        actors = ass_actors,
-        loaded = ass_file_loaded,
-        fname = current_file_name
-    }
-
     -- Using a very compact string format: t1|t2|actor|enabled|text\n
-    local dump = ""
+    -- Optimized: Using tables and table.concat to avoid O(N^2) string fragmentation
+    local dump_tbl = {}
     for i, l in ipairs(ass_lines) do
         local en = (l.enabled == nil or l.enabled) and "1" or "0"
         local r_idx = l.rgn_idx or -1
         local index = l.index or i
-        dump = dump .. string.format("%.3f|%.3f|%s|%s|%d|%d|%s\n", l.t1, l.t2, l.actor, en, r_idx, index, l.text:gsub("\n","\\n"))
+        table.insert(dump_tbl, string.format("%.3f|%.3f|%s|%s|%d|%d|%s\n", l.t1, l.t2, l.actor, en, r_idx, index, l.text:gsub("\n","\\n")))
     end
-    reaper.SetProjExtState(0, section_name, "ass_lines", dump)
+    reaper.SetProjExtState(0, section_name, "ass_lines", table.concat(dump_tbl))
     
-    local act_dump = ""
+    local act_tbl = {}
     for k,v in pairs(ass_actors) do
-        act_dump = act_dump .. k .. "|" .. (v and "1" or "0") .. "\n"
+        table.insert(act_tbl, k .. "|" .. (v and "1" or "0") .. "\n")
     end
-    reaper.SetProjExtState(0, section_name, "ass_actors", act_dump)
+    reaper.SetProjExtState(0, section_name, "ass_actors", table.concat(act_tbl))
     
-    local col_dump = ""
+    local col_tbl = {}
     for k,v in pairs(actor_colors) do
-        col_dump = col_dump .. k .. "|" .. tostring(v) .. "\n"
+        table.insert(col_tbl, k .. "|" .. tostring(v) .. "\n")
     end
-    reaper.SetProjExtState(0, section_name, "actor_colors", col_dump)
+    reaper.SetProjExtState(0, section_name, "actor_colors", table.concat(col_tbl))
 
     reaper.SetProjExtState(0, section_name, "ass_loaded", ass_file_loaded and "1" or "0")
     if current_file_name then
         reaper.SetProjExtState(0, section_name, "ass_fname", current_file_name)
     end
 
-    local mark_dump = ""
+    local mark_tbl = {}
     for _, m in ipairs(ass_markers) do
-        mark_dump = mark_dump .. string.format("%.3f|%s|%d|%d\n", m.pos, m.name:gsub("\n", "\\n"), m.markindex, m.color)
+        table.insert(mark_tbl, string.format("%.3f|%s|%d|%d\n", m.pos, m.name:gsub("\n", "\\n"), m.markindex, m.color))
     end
-    reaper.SetProjExtState(0, section_name, "ass_markers", mark_dump)
+    reaper.SetProjExtState(0, section_name, "ass_markers", table.concat(mark_tbl))
 end
 
 --- Ensure all ass_lines have unique numeric indices
@@ -3045,16 +3038,18 @@ local function rebuild_regions()
     reaper.Undo_BeginBlock()
     
     -- Fast Delete: Repeatedly delete the first marker until none remain.
-    -- This avoids O(N^2) complexity of deleting from end/searching by index.
-    local i = 0
+    local safety_cnt = 0
+    local max_markers = reaper.CountProjectMarkers(0) + 10 -- Add Buffer
     while true do
         local retval, isrgn, pos, rgnend, name, idx = reaper.EnumProjectMarkers(0)
         if not retval or retval == 0 then break end
         reaper.DeleteProjectMarker(0, idx, isrgn)
         
-        -- Safety Break (optional but good practice)
-        i = i + 1
-        if i > 10000 then break end 
+        safety_cnt = safety_cnt + 1
+        if safety_cnt > max_markers then 
+            -- ERROR: Something is not being deleted. Break to prevent freeze.
+            break 
+        end 
     end
     
     -- Add from ass_lines if line is enabled
@@ -6507,12 +6502,14 @@ local function draw_file()
                                 ass_actors[act] = nil
                                 actor_colors[act] = nil
                                 
-                                -- Remove all lines for this actor
-                                for i = #ass_lines, 1, -1 do
-                                    if ass_lines[i].actor == act then
-                                        table.remove(ass_lines, i)
+                                -- Remove all lines for this actor in one pass (O(N) vs O(N^2))
+                                local new_lines = {}
+                                for _, line in ipairs(ass_lines) do
+                                    if line.actor ~= act then
+                                        table.insert(new_lines, line)
                                     end
                                 end
+                                ass_lines = new_lines
                                 
                                 cleanup_actors()
                                 rebuild_regions()
@@ -9898,11 +9895,19 @@ local function draw_table(input_queue)
             if #selected_marker_indices == 0 then
                 push_undo("Видалення реплік")
             end
-            table.sort(selected_ass_entries, function(a,b) return a.pos > b.pos end)
-            for _, ent in ipairs(selected_ass_entries) do
-                 table.remove(ass_lines, ent.pos)
-                 total_deleted = total_deleted + 1
+            -- Optimized removal: One pass O(N)
+            local new_lines = {}
+            local to_delete = {}
+            for _, ent in ipairs(selected_ass_entries) do to_delete[ent.pos] = true end
+            
+            for p, l in ipairs(ass_lines) do
+                if not to_delete[p] then
+                    table.insert(new_lines, l)
+                else
+                    total_deleted = total_deleted + 1
+                end
             end
+            ass_lines = new_lines
             cleanup_actors()
             rebuild_regions()
             save_project_data(last_project_id)
