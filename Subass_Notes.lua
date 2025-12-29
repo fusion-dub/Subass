@@ -5837,12 +5837,24 @@ local function draw_tabs()
                 if clean_input:match("^%d+$") then
                     local target_idx = tonumber(clean_input)
                     if target_idx then
+                        local found = false
                         local num_markers = reaper.CountProjectMarkers(0)
                         for i = 0, num_markers - 1 do
                             local retval, isrgn, pos, rgnend, name, idx = reaper.EnumProjectMarkers(i)
                             if isrgn and idx == target_idx then
                                 reaper.SetEditCurPos(pos, true, true)
+                                found = true
                                 break
+                            end
+                        end
+                        
+                        -- Fallback: Search internal ass_lines if not found as physical marker
+                        if not found then
+                            for _, line in ipairs(ass_lines) do
+                                if line.index == target_idx then
+                                    reaper.SetEditCurPos(line.t1, true, true)
+                                    break
+                                end
                             end
                         end
                     end
