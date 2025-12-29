@@ -9591,6 +9591,7 @@ local last_table_h = 0
 local target_scroll_y = 0
 local scroll_y = 0
 local last_auto_scroll_idx = nil
+local suppress_auto_scroll_frames = 0
 
 local function draw_table(input_queue)
     local show_actor = ass_file_loaded
@@ -10038,8 +10039,13 @@ local function draw_table(input_queue)
     -- Trigger auto-scroll if:
     -- 1. Playhead jumped significantly (>0.5s)
     -- 2. OR the active line index changed (progression)
+    -- 3. AND not suppressed by manual interaction
+    if suppress_auto_scroll_frames > 0 then
+        suppress_auto_scroll_frames = suppress_auto_scroll_frames - 1
+    end
+    
     local line_changed = (active_line_idx ~= last_auto_scroll_idx)
-    if (pos_changed or line_changed) and not skip_auto_scroll then
+    if (pos_changed or line_changed) and not skip_auto_scroll and suppress_auto_scroll_frames == 0 then
         last_tracked_pos = current_pos
         last_auto_scroll_idx = active_line_idx
         
@@ -10311,7 +10317,7 @@ local function draw_table(input_queue)
                             else
                                 table_selection[original_idx] = true
                                 last_selected_row = i -- Update anchor to current visual index
-                                last_auto_scroll_idx = i -- Sync to prevent auto-scroll jump
+                                suppress_auto_scroll_frames = 3 -- Suppress auto-scroll for 3 frames
                             end
                         elseif is_shift and last_selected_row then
                             -- Range Selection ONLY (No navigation)
@@ -10325,13 +10331,14 @@ local function draw_table(input_queue)
                                     table_selection[d_line.index or k] = true
                                 end
                             end
-                            last_auto_scroll_idx = i -- Sync to prevent auto-scroll jump
+                            suppress_auto_scroll_frames = 3 -- Suppress auto-scroll for 3 frames
                         else
                             -- Single Click (Standard) -> Navigate & Clear Selection
                             table_selection = {}
                             table_selection[original_idx] = true
                             last_selected_row = i 
-                            last_auto_scroll_idx = i -- Sync to prevent auto-scroll jump
+                            suppress_auto_scroll_frames = 3 -- Suppress auto-scroll for 3 frames
+                            last_tracked_pos = line.t1 -- Always sync position on click
                             
                             -- Navigate logic
                             local replica_x_start = cfg.reader_mode and 0 or x_off[#x_off]
@@ -10349,12 +10356,10 @@ local function draw_table(input_queue)
                                 else
                                     last_click_time = now
                                     last_click_row = i
-                                    last_tracked_pos = line.t1
                                     reaper.SetEditCurPos(line.t1, true, false)
                                 end
                             else
                                 -- Just Navigate
-                                last_tracked_pos = line.t1
                                 reaper.SetEditCurPos(line.t1, true, false)
                             end
                         end
