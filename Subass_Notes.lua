@@ -166,7 +166,7 @@ local last_mouse_cap = 0
 local mouse_handled = false -- Global flag to suppress context menu if handled by UI
 local scroll_y = 0
 local target_scroll_y = 0 -- For smooth scrolling
-local last_project_id = tostring(reaper.EnumProjects(-1)) -- Track current project
+local last_project_id = "" -- Initialize empty to force load on first frame
 local script_loading_state = { active = false, text = "" } -- Global Loading Indicator State
 
 -- Tooltip State
@@ -2754,6 +2754,7 @@ local function load_project_data()
     ass_lines = {}
     ass_actors = {}
     actor_colors = {}
+    ass_markers = {} -- Added explicit reset
     ass_file_loaded = false
     current_file_name = nil
     
@@ -2906,14 +2907,18 @@ local function cleanup_actors()
     for _, line in ipairs(ass_lines) do
         if line.actor then
             current_actors[line.actor] = true
+            -- Ensure it exists in ass_actors
+            if ass_actors[line.actor] == nil then
+                ass_actors[line.actor] = true
+            end
         end
     end
     
     -- Remove actors from ass_actors if they are no longer in any line
+    -- AND remove from actor_colors if needed
     for act in pairs(ass_actors) do
         if not current_actors[act] then
             ass_actors[act] = nil
-            -- Also cleanup color if exists
             if actor_colors then actor_colors[act] = nil end
         end
     end
@@ -6087,6 +6092,7 @@ local function get_char_index_at_x(text, rel_x)
 end
 
 local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_multiline)
+    gfx.setfont(F.std)
     -- Interaction
     local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
     
@@ -6094,7 +6100,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
         if last_mouse_cap == 0 and hover then
             -- CLICK
             state.focus = true
-            local rel_x = gfx.mouse_x - (x + S(5))
+            local rel_x = gfx.mouse_x - (x + S(5)) + (state.scroll or 0)
             local idx = get_char_index_at_x(state.text, rel_x)
             
             local now = reaper.time_precise()
@@ -6135,7 +6141,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
         elseif state.focus and hover and last_mouse_cap == 1 then
             -- DRAG (only if focused)
             if state.last_click_state == 1 then -- Only drag if single clicked
-                local rel_x = gfx.mouse_x - (x + S(5))
+                local rel_x = gfx.mouse_x - (x + S(5)) + (state.scroll or 0)
                 state.cursor = get_char_index_at_x(state.text, rel_x)
             end
         elseif not hover and last_mouse_cap == 0 then
@@ -6152,7 +6158,6 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     local padding = S(5)
     local max_txt_w = w - padding * 2
     
-    gfx.setfont(F.std)
     state.scroll = state.scroll or 0
     
     if state.focus then
@@ -7475,8 +7480,8 @@ local function draw_prompter_drawer(input_queue)
                 gfx.rect(grab_x, grab_y, grab_w, grab_h, 0)
             end
             
-            -- Handle dragging
-            if handle_hover and (gfx.mouse_cap & 1 == 1) and last_mouse_cap == 0 and not mouse_handled then
+            -- Handle dragging (Priority: ignore mouse_handled if hovering the handle strip)
+            if handle_hover and (gfx.mouse_cap & 1 == 1) and last_mouse_cap == 0 then
                 prompter_drawer.dragging = true
                 mouse_handled = true
             end
@@ -8112,14 +8117,18 @@ local function draw_prompter(input_queue)
             end
         end
 
-        -- RULE 2: Outside regions (10s window from m.pos)
+        -- RULE 2: Outside regions (Show next upcoming marker regardless of time)
+        -- Optimization: O(M+R) pass instead of O(M*R)
+        local r_ptr = 1
         for _, m in ipairs(m_list) do
             local is_inside_any = false
-            for _, r in ipairs(regions) do
-                if m.pos >= r.pos and m.pos < r.rgnend then
-                    is_inside_any = true
-                    break
-                end
+            -- Find first region that might contain this marker
+            while r_ptr <= #regions and regions[r_ptr].rgnend <= m.pos do
+                r_ptr = r_ptr + 1
+            end
+            
+            if r_ptr <= #regions and m.pos >= regions[r_ptr].pos then
+                is_inside_any = true
             end
             
             if not is_inside_any then
@@ -8512,8 +8521,27 @@ local function draw_prompter(input_queue)
                 next_h = #n_lines * math.floor(gfx.texth * (cfg.n_lheight or 1.0))
             end
 
-            local scaled_c_fsize = math.max(10, math.floor(cfg.c_fsize * v_scale))
-            local cms, corrections_h = get_corrections_to_draw(cur_pos, active_regions, scaled_c_fsize)
+            local cms, _ = get_corrections_to_draw(cur_pos, active_regions)
+            local max_c_raw_w = 0
+            gfx.setfont(F.cor, cfg.p_font, cfg.c_fsize)
+            for _, m in ipairs(cms) do
+                local c_lines = parse_rich_text(m.name or "")
+                for _, line in ipairs(c_lines) do
+                    local raw = ""
+                    for _, span in ipairs(line) do raw = raw .. span.text:gsub(acute, "") end
+                    if cfg.all_caps then raw = utf8_upper(raw) end
+                    local w = gfx.measurestr(raw)
+                    if w > max_c_raw_w then max_c_raw_w = w end
+                end
+            end
+            
+            local c_draw_size = cfg.c_fsize
+            if max_c_raw_w > max_w then
+                c_draw_size = math.floor(c_draw_size * (max_w / max_c_raw_w))
+            end
+
+            local scaled_c_fsize = math.max(10, math.floor(c_draw_size * v_scale))
+            local _, corrections_h = get_corrections_to_draw(cur_pos, active_regions, scaled_c_fsize)
             
             -- Recalculate Final Pooled Height for Centering
             local active_corr_h = total_combined_height
@@ -8598,62 +8626,6 @@ local function draw_prompter(input_queue)
                 })
                 
                 current_y = current_y + block.block_height + S_GAP
-            end
-            
-            -- Info Overlay
-            if cfg.p_info then
-                gfx.setfont(F.std) -- Small font
-                gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.5)
-                
-                -- Top Left: Time Range
-                local time_str = format_timestamp(pos + 0.001) .. " - " .. format_timestamp(rgnend + 0.001)
-                gfx.x = content_offset_left + S(10)
-                gfx.y = S(30)
-                gfx.drawstr(time_str)
-                
-                -- Interaction: Copy Time on Double Click
-                if is_mouse_clicked() and not mouse_handled then
-                    local tw, th = gfx.measurestr(time_str)
-                    if gfx.mouse_x >= (content_offset_left + S(10)) and gfx.mouse_x <= (content_offset_left + S(10)) + tw and
-                       gfx.mouse_y >= S(30) and gfx.mouse_y <= S(30) + th then
-                        mouse_handled = true
-                        local now = reaper.time_precise()
-                         if last_click_row == -6 and (now - last_click_time) < 0.5 then -- -6 for Time Overlay
-                            set_clipboard(format_timestamp(pos + 0.001))
-                            show_snackbar("Скопійовано: " .. format_timestamp(pos + 0.001), "info")
-                            last_click_row = 0
-                        else
-                            last_click_time = now
-                            last_click_row = -6
-                        end
-                    end
-                end
-                
-                -- Top Right: Index (or count if multiple)
-                local idx_str = "#" .. tostring(idx)
-                local iw, ih = gfx.measurestr(idx_str)
-                gfx.x = gfx.w - iw - S(5)
-                gfx.y = S(30)
-                gfx.drawstr(idx_str)
-
-                -- Interaction: Copy Index on Double Click
-                if is_mouse_clicked() and not mouse_handled then
-                    if gfx.mouse_x >= gfx.w - iw - S(5) and gfx.mouse_x <= gfx.w - S(5) and
-                       gfx.mouse_y >= S(30) and gfx.mouse_y <= S(30) + ih then
-                        mouse_handled = true
-                        local now = reaper.time_precise()
-                        if last_click_row == -7 and (now - last_click_time) < 0.5 then -- -7 for Index Overlay
-                            set_clipboard(idx_str)
-                            show_snackbar("Скопійовано: " .. idx_str, "info")
-                            last_click_row = 0
-                        else
-                            last_click_time = now
-                            last_click_row = -7
-                        end
-                    end
-                end
-
-                gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 1)
             end
             
             -- Double-click to edit (check all blocks)
@@ -8863,6 +8835,72 @@ local function draw_prompter(input_queue)
         end
 
         gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb)
+    end
+
+    -- Info Overlay (OVER EVERYTHING ELSE)
+    if cfg.p_info then
+        gfx.setfont(F.std)
+        gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.5)
+        
+        local left_str = format_timestamp(reaper.GetCursorPosition() + 0.001)
+        local right_str = ""
+        
+        if #active_regions > 0 then
+            local r = active_regions[1]
+            right_str = "#" .. tostring(r.idx)
+        end
+        
+        -- Draw Left Info (Time / Range)
+        if left_str ~= "" then
+            gfx.x = content_offset_left + S(10)
+            gfx.y = S(30)
+            gfx.drawstr(left_str)
+            
+            -- Interaction: Double Click to copy
+            if is_mouse_clicked() and not mouse_handled then
+                local tw, th = gfx.measurestr(left_str)
+                if gfx.mouse_x >= (content_offset_left + S(10)) and gfx.mouse_x <= (content_offset_left + S(10)) + tw and
+                   gfx.mouse_y >= S(30) and gfx.mouse_y <= S(30) + th then
+                    mouse_handled = true
+                    local now = reaper.time_precise()
+                    if last_click_row == -6 and (now - last_click_time) < 0.3 then
+                        set_clipboard(left_str)
+                        show_snackbar("Скопійовано: " .. left_str, "info")
+                        last_click_row = 0
+                    else
+                        last_click_time = now
+                        last_click_row = -6
+                    end
+                end
+            end
+        end
+        
+        -- Draw Right Info (#Index)
+        if right_str ~= "" then
+            local iw, ih = gfx.measurestr(right_str)
+            gfx.x = gfx.w - iw - S(10)
+            gfx.y = S(30)
+            gfx.drawstr(right_str)
+            
+            -- Interaction: Double Click to copy
+            if is_mouse_clicked() and not mouse_handled then
+                if gfx.mouse_x >= gfx.w - iw - S(10) and gfx.mouse_x <= gfx.w - S(10) and
+                   gfx.mouse_y >= S(30) and gfx.mouse_y <= S(30) + ih then
+                    mouse_handled = true
+                    local now = reaper.time_precise()
+                    if last_click_row == -7 and (now - last_click_time) < 0.3 then
+                        set_clipboard(right_str)
+                        show_snackbar("Скопійовано: " .. right_str, "info")
+                        last_click_row = 0
+                    else
+                        last_click_time = now
+                        last_click_row = -7
+                    end
+                end
+            end
+        end
+        
+        gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 1)
     end
 
     -- === DRAWER UI DRAWING (OVER EVERYTHING) ===
@@ -11212,12 +11250,17 @@ local function main()
     tooltip_state.immediate = false
     mouse_handled = false
     -- Check if project changed (tab switch)
-    local current_project_id = tostring(reaper.EnumProjects(-1))
+    local proj, filename = reaper.EnumProjects(-1)
+    local current_project_id = proj and (tostring(proj) .. "_" .. (filename or "unsaved")) or "none"
     if current_project_id ~= last_project_id then
         save_session_state(last_project_id)
         last_project_id = current_project_id
+        
+        -- Reset and load
         load_project_data()
         load_session_state(current_project_id)
+        
+        -- Immediate cache update after loading
         update_regions_cache()
         proj_change_count = reaper.GetProjectStateChangeCount(0)
     end
