@@ -218,6 +218,7 @@ local table_sort = { col = "start", dir = 1 }
 local table_layout_cache = {} -- Stores {y, h} for each row
 local last_layout_state = { w = 0, count = 0, mode = nil, filter = "", sort_col = "", sort_dir = 0, gui_scale = 0 }
 local table_selection = {} -- { [row_index] = true }
+local table_data_cache = { state_count = -1, project_id = "", filter = "", sort_col = "", sort_dir = 0, show_markers = nil, case_sensitive = nil, list = {} }
 local last_selected_row = nil -- for Shift range selection
 
 -- Snackbar State
@@ -3849,14 +3850,14 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
                     end
                 elseif state == 2 then
                     if l == "" then
-                        if current_text ~= "" then table.insert(stressed_texts, current_text:sub(1,-2)) end
+                        table.insert(stressed_texts, (current_text == "" and "" or current_text:sub(1,-2)))
                         state = 0
                     else
                         current_text = current_text .. l .. "\n"
                     end
                 end
             end
-            if state == 2 and current_text ~= "" then table.insert(stressed_texts, current_text:sub(1,-2)) end
+            if state == 2 then table.insert(stressed_texts, (current_text == "" and "" or current_text:sub(1,-2))) end
             
             if #stressed_texts == export_count then
                 local ptr = 1
@@ -4019,7 +4020,7 @@ apply_stress_marks_async = function()
                         export_count = export_count + 1
                         f_in:write(export_count .. "\n")
                         f_in:write("00:00:00,000 --> 00:00:01,000\n")
-                        f_in:write(line.text:gsub("\n", "\n") .. "\n\n")
+                        f_in:write(line.text .. "\n\n")
                     end
                     -- More aggressive yielding to prevent "Export Text" freeze
                     if (i % 50 == 0) and (os.clock() - time_batch_start > 0.01) then
@@ -7321,6 +7322,8 @@ local function draw_prompter_drawer(input_queue)
                                             reaper.UpdateTimeline()
                                             prompter_drawer.marker_cache.count = -1
                                             prompter_drawer.filtered_cache.state_count = -1
+                                            table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
+                                            last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
                                         else
                                             -- Text Column: Edit Text
                                             local mock_lines = {}
@@ -7345,17 +7348,19 @@ local function draw_prompter_drawer(input_queue)
                                                 if target_idx ~= -1 then
                                                     reaper.SetProjectMarkerByIndex(0, target_idx, false, m.pos, 0, m.markindex, new_text, m.color or 0)
                                                 else
-                                                    reaper.SetProjectMarker4(0, m.markindex, false, m.pos, 0, new_text, m.color or 0, 0)
-                                                end
-                                                
+                                                     reaper.SetProjectMarker4(0, m.markindex, false, m.pos, 0, new_text, m.color or 0, 0)
+                                                 end
+                                                 
                                                 ass_markers = capture_project_markers()
                                                 prompter_drawer.marker_cache.count = -1
                                                 prompter_drawer.filtered_cache.state_count = -1
+                                                table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
+                                                last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
                                                 update_marker_cache()
                                                 rebuild_regions()
                                                 reaper.UpdateTimeline()
                                                 reaper.UpdateArrange()
-                                            end
+                                             end
 
                                             open_text_editor(m.name == "<пусто>" and "" or m.name, drawer_marker_callback, current_edit_idx, mock_lines)
                                         end
@@ -8271,6 +8276,8 @@ local function draw_prompter(input_queue)
                             
                             -- Invalidate cache for refresh
                             prompter_drawer.marker_cache.count = -1
+                            table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
+                            last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
                             update_marker_cache()
                             rebuild_regions()
                             reaper.UpdateTimeline()
@@ -9712,6 +9719,7 @@ local suppress_auto_scroll_frames = 0
 local function draw_table(input_queue)
     local show_actor = ass_file_loaded
     local start_y = S(65)
+    col_vis_menu.handled = false -- Reset per frame
     
     -- Helper for inline buttons
     local function draw_btn_inline(x, y, w, h, text, bg_col)
@@ -9901,6 +9909,8 @@ local function draw_table(input_queue)
                 find_replace_state.replace.text = ""
                 find_replace_state.replace.cursor = 0
                 find_replace_state.replace.anchor = 0
+                table_data_cache.state_count = -1
+                last_layout_state.state_count = -1
             else
                 show_snackbar("Введіть текст в фільтр", "error")
             end
@@ -9989,6 +9999,9 @@ local function draw_table(input_queue)
         if total_deleted > 0 then
             table_selection = {}
             last_selected_row = nil
+            table_data_cache.state_count = -1
+            last_layout_state.state_count = -1
+            prompter_drawer.marker_cache.count = -1
             show_snackbar("Видалено: " .. total_deleted, "error")
         end
     end
@@ -10076,173 +10089,187 @@ local function draw_table(input_queue)
         end
     end
 
-    -- Choose data source: ASS lines (create a copy to avoid modifying original)
-    local raw_data = {}
-    for i, line in ipairs(ass_lines) do
-        raw_data[i] = line
-    end
-    
-    -- Add markers if enabled
-    if cfg.show_markers_in_table then
-        local num_markers = reaper.CountProjectMarkers(0)
-        for i = 0, num_markers - 1 do
-            local retval, isrgn, pos, rgnend, name, markindex, color = reaper.EnumProjectMarkers3(0, i)
-            if retval and not isrgn then -- Only markers, not regions
+    -- --- DATA SOURCE PREPARATION (CACHED) ---
+    local current_state_count = reaper.GetProjectStateChangeCount(0)
+    local current_proj_id = last_project_id
+    local cache_invalid = (table_data_cache.state_count ~= current_state_count or
+                           table_data_cache.project_id ~= current_proj_id or
+                           table_data_cache.filter ~= table_filter_state.text or
+                           table_data_cache.sort_col ~= table_sort.col or
+                           table_data_cache.sort_dir ~= table_sort.dir or
+                           table_data_cache.show_markers ~= cfg.show_markers_in_table or
+                           table_data_cache.case_sensitive ~= find_replace_state.case_sensitive)
+
+    if cache_invalid then
+        local raw_data = {}
+        for i, line in ipairs(ass_lines) do
+            raw_data[i] = line
+            if not line.index then line.index = i end
+        end
+        
+        if cfg.show_markers_in_table then
+            update_marker_cache() -- Reuse shared prompter cache
+            for _, m in ipairs(prompter_drawer.marker_cache.markers) do
                 table.insert(raw_data, {
-                    t1 = pos,
-                    t2 = pos, -- Markers don't have end time
-                    text = name,
-                    actor = ":ПРАВКА:",
-                    is_marker = true,
-                    marker_color = color,
-                    markindex = markindex, -- Store original markindex
-                    index = "M" .. markindex -- String ID to distinguish from ASS lines
+                    t1 = m.pos, t2 = m.pos, text = m.name, actor = ":ПРАВКА:",
+                    is_marker = true, marker_color = m.color, markindex = m.markindex,
+                    index = "M" .. m.markindex
                 })
             end
         end
-    end
-    
-    local data_source = {}
-    
-    -- Ensure index is populated for all lines for stable sorting and selection
-    -- We NO LONGER auto-assign index here based on table position (i) because it led to
-    -- inconsistent selection when sorting or filtering. Indices must be unique and stable.
-    for i, line in ipairs(raw_data) do
-        -- Markers already have string index "M123", ASS lines should already have numeric index.
-        -- If an ASS line arrives here without an index, we still need a fallback for safety,
-        -- but sanitize_indices should have caught it.
-        if not line.index then line.index = i end
-    end
 
-    -- Filter Data
-    if #table_filter_state.text > 0 then
-        local raw_query = table_filter_state.text
-        local query_lower = utf8_lower(raw_query)
+        local filtered = {}
+        local query = table_filter_state.text
+        local query_lower = utf8_lower(query)
         local query_clean = strip_accents(query_lower)
-        
-        for i, line in ipairs(raw_data) do
-            -- ASS mode uses .text, Regions mode uses .name
+        local use_case = find_replace_state.case_sensitive
+
+        for _, line in ipairs(raw_data) do
             local target_text = show_actor and (line.text or "") or (line.name or "")
-            local text_match = false
-            local actor_match = false
-            local index_match = false
-            
-            if find_replace_state.case_sensitive then
-                -- Strict match: literal search
-                text_match = target_text:find(raw_query, 1, true)
+            local text_match, actor_match, index_match = false, false, false
+            local h_text, h_actor
+
+            if use_case then
+                text_match = target_text:find(query, 1, true)
+                if text_match then h_text = {target_text:find(query, 1, true)} end
                 if show_actor and line.actor then
-                    actor_match = line.actor:find(raw_query, 1, true)
+                    actor_match = line.actor:find(query, 1, true)
+                    if actor_match then h_actor = {line.actor:find(query, 1, true)} end
                 end
-                
-                -- Strict Index Match
-                local idx_str = tostring(line.index or "")
-                if idx_str:find(raw_query, 1, true) then index_match = true end
+                index_match = tostring(line.index or ""):find(query, 1, true)
             else
-                -- Loose match: ignore case, ignore tags, ignore accents
-                -- Strip tags first, then lower, then accents
                 local clean_text = strip_accents(utf8_lower(strip_tags(target_text)))
                 text_match = clean_text:find(query_clean, 1, true)
-                
+                if text_match then 
+                    local s, e = utf8_find_accent_blind(target_text, query)
+                    if s then h_text = {s, e} end
+                end
                 if show_actor and line.actor then
                     local clean_actor = strip_accents(utf8_lower(line.actor))
                     actor_match = clean_actor:find(query_clean, 1, true)
+                    if actor_match then
+                        local s, e = utf8_find_accent_blind(line.actor, query)
+                        if s then h_actor = {s, e} end
+                    end
                 end
-                
-                -- Loose Index Match
-                local idx_str = tostring(line.index or ""):lower()
-                if idx_str:find(query_clean, 1, true) then index_match = true end
+                index_match = tostring(line.index or ""):lower():find(query_clean, 1, true)
             end
-            
-            if text_match or actor_match or index_match then
-                table.insert(data_source, line)
+
+            if query == "" or text_match or actor_match or index_match then
+                line.h_text = h_text -- Store pre-calculated highlight
+                line.h_actor = h_actor
+                
+                -- Pre-calculate CPS and strings for table view
+                local duration = (line.t2 or 0) - (line.t1 or 0)
+                local clean_txt = (line.text or ""):gsub(acute, ""):gsub("%s+", "")
+                local char_count = utf8.len(clean_txt) or #clean_txt
+                line.cps = duration > 0 and (char_count / duration) or 0
+                line.cps_str = line.is_marker and "" or string.format("%.1f", line.cps)
+                line.cps_color = get_cps_color(line.cps)
+                
+                line.t1_str = reaper.format_timestr(line.t1 or 0, "")
+                line.t2_str = line.is_marker and "" or reaper.format_timestr(line.t2 or 0, "")
+                line.idx_str = tostring(line.index or "")
+                
+                table.insert(filtered, line)
             end
         end
-    else
-        for i, line in ipairs(raw_data) do
-            table.insert(data_source, line) -- Use a copy to avoid mutating raw_data ordering
-        end
-    end
-    -- Sorting
-    if table_sort.col ~= "#" or table_sort.dir ~= 1 then
-        local temp = {}
-        for i, item in ipairs(data_source) do
-            temp[i] = { item = item, val = get_sort_value(item, table_sort.col, show_actor) }
-        end
-        
-        table.sort(temp, function(a, b)
-            if a.val == b.val then
-                -- Stable sort fallback
-                if (table_sort.col == "Ак." or table_sort.col == "enabled") then
-                    local t1_a = a.item.t1 or a.item.pos or 0
-                    local t1_b = b.item.t1 or b.item.pos or 0
-                    if t1_a ~= t1_b then return t1_a < t1_b end
-                end
-                
-                local idx_a = a.item.index or 0
-                local idx_b = b.item.index or 0
-                
-                -- Safe comparison for mixed types (string markers vs numeric ASS lines)
-                local type_a = type(idx_a)
-                local type_b = type(idx_b)
-                if type_a ~= type_b then
-                    -- Sort strings (markers) after numbers (ASS lines)
-                    return type_a == "number"
-                end
-                
-                return idx_a < idx_b
+
+        -- Sorting
+        if table_sort.col ~= "#" or table_sort.dir ~= 1 then
+            local temp = {}
+            for i, item in ipairs(filtered) do
+                temp[i] = { item = item, val = get_sort_value(item, table_sort.col, show_actor) }
             end
-            
-            -- Safe comparison for mixed types in sort values
-            local type_a = type(a.val)
-            local type_b = type(b.val)
-            if type_a ~= type_b then
-                -- Sort strings after numbers
+            table.sort(temp, function(a, b)
+                if a.val == b.val then
+                    if (table_sort.col == "Ак." or table_sort.col == "enabled") then
+                        local t1_a = a.item.t1 or 0; local t1_b = b.item.t1 or 0
+                        if t1_a ~= t1_b then return t1_a < t1_b end
+                    end
+                    local idx_a, idx_b = a.item.index or 0, b.item.index or 0
+                    if type(idx_a) ~= type(idx_b) then return type(idx_a) == "number" end
+                    return idx_a < idx_b
+                end
+                if type(a.val) ~= type(b.val) then
+                    return (table_sort.dir == 1) == (type(a.val) == "number")
+                end
                 if table_sort.dir == 1 then
-                    return type_a == "number"
+                    return a.val < b.val
                 else
-                    return type_a == "string"
+                    return a.val > b.val
                 end
-            end
-            
-            if table_sort.dir == 1 then
-                return a.val < b.val
-            else
-                return a.val > b.val
-            end
-        end)
+            end)
+            filtered = {}
+            for i, t in ipairs(temp) do filtered[i] = t.item end
+        end
+
+        table_data_cache.list = filtered
+        table_data_cache.state_count = current_state_count
+        table_data_cache.project_id = current_proj_id
+        table_data_cache.filter = query
+        table_data_cache.sort_col = table_sort.col
+        table_data_cache.sort_dir = table_sort.dir
+        table_data_cache.show_markers = cfg.show_markers_in_table
+        table_data_cache.case_sensitive = use_case
         
-        data_source = {}
-        for i, t in ipairs(temp) do
-            data_source[i] = t.item
+        -- Cleanup selection of stale marker indices (only those not in current raw_data)
+        -- We do NOT cleanup based on 'filtered' as that would wipe selection during search
+        local project_indices = {}
+        for _, line in ipairs(raw_data) do
+            project_indices[line.index] = true
+        end
+        for idx in pairs(table_selection) do
+            if not project_indices[idx] then
+                table_selection[idx] = nil
+            end
         end
     end
 
-    -- Column layout: Build x_off based on visible columns only
-    local x_off = {S(10)} -- Always starts with 10 for first column
-    local col_keys = {}
-    local function add_col(w, key) 
-        table.insert(x_off, x_off[#x_off] + w) 
-        table.insert(col_keys, key)
-    end
+    local data_source = table_data_cache.list
 
-    -- Checkbox(25), #(35), Start(75), End(73), CPS(55), Actor(100)
-    if not cfg.reader_mode then
-        add_col(S(cfg.col_w_enabled), "col_w_enabled") -- Ak.
-        if cfg.col_table_index then add_col(S(cfg.col_w_index), "col_w_index") end -- #
-        if cfg.col_table_start then add_col(S(cfg.col_w_start), "col_w_start") end
-        if cfg.col_table_end then add_col(S(cfg.col_w_end), "col_w_end") end
-        if cfg.col_table_cps then add_col(S(cfg.col_w_cps), "col_w_cps") end
-        if cfg.col_table_actor then add_col(S(cfg.col_w_actor), "col_w_actor") end
-    end
-
-    -- Calculate Layout Cache (Required for Dynamic Heights in Reader Mode)
+    -- Column layout: Build x_off based on visible columns only (CACHED)
+    local raw_data_count = #ass_lines + (cfg.show_markers_in_table and #prompter_drawer.marker_cache.markers or 0)
     local layout_changed = (last_layout_state.w ~= gfx.w or 
-                            last_layout_state.count ~= #raw_data or 
+                            last_layout_state.count ~= raw_data_count or 
                             last_layout_state.mode ~= cfg.reader_mode or
                             last_layout_state.filter ~= table_filter_state.text or
                             last_layout_state.sort_col ~= table_sort.col or
                             last_layout_state.sort_dir ~= table_sort.dir or
-                            last_layout_state.gui_scale ~= cfg.gui_scale)
+                            last_layout_state.show_markers ~= cfg.show_markers_in_table or
+                            last_layout_state.gui_scale ~= cfg.gui_scale or
+                            last_layout_state.state_count ~= current_state_count or
+                            last_layout_state.col_vis_index ~= cfg.col_table_index or
+                            last_layout_state.col_vis_start ~= cfg.col_table_start or
+                            last_layout_state.col_vis_end ~= cfg.col_table_end or
+                            last_layout_state.col_vis_cps ~= cfg.col_table_cps or
+                            last_layout_state.col_vis_actor ~= cfg.col_table_actor or
+                            col_resize.dragging or
+                            last_layout_state.col_w_enabled ~= cfg.col_w_enabled or
+                            last_layout_state.col_w_index ~= cfg.col_w_index or
+                            last_layout_state.col_w_start ~= cfg.col_w_start or
+                            last_layout_state.col_w_end ~= cfg.col_w_end or
+                            last_layout_state.col_w_cps ~= cfg.col_w_cps or
+                            last_layout_state.col_w_actor ~= cfg.col_w_actor)
+
+    local x_off = last_layout_state.x_off or {S(10)}
+    local col_keys = last_layout_state.col_keys or {}
+    if layout_changed then
+        x_off = {S(10)}
+        col_keys = {}
+        local function add_col(w, key) 
+            table.insert(x_off, x_off[#x_off] + w) 
+            table.insert(col_keys, key)
+        end
+        if not cfg.reader_mode then
+            add_col(S(cfg.col_w_enabled), "col_w_enabled")
+            if cfg.col_table_index then add_col(S(cfg.col_w_index), "col_w_index") end
+            if cfg.col_table_start then add_col(S(cfg.col_w_start), "col_w_start") end
+            if cfg.col_table_end then add_col(S(cfg.col_w_end), "col_w_end") end
+            if cfg.col_table_cps then add_col(S(cfg.col_w_cps), "col_w_cps") end
+            if cfg.col_table_actor then add_col(S(cfg.col_w_actor), "col_w_actor") end
+        end
+    end
 
     if layout_changed then
         table_layout_cache = {}
@@ -10259,19 +10286,38 @@ local function draw_table(input_queue)
 
         for i, line in ipairs(data_source) do
             local h = min_row_h
+            local cached_lines = nil
             if cfg.reader_mode then
                 local display_txt = (line.text or ""):gsub("[\n\r]", " ")
-                local wrapped_lines = wrap_text_manual(display_txt, max_w)
-                h = math.max(min_row_h, #wrapped_lines * line_h + padding_v)
+                if line.is_marker and line.markindex then
+                    display_txt = "(M" .. line.markindex .. ") - " .. display_txt
+                end
+                cached_lines = wrap_text_manual(display_txt, max_w)
+                h = math.max(min_row_h, #cached_lines * line_h + padding_v)
             end
-            table.insert(table_layout_cache, {y = current_y_offset, h = h})
+            table.insert(table_layout_cache, {y = current_y_offset, h = h, lines = cached_lines})
             current_y_offset = current_y_offset + h
         end
         
         last_layout_state = {
-            w = gfx.w, count = #raw_data, mode = cfg.reader_mode, 
+            w = gfx.w, count = raw_data_count, mode = cfg.reader_mode, 
             filter = table_filter_state.text, sort_col = table_sort.col, 
-            sort_dir = table_sort.dir, gui_scale = cfg.gui_scale
+            sort_dir = table_sort.dir, gui_scale = cfg.gui_scale,
+            show_markers = cfg.show_markers_in_table,
+            state_count = current_state_count,
+            x_off = x_off,
+            col_keys = col_keys,
+            col_w_enabled = cfg.col_w_enabled,
+            col_w_index = cfg.col_w_index,
+            col_w_start = cfg.col_w_start,
+            col_w_end = cfg.col_w_end,
+            col_w_cps = cfg.col_w_cps,
+            col_w_actor = cfg.col_w_actor,
+            col_vis_index = cfg.col_table_index,
+            col_vis_start = cfg.col_table_start,
+            col_vis_end = cfg.col_table_end,
+            col_vis_cps = cfg.col_table_cps,
+            col_vis_actor = cfg.col_table_actor
         }
     end
 
@@ -10344,18 +10390,6 @@ local function draw_table(input_queue)
     gfx.setimgdim(98, gfx.w, math.max(1, avail_h))
     set_color(UI.C_BG)
     gfx.rect(0, 0, gfx.w, avail_h, 1)
-
-    -- Draw Rows
-    -- Clean up stale marker indices from selection (markers are regenerated each frame)
-    local valid_indices = {}
-    for _, line in ipairs(data_source) do
-        valid_indices[line.index] = true
-    end
-    for idx in pairs(table_selection) do
-        if not valid_indices[idx] then
-            table_selection[idx] = nil
-        end
-    end
     
     -- Find starting index based on scroll_y and layout cache
     local start_idx = 1
@@ -10464,58 +10498,38 @@ local function draw_table(input_queue)
 
             if not cfg.reader_mode then
                 if cfg.col_table_index then
-                    draw_cell_txt(tostring(line.index or i), col_ptr); col_ptr = col_ptr + 1
+                    draw_cell_txt(line.idx_str, col_ptr); col_ptr = col_ptr + 1
                 end
 
                 if cfg.col_table_start then
-                    draw_cell_txt(reaper.format_timestr(line.t1, ""), col_ptr); col_ptr = col_ptr + 1
+                    draw_cell_txt(line.t1_str, col_ptr); col_ptr = col_ptr + 1
                 end
 
                 if cfg.col_table_end then
-                    -- Don't show end time for markers
-                    local end_time_str = line.is_marker and "" or reaper.format_timestr(line.t2, "")
-                    draw_cell_txt(end_time_str, col_ptr); col_ptr = col_ptr + 1
+                    draw_cell_txt(line.t2_str, col_ptr); col_ptr = col_ptr + 1
                 end
             end
 
-            -- CPS Calculation
-            local duration = line.t2 - line.t1
-            local clean_text = (line.text or ""):gsub(acute, ""):gsub("%s+", "")
-            local char_count = utf8.len(clean_text) or #clean_text
-            local cps = duration > 0 and (char_count / duration) or 0
-            
             if not cfg.reader_mode and cfg.col_table_cps then
-                local cps_str = line.is_marker and "" or string.format("%.1f", cps)
-                local cps_color = get_cps_color(cps)
-                set_color(cps_color)
-                draw_cell_txt(cps_str, col_ptr); col_ptr = col_ptr + 1
+                set_color(line.cps_color)
+                draw_cell_txt(line.cps_str, col_ptr); col_ptr = col_ptr + 1
             end
             
             -- Helper for highlighting and wrapping
-            local function draw_highlighted_text(txt, x, y, max_w, row_h_passed)
+            local function draw_highlighted_text(txt, x, y, max_w, row_h_passed, h_range, cached_lines)
                 set_color(row_base_color)
-                local display_txt = txt:gsub("[\n\r]", " ")
-                
-                -- Add Marker Index Prefix in Reader Mode
-                if cfg.reader_mode and line.is_marker and line.markindex then
-                    display_txt = "(M" .. line.markindex .. ") - " .. display_txt
-                end
-                local query = table_filter_state.text
                 
                 if not cfg.reader_mode then
                     -- Standard Mode: Truncate and draw single line
+                    local display_txt = txt:gsub("[\n\r]", " ")
                     display_txt = fit_text_width(display_txt, max_w)
                     
-                    if #query > 0 then
-                        local s_start, s_end
-                        if find_replace_state.case_sensitive then
-                            s_start, s_end = display_txt:find(query, 1, true)
-                        else
-                            s_start, s_end = utf8_find_accent_blind(display_txt, query)
-                        end
-                        if s_start then
+                    if h_range then
+                        local s_start, s_end = h_range[1], h_range[2]
+                        -- Ensure highlight is within visible/truncated text
+                        if s_start <= #display_txt then
                             local pre_match = display_txt:sub(1, s_start - 1)
-                            local match_str = display_txt:sub(s_start, s_end)
+                            local match_str = display_txt:sub(s_start, math.min(s_end, #display_txt))
                             local pre_w = gfx.measurestr(pre_match)
                             local match_w = gfx.measurestr(match_str)
                             set_color({1, 1, 0, 0.4})
@@ -10525,16 +10539,14 @@ local function draw_table(input_queue)
                     end
                     gfx.x, gfx.y = x, y
                     gfx.drawstr(display_txt)
-                else
-                    -- Reader Mode: Use manual wrapping helper
-                    local lines = wrap_text_manual(display_txt, max_w)
-                    
-                    -- Draw wrapped lines (Vertically Centered)
-                    local total_text_h = #lines * gfx.texth
+                elseif cached_lines then
+                    -- Reader Mode: Use cached wrapped lines
+                    local total_text_h = #cached_lines * gfx.texth
                     local cur_y = buf_y + (row_h_passed - total_text_h) / 2
+                    local query = table_filter_state.text
                     local first_match_done = false
-                    for _, line_str in ipairs(lines) do
-                        -- Use current font's height for next line
+
+                    for _, line_str in ipairs(cached_lines) do
                         local line_h = gfx.texth
                         if cur_y + line_h > buf_y + row_h_passed then break end
                         
@@ -10566,12 +10578,11 @@ local function draw_table(input_queue)
 
             if not cfg.reader_mode and cfg.col_table_actor then
                 gfx.x = x_off[col_ptr]; gfx.y = buf_y_text; 
-                draw_highlighted_text(actor, x_off[col_ptr], buf_y_text, x_off[col_ptr+1] - x_off[col_ptr] - 10, row_h_dynamic)
+                draw_highlighted_text(actor, x_off[col_ptr], buf_y_text, x_off[col_ptr+1] - x_off[col_ptr] - 10, row_h_dynamic, line.h_actor)
                 col_ptr = col_ptr + 1
             end
             
-            local replica_text = (line.text or ""):gsub("[\n\r]", " ")
-            draw_highlighted_text(replica_text, x_off[col_ptr], buf_y_text, gfx.w - x_off[col_ptr] - 10, row_h_dynamic)
+            draw_highlighted_text(line.text or "", x_off[col_ptr], buf_y_text, gfx.w - x_off[col_ptr] - 10, row_h_dynamic, line.h_text, layout.lines)
             
             -- Click logic
             -- FIX: Check bit 1 (Left Mouse) regardless of other flags
@@ -10660,6 +10671,9 @@ local function draw_table(input_queue)
                                             else
                                                 reaper.SetProjectMarker4(0, edit_marker.markindex, false, edit_marker.t1, 0, new_text, edit_marker.marker_color or 0, 0)
                                             end
+                                            table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
+                                            last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
+                                            prompter_drawer.marker_cache.count = -1 -- FORCE UPDATE MARKERS
                                         end, original_idx, nil)
                                     else
                                         -- Edit ASS line
@@ -10668,6 +10682,8 @@ local function draw_table(input_queue)
                                             push_undo("Редагування тексту")
                                             edit_line.text = new_text
                                             rebuild_regions()
+                                            table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
+                                            last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
                                         end, original_idx, ass_lines)
                                     end
                                     last_click_row = 0
@@ -10816,6 +10832,8 @@ local function draw_table(input_queue)
                                 table_selection[base_id] = true
                                 cleanup_actors()
                                 rebuild_regions()
+                                table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
+                                last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
                                 show_snackbar("Репліки об'єднано (" .. #selected_entries .. ")", "success")
                             end
                         elseif (has_merge and ret == 3) or (not has_merge and ret == 2) then
