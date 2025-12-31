@@ -9724,7 +9724,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     -- Actor buttons should wrap before reaching the options button
     local limit_x = opt_x - S(5) -- Leave small gap before options button
     
-    if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", UI.C_BTN) then
+    if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", {0.3, 0.35, 0.3}) then
         local dock_check = gfx.dock(-1) > 0 and "!" or ""
         local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
         local menu_str = "Копіювати правки в буфер|Експортувати правки в CSV|Імпортувати імена акторів з субтитрів|" .. layout_label
@@ -9934,7 +9934,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
 
                             show_snackbar("Змінено ім'я у '" .. ops .. "' місцях (Режисер)", "success")
                         end
-                        end
+                    end
                 elseif ret2 == 2 then
                     -- DELETE
                     local ok = reaper.MB("Ви дійсно хочете видалити актора '" .. actor .. "'? Це видалить його префікс з усіх правок.", "Підтвердження", 4)
@@ -9977,7 +9977,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     end
     
     if not calc_only then
-        if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "+", UI.C_BTN) then
+        if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "+", {0.3, 0.35, 0.3}) then
             local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
             if ok and name ~= "" then
                 -- Check duplication
