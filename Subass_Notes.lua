@@ -907,6 +907,36 @@ local function run_async_command(shell_cmd, callback)
     script_loading_state.text = "Завантаження даних..."
 end
 
+local sws_alert_shown = false
+
+--- Set system clipboard text
+--- @param text string Text to copy to clipboard
+local function set_clipboard(text)
+    if reaper.CF_SetClipboard then 
+        reaper.CF_SetClipboard(text)
+        return
+    end
+    
+    if not sws_alert_shown then
+        reaper.MB("Для кращої роботи буфера обміну рекомендується встановити SWS Extension.", "Subass", 0)
+        sws_alert_shown = true
+    end
+    
+    local os_name = reaper.GetOS()
+    if os_name:match("OSX") or os_name:match("macOS") then
+        -- Use pbcopy
+        local escaped = text:gsub("'", "'\\''") -- escape single quotes
+        io.popen("printf '"..escaped.."' | pbcopy", "w")
+    else
+        -- Windows clip
+        -- Note: 'clip' reads from stdin, but io.popen("clip", "w") might not work as easily with pure Lua write.
+        -- Echoing is easier but restricted length. 
+        -- Try PowerShell Set-Clipboard
+        local escaped = text:gsub('"', '\\"')
+        io.popen('powershell.exe -command "Set-Clipboard -Value \\"' .. escaped .. '\\""', "w")
+    end
+end
+
 --- Check statuses of active async tasks and trigger callbacks if done
 local function check_async_pool()
     for i = #global_async_pool, 1, -1 do
@@ -2278,6 +2308,11 @@ end
 --- @return string|nil Clipboard content or nil if unavailable
 local function get_clipboard()
     if reaper.CF_GetClipboard then return reaper.CF_GetClipboard("") end
+
+    if not sws_alert_shown then
+        reaper.MB("Для кращої роботи буфера обміну рекомендується встановити SWS Extension.", "Subass", 0)
+        sws_alert_shown = true
+    end
     local os_name = reaper.GetOS()
     if os_name:match("OSX") or os_name:match("macOS") then
         local f = io.popen("pbpaste", "r")
@@ -2287,30 +2322,6 @@ local function get_clipboard()
         if f then local c = f:read("*a"); f:close(); return c end
     end
     return nil
-end
-
--- Clipboard Helper (Set)
---- Set system clipboard text
---- @param text string Text to copy to clipboard
-local function set_clipboard(text)
-    if reaper.CF_SetClipboard then 
-        reaper.CF_SetClipboard(text)
-        return
-    end
-    
-    local os_name = reaper.GetOS()
-    if os_name:match("OSX") or os_name:match("macOS") then
-        -- Use pbcopy
-        local escaped = text:gsub("'", "'\\''") -- escape single quotes
-        io.popen("printf '"..escaped.."' | pbcopy", "w")
-    else
-        -- Windows clip
-        -- Note: 'clip' reads from stdin, but io.popen("clip", "w") might not work as easily with pure Lua write.
-        -- Echoing is easier but restricted length. 
-        -- Try PowerShell Set-Clipboard
-        local escaped = text:gsub('"', '\\"')
-        io.popen('powershell.exe -command "Set-Clipboard -Value \\"' .. escaped .. '\\""', "w")
-    end
 end
 
 --- Format seconds to timestamp string (HH:MM:SS.mmm or MM:SS.mmm)
@@ -3193,6 +3204,7 @@ local function undo_action()
     
     cleanup_actors()
     rebuild_regions()
+    save_project_data(last_project_id) -- Sync to metadata
     show_snackbar("Відмінено: " .. last_state.label, "info")
 end
 
@@ -3222,6 +3234,7 @@ local function redo_action()
     
     cleanup_actors()
     rebuild_regions()
+    save_project_data(last_project_id) -- Sync to metadata
     show_snackbar("Повторено: " .. next_state.label, "info")
 end
 
@@ -9791,28 +9804,43 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                     table.insert(out_lines, "") -- Empty line between groups
                 end
                 
-                reaper.CF_SetClipboard(table.concat(out_lines, "\n"))
+                set_clipboard(table.concat(out_lines, "\n"))
                 show_snackbar("Скопійовано " .. #ass_markers .. " правок", "success")
             else
                 show_snackbar("Немає правок для копіювання", "info")
             end
         elseif ret == 2 then
-            reaper.Main_OnCommand(41758, 0) -- Markers/Regions: Export markers/regions to file
+            local ok = reaper.MB("Переконайтеся, що у вікні експорту вибрано галочку 'Markers' (а не 'Regions'), щоб експортувати тільки правки.\n\nПродовжити?", "Експорт правок", 1)
+            if ok == 1 then
+                reaper.Main_OnCommand(41758, 0) -- Markers/Regions: Export markers/regions to file
+            end
         elseif ret == 3 then
             -- Import
-            -- ... (Import Logic Same) ...
-            local count = 0
             local existing = {}
             for _, a in ipairs(director_actors) do existing[a] = true end
+            
+            -- Pass 1: Count new actors
+            local new_actors = {}
+            local count = 0
             for _, line in ipairs(ass_lines) do
-                if line.actor and line.actor ~= "" and not existing[line.actor] then
-                    table.insert(director_actors, line.actor)
-                    existing[line.actor] = true
+                if line.actor and line.actor ~= "" and not existing[line.actor] and not new_actors[line.actor] then
+                    new_actors[line.actor] = true
                     count = count + 1
                 end
             end
+            
             if count > 0 then
-                push_undo("Імпорт " .. count .. " акторів")
+                -- Push undo BEFORE modification
+                push_undo("Імпортувати імена акторів з субтитрів (" .. count .. ")")
+                
+                -- Pass 2: Actually add them
+                for _, line in ipairs(ass_lines) do
+                    if line.actor and line.actor ~= "" and not existing[line.actor] then
+                        table.insert(director_actors, line.actor)
+                        existing[line.actor] = true -- Prevent duplicates from same multi-replica import
+                    end
+                end
+                
                 save_project_data(last_project_id)
                 show_snackbar("Імпортовано " .. count .. " акторів", "success")
             else
