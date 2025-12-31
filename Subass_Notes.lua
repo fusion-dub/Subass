@@ -65,8 +65,7 @@ local cfg = {
     reader_mode = (get_set("reader_mode", "0") == "1" or get_set("reader_mode", 0) == 1),
     auto_startup = (get_set("auto_startup", "0") == "1" or get_set("auto_startup", 0) == 1),
     gemini_key_status = tonumber(reaper.GetExtState(section_name, "gemini_key_status")) or 0,
-    bg_color_index = tonumber(reaper.GetExtState(section_name, "bg_color_index")) or 0, -- Added bg_color_index
-    
+
     col_table_index = (get_set("col_table_index", "1") == "1" or get_set("col_table_index", 1) == 1),
     col_table_start = (get_set("col_table_start", "1") == "1" or get_set("col_table_start", 1) == 1),
     col_table_end = (get_set("col_table_end", "1") == "1" or get_set("col_table_end", 1) == 1),
@@ -101,7 +100,7 @@ local function S(val)
 end
 
 cfg.w_director = get_set("w_director", S(300))
-cfg.h_director = get_set("h_director", S(150))
+cfg.h_director = get_set("h_director", S(120))
 
 -- OS Detection for hybrid stress mark rendering
 local os_name = reaper.GetOS()
@@ -260,7 +259,8 @@ local director_actors = {}
 local director_state = {
     input = { text = "", cursor = 0, anchor = 0, focus = false },
     last_marker_id = nil,
-    last_time = -1
+    last_time = -1,
+    pending_scroll_id = nil
 }
 
 -- Proximity helper for marker detection
@@ -9546,9 +9546,21 @@ local function draw_btn_inline(x, y, w, h, text, bg_col)
 end
 
 -- Helper: Get current actor from text
-local function get_current_actor(text)
-    local actor = text:match("^%[(.-)%]")
-    return actor
+-- Helper: Parse actors from text (supports comma-separated "Actor1, Actor2")
+local function get_actors_from_text(text)
+    local content = text:match("^%[(.-)%]")
+    if not content then return {}, {} end
+    
+    local list = {}
+    local set = {}
+    for part in string.gmatch(content, "([^,]+)") do
+        local name = part:match("^%s*(.-)%s*$")
+        if name and name ~= "" then
+            table.insert(list, name)
+            set[name] = true
+        end
+    end
+    return list, set
 end
 
 -- Helper: Rename actor globally in all project markers
@@ -9628,6 +9640,25 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     local cur_time = reaper.GetPlayState() > 0 and play_pos or edit_pos
     
     -- Only update if time jump or first run
+    -- But first: Validate that the currently held marker ID still exists (it might have been deleted externally)
+    if director_state.last_marker_id then
+        local exists = false
+        for _, m in ipairs(ass_markers) do
+            if m.markindex == director_state.last_marker_id then
+                exists = true
+                -- Update text just in case it changed externally? 
+                -- Ideally yes, but maybe user is typing. 
+                -- Let's just check existence for now to fix the "stuck Update button" issue.
+                break
+            end
+        end
+        if not exists then
+            director_state.last_marker_id = nil
+            director_state.input.text = ""
+            director_state.input.cursor = 0
+        end
+    end
+
     if not is_near(cur_time, director_state.last_time) then
         director_state.last_time = cur_time
         
@@ -9679,7 +9710,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     local draw_x = panel_x + x
     local draw_y = panel_y + y
     
-    local current_actor_in_input = get_current_actor(director_state.input.text)
+    local _, current_actors_set = get_actors_from_text(director_state.input.text)
     
     local save_btn_w = S(100)
     -- Detect narrow mode (Right layout) for proper input width calculation
@@ -9696,7 +9727,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", UI.C_BTN) then
         local dock_check = gfx.dock(-1) > 0 and "!" or ""
         local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
-        local menu_str = "Копіювати правки в буфер|Імпортувати імена акторів з субтитрів|" .. layout_label
+        local menu_str = "Копіювати правки в буфер|Експортувати правки в CSV|Імпортувати імена акторів з субтитрів|" .. layout_label
         
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local ret = gfx.showmenu(menu_str)
@@ -9710,35 +9741,34 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 local seen_actors = {}
 
                 for _, m in ipairs(ass_markers) do
-                    -- Parse Actor: Format usually "Actor: Text" or "(Actor): Text"
                     local text = m.name
-                    local actor = nil
-                    local content = text
-
-                    -- Try pattern "[Actor] Text" (User Requested Format)
-                    local s, e, act = string.find(text, "^%[(.-)%]%s*")
-                    if s then
-                        actor = act
-                        content = string.sub(text, e + 1)
+                    local list, _ = get_actors_from_text(text)
+                    local content = ""
+                    
+                    if #list > 0 then
+                        content = text:gsub("^%[.-%]%s*", "")
                     else
                         -- Fallback: Try pattern "Actor: Text"
-                        s, e, act = string.find(text, "^(.-):%s*")
+                        local s, e, act = string.find(text, "^(.-):%s*")
                         if s then
-                            actor = act
+                            table.insert(list, act)
                             content = string.sub(text, e + 1)
+                        else
+                            content = text
+                            table.insert(list, no_actor_key)
                         end
                     end
 
-                    if not actor or actor == "" then actor = no_actor_key end
-
-                    if not groups[actor] then
-                        groups[actor] = {}
-                        if not seen_actors[actor] then
-                            table.insert(actors_list, actor)
-                            seen_actors[actor] = true
+                    for _, actor in ipairs(list) do
+                        if not groups[actor] then
+                            groups[actor] = {}
+                            if not seen_actors[actor] then
+                                table.insert(actors_list, actor)
+                                seen_actors[actor] = true
+                            end
                         end
+                        table.insert(groups[actor], {time = m.pos, text = content})
                     end
-                    table.insert(groups[actor], {time = m.pos, text = content})
                 end
 
                 -- Sort actors alphabetically, but put no_actor_key last
@@ -9767,6 +9797,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 show_snackbar("Немає правок для копіювання", "info")
             end
         elseif ret == 2 then
+            reaper.Main_OnCommand(41758, 0) -- Markers/Regions: Export markers/regions to file
+        elseif ret == 3 then
             -- Import
             -- ... (Import Logic Same) ...
             local count = 0
@@ -9786,7 +9818,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             else
                 show_snackbar("Нових акторів не знайдено", "info")
             end
-        elseif ret == 3 then
+        elseif ret == 4 then
             -- Toggle Layout
             if cfg.director_layout == "right" then
                 cfg.director_layout = "bottom"
@@ -9814,7 +9846,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         if not calc_only then
              -- Logic drawing ...
              -- Active state determination
-            local is_active = (current_actor_in_input == actor)
+            local is_active = current_actors_set[actor]
             local bg_col = is_active and {0.2, 0.6, 0.2} or UI.C_BTN
             
             -- Hover Check for Right Click
@@ -9824,14 +9856,24 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             if draw_btn_inline(draw_x, draw_y, btn_w, btn_h, label, bg_col) then
                 -- Toggle Logic
                 local txt = director_state.input.text
+                local list, _ = get_actors_from_text(txt)
+                local clean = txt:gsub("^%[.-%]%s*", "")
+                
                 if is_active then
-                    -- Toggle Off
-                    local clean_text = txt:gsub("^%[.-%]%s*", "")
-                    director_state.input.text = clean_text
+                    -- Toggle Off (Remove from list)
+                    local new_list = {}
+                    for _, a in ipairs(list) do
+                        if a ~= actor then table.insert(new_list, a) end
+                    end
+                    if #new_list > 0 then
+                        director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
+                    else
+                        director_state.input.text = clean
+                    end
                 else
-                    -- Toggle On
-                    local clean_text = txt:gsub("^%[.-%]%s*", "")
-                    director_state.input.text = "[" .. actor .. "] " .. clean_text
+                    -- Toggle On (Add to list)
+                    table.insert(list, actor)
+                    director_state.input.text = "[" .. table.concat(list, ", ") .. "] " .. clean
                 end
                 director_state.input.cursor = #director_state.input.text
                 director_state.input.focus = true
@@ -9860,23 +9902,39 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                             table.remove(director_actors, i)
                             save_project_data(last_project_id)
                             local ops = rename_actor_globally(actor, new_name)
-                            if get_current_actor(director_state.input.text) == actor then
-                                 local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
-                                 director_state.input.text = "[" .. new_name .. "] " .. clean
+                            
+                            -- Update Input if needed
+                            local list, set = get_actors_from_text(director_state.input.text)
+                            if set[actor] then
+                                local new_list = {}
+                                for _, a in ipairs(list) do
+                                    table.insert(new_list, (a == actor) and new_name or a)
+                                end
+                                local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
+                                director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
                             end
+
                             show_snackbar("Об'єднано з '" .. new_name .. "' (" .. ops .. " змін) (Режисер)", "success")
                         else
                             push_undo("Змінити ім'я актора " .. actor .. " -> " .. new_name)
                             director_actors[i] = new_name
                             save_project_data(last_project_id)
                             local ops = rename_actor_globally(actor, new_name)
-                            if get_current_actor(director_state.input.text) == actor then
-                                 local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
-                                 director_state.input.text = "[" .. new_name .. "] " .. clean
+                            
+                            -- Update Input if needed
+                            local list, set = get_actors_from_text(director_state.input.text)
+                            if set[actor] then
+                                local new_list = {}
+                                for _, a in ipairs(list) do
+                                    table.insert(new_list, (a == actor) and new_name or a)
+                                end
+                                local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
+                                director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
                             end
+
                             show_snackbar("Змінено ім'я у '" .. ops .. "' місцях (Режисер)", "success")
                         end
-                    end
+                        end
                 elseif ret2 == 2 then
                     -- DELETE
                     local ok = reaper.MB("Ви дійсно хочете видалити актора '" .. actor .. "'? Це видалить його префікс з усіх правок.", "Підтвердження", 4)
@@ -9885,10 +9943,22 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         table.remove(director_actors, i)
                         save_project_data(last_project_id)
                         local ops = delete_actor_globally(actor)
-                        if get_current_actor(director_state.input.text) == actor then
+                        
+                        -- Update Input if needed
+                        local list, set = get_actors_from_text(director_state.input.text)
+                        if set[actor] then
+                            local new_list = {}
+                            for _, a in ipairs(list) do
+                                if a ~= actor then table.insert(new_list, a) end
+                            end
                             local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
-                            director_state.input.text = clean
+                            if #new_list > 0 then
+                                director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
+                            else
+                                director_state.input.text = clean
+                            end
                         end
+                        
                         show_snackbar("Видалено актора та '" .. ops .. "' префіксів (Режисер)", "info")
                     end
                 end
@@ -9962,8 +10032,10 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 push_undo(save_label .. " правку (Режисер)")
                 if director_state.last_marker_id then
                     reaper.SetProjectMarker4(0, director_state.last_marker_id, false, cur_time, 0, txt, 0, 0)
+                    director_state.pending_scroll_id = director_state.last_marker_id
                 else
-                    reaper.AddProjectMarker(0, false, cur_time, 0, txt, -1)
+                    local new_idx = reaper.AddProjectMarker(0, false, cur_time, 0, txt, -1)
+                    director_state.pending_scroll_id = new_idx
                 end
                 ass_markers = capture_project_markers()
                 update_regions_cache()
@@ -10607,11 +10679,6 @@ local function draw_table(input_queue)
     -- Logic for manual vs dynamic height is handled at top.
     -- Just need to ensure `h_director` variable is correct for Bottom/Manual logic below.
     if cfg.director_mode and not is_dir_right and cfg.h_director then
-        -- Allow manual resize to override dynamic?
-        -- The resizing sets cfg.h_director.
-        -- The top logic uses MAX(dynamic, cfg.h_director) if we implemented that?
-        -- Previous: h_director = (cfg.director_mode and not is_dir_right) and (dynamic_director_h or S(150)) or 0
-        -- We probably want: h_director = MAX(cfg.h_director, dynamic_director_h)
         local manual = cfg.h_director or S(150)
         if dynamic_director_h and dynamic_director_h > manual and not director_resize_drag then
             h_director = dynamic_director_h
@@ -10625,6 +10692,27 @@ local function draw_table(input_queue)
     if avail_h < 0 then avail_h = 0 end
 
     local max_scroll = math.max(0, total_h - avail_h)
+    
+    -- Auto-scroll to specific marker (e.g. after Save/Update in Director Panel)
+    if director_state.pending_scroll_id then
+        for i, line in ipairs(data_source) do
+            if line.is_marker and line.markindex == director_state.pending_scroll_id then
+                -- 1. Update Selection
+                table_selection = {}
+                table_selection[line.index] = true 
+                last_selected_row = i
+
+                -- 2. Scroll
+                if table_layout_cache[i] then
+                    local layout = table_layout_cache[i]
+                    target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
+                end
+                
+                director_state.pending_scroll_id = nil
+                break
+            end
+        end
+    end
     
     -- Auto-scroll to current playback position (only when position changes)
     local play_pos = reaper.GetPlayPosition()
