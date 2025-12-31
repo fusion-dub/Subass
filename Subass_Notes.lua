@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 2.5
+-- @version 2.6
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v2.5"
+local script_title = "Subass Notes v2.6"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -65,7 +65,8 @@ local cfg = {
     reader_mode = (get_set("reader_mode", "0") == "1" or get_set("reader_mode", 0) == 1),
     auto_startup = (get_set("auto_startup", "0") == "1" or get_set("auto_startup", 0) == 1),
     gemini_key_status = tonumber(reaper.GetExtState(section_name, "gemini_key_status")) or 0,
-
+    bg_color_index = tonumber(reaper.GetExtState(section_name, "bg_color_index")) or 0, -- Added bg_color_index
+    
     col_table_index = (get_set("col_table_index", "1") == "1" or get_set("col_table_index", 1) == 1),
     col_table_start = (get_set("col_table_start", "1") == "1" or get_set("col_table_start", 1) == 1),
     col_table_end = (get_set("col_table_end", "1") == "1" or get_set("col_table_end", 1) == 1),
@@ -83,6 +84,8 @@ local cfg = {
     col_w_actor = get_set("col_w_actor", 100),
 
     gui_scale = get_set("gui_scale", 1.1),
+    director_mode = (get_set("director_mode", "0") == "1" or get_set("director_mode", 0) == 1),
+    director_layout = get_set("director_layout", "bottom"),
 }
 
 local col_resize = {
@@ -96,6 +99,9 @@ local col_resize = {
 local function S(val)
     return math.floor(val * cfg.gui_scale)
 end
+
+cfg.w_director = get_set("w_director", S(300))
+cfg.h_director = get_set("h_director", S(150))
 
 -- OS Detection for hybrid stress mark rendering
 local os_name = reaper.GetOS()
@@ -192,13 +198,16 @@ local proj_change_count = reaper.GetProjectStateChangeCount(0)
 local text_editor_state = {
     text = "",
     cursor = 0,
-    sel_anchor = 0, -- Anchor for text selection
+    anchor = 0, -- renamed from sel_anchor for consistency
     line_idx = nil,
     callback = nil,
     history = {},
     history_pos = 0,
     scroll = 0,
+    target_scroll = 0,
+    suppress_auto_scroll_until = 0,
     active = false,
+    focus = true, -- Default to focused when opened
     context_line_idx = nil, -- Index of current line being edited
     context_all_lines = nil -- All lines for context
 }
@@ -218,7 +227,7 @@ local table_sort = { col = "start", dir = 1 }
 local table_layout_cache = {} -- Stores {y, h} for each row
 local last_layout_state = { w = 0, count = 0, mode = nil, filter = "", sort_col = "", sort_dir = 0, gui_scale = 0 }
 local table_selection = {} -- { [row_index] = true }
-local table_data_cache = { state_count = -1, project_id = "", filter = "", sort_col = "", sort_dir = 0, show_markers = nil, case_sensitive = nil, list = {} }
+local table_data_cache = { state_count = -1, project_id = "", filter = "", sort_dir = 0, show_markers = nil, case_sensitive = nil, list = {} }
 local last_selected_row = nil -- for Shift range selection
 
 -- Snackbar State
@@ -245,6 +254,17 @@ local dict_modal = {
     max_scroll = 0,
     history = {} -- History stack for back navigation
 }
+
+-- Director Mode State
+local director_actors = {}
+local director_state = {
+    input = { text = "", cursor = 0, anchor = 0, focus = false },
+    last_marker_id = nil,
+    last_time = -1
+}
+
+-- Proximity helper for marker detection
+local function is_near(t1, t2) return math.abs(t1-t2) < 0.001 end
 
 -- AI Assistant State
 local ai_modal = {
@@ -559,6 +579,10 @@ local function save_settings()
     reaper.SetExtState(section_name, "reader_mode", cfg.reader_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "show_markers_in_table", cfg.show_markers_in_table and "1" or "0", true)
     reaper.SetExtState(section_name, "gui_scale", tostring(cfg.gui_scale), true)
+    reaper.SetExtState(section_name, "director_mode", cfg.director_mode and "1" or "0", true)
+    reaper.SetExtState(section_name, "director_layout", cfg.director_layout, true)
+    reaper.SetExtState(section_name, "w_director", tostring(cfg.w_director), true)
+    reaper.SetExtState(section_name, "h_director", tostring(cfg.h_director), true)
 
     update_prompter_fonts()
 end
@@ -1001,6 +1025,7 @@ local function is_any_text_input_focused()
     if text_editor_state.active then return true end
     if table_filter_state and table_filter_state.focus then return true end
     if prompter_drawer and prompter_drawer.filter and prompter_drawer.filter.focus then return true end
+    if director_state and director_state.input and director_state.input.focus then return true end
     if find_replace_state and find_replace_state.show then
         if find_replace_state.find and find_replace_state.find.focus then return true end
         if find_replace_state.replace and find_replace_state.replace.focus then return true end
@@ -1698,7 +1723,7 @@ local function parse_dictionary_table_html(table_html)
                 text = cleaned,
                 colspan = colspan,
                 rowspan = rowspan,
-                is_header = is_cell_header
+                is_cell_header = is_cell_header
             })
         end
         if #row_data.cells > 0 then 
@@ -2708,6 +2733,8 @@ local function save_project_data()
     end
     reaper.SetProjExtState(0, section_name, "ass_actors", table.concat(act_tbl))
     
+    reaper.SetProjExtState(0, section_name, "dir_actors", table.concat(director_actors, "|"))
+    
     local col_tbl = {}
     for k,v in pairs(actor_colors) do
         table.insert(col_tbl, k .. "|" .. tostring(v) .. "\n")
@@ -2746,6 +2773,19 @@ local function sanitize_indices()
             next_id = next_id + 1
         end
         used[l.index] = true
+    end
+end
+
+--- Load director actors from ProjectExtState
+local function load_director_actors_from_state()
+    local okD, d_dump = reaper.GetProjExtState(0, section_name, "dir_actors")
+    if okD and d_dump ~= "" then
+        director_actors = {}
+        for act in d_dump:gmatch("([^|]+)") do
+            table.insert(director_actors, act)
+        end
+    else
+        director_actors = {}
     end
 end
 
@@ -2854,6 +2894,7 @@ local function load_project_data()
             end
         end
         
+        load_director_actors_from_state()
         local ok4, c_dump = reaper.GetProjExtState(0, section_name, "actor_colors")
         if ok4 then
             for line in c_dump:gmatch("([^\n]*)\n?") do
@@ -3112,6 +3153,7 @@ local function push_undo(label)
     local state = {
         lines = deep_copy_table(ass_lines),
         actors = deep_copy_table(ass_actors),
+        dir_actors = deep_copy_table(director_actors),
         markers = deep_copy_table(ass_markers),
         label = label or "Action"
     }
@@ -3132,6 +3174,7 @@ local function undo_action()
     local current_state = {
         lines = deep_copy_table(ass_lines),
         actors = deep_copy_table(ass_actors),
+        dir_actors = deep_copy_table(director_actors),
         markers = capture_project_markers(),
         label = undo_stack[#undo_stack].label
     }
@@ -3146,6 +3189,7 @@ local function undo_action()
     ass_lines = last_state.lines
     ass_actors = last_state.actors
     ass_markers = last_state.markers
+    if last_state.dir_actors then director_actors = last_state.dir_actors end
     
     cleanup_actors()
     rebuild_regions()
@@ -3161,6 +3205,7 @@ local function redo_action()
     local current_state = {
         lines = deep_copy_table(ass_lines),
         actors = deep_copy_table(ass_actors),
+        dir_actors = deep_copy_table(director_actors),
         markers = capture_project_markers(),
         label = next_state.label
     }
@@ -3173,6 +3218,7 @@ local function redo_action()
     ass_lines = next_state.lines
     ass_actors = next_state.actors
     ass_markers = next_state.markers
+    if next_state.dir_actors then director_actors = next_state.dir_actors end
     
     cleanup_actors()
     rebuild_regions()
@@ -4345,6 +4391,10 @@ local function draw_ai_modal(skip_draw)
     if x < 10 then x = 10 end
     if x + menu_w > gfx.w - 10 then x = gfx.w - menu_w - 10 end
 
+    -- Store bounds for focus checks
+    ai_modal.x, ai_modal.y = x, y
+    ai_modal.w, ai_modal.h = menu_w, menu_h
+
     -- Mouse Wheel Handling (High Priority)
     if gfx.mouse_wheel ~= 0 then
         if gfx.mouse_x >= x and gfx.mouse_x <= x + menu_w and gfx.mouse_y >= y and gfx.mouse_y <= y + menu_h then
@@ -4463,7 +4513,7 @@ local function draw_ai_modal(skip_draw)
                                     local after = text_editor_state.text:sub(ai_modal.sel_max + 1)
                                     text_editor_state.text = before .. sugg.text .. after
                                     text_editor_state.cursor = ai_modal.sel_min + #sugg.text
-                                    text_editor_state.sel_anchor = text_editor_state.cursor
+                                    text_editor_state.anchor = text_editor_state.cursor
                                     
                                     changed = true
                                     ai_modal.show = false
@@ -4524,7 +4574,7 @@ local function draw_ai_modal(skip_draw)
             local bw = menu_w - 10
             
             -- Only draw if visible in view_h
-            if by + btn_h > 0 and by < view_h then
+            if by + btn_h > 0 and by < view_h then -- Visible?
                 local hover = mouse_in_menu and 
                               (gfx.mouse_x >= x + bx and gfx.mouse_x <= x + bx + bw and
                                gfx.mouse_y >= y + by and gfx.mouse_y <= y + by + btn_h and
@@ -4668,37 +4718,595 @@ local function draw_ai_modal(skip_draw)
     return changed
 end
 
+--- Handle keyboard input for a text field state
+--- @param input_queue table Key inputs
+--- @param state table Input state {text, cursor, anchor}
+--- @param is_multiline boolean Allow newlines
+--- @return boolean True if text changed
+local function process_input_events(input_queue, state, is_multiline, visual_lines)
+    if not input_queue or #input_queue == 0 then return false end
+    
+    -- Reset auto-scroll suppression on any keyboard activity
+    state.suppress_auto_scroll_until = 0
+    
+    local cap = gfx.mouse_cap
+    local is_ctrl = (cap & 4 == 4)
+    local is_cmd = (cap & 32 == 32)
+    local is_shift = (cap & 8 == 8)
+    local is_mod = (is_ctrl or is_cmd)
+    
+    local changed = false
+    local text = state.text or ""
+    local cursor = state.cursor or #text
+    local anchor = state.anchor or cursor
+    
+    local has_sel = (cursor ~= anchor)
+    
+    local function delete_selection()
+        if not has_sel then return end
+        local s_min, s_max = math.min(cursor, anchor), math.max(cursor, anchor)
+        local before = text:sub(1, s_min)
+        local after = text:sub(s_max + 1)
+        text = before .. after
+        cursor = s_min
+        anchor = s_min
+        has_sel = false
+        changed = true
+    end
+    
+    for _, char in ipairs(input_queue) do
+        -- Select All (Mod+A)
+        if char == 1 or (is_mod and (char == 97 or char == 65)) then
+            anchor = 0
+            cursor = #text
+        elseif char == 4 then -- Ctrl+D (Deselect All)
+            anchor = cursor
+        -- Copy
+        elseif (char == 3) or (is_mod and (char == 99 or char == 67)) then
+            if has_sel then
+                local s_min, s_max = math.min(cursor, anchor), math.max(cursor, anchor)
+                set_clipboard(text:sub(s_min + 1, s_max))
+            end
+        -- Cut
+        elseif (char == 24) or (is_mod and (char == 120 or char == 88)) then
+            if has_sel then
+                local s_min, s_max = math.min(cursor, anchor), math.max(cursor, anchor)
+                set_clipboard(text:sub(s_min + 1, s_max))
+                delete_selection()
+            end
+        -- Paste
+        elseif (is_mod and (char == 118 or char == 86)) or (char == 22) then
+            delete_selection()
+            local clipboard = get_clipboard()
+            if clipboard and clipboard ~= "" then
+                if not is_multiline then clipboard = clipboard:gsub("\n", " "):gsub("\r", "") end
+                text = text:sub(1, cursor) .. clipboard .. text:sub(cursor + 1)
+                cursor = cursor + #clipboard
+                anchor = cursor
+                changed = true
+            end
+        -- Undo / Redo
+        elseif (char == 26) or (is_mod and (char == 122 or char == 90)) then
+            if state.history and state.history_pos then
+                if is_shift then
+                    -- Redo
+                    if state.history_pos < #state.history then
+                        state.history_pos = state.history_pos + 1
+                        local snap = state.history[state.history_pos]
+                        text, cursor, anchor = snap.text, snap.cursor, snap.anchor
+                        changed = true
+                    end
+                else
+                    -- Undo
+                    if state.history_pos > 1 then
+                        state.history_pos = state.history_pos - 1
+                        local snap = state.history[state.history_pos]
+                        text, cursor, anchor = snap.text, snap.cursor, snap.anchor
+                        changed = true
+                    end
+                end
+            end
+        elseif is_mod and (char == 121 or char == 89) then -- Redo (Ctrl+Y)
+            if state.history and state.history_pos and state.history_pos < #state.history then
+                state.history_pos = state.history_pos + 1
+                local snap = state.history[state.history_pos]
+                text, cursor, anchor = snap.text, snap.cursor, snap.anchor
+                changed = true
+            end
+        -- Escape / Enter
+        elseif char == 27 or char == 13 then
+            if char == 13 and is_multiline then
+                delete_selection()
+                text = text:sub(1, cursor) .. "\n" .. text:sub(cursor + 1)
+                cursor = cursor + 1
+                anchor = cursor
+                changed = true
+            else
+                state.focus = false
+            end
+        -- Backspace
+        elseif char == 8 then
+            if has_sel then
+                delete_selection()
+            elseif cursor > 0 then
+                local before = text:sub(1, cursor)
+                local after = text:sub(cursor + 1)
+                local last_char_start = cursor
+                while last_char_start > 1 do
+                    local b = before:byte(last_char_start)
+                    if b < 128 or b >= 192 then break end
+                    last_char_start = last_char_start - 1
+                end
+                text = before:sub(1, last_char_start - 1) .. after
+                cursor = last_char_start - 1
+                anchor = cursor
+                changed = true
+            end 
+        -- Navigation
+        elseif char == 30064 then -- Up
+            if not is_multiline or not visual_lines then
+                cursor = 0
+            else
+                local cur_vi = 1
+                for i, v in ipairs(visual_lines) do if cursor >= v.start_idx then cur_vi = i else break end end
+                if cur_vi > 1 then
+                    local cvl, pvl = visual_lines[cur_vi], visual_lines[cur_vi-1]
+                    local rx = gfx.measurestr(cvl.text:sub(1, math.max(0, cursor - cvl.start_idx)))
+                    local bd, bi = math.huge, 0
+                    local coff = 0
+                    while coff <= #pvl.text do
+                        local d = math.abs(gfx.measurestr(pvl.text:sub(1, coff)) - rx)
+                        if d < bd then bd, bi = d, coff end
+                        if coff >= #pvl.text then break end
+                        local b = pvl.text:byte(coff + 1); local len = 1
+                        if b >= 240 then len = 4 elseif b >= 224 then len = 3 elseif b >= 192 then len = 2 end
+                        coff = coff + len
+                    end
+                    cursor = pvl.start_idx + bi
+                end
+            end
+            if not is_shift then anchor = cursor end
+        elseif char == 1685026670 then -- Down
+            if not is_multiline or not visual_lines then
+                cursor = #text
+            else
+                local cur_vi = 1
+                for i, v in ipairs(visual_lines) do
+                    if cursor <= v.start_idx + #v.text then cur_vi = i; break end
+                    cur_vi = i
+                end
+                if cur_vi < #visual_lines then
+                    local cvl, nvl = visual_lines[cur_vi], visual_lines[cur_vi+1]
+                    local rx = gfx.measurestr(cvl.text:sub(1, math.max(0, cursor - cvl.start_idx)))
+                    local bd, bi = math.huge, 0
+                    local coff = 0
+                    while coff <= #nvl.text do
+                        local d = math.abs(gfx.measurestr(nvl.text:sub(1, coff)) - rx)
+                        if d < bd then bd, bi = d, coff end
+                        if coff >= #nvl.text then break end
+                        local b = nvl.text:byte(coff + 1); local len = 1
+                        if b >= 240 then len = 4 elseif b >= 224 then len = 3 elseif b >= 192 then len = 2 end
+                        coff = coff + len
+                    end
+                    cursor = nvl.start_idx + bi
+                end
+            end
+            if not is_shift then anchor = cursor end
+        elseif char == 1818584692 then -- Left
+            if cursor > 0 then
+                local cur = cursor
+                while cur > 1 do
+                    local b = text:byte(cur)
+                    if b < 128 or b >= 192 then break end
+                    cur = cur - 1
+                end
+                cursor = cur - 1
+                if not is_shift then anchor = cursor end
+            end
+        elseif char == 1919379572 then -- Right
+            if cursor < #text then
+                local cur = cursor + 1
+                while cur < #text do
+                    local b = text:byte(cur + 1)
+                    if b < 128 or b >= 192 then break end
+                    cur = cur + 1
+                end
+                cursor = cur
+                if not is_shift then anchor = cursor end
+            end
+        elseif char == 6579564 or char == 6647396 then -- Home
+            if not is_multiline or not visual_lines then
+                cursor = 0
+            else
+                local cur_vi = 1
+                for i, v in ipairs(visual_lines) do if cursor >= v.start_idx and cursor <= v.start_idx + #v.text then cur_vi = i; break end end
+                cursor = visual_lines[cur_vi].start_idx
+            end
+            if not is_shift then anchor = cursor end
+        elseif char == 1701734758 or char == 1752132965 then -- End
+            if not is_multiline or not visual_lines then
+                cursor = #text
+            else
+                local cur_vi = 1
+                for i, v in ipairs(visual_lines) do if cursor >= v.start_idx and cursor <= v.start_idx + #v.text then cur_vi = i; break end end
+                cursor = visual_lines[cur_vi].start_idx + #visual_lines[cur_vi].text
+            end
+            if not is_shift then anchor = cursor end
+        -- Typing (Safe UTF-8)
+        elseif not is_mod then
+            -- Filter control codes
+            if char >= 32 or char < 0 then
+                delete_selection()
+                local char_str = ""
+                
+                -- Handle high-bit flags from Reaper if present (unlikely for simple chars but possible)
+                local unicode_flag = 0x75000000
+                local cp = char
+                if cp >= unicode_flag and cp < unicode_flag + 0x1000000 then
+                    cp = cp - unicode_flag
+                end
+                
+                -- Full UTF-8 Encode
+                if cp < 128 then char_str = string.char(cp)
+                elseif cp < 2048 then
+                    char_str = string.char(192 + math.floor(cp/64), 128 + (cp % 64))
+                elseif cp < 65536 then
+                    char_str = string.char(224 + math.floor(cp/4096), 128 + math.floor((cp % 4096)/64), 128 + (cp % 64))
+                elseif cp <= 1114111 then
+                    char_str = string.char(0xF0 + math.floor(cp/262144), 0x80 + math.floor((cp % 262144)/4096), 0x80 + math.floor((cp % 4096)/64), 0x80 + (cp % 64))
+                end
+                
+                if #char_str > 0 then
+                    text = text:sub(1, cursor) .. char_str .. text:sub(cursor + 1)
+                    cursor = cursor + #char_str
+                    anchor = cursor
+                    changed = true
+                end
+            end
+        end
+    end
+    
+    state.text = text
+    state.cursor = cursor
+    state.anchor = anchor
+    return changed
+end
+
+-- Helper: Get char index from relative X
+local function get_char_index_at_x(text, rel_x)
+    if not text or text == "" then return 0 end
+    local best_idx = 0
+    local best_dist = 1000000
+    
+    local idx = 0
+    while idx <= #text do
+        local w = gfx.measurestr(text:sub(1, idx))
+        local dist = math.abs(w - rel_x)
+        if dist < best_dist then
+            best_dist = dist
+            best_idx = idx
+        end
+        
+        if idx >= #text then break end
+        
+        -- Advance utf8
+        local b = text:byte(idx + 1)
+        local adv = 1
+        if b then
+            if b >= 240 then adv = 4
+            elseif b >= 224 then adv = 3
+            elseif b >= 192 then adv = 2
+            end
+        end
+        idx = idx + adv
+    end
+    return best_idx
+end
+
+local function record_field_history(state)
+    if not state.history then state.history = {} end
+    if not state.history_pos then state.history_pos = 0 end
+    
+    -- Only record if something actually changed from the last history point
+    local last_hist = state.history[state.history_pos]
+    if last_hist and last_hist.text == state.text and 
+       last_hist.cursor == state.cursor and 
+       last_hist.anchor == state.anchor then
+        return
+    end
+
+    if state.history_pos < #state.history then
+        for i = #state.history, state.history_pos + 1, -1 do
+            table.remove(state.history, i)
+        end
+    end
+    table.insert(state.history, {
+        text = state.text or "",
+        cursor = state.cursor or 0,
+        anchor = state.anchor or 0
+    })
+    state.history_pos = #state.history
+    if #state.history > 100 then
+        table.remove(state.history, 1)
+        state.history_pos = state.history_pos - 1
+    end
+end
+
+local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_multiline)
+    gfx.setfont(F.std)
+    local padding = S(5)
+    local line_h = gfx.texth
+    local text_w = w - padding * 2
+    
+    state.scroll = state.scroll or 0
+    state.target_scroll = state.target_scroll or state.scroll
+    state.suppress_auto_scroll_until = state.suppress_auto_scroll_until or 0
+    state.cursor = state.cursor or 0
+    state.anchor = state.anchor or state.cursor
+    
+    -- Initialize history if not present
+    if not state.history then
+        state.history = {}
+        state.history_pos = 0
+        record_field_history(state)
+    end
+
+    local before_text = state.text or ""
+
+    -- --- LAYOUT: Visual Wrapping ---
+    local visual_lines = {}
+    if is_multiline then
+        local raw_pos = 0
+        for ln in (before_text .. "\n"):gmatch("(.-)\n") do
+            if ln == "" then
+                table.insert(visual_lines, {text = "", start_idx = raw_pos, is_wrapped = false})
+            else
+                local remaining = ln
+                local line_start = raw_pos
+                while #remaining > 0 do
+                    local fit_count = 0
+                    local char_len = utf8.len(remaining) or #remaining
+                    local low, high = 1, char_len
+                    while low <= high do
+                        local mid = math.floor((low + high) / 2)
+                        local CharEnd = utf8.offset(remaining, mid + 1) or (#remaining + 1)
+                        if gfx.measurestr(remaining:sub(1, CharEnd - 1)) <= text_w - S(5) then
+                            fit_count = CharEnd - 1
+                            low = mid + 1
+                        else
+                            high = mid - 1
+                        end
+                    end
+                    if fit_count == 0 then 
+                        local first_char_end = utf8.offset(remaining, 2) or (#remaining + 1)
+                        fit_count = first_char_end - 1 
+                    end
+                    local segment = remaining:sub(1, fit_count)
+                    remaining = remaining:sub(fit_count + 1)
+                    table.insert(visual_lines, {text = segment, start_idx = line_start, is_wrapped = (#remaining > 0)})
+                    line_start = line_start + fit_count
+                end
+            end
+            raw_pos = raw_pos + #ln + 1
+        end
+        if #visual_lines == 0 then table.insert(visual_lines, {text = "", start_idx = 0}) end
+    end
+
+    -- --- INTERACTION ---
+    local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
+    
+    local function get_cursor_from_xy(mx, my)
+        if not is_multiline then
+            local rel_x = mx - (x + padding) + state.scroll
+            return get_char_index_at_x(state.text, rel_x)
+        else
+            local rel_y = my - (y + padding) + state.scroll
+            local v_idx = math.floor(rel_y / line_h) + 1
+            v_idx = math.max(1, math.min(v_idx, #visual_lines))
+            local v_line = visual_lines[v_idx]
+            local rel_x = mx - (x + padding)
+            local char_idx = get_char_index_at_x(v_line.text, rel_x)
+            return v_line.start_idx + char_idx
+        end
+    end
+
+    if gfx.mouse_cap == 1 then
+        if last_mouse_cap == 0 and hover then
+            state.focus = true
+            local idx = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
+            local now = reaper.time_precise()
+            if (now - (state.last_click_time or 0)) < 0.3 then
+                state.last_click_state = (state.last_click_state or 0) + 1
+            else
+                state.last_click_state = 1
+            end
+            state.last_click_time = now
+            
+            if state.last_click_state == 1 then
+                state.cursor, state.anchor = idx, idx
+            elseif state.last_click_state == 2 then
+                local s, e = idx, idx
+                while s > 0 do
+                    local c = state.text:sub(s, s)
+                    if c:match("[%s%p]") then break end
+                    s = s - 1
+                end
+                while e < #state.text do
+                    local c = state.text:sub(e+1, e+1)
+                    if c:match("[%s%p]") then break end
+                    e = e + 1
+                end
+                state.cursor, state.anchor = e, s
+            elseif state.last_click_state >= 3 then
+                state.cursor, state.anchor = #state.text, 0
+            end
+        elseif state.focus and last_mouse_cap == 1 then
+            state.cursor = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
+        elseif not hover and last_mouse_cap == 0 then
+            -- Guard: Don't lose focus if clicking inside the AI modal OR if ai_modal was JUST shown (prevents closing focus on suggestion selection)
+            local in_ai = false
+            if ai_modal and ai_modal.show and ai_modal.x then
+                if gfx.mouse_x >= ai_modal.x and gfx.mouse_x <= ai_modal.x + ai_modal.w and
+                   gfx.mouse_y >= ai_modal.y and gfx.mouse_y <= ai_modal.y + ai_modal.h then
+                    in_ai = true
+                end
+            end
+            
+            -- Also check if we just clicked the AI button itself to prevent focus flickers
+            local ai_btn_hover = (gfx.mouse_x >= ai_modal.anchor_x - 40 and gfx.mouse_x <= ai_modal.anchor_x and 
+                                  gfx.mouse_y >= ai_modal.anchor_y - 24 and gfx.mouse_y <= ai_modal.anchor_y)
+
+            if not in_ai and not ai_btn_hover then
+                state.focus = false
+            end
+        end
+    end
+    
+    if state.focus then process_input_events(input_queue, state, is_multiline, visual_lines) end
+
+    -- Scroll Handling
+    if hover and gfx.mouse_wheel ~= 0 then
+        local scroll_step = (gfx.mouse_wheel / 120) * line_h * 3
+        if is_multiline then
+            state.target_scroll = state.target_scroll - scroll_step
+            local max_s = math.max(0, (#visual_lines * line_h) - (h - padding*2))
+            state.target_scroll = math.max(0, math.min(state.target_scroll, max_s))
+        else
+            state.target_scroll = state.target_scroll - (gfx.mouse_wheel * 0.5)
+            local txt_w = gfx.measurestr(state.text)
+            local max_s = math.max(0, txt_w - text_w)
+            state.target_scroll = math.max(0, math.min(state.target_scroll, max_s))
+        end
+        state.suppress_auto_scroll_until = reaper.time_precise() + 1.0
+        gfx.mouse_wheel = 0 -- Consume
+    end
+
+    -- Smooth Interpolation
+    local s_diff = state.target_scroll - state.scroll
+    if math.abs(s_diff) > 0.1 then
+        state.scroll = state.scroll + s_diff * 0.4
+    else
+        state.scroll = state.target_scroll
+    end
+
+    -- --- RENDERING ---
+    local prev_dest = gfx.dest
+    gfx.setimgdim(98, w, h)
+    gfx.dest = 98
+    set_color(state.focus and UI.C_BG or UI.C_TAB_INA)
+    gfx.rect(0, 0, w, h, 1)
+
+    if #state.text == 0 and not state.focus then
+        set_color({0.5, 0.5, 0.5})
+        gfx.x, gfx.y = padding, is_multiline and padding or (h - line_h) / 2
+        gfx.drawstr(placeholder or "")
+    else
+        local sel_min, sel_max = math.min(state.cursor, state.anchor), math.max(state.cursor, state.anchor)
+        local has_sel = (sel_min ~= sel_max)
+
+        if not is_multiline then
+            -- Single line logic
+            local cx = gfx.measurestr(state.text:sub(1, state.cursor))
+            if state.focus and reaper.time_precise() > state.suppress_auto_scroll_until then
+                if cx < state.target_scroll then state.target_scroll = cx
+                elseif cx > state.target_scroll + text_w then state.target_scroll = cx - text_w end
+            end
+            if not state.focus then state.target_scroll = 0 end
+
+            local ty = (h - line_h) / 2
+            if has_sel then
+                local w_before = gfx.measurestr(state.text:sub(1, sel_min))
+                local w_sel = gfx.measurestr(state.text:sub(sel_min + 1, sel_max))
+                set_color({0.3, 0.4, 0.7, 0.5})
+                gfx.rect(padding + w_before - state.scroll, S(3), w_sel, h - S(6), 1)
+            end
+            set_color(UI.C_TXT)
+            gfx.x, gfx.y = padding - state.scroll, ty
+            gfx.drawstr(state.focus and state.text or fit_text_width(state.text, text_w))
+            
+            if state.focus and (math.floor(reaper.time_precise() * 2) % 2 == 0) then
+                local cur_x = padding + cx - state.scroll
+                set_color(UI.C_TXT)
+                gfx.line(cur_x, S(3), cur_x, h - S(3))
+            end
+        else
+            -- Multiline logic
+            local total_h = #visual_lines * line_h
+            if state.focus and reaper.time_precise() > state.suppress_auto_scroll_until then
+                local cur_vi = 1
+                for i, v in ipairs(visual_lines) do if state.cursor >= v.start_idx then cur_vi = i end end
+                local cur_y = (cur_vi - 1) * line_h
+                if cur_y < state.target_scroll then state.target_scroll = cur_y
+                elseif cur_y + line_h > state.target_scroll + h - padding*2 then state.target_scroll = cur_y + line_h - (h - padding*2) end
+            end
+
+            for i, v_line in ipairs(visual_lines) do
+                local ly = padding + (i-1) * line_h - state.scroll
+                if ly + line_h > 0 and ly < h then
+                    local l_start, l_end = v_line.start_idx, v_line.start_idx + #v_line.text
+                    if has_sel then
+                        local s_start, s_end = math.max(l_start, sel_min), math.min(l_end, sel_max)
+                        if s_start < s_end then
+                            local x1 = padding + gfx.measurestr(v_line.text:sub(1, s_start - l_start))
+                            local sw = gfx.measurestr(v_line.text:sub(s_start - l_start + 1, s_end - l_start))
+                            set_color({0.3, 0.4, 0.7, 0.5})
+                            gfx.rect(x1, ly, sw, line_h, 1)
+                        end
+                        if not v_line.is_wrapped and sel_max > l_end and sel_min <= l_end then
+                            set_color({0.3, 0.4, 0.7, 0.5})
+                            gfx.rect(padding + gfx.measurestr(v_line.text), ly, S(5), line_h, 1)
+                        end
+                    end
+                    set_color(UI.C_TXT)
+                    gfx.x, gfx.y = padding, ly
+                    gfx.drawstr(v_line.text)
+                    
+                    if state.focus and (math.floor(reaper.time_precise() * 2) % 2 == 0) then
+                        if state.cursor >= l_start and state.cursor <= l_end then
+                            -- Check if cursor is at the very end of a wrapped line (should stay on this line, but if empty, it's ambiguous)
+                            local show_here = true
+                            if state.cursor == l_end and v_line.is_wrapped then show_here = false end
+                            if show_here then
+                                local cx = padding + gfx.measurestr(v_line.text:sub(1, state.cursor - l_start))
+                                set_color(UI.C_TXT)
+                                gfx.line(cx, ly, cx, ly + line_h)
+                            end
+                        elseif state.cursor == l_start and i == #visual_lines and #v_line.text == 0 then
+                            -- Empty last line
+                            set_color(UI.C_TXT)
+                            gfx.line(padding, ly, padding, ly + line_h)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if state.text ~= before_text then
+        record_field_history(state)
+    end
+
+    gfx.dest = prev_dest
+    gfx.blit(98, 1, 0, 0, 0, w, h, x, y, w, h)
+    set_color(state.focus and {0.7, 0.7, 1.0} or UI.C_BTN_H)
+    gfx.rect(x, y, w, h, 0)
+end
+
 --- Draw and handle text editor modal dialog
 --- @param input_queue table Input events queue
 --- @return boolean True if editor consumed the input
 local function draw_text_editor(input_queue)
     if not text_editor_state.active then return false end
     
-    -- History Helper and Changed flag
     local content_changed = false
-    local function record_history()
-        -- Truncate future if we diverged
-        if text_editor_state.history_pos < #text_editor_state.history then
-            for i = #text_editor_state.history, text_editor_state.history_pos + 1, -1 do
-                table.remove(text_editor_state.history, i)
-            end
-        end
-        -- Push
-        table.insert(text_editor_state.history, {
-            text = text_editor_state.text,
-            cursor = text_editor_state.cursor,
-            anchor = text_editor_state.sel_anchor
-        })
-        text_editor_state.history_pos = #text_editor_state.history
-        -- Cap size (e.g. 100)
-        if #text_editor_state.history > 100 then
-            table.remove(text_editor_state.history, 1)
-            text_editor_state.history_pos = text_editor_state.history_pos - 1
-        end
+    
+    -- AI Modal Input Pass
+    if draw_ai_modal(true) then 
+        content_changed = true 
+        -- Update history via the new unified helper for AI changes
+        record_field_history(text_editor_state)
+        -- Reset auto-scroll suppression for immediate feedback
+        text_editor_state.suppress_auto_scroll_until = 0
     end
-
-    -- AI Modal Input First (Priority)
-    if draw_ai_modal(true) then content_changed = true end
     
     -- Darken background
     gfx.set(0, 0, 0, 0.7)
@@ -4706,35 +5314,26 @@ local function draw_text_editor(input_queue)
     
     -- Editor box
     local pad = 25
-    local box_x = pad
-    local box_y = pad
-    local box_w = gfx.w - pad * 2
-    local box_h = gfx.h - pad * 2
+    local box_x, box_y = pad, pad
+    local box_w, box_h = gfx.w - pad * 2, gfx.h - pad * 2
     
     set_color(UI.C_TAB_INA)
     gfx.rect(box_x, box_y, box_w, box_h, 1)
     
-    -- AI Button dimensions (Moved up for title calculation)
-    local ai_btn_w = S(40)
-    local ai_btn_h = S(24)
-    local ai_btn_x = box_x + box_w - ai_btn_w - S(10)
-    local ai_btn_y = box_y + S(8)
+    -- AI Button dimensions
+    local ai_btn_w, ai_btn_h = S(40), S(24)
+    local ai_btn_x, ai_btn_y = box_x + box_w - ai_btn_w - S(10), box_y + S(8)
 
     -- AI History Button
-    local hist_btn_w = S(30)
-    local hist_btn_h = S(24)
-    local hist_btn_x = box_x + box_w - ai_btn_w - hist_btn_w - S(15)
-    local hist_btn_y = box_y + S(8)
+    local hist_btn_w, hist_btn_h = S(30), S(24)
+    local hist_btn_x, hist_btn_y = box_x + box_w - ai_btn_w - hist_btn_w - S(15), box_y + S(8)
 
     -- Title with Truncation
     set_color(UI.C_TXT)
     gfx.setfont(F.std)
-    gfx.x = box_x + S(10)
-    gfx.y = box_y + S(10)
+    gfx.x, gfx.y = box_x + S(10), box_y + S(10)
     
     local title_txt = "Редагування тексту (Enter = новий рядок, Esc = скасування)"
-    -- Limit is roughly where the left-most button starts (History button position)
-    -- We add some padding/margin S(10)
     local limit_x = hist_btn_x - S(10)
     local max_title_w = limit_x - gfx.x
     
@@ -4750,114 +5349,80 @@ local function draw_text_editor(input_queue)
     
     if #ai_modal.history > 0 then
         if btn(hist_btn_x, hist_btn_y, hist_btn_w, hist_btn_h, "#") then
-            -- Clear console first
-            reaper.ShowConsoleMsg("")
-            
             -- Build history text for display
+            reaper.ShowConsoleMsg("")
             local history_text = "=== ІСТОРІЯ AI ОПЕРАЦІЙ ===\n\n"
-            for i = #ai_modal.history, 1, -1 do -- Reverse order (newest first)
+            for i = #ai_modal.history, 1, -1 do
                 local entry = ai_modal.history[i]
-                history_text = history_text .. string.format(
-                    "[%s] %s\n\n",
-                    entry.timestamp,
-                    entry.task
-                )
-                
+                history_text = history_text .. string.format("[%s] %s\n\n", entry.timestamp, entry.task)
                 history_text = history_text .. "ОРИГІНАЛЬНИЙ ТЕКСТ:\n" .. entry.original .. "\n\n"
                 history_text = history_text .. "ВАРІАНТИ ВІД GEMINI:\n"
-                
-                -- Add all variants
                 for j, variant in ipairs(entry.variants) do
                     history_text = history_text .. string.format("%d. %s\n", j, variant)
                 end
-                
                 history_text = history_text .. "\n" .. string.rep("=", 80) .. "\n\n"
             end
-            
-            -- Show in REAPER's console (scrollable)
             reaper.ShowConsoleMsg(history_text)
-            
-            -- Open console window only if it's not already open
-            local console_state = reaper.GetToggleCommandState(40004)
-            if console_state == 0 then
-                reaper.Main_OnCommand(40004, 0) -- View: Show console window
-            end
+            if reaper.GetToggleCommandState(40004) == 0 then reaper.Main_OnCommand(40004, 0) end
         end
     end
 
     -- AI Button interaction
-    local sel_min = math.min(text_editor_state.cursor, text_editor_state.sel_anchor)
-    local sel_max = math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
+    local sel_min = math.min(text_editor_state.cursor, text_editor_state.anchor)
+    local sel_max = math.max(text_editor_state.cursor, text_editor_state.anchor)
     local has_sel = (sel_min ~= sel_max)
 
     if btn(ai_btn_x, ai_btn_y, ai_btn_w, ai_btn_h, "AI") then
         if not cfg.gemini_api_key or cfg.gemini_api_key == "" or (cfg.gemini_key_status ~= 200 and cfg.gemini_key_status ~= 429) then
             show_snackbar("Ключ Gemini API не валідний або відсутній", "error")
         else
-            -- Expand selection to words if any word is partially touched
             if has_sel then
+                -- Word wrap selection logic
                 local word_pattern = "[%a\128-\255\'%-]+[\128-\255]*"
                 local new_min, new_max = sel_min, sel_max
                 local pos = 1
                 while pos <= #text_editor_state.text do
                     local s, e = text_editor_state.text:find(word_pattern, pos)
                     if not s then break end
-                    local w_min = s - 1
-                    local w_max = e
-                    -- If word overlaps current selection
+                    local w_min, w_max = s - 1, e
                     if w_max > sel_min and w_min < sel_max then
                         if w_min < new_min then new_min = w_min end
                         if w_max > new_max then new_max = w_max end
                     end
                     pos = e + 1
                 end
-                sel_min, sel_max = new_min, new_max
-                -- Update actual editor state
-                if text_editor_state.cursor > text_editor_state.sel_anchor then
-                    text_editor_state.cursor, text_editor_state.sel_anchor = sel_max, sel_min
+                if text_editor_state.cursor > text_editor_state.anchor then
+                    text_editor_state.cursor, text_editor_state.anchor = new_max, new_min
                 else
-                    text_editor_state.cursor, text_editor_state.sel_anchor = sel_min, sel_max
+                    text_editor_state.cursor, text_editor_state.anchor = new_min, new_max
                 end
+                sel_min, sel_max = new_min, new_max
             end
 
-            local can_restore = (ai_modal.text ~= "")
-
             local function init_selection(s_min, s_max)
-                -- Open Modal with new selection
                 ai_modal.text = text_editor_state.text:sub(s_min + 1, s_max)
-                ai_modal.sel_min = s_min
-                ai_modal.sel_max = s_max
+                ai_modal.sel_min, ai_modal.sel_max = s_min, s_max
                 ai_modal.current_step = "SELECT_TASK"
                 ai_modal.suggestions = {}
                 ai_modal.scroll = 0
-                ai_modal.anchor_x = ai_btn_x
-                ai_modal.anchor_y = ai_btn_y + ai_btn_h
+                ai_modal.anchor_x, ai_modal.anchor_y = ai_btn_x, ai_btn_y + ai_btn_h
                 ai_modal.show = true
             end
             
             if has_sel and sel_max - sel_min < 8 then
                 show_snackbar("Треба виділити більше тексту", "error")
             elseif has_sel then
-                -- Compare with current session
-                if can_restore and sel_min == ai_modal.sel_min and sel_max == ai_modal.sel_max then
+                if (ai_modal.text ~= "") and sel_min == ai_modal.sel_min and sel_max == ai_modal.sel_max then
                     ai_modal.show = true
                 else
-                    -- Start new session
                     init_selection(sel_min, sel_max)
                 end
-            elseif can_restore then
-                -- Restore selection and show modal
-                text_editor_state.cursor = ai_modal.sel_max
-                text_editor_state.sel_anchor = ai_modal.sel_min
-                ai_modal.anchor_x = ai_btn_x
-                ai_modal.anchor_y = ai_btn_y + ai_btn_h
+            elseif (ai_modal.text ~= "") then
+                text_editor_state.cursor, text_editor_state.anchor = ai_modal.sel_max, ai_modal.sel_min
+                ai_modal.anchor_x, ai_modal.anchor_y = ai_btn_x, ai_btn_y + ai_btn_h
                 ai_modal.show = true
             elseif #text_editor_state.text > 0 then
-                -- Auto-select ALL text if nothing is selected (First-click convenience)
-                text_editor_state.sel_anchor = 0
-                text_editor_state.cursor = #text_editor_state.text
-
-                -- Open Modal with new selection
+                text_editor_state.anchor, text_editor_state.cursor = 0, #text_editor_state.text
                 init_selection(0, #text_editor_state.text)
             else
                 show_snackbar("Треба виділити цільовий текст для роботи", "error")
@@ -4865,488 +5430,72 @@ local function draw_text_editor(input_queue)
         end
     end
     
-    -- Text area
-    local text_x = box_x + S(10)
-    local text_y = box_y + S(35)
-    local text_w = box_w - S(20)
-    local text_h = box_h - S(80)
-    local line_h = S(18)
+    local text_x, text_y = box_x + S(10), box_y + S(35)
+    local text_w, text_h = box_w - S(20), box_h - S(80)
 
-    -- Mouse Wheel Handling
-    if gfx.mouse_x >= text_x and gfx.mouse_x <= text_x + text_w and
-       gfx.mouse_y >= text_y and gfx.mouse_y <= text_y + text_h then
-        if gfx.mouse_wheel ~= 0 then
-            text_editor_state.scroll = text_editor_state.scroll + (gfx.mouse_wheel > 0 and -line_h * 3 or line_h * 3)
-            gfx.mouse_wheel = 0
-        end
-    end
-    
-    set_color({0.12, 0.12, 0.12})
-    gfx.rect(text_x, text_y, text_w, text_h, 1)
-    
-    -- Prepare lines (Visual Wrapping)
-    set_color(UI.C_TXT)
-    gfx.setfont(F.std)
-    local visual_lines = {}
-    
-    local raw_pos = 0
-    for ln in (text_editor_state.text .. "\n"):gmatch("(.-)\n") do
-        if ln == "" then
-            table.insert(visual_lines, {text = "", start_idx = raw_pos, is_wrapped = false})
-        else
-            local remaining = ln
-            local line_start = raw_pos
-            while #remaining > 0 do
-                local fit_count = 0
-                local low, high = 1, #remaining
-                
-                -- Binary search for how much text fits in text_w (Character-aware)
-                local char_len = utf8.len(remaining) or #remaining
-                local low, high = 1, char_len
-                
-                while low <= high do
-                    local mid = math.floor((low + high) / 2)
-                    local CharStart = utf8.offset(remaining, mid)
-                    local CharEnd = utf8.offset(remaining, mid + 1) or (#remaining + 1)
-                    local byte_mid = CharEnd - 1
-                    
-                    if gfx.measurestr(remaining:sub(1, byte_mid)) <= text_w - 10 then
-                        fit_count = byte_mid
-                        low = mid + 1
-                    else
-                        high = mid - 1
-                    end
-                end
-                
-                if fit_count == 0 then 
-                    -- Safety: take at least one full character
-                    local first_char_end = utf8.offset(remaining, 2) or (#remaining + 1)
-                    fit_count = first_char_end - 1 
-                end
-                
-                local segment = remaining:sub(1, fit_count)
-                remaining = remaining:sub(fit_count + 1)
-                
-                table.insert(visual_lines, {
-                    text = segment, 
-                    start_idx = line_start, 
-                    is_wrapped = (#remaining > 0)
-                })
-                line_start = line_start + fit_count
-            end
-        end
-        raw_pos = raw_pos + #ln + 1 -- +1 for newline
-    end
-    if #visual_lines == 0 then table.insert(visual_lines, {text = "", start_idx = 0}) end
+    -- Main editor interaction
+    ui_text_input(text_x, text_y, text_w, text_h, text_editor_state, "Введіть текст...", input_queue, true)
 
-    -- Scroll Clamping
-    local total_text_h = #visual_lines * line_h
-    if text_editor_state.scroll > total_text_h - text_h + 10 then 
-        text_editor_state.scroll = math.max(0, total_text_h - text_h + 10) 
-    end
-    if text_editor_state.scroll < 0 then text_editor_state.scroll = 0 end
-
-    -- Helper: Convert X/Y to Cursor Index
-    local function get_cursor_from_xy(mx, my)
-        local click_rel_y = my - (text_y + 5) + text_editor_state.scroll
-        local click_line_idx = math.floor(click_rel_y / line_h) + 1
-        
-        if click_line_idx < 1 then click_line_idx = 1 end
-        if click_line_idx > #visual_lines then click_line_idx = #visual_lines end
-        
-        local v_line = visual_lines[click_line_idx]
-        local target_text = v_line.text
-        local click_rel_x = mx - (text_x + 5)
-        
-        local char_idx = 0
-        local best_dist = math.huge
-        local current_offset = 0
-        while current_offset <= #target_text do
-            local w = gfx.measurestr(target_text:sub(1, current_offset))
-            local dist = math.abs(w - click_rel_x)
-            if dist < best_dist then
-                best_dist = dist
-                char_idx = current_offset
-            end
-            if current_offset >= #target_text then break end
-            
-            local b = target_text:byte(current_offset + 1)
-            local len = 1
-            if b >= 240 then len = 4 elseif b >= 224 then len = 3 elseif b >= 192 then len = 2 end
-            current_offset = current_offset + len
-        end
-        
-        return v_line.start_idx + char_idx
-    end
-
-    -- Helper: Get current visual line index for cursor (Greedy/Boundary safe)
-    local function get_cur_vi(idx)
-        local cur_vi = 1
-        for i = 2, #visual_lines do
-            if idx >= visual_lines[i].start_idx then
-                cur_vi = i
-            else
-                break
-            end
-        end
-        return cur_vi
-    end
-
-    -- Selection Logic
-    local sel_min = math.min(text_editor_state.cursor, text_editor_state.sel_anchor)
-    local sel_max = math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
-    local has_sel = (sel_min ~= sel_max)
-
-    -- MOUSE HANDLING
-    local in_rect = (gfx.mouse_x >= text_x and gfx.mouse_x <= text_x + text_w and
-                     gfx.mouse_y >= text_y and gfx.mouse_y <= text_y + text_h)
-
-    if gfx.mouse_cap == 1 then
-        if last_mouse_cap == 0 and in_rect then
-            local now = reaper.time_precise()
-            if last_click_row == -999 and (now - last_click_time) < 0.5 then
-                text_editor_state.sel_anchor = 0
-                text_editor_state.cursor = #text_editor_state.text
-                last_click_row = 0
-            elseif last_click_row == 999 and (now - last_click_time) < 0.5 then
-                local cx = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
-                local s, e = cx, cx
-                local i = cx
-                while i > 0 do
-                    local c = text_editor_state.text:sub(i, i)
-                    if c:match("[%s%p]") then break end
-                    i = i - 1
-                end
-                s = i
-                i = cx + 1
-                while i <= #text_editor_state.text do
-                    local c = text_editor_state.text:sub(i, i)
-                    if c:match("[%s%p]") then i = i - 1; break end
-                    i = i + 1
-                end
-                e = i
-                text_editor_state.sel_anchor, text_editor_state.cursor = s, math.max(s, e)
-                last_click_row, last_click_time = -999, now
-            else
-                local new_cur = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
-                text_editor_state.cursor, text_editor_state.sel_anchor = new_cur, new_cur
-                last_click_row, last_click_time = 999, now
-            end
-        elseif in_rect and last_click_row ~= -999 then 
-            text_editor_state.cursor = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
-        end
-    end
-
-    -- DRAW TEXT & SELECTION
-    for i, v_line in ipairs(visual_lines) do
-        local y = text_y + 5 + (i-1) * line_h - text_editor_state.scroll
-        if y >= text_y + text_h - 10 then break end
-        if y >= text_y then
-            local line_start = v_line.start_idx
-            local line_end = line_start + #v_line.text
-            
-            -- Selection highlighting
-            if has_sel then
-                local s_start = math.max(line_start, sel_min)
-                local s_end = math.min(line_end, sel_max)
-                if s_start < s_end then
-                    local x1 = text_x + 5 + gfx.measurestr(v_line.text:sub(1, s_start - line_start))
-                    local sw = gfx.measurestr(v_line.text:sub(s_start - line_start + 1, s_end - line_start))
-                    set_color({0.3, 0.4, 0.6})
-                    gfx.rect(x1, y, sw, line_h, 1)
-                end
-                -- Newline selection indicator (only if not a wrapped line)
-                if not v_line.is_wrapped and sel_max > line_end and sel_min <= line_end then
-                    local fw = gfx.measurestr(v_line.text)
-                    set_color({0.3, 0.4, 0.6})
-                    gfx.rect(text_x + 5 + fw, y, 5, line_h, 1)
-                end
-            end
-            
-            set_color(UI.C_TXT)
-            gfx.x, gfx.y = text_x + 5, y
-            gfx.drawstr(v_line.text)
-        end
-    end
-    
-    -- Blinking cursor
-    if math.floor(reaper.time_precise() * 2) % 2 == 0 then
-        local cur_v_line_idx = 1
-        for i, v_line in ipairs(visual_lines) do
-            if text_editor_state.cursor <= v_line.start_idx + #v_line.text then
-                cur_v_line_idx = i; break
-            else
-                cur_v_line_idx = i
-            end
-        end
-        local target_v_line = visual_lines[cur_v_line_idx]
-        local cur_rel_offset = text_editor_state.cursor - target_v_line.start_idx
-        local cur_x = text_x + 5 + gfx.measurestr(target_v_line.text:sub(1, math.max(0, cur_rel_offset)))
-        local cur_y = text_y + 5 + (cur_v_line_idx - 1) * line_h - text_editor_state.scroll
-        
-        if cur_y >= text_y and cur_y < text_y + text_h - 10 then
-            set_color({1, 1, 1})
-            gfx.rect(cur_x, cur_y, 2, line_h, 1)
-        end
-    end
-
-    -- Scrollbar
-    if total_text_h > text_h then
-        local sb_w = S(6)
-        local sb_h = (text_h / total_text_h) * text_h
-        local sb_y = text_y + (text_editor_state.scroll / total_text_h) * text_h
-        local sb_x = text_x + text_w - sb_w - S(2)
-        set_color({0.4, 0.4, 0.4, 0.6})
-        gfx.rect(sb_x, sb_y, sb_w, sb_h, 1)
-    end
-    
-    -- Buttons
     local btn_y = box_y + box_h - S(40)
     if btn(box_x + S(10), btn_y, S(90), S(30), "Скасування") then 
-        text_editor_state.active = false 
+        text_editor_state.active = false
         ai_modal.text = ""
         ai_modal.suggestions = {}
-        ai_modal.history = {} -- Clear history
-        text_editor_state.context_line_idx = nil
-        text_editor_state.context_all_lines = nil
+        ai_modal.history = {}
     end
     if btn(box_x + box_w - S(90), btn_y, S(80), S(30), "Зберегти") then
         if text_editor_state.callback then text_editor_state.callback(text_editor_state.text) end
         text_editor_state.active = false
         ai_modal.text = ""
         ai_modal.suggestions = {}
-        ai_modal.history = {} -- Clear history
-        text_editor_state.context_line_idx = nil
-        text_editor_state.context_all_lines = nil
+        ai_modal.history = {}
     end
 
-    -- Handle Keyboard Input from QUEUE
+    -- Global Shortcuts Pass (Fallback for when input focus is lost)
     if input_queue then
         local cap = gfx.mouse_cap
-        local is_cmd = (reaper.GetOS():find("OSX") and (cap & 4 == 4))
         local is_ctrl = (cap & 4 == 4)
+        local is_cmd = (cap & 32 == 32)
         local is_shift = (cap & 8 == 8)
-        local is_paste_mod = (is_ctrl or is_cmd) 
+        local is_mod = (is_ctrl or is_cmd)
         
-        -- Helper: Delete Selection
-        local function delete_selection()
-            if not has_sel then return end
-            local s_min, s_max = math.min(text_editor_state.cursor, text_editor_state.sel_anchor), math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
-            local before = text_editor_state.text:sub(1, s_min)
-            local after = text_editor_state.text:sub(s_max + 1)
-            text_editor_state.text = before .. after
-            text_editor_state.cursor = s_min
-            text_editor_state.sel_anchor = s_min
-        end
-
         for _, char in ipairs(input_queue) do
-            local handled_history = false
-
-            -- Undo / Redo
-            if ((char == 26) or (is_paste_mod and (char == 122 or char == 90))) then
-                if is_shift then
-                    -- Redo
-                    if text_editor_state.history_pos < #text_editor_state.history then
+            -- Undo / Redo (Fallback for focus loss)
+            if not text_editor_state.focus then -- Only run here if ui_text_input didn't already process it
+                if (char == 26) or (is_mod and (char == 122 or char == 90)) then
+                    if text_editor_state.history and text_editor_state.history_pos then
+                        if is_shift then
+                            if text_editor_state.history_pos < #text_editor_state.history then
+                                text_editor_state.history_pos = text_editor_state.history_pos + 1
+                                local snap = text_editor_state.history[text_editor_state.history_pos]
+                                text_editor_state.text, text_editor_state.cursor, text_editor_state.anchor = snap.text, snap.cursor, snap.anchor
+                                content_changed = true
+                            end
+                        else
+                            if text_editor_state.history_pos > 1 then
+                                text_editor_state.history_pos = text_editor_state.history_pos - 1
+                                local snap = text_editor_state.history[text_editor_state.history_pos]
+                                text_editor_state.text, text_editor_state.cursor, text_editor_state.anchor = snap.text, snap.cursor, snap.anchor
+                                content_changed = true
+                            end
+                        end
+                    end
+                elseif is_mod and (char == 121 or char == 89) then -- Redo (Ctrl+Y)
+                    if text_editor_state.history and text_editor_state.history_pos and text_editor_state.history_pos < #text_editor_state.history then
                         text_editor_state.history_pos = text_editor_state.history_pos + 1
-                        local snapshot = text_editor_state.history[text_editor_state.history_pos]
-                        text_editor_state.text, text_editor_state.cursor, text_editor_state.sel_anchor = snapshot.text, snapshot.cursor, snapshot.anchor
-                    end
-                else
-                    -- Undo
-                    if text_editor_state.history_pos > 1 then
-                        text_editor_state.history_pos = text_editor_state.history_pos - 1
-                        local snapshot = text_editor_state.history[text_editor_state.history_pos]
-                        text_editor_state.text, text_editor_state.cursor, text_editor_state.sel_anchor = snapshot.text, snapshot.cursor, snapshot.anchor
-                    end
-                end
-                handled_history = true
-            end
-
-            if not handled_history then
-                if char == 1 or (is_cmd and (char == 97 or char == 65)) then -- Select All
-                    text_editor_state.sel_anchor, text_editor_state.cursor = 0, #text_editor_state.text
-                elseif char == 4 then -- Ctrl+D (Deselect All)
-                    text_editor_state.sel_anchor = text_editor_state.cursor
-                elseif (char == 3) or (is_paste_mod and (char == 99 or char == 67)) then -- Copy
-                    if has_sel then
-                        local sm, sx = math.min(text_editor_state.cursor, text_editor_state.sel_anchor), math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
-                        set_clipboard(text_editor_state.text:sub(sm + 1, sx))
-                    end
-                elseif (char == 24) or (is_paste_mod and (char == 120 or char == 88)) then -- Cut
-                    if has_sel then
-                        local sm, sx = math.min(text_editor_state.cursor, text_editor_state.sel_anchor), math.max(text_editor_state.cursor, text_editor_state.sel_anchor)
-                        set_clipboard(text_editor_state.text:sub(sm + 1, sx))
-                        delete_selection()
-                        content_changed = true
-                    end
-                elseif (is_paste_mod and (char == 118 or char == 86)) or (char == 22) then -- Paste
-                    delete_selection() 
-                    local clp = get_clipboard()
-                    if clp and clp ~= "" then
-                        clp = clp:gsub("\r\n", "\n"):gsub("\r", "\n")
-                        text_editor_state.text = text_editor_state.text:sub(1, text_editor_state.cursor) .. clp .. text_editor_state.text:sub(text_editor_state.cursor + 1)
-                        text_editor_state.cursor = text_editor_state.cursor + #clp
-                        text_editor_state.sel_anchor = text_editor_state.cursor 
-                        content_changed = true
-                    end
-                elseif char == 27 then -- Esc
-                    text_editor_state.active = false
-                    ai_modal.text = ""
-                    ai_modal.suggestions = {}
-                    ai_modal.history = {} -- Clear history
-                    text_editor_state.context_line_idx = nil
-                    text_editor_state.context_all_lines = nil
-                    return true
-                elseif char == 13 then -- Enter
-                    delete_selection()
-                    text_editor_state.text = text_editor_state.text:sub(1, text_editor_state.cursor) .. "\n" .. text_editor_state.text:sub(text_editor_state.cursor + 1)
-                    text_editor_state.cursor, text_editor_state.sel_anchor = text_editor_state.cursor + 1, text_editor_state.cursor + 1
-                    content_changed = true
-                elseif char == 8 then -- Backspace
-                    if has_sel then delete_selection(); content_changed = true
-                    elseif text_editor_state.cursor > 0 then
-                        local cur = text_editor_state.cursor
-                        while cur > 1 do
-                            local b = text_editor_state.text:byte(cur)
-                            if b < 128 or b >= 192 then break end
-                            cur = cur - 1
-                        end
-                        text_editor_state.text = text_editor_state.text:sub(1, cur - 1) .. text_editor_state.text:sub(text_editor_state.cursor + 1)
-                        text_editor_state.cursor = cur - 1
-                        text_editor_state.sel_anchor = text_editor_state.cursor
-                        content_changed = true
-                    end
-                elseif char == 1818584692 then -- Left
-                    if text_editor_state.cursor > 0 then
-                        local cur = text_editor_state.cursor
-                        while cur > 1 do
-                            local b = text_editor_state.text:byte(cur); if b < 128 or b >= 192 then break end
-                            cur = cur - 1
-                        end
-                        text_editor_state.cursor = cur - 1
-                        if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
-                    end
-                elseif char == 1919379572 then -- Right
-                    if text_editor_state.cursor < #text_editor_state.text then
-                        local cur = text_editor_state.cursor + 1
-                        while cur < #text_editor_state.text do
-                            local b = text_editor_state.text:byte(cur + 1); if b < 128 or b >= 192 then break end
-                            cur = cur + 1
-                        end
-                        text_editor_state.cursor = cur
-                        if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
-                    end
-                elseif char == 30064 then -- Up
-                    -- Greedy lookup: prefer later line at wrap boundary to move to the one above it
-                    local cur_vi = 1
-                    for i, v_line in ipairs(visual_lines) do
-                        if text_editor_state.cursor >= v_line.start_idx then cur_vi = i else break end
-                    end
-                    if cur_vi > 1 then
-                        local cvl, pvl = visual_lines[cur_vi], visual_lines[cur_vi-1]
-                        local rx = gfx.measurestr(cvl.text:sub(1, math.max(0, text_editor_state.cursor - cvl.start_idx)))
-                        local bd, bi = math.huge, 0
-                        local coff = 0
-                        while coff <= #pvl.text do
-                            local d = math.abs(gfx.measurestr(pvl.text:sub(1, coff)) - rx)
-                            if d < bd then bd, bi = d, coff end
-                            if coff >= #pvl.text then break end
-                            local b = pvl.text:byte(coff + 1)
-                            local len = 1
-                            if b >= 240 then len = 4 elseif b >= 224 then len = 3 elseif b >= 192 then len = 2 end
-                            coff = coff + len
-                        end
-                        text_editor_state.cursor = pvl.start_idx + bi
-                        if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
-                    end
-                elseif char == 1685026670 then -- Down
-                    -- Determine current visual line (use simple boundary-based lookup)
-                    local cur_vi = 1
-                    for i, v_line in ipairs(visual_lines) do
-                        if text_editor_state.cursor <= v_line.start_idx + #v_line.text then
-                            cur_vi = i
-                            break
-                        end
-                        cur_vi = i
-                    end
-                    
-                    if cur_vi < #visual_lines then
-                        local cvl, nvl = visual_lines[cur_vi], visual_lines[cur_vi+1]
-                        local rx = gfx.measurestr(cvl.text:sub(1, math.max(0, text_editor_state.cursor - cvl.start_idx)))
-                        local bd, bi = math.huge, 0
-                        local coff = 0
-                        while coff <= #nvl.text do
-                            local d = math.abs(gfx.measurestr(nvl.text:sub(1, coff)) - rx)
-                            if d < bd then bd, bi = d, coff end
-                            if coff >= #nvl.text then break end
-                            local b = nvl.text:byte(coff + 1)
-                            local len = 1
-                            if b >= 240 then len = 4 elseif b >= 224 then len = 3 elseif b >= 192 then len = 2 end
-                            coff = coff + len
-                        end
-                        text_editor_state.cursor = nvl.start_idx + bi
-                        if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
-                    end
-                elseif char == 6647396 then -- Home
-                    local cur_vi = 1
-                    for i, v_line in ipairs(visual_lines) do
-                        if text_editor_state.cursor >= v_line.start_idx and text_editor_state.cursor <= v_line.start_idx + #v_line.text then
-                            cur_vi = i; break
-                        end
-                    end
-                    text_editor_state.cursor = visual_lines[cur_vi].start_idx
-                    if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
-                elseif char == 1752132965 then -- End
-                    local cur_vi = 1
-                    for i, v_line in ipairs(visual_lines) do
-                        if text_editor_state.cursor >= v_line.start_idx and text_editor_state.cursor <= v_line.start_idx + #v_line.text then
-                            cur_vi = i; break
-                        end
-                    end
-                    text_editor_state.cursor = visual_lines[cur_vi].start_idx + #visual_lines[cur_vi].text
-                    if not is_shift then text_editor_state.sel_anchor = text_editor_state.cursor end
-                elseif not is_paste_mod then
-                    local unicode_flag = 0x75000000 
-                    local cp, is_u = char, false
-                    if char >= unicode_flag and char < unicode_flag + 0x1000000 then
-                        cp, is_u = char - unicode_flag, true
-                    end
-                    if is_u or (cp >= 32 and cp ~= 127) then
-                        delete_selection()
-                        local cs
-                        if cp < 0x80 then cs = string.char(cp)
-                        elseif cp < 0x800 then cs = string.char(0xC0 + math.floor(cp / 64), 0x80 + (cp % 64))
-                        elseif cp < 0x10000 then cs = string.char(0xE0 + math.floor(cp / 4096), 0x80 + math.floor((cp % 4096) / 64), 0x80 + (cp % 64))
-                        else cs = string.char(0xF0 + math.floor(cp / 262144), 0x80 + math.floor((cp % 262144) / 4096), 0x80 + math.floor((cp % 4096) / 64), 0x80 + (cp % 64))
-                        end
-                        text_editor_state.text = text_editor_state.text:sub(1, text_editor_state.cursor) .. cs .. text_editor_state.text:sub(text_editor_state.cursor + 1)
-                        text_editor_state.cursor = text_editor_state.cursor + #cs
-                        text_editor_state.sel_anchor = text_editor_state.cursor
+                        local snap = text_editor_state.history[text_editor_state.history_pos]
+                        text_editor_state.text, text_editor_state.cursor, text_editor_state.anchor = snap.text, snap.cursor, snap.anchor
                         content_changed = true
                     end
                 end
-            end -- if not handled_history
-        end -- for input_queue
-
-        -- Auto-scroll to cursor (Only on input)
-        if #input_queue > 0 then
-            local cur_v_line_idx = get_cur_vi(text_editor_state.cursor)
-            local cursor_y_rel = (cur_v_line_idx - 1) * line_h
-            if cursor_y_rel < text_editor_state.scroll then
-                text_editor_state.scroll = cursor_y_rel
-            elseif cursor_y_rel > text_editor_state.scroll + text_h - line_h * 2 then
-                text_editor_state.scroll = cursor_y_rel - text_h + line_h * 2
             end
         end
-    end -- if input_queue
-
-    if draw_ai_modal(false) then content_changed = true end
-
-    if content_changed then
-        record_history()
     end
+
+    -- Draw pass for AI modal
+    draw_ai_modal(false)
     
-    return true -- Modal is active
+    return true
 end
 
 --- Draw dictionary modal with definitions and synonyms, ГОРОХ
@@ -5769,7 +5918,7 @@ local function open_text_editor(initial_text, callback, line_idx, all_lines)
     text_editor_state.active = true
     text_editor_state.text = initial_text or ""
     text_editor_state.cursor = #text_editor_state.text
-    text_editor_state.sel_anchor = text_editor_state.cursor
+    text_editor_state.anchor = text_editor_state.cursor
     text_editor_state.callback = callback
     text_editor_state.context_line_idx = line_idx
     text_editor_state.context_all_lines = all_lines
@@ -5779,7 +5928,7 @@ local function open_text_editor(initial_text, callback, line_idx, all_lines)
         {
             text = text_editor_state.text,
             cursor = text_editor_state.cursor,
-            anchor = text_editor_state.sel_anchor
+            anchor = text_editor_state.anchor
         }
     }
     text_editor_state.history_pos = 1
@@ -5893,333 +6042,6 @@ local function draw_tabs()
     end
 end
 
---- Handle keyboard input for a text field state
---- @param input_queue table Key inputs
---- @param state table Input state {text, cursor, anchor}
---- @param is_multiline boolean Allow newlines
---- @return boolean True if text changed
-local function process_input_events(input_queue, state, is_multiline)
-    if not input_queue or #input_queue == 0 then return false end
-    
-    local cap = gfx.mouse_cap
-    local is_ctrl = (cap & 4 == 4)
-    local is_cmd = (cap & 32 == 32)
-    local is_shift = (cap & 8 == 8)
-    local is_paste_mod = (is_ctrl or is_cmd)
-    
-    local changed = false
-    local text = state.text or ""
-    local cursor = state.cursor or #text
-    local anchor = state.anchor or cursor
-    
-    local has_sel = (cursor ~= anchor)
-    
-    local function delete_selection()
-        if not has_sel then return end
-        local s_min, s_max = math.min(cursor, anchor), math.max(cursor, anchor)
-        local before = text:sub(1, s_min)
-        local after = text:sub(s_max + 1)
-        text = before .. after
-        cursor = s_min
-        anchor = s_min
-        has_sel = false
-        changed = true
-    end
-    
-    for _, char in ipairs(input_queue) do
-        -- Select All (Ctrl+A / Cmd+A)
-        if char == 1 or (is_cmd and (char == 97 or char == 65)) then
-            anchor = 0
-            cursor = #text
-        elseif char == 4 then -- Ctrl+D (Deselect All)
-            anchor = cursor
-        -- Copy
-        elseif (char == 3) or (is_paste_mod and (char == 99 or char == 67)) then
-            if has_sel then
-                local s_min, s_max = math.min(cursor, anchor), math.max(cursor, anchor)
-                set_clipboard(text:sub(s_min + 1, s_max))
-            end
-        -- Cut
-        elseif (char == 24) or (is_paste_mod and (char == 120 or char == 88)) then
-            if has_sel then
-                local s_min, s_max = math.min(cursor, anchor), math.max(cursor, anchor)
-                set_clipboard(text:sub(s_min + 1, s_max))
-                delete_selection()
-            end
-        -- Paste
-        elseif (is_paste_mod and (char == 118 or char == 86)) or (char == 22) then
-            delete_selection()
-            local clipboard = get_clipboard()
-            if clipboard and clipboard ~= "" then
-                if not is_multiline then clipboard = clipboard:gsub("\n", " "):gsub("\r", "") end
-                text = text:sub(1, cursor) .. clipboard .. text:sub(cursor + 1)
-                cursor = cursor + #clipboard
-                anchor = cursor
-                changed = true
-            end
-        -- Escape / Enter
-        elseif char == 27 or char == 13 then
-            if char == 13 and is_multiline then
-                delete_selection()
-                text = text:sub(1, cursor) .. "\n" .. text:sub(cursor + 1)
-                cursor = cursor + 1
-                anchor = cursor
-                changed = true
-            else
-                state.focus = false
-            end
-        -- Backspace
-        elseif char == 8 then
-            if has_sel then
-                delete_selection()
-            elseif cursor > 0 then
-                local before = text:sub(1, cursor)
-                local after = text:sub(cursor + 1)
-                local last_char_start = cursor
-                while last_char_start > 1 do
-                    local b = before:byte(last_char_start)
-                    if b < 128 or b >= 192 then break end
-                    last_char_start = last_char_start - 1
-                end
-                text = before:sub(1, last_char_start - 1) .. after
-                cursor = last_char_start - 1
-                anchor = cursor
-                changed = true
-            end 
-        -- Navigation
-        elseif char == 30064 then -- Up arrow - go to start
-            cursor = 0
-            if not is_shift then anchor = cursor end
-        elseif char == 1685026670 then -- Down arrow - go to end  
-            cursor = #text
-            if not is_shift then anchor = cursor end
-        elseif char == 1818584692 then -- Left
-            if cursor > 0 then
-                local cur = cursor
-                while cur > 1 do
-                    local b = text:byte(cur)
-                    if b < 128 or b >= 192 then break end
-                    cur = cur - 1
-                end
-                cursor = cur - 1
-                if not is_shift then anchor = cursor end
-            end
-        elseif char == 1919379572 then -- Right
-            if cursor < #text then
-                local cur = cursor + 1
-                while cur < #text do
-                    local b = text:byte(cur + 1)
-                    if b < 128 or b >= 192 then break end
-                    cur = cur + 1
-                end
-                cursor = cur
-                if not is_shift then anchor = cursor end
-            end
-        elseif char == 6579564 then -- Home
-            cursor = 0
-            if not is_shift then anchor = cursor end
-        elseif char == 1701734758 then -- End
-            cursor = #text
-            if not is_shift then anchor = cursor end
-        -- Typing (Safe UTF-8)
-        elseif not is_paste_mod then
-            -- Filter control codes
-            if char >= 32 or char < 0 then
-                delete_selection()
-                local char_str = ""
-                
-                -- Handle high-bit flags from Reaper if present (unlikely for simple chars but possible)
-                local unicode_flag = 0x75000000
-                local cp = char
-                if cp >= unicode_flag and cp < unicode_flag + 0x1000000 then
-                    cp = cp - unicode_flag
-                end
-                
-                -- Full UTF-8 Encode
-                if cp < 128 then char_str = string.char(cp)
-                elseif cp < 2048 then
-                    char_str = string.char(192 + math.floor(cp/64), 128 + (cp % 64))
-                elseif cp < 65536 then
-                    char_str = string.char(224 + math.floor(cp/4096), 128 + math.floor((cp % 4096)/64), 128 + (cp % 64))
-                elseif cp <= 1114111 then
-                    char_str = string.char(0xF0 + math.floor(cp/262144), 0x80 + math.floor((cp % 262144)/4096), 0x80 + math.floor((cp % 4096)/64), 0x80 + (cp % 64))
-                end
-                
-                if #char_str > 0 then
-                    text = text:sub(1, cursor) .. char_str .. text:sub(cursor + 1)
-                    cursor = cursor + #char_str
-                    anchor = cursor
-                    changed = true
-                end
-            end
-        end
-    end
-    
-    state.text = text
-    state.cursor = cursor
-    state.anchor = anchor
-    return changed
-end
-
--- Helper: Get char index from relative X
-local function get_char_index_at_x(text, rel_x)
-    if not text or text == "" then return 0 end
-    local best_idx = 0
-    local best_dist = 1000000
-    
-    local idx = 0
-    while idx <= #text do
-        local w = gfx.measurestr(text:sub(1, idx))
-        local dist = math.abs(w - rel_x)
-        if dist < best_dist then
-            best_dist = dist
-            best_idx = idx
-        end
-        
-        if idx >= #text then break end
-        
-        -- Advance utf8
-        local b = text:byte(idx + 1)
-        local adv = 1
-        if b then
-            if b >= 240 then adv = 4
-            elseif b >= 224 then adv = 3
-            elseif b >= 192 then adv = 2
-            end
-        end
-        idx = idx + adv
-    end
-    return best_idx
-end
-
-local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_multiline)
-    gfx.setfont(F.std)
-    -- Interaction
-    local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
-    
-    if gfx.mouse_cap == 1 then
-        if last_mouse_cap == 0 and hover then
-            -- CLICK
-            state.focus = true
-            local rel_x = gfx.mouse_x - (x + S(5)) + (state.scroll or 0)
-            local idx = get_char_index_at_x(state.text, rel_x)
-            
-            local now = reaper.time_precise()
-            if (now - (state.last_click_time or 0)) < 0.3 then
-                state.last_click_state = (state.last_click_state or 0) + 1
-            else
-                state.last_click_state = 1
-            end
-            state.last_click_time = now
-            
-            if state.last_click_state == 1 then
-                -- Single Click
-                state.cursor = idx
-                state.anchor = idx
-            elseif state.last_click_state == 2 then
-                -- Double Click (Word)
-                local s, e = idx, idx
-                -- Scan back
-                while s > 0 do
-                    local c = state.text:sub(s, s)
-                    if c:match("[%s%p]") then break end
-                    s = s - 1
-                end
-                -- Scan forward
-                while e < #state.text do
-                    local c = state.text:sub(e+1, e+1)
-                    if c:match("[%s%p]") then break end
-                    e = e + 1
-                end
-                state.cursor = e
-                state.anchor = s
-            elseif state.last_click_state >= 3 then
-                -- Triple Click (All)
-                state.cursor = #state.text
-                state.anchor = 0
-            end
-            
-        elseif state.focus and hover and last_mouse_cap == 1 then
-            -- DRAG (only if focused)
-            if state.last_click_state == 1 then -- Only drag if single clicked
-                local rel_x = gfx.mouse_x - (x + S(5)) + (state.scroll or 0)
-                state.cursor = get_char_index_at_x(state.text, rel_x)
-            end
-        elseif not hover and last_mouse_cap == 0 then
-            state.focus = false
-        end
-    end
-    
-    if state.focus then
-        process_input_events(input_queue, state, is_multiline)
-    end
-    
-    -- Render Text & Selection (Captured into Buffer 98 for perfect clipping)
-    local prev_dest = gfx.dest
-    local padding = S(5)
-    local max_txt_w = w - padding * 2
-    
-    state.scroll = state.scroll or 0
-    
-    if state.focus then
-        local cx = gfx.measurestr(state.text:sub(1, state.cursor))
-        if cx < state.scroll then
-            state.scroll = cx
-        elseif cx > state.scroll + max_txt_w then
-            state.scroll = cx - max_txt_w
-        end
-    else
-        state.scroll = 0
-    end
-    
-    gfx.setimgdim(98, w, h)
-    gfx.dest = 98
-    
-    -- Clear buffer with background
-    set_color(state.focus and UI.C_BG or UI.C_TAB_INA)
-    gfx.rect(0, 0, w, h, 1)
-    
-    if #state.text == 0 and not state.focus then
-        set_color({0.5, 0.5, 0.5})
-        gfx.x = padding
-        gfx.y = (h - gfx.texth) / 2
-        gfx.drawstr(placeholder or "")
-    else
-        -- Draw Selection
-        if state.focus and state.cursor ~= state.anchor then
-            local s_min, s_max = math.min(state.cursor, state.anchor), math.max(state.cursor, state.anchor)
-            local w_before = gfx.measurestr(state.text:sub(1, s_min))
-            local w_sel = gfx.measurestr(state.text:sub(s_min + 1, s_max))
-            set_color({0.3, 0.4, 0.7, 0.5})
-            gfx.rect(padding + w_before - state.scroll, S(3), w_sel, h - S(6), 1)
-        end
-        
-        -- Draw Text
-        set_color(UI.C_TXT)
-        local display_text = state.text
-        if not state.focus then
-            display_text = fit_text_width(state.text, max_txt_w)
-        end
-        
-        gfx.x = padding - (state.focus and state.scroll or 0)
-        gfx.y = (h - gfx.texth) / 2
-        gfx.drawstr(display_text)
-        
-        -- Draw Cursor
-        if state.focus and (math.floor(reaper.time_precise() * 2) % 2 == 0) then
-            local cx = padding + gfx.measurestr(state.text:sub(1, state.cursor)) - state.scroll
-            set_color(UI.C_TXT)
-            gfx.line(cx, S(3), cx, h - S(3))
-        end
-    end
-    
-    gfx.dest = prev_dest
-    gfx.blit(98, 1, 0, 0, 0, w, h, x, y, w, h)
-    
-    -- Border (Drawn last to stay on top of the blitted buffer)
-    set_color(state.focus and {0.7, 0.7, 1.0} or UI.C_BTN_H)
-    gfx.rect(x, y, w, h, 0)
-end
 
 --- Tabs Views ---
 local last_file_h = 0
@@ -6942,9 +6764,13 @@ local function prompter_delete_logic()
         prompter_drawer.last_selected_idx = nil
         reaper.UpdateTimeline()
         -- Invalidate caches
+        ass_markers = capture_project_markers()
         prompter_drawer.marker_cache.count = -1
         prompter_drawer.filtered_cache.state_count = -1
         prompter_drawer.has_markers_cache.count = -1
+        table_data_cache.state_count = -1
+        last_layout_state.state_count = -1
+        
         show_snackbar("Видалено правок: " .. #sel_indices, "error")
     end
 end
@@ -7348,8 +7174,8 @@ local function draw_prompter_drawer(input_queue)
                                                 if target_idx ~= -1 then
                                                     reaper.SetProjectMarkerByIndex(0, target_idx, false, m.pos, 0, m.markindex, new_text, m.color or 0)
                                                 else
-                                                     reaper.SetProjectMarker4(0, m.markindex, false, m.pos, 0, new_text, m.color or 0, 0)
-                                                 end
+                                                    reaper.SetProjectMarker4(0, m.markindex, false, m.pos, 0, new_text, m.color or 0, 0)
+                                                end
                                                  
                                                 ass_markers = capture_project_markers()
                                                 prompter_drawer.marker_cache.count = -1
@@ -7773,7 +7599,7 @@ local function draw_prompter(input_queue)
                 -- Actually, if we have both, usually we need a specific font face.
                 -- Let's prioritize Bold flag if we didn't change name for Italic.
                 if effective_font == font_name then
-                     f_flags = string.byte('b')
+                    f_flags = string.byte('b')
                 end
                 
                 -- Improvement: If we have both, maybe append "Bold"? 
@@ -8356,10 +8182,6 @@ local function draw_prompter(input_queue)
                                 table.insert(new_line, {
                                     text = space,
                                     b = (word_counter < active_idx) or span.b, -- Space after previous word belongs to "active" state of previous?
-                                    -- Or better: space belongs to the upcoming word's state? 
-                                    -- Generally, if we just finished word X, the space after it is passed.
-                                    -- Here we are BEFORE word (word_counter is not incremented yet).
-                                    -- So this space is effectively AFTER the previous word.
                                     
                                     b = (word_counter < active_idx) or span.b,
                                     i = span.i, u = span.u, s = span.s, u_wave = span.u_wave,
@@ -8402,13 +8224,6 @@ local function draw_prompter(input_queue)
                     if cfg.karaoke_mode then
                         -- Clone structure to avoid modifying cache permanently for this frame
                         -- (Actually we parse every time lazily, but modifying 'lines' which is ref to cache is bad)
-                        -- We must deep copy if we modify.
-                        -- Or just re-parse next frame? 
-                        -- Efficiency: if we modify cache, next frame we might have formatted text.
-                        -- But active_idx changes.
-                        -- So we should probably NOT modify the cached `lines`.
-                        -- We should generate `display_lines` from `lines`.
-                        
                         local w_count = count_words_in_lines(lines)
                         local k_idx = get_karaoke_word_index(rgn.pos, rgn.rgnend, cur_pos, w_count)
                         if k_idx then
@@ -9716,25 +9531,464 @@ end
 local last_auto_scroll_idx = nil
 local suppress_auto_scroll_frames = 0
 
+-- Helper for inline buttons
+local function draw_btn_inline(x, y, w, h, text, bg_col)
+    local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
+    set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
+    gfx.rect(x, y, w, h, 1)
+    set_color(UI.C_TXT)
+    local str_w, str_h = gfx.measurestr(text)
+    gfx.x = x + (w - str_w) / 2
+    gfx.y = y + (h - str_h) / 2
+    gfx.drawstr(text)
+    if hover and is_mouse_clicked() then return true end
+    return false
+end
+
+-- Helper: Get current actor from text
+local function get_current_actor(text)
+    local actor = text:match("^%[(.-)%]")
+    return actor
+end
+
+-- Helper: Rename actor globally in all project markers
+local function rename_actor_globally(old_name, new_name)
+    local count = 0
+    -- Escape magic characters for pattern matching
+    local old_pat = "^%[" .. old_name:gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])", "%%%1") .. "%]%s*"
+    
+    -- 1. Update Project Markers/Regions
+    local i = 0
+    while true do
+        local retval, isrgn, pos, rgnend, name, markindex = reaper.EnumProjectMarkers3(0, i)
+        if not retval or retval == 0 then break end
+        
+        -- Check if marker starts with [OldName]
+        if name:match(old_pat) then
+            local clean_text = name:gsub(old_pat, "")
+            local new_text = "[" .. new_name .. "] " .. clean_text
+            reaper.SetProjectMarker4(0, markindex, isrgn, pos, rgnend, new_text, 0, 0)
+            count = count + 1
+        end
+        i = i + 1
+    end
+    
+    -- 2. Invalidate caches
+    ass_markers = capture_project_markers()
+    prompter_drawer.marker_cache.count = -1
+    table_data_cache.state_count = -1
+    last_layout_state.state_count = -1
+    
+    return count
+end
+
+-- Helper: Delete actor prefix globally in all project markers
+local function delete_actor_globally(name)
+    local count = 0
+    -- Escape magic characters for pattern matching
+    local pattern = "^%[" .. name:gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])", "%%%1") .. "%]%s*"
+    
+    -- 1. Update Project Markers/Regions
+    local i = 0
+    while true do
+        local retval, isrgn, pos, rgnend, mark_name, markindex = reaper.EnumProjectMarkers3(0, i)
+        if not retval or retval == 0 then break end
+        
+        if mark_name:match(pattern) then
+            local new_text = mark_name:gsub(pattern, "")
+            reaper.SetProjectMarker4(0, markindex, isrgn, pos, rgnend, new_text, 0, 0)
+            count = count + 1
+        end
+        i = i + 1
+    end
+    
+    -- 2. Invalidate caches
+    ass_markers = capture_project_markers()
+    prompter_drawer.marker_cache.count = -1
+    table_data_cache.state_count = -1
+    last_layout_state.state_count = -1
+    
+    return count
+end
+
+local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
+    if not calc_only then
+        set_color(UI.C_BG)
+        gfx.rect(panel_x, panel_y, panel_w, panel_h, 1)
+        gfx.setfont(F.std)
+    end
+    
+    local is_dir_right = (cfg.director_layout == "right")
+
+    local padding = S(10)
+    local btn_h = S(24)
+    -- --- AUTO-DETECT CURRENT MARKER ---
+    local play_pos = reaper.GetPlayPosition()
+    local edit_pos = reaper.GetCursorPosition()
+    local cur_time = reaper.GetPlayState() > 0 and play_pos or edit_pos
+    
+    -- Only update if time jump or first run
+    if not is_near(cur_time, director_state.last_time) then
+        director_state.last_time = cur_time
+        
+        local found_m = nil
+        for _, m in ipairs(ass_markers) do
+            if is_near(m.pos, cur_time) then
+                found_m = m
+                break
+            end
+        end
+        
+        if found_m then
+            if found_m.markindex ~= director_state.last_marker_id then
+                director_state.last_marker_id = found_m.markindex
+                director_state.input.text = found_m.name
+                director_state.input.cursor = #found_m.name
+            end
+        else
+            if director_state.last_marker_id ~= nil then
+                director_state.last_marker_id = nil
+                director_state.input.text = ""
+                director_state.input.cursor = 0
+            end
+        end
+    end
+
+    local btn_h = S(24) -- Standard button height
+    
+    -- --- ROW 1: ACTORS ---
+    local x = padding
+    -- Use smaller top padding for Right layout to save space
+    local y = (cfg.director_layout == "right") and S(2) or padding
+    
+    if not calc_only then
+        -- Draw Background
+        set_color(UI.C_BG)
+        gfx.rect(panel_x, panel_y, panel_w, panel_h, 1)
+        
+        -- Draw Separator (Left or Top depending on layout? For now basic border)
+        set_color({0.3, 0.3, 0.3})
+        if cfg.director_layout == "right" then
+            gfx.line(panel_x, panel_y, panel_x, panel_y + panel_h)
+        else
+            gfx.line(panel_x, panel_y, panel_x + panel_w, panel_y)
+        end
+    end
+    
+    -- Adjust coordinates for drawing
+    local draw_x = panel_x + x
+    local draw_y = panel_y + y
+    
+    local current_actor_in_input = get_current_actor(director_state.input.text)
+    
+    local save_btn_w = S(100)
+    -- Detect narrow mode (Right layout) for proper input width calculation
+    local is_right_layout = (cfg.director_layout == "right")
+    local input_w = is_right_layout and (panel_w - padding*2) or (panel_w - padding*2 - save_btn_w - S(10))
+    
+    -- Options Menu Button (Top-Right)
+    local opt_btn_w = S(30)
+    local opt_x = panel_x + panel_w - padding - opt_btn_w
+    
+    -- Actor buttons should wrap before reaching the options button
+    local limit_x = opt_x - S(5) -- Leave small gap before options button
+    
+    if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", UI.C_BTN) then
+        local dock_check = gfx.dock(-1) > 0 and "!" or ""
+        local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
+        local menu_str = "Копіювати правки в буфер|Імпортувати імена акторів з субтитрів|" .. layout_label
+        
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local ret = gfx.showmenu(menu_str)
+        
+        if ret == 1 then
+            -- Copy
+            if #ass_markers > 0 then
+                local groups = {}
+                local no_actor_key = "-- без актора --"
+                local actors_list = {} -- Keep track of actors found for sorting
+                local seen_actors = {}
+
+                for _, m in ipairs(ass_markers) do
+                    -- Parse Actor: Format usually "Actor: Text" or "(Actor): Text"
+                    local text = m.name
+                    local actor = nil
+                    local content = text
+
+                    -- Try pattern "[Actor] Text" (User Requested Format)
+                    local s, e, act = string.find(text, "^%[(.-)%]%s*")
+                    if s then
+                        actor = act
+                        content = string.sub(text, e + 1)
+                    else
+                        -- Fallback: Try pattern "Actor: Text"
+                        s, e, act = string.find(text, "^(.-):%s*")
+                        if s then
+                            actor = act
+                            content = string.sub(text, e + 1)
+                        end
+                    end
+
+                    if not actor or actor == "" then actor = no_actor_key end
+
+                    if not groups[actor] then
+                        groups[actor] = {}
+                        if not seen_actors[actor] then
+                            table.insert(actors_list, actor)
+                            seen_actors[actor] = true
+                        end
+                    end
+                    table.insert(groups[actor], {time = m.pos, text = content})
+                end
+
+                -- Sort actors alphabetically, but put no_actor_key last
+                table.sort(actors_list, function(a, b)
+                    if a == no_actor_key then return false end
+                    if b == no_actor_key then return true end
+                    return a < b
+                end)
+
+                local out_lines = {}
+                for _, act in ipairs(actors_list) do
+                    table.insert(out_lines, act)
+                    -- Sort markers by time
+                    table.sort(groups[act], function(a, b) return a.time < b.time end)
+                    
+                    for _, entry in ipairs(groups[act]) do
+                        local time_str = reaper.format_timestr(entry.time, "")
+                        table.insert(out_lines, time_str .. " - " .. entry.text)
+                    end
+                    table.insert(out_lines, "") -- Empty line between groups
+                end
+                
+                reaper.CF_SetClipboard(table.concat(out_lines, "\n"))
+                show_snackbar("Скопійовано " .. #ass_markers .. " правок", "success")
+            else
+                show_snackbar("Немає правок для копіювання", "info")
+            end
+        elseif ret == 2 then
+            -- Import
+            -- ... (Import Logic Same) ...
+            local count = 0
+            local existing = {}
+            for _, a in ipairs(director_actors) do existing[a] = true end
+            for _, line in ipairs(ass_lines) do
+                if line.actor and line.actor ~= "" and not existing[line.actor] then
+                    table.insert(director_actors, line.actor)
+                    existing[line.actor] = true
+                    count = count + 1
+                end
+            end
+            if count > 0 then
+                push_undo("Імпорт " .. count .. " акторів")
+                save_project_data(last_project_id)
+                show_snackbar("Імпортовано " .. count .. " акторів", "success")
+            else
+                show_snackbar("Нових акторів не знайдено", "info")
+            end
+        elseif ret == 3 then
+            -- Toggle Layout
+            if cfg.director_layout == "right" then
+                cfg.director_layout = "bottom"
+            else
+                cfg.director_layout = "right"
+            end
+            save_settings() -- Save state immediately
+            last_layout_state.state_count = -1 -- Force redraw
+        end
+    end
+
+    for i, actor in ipairs(director_actors) do
+        local label = actor
+        local w, _ = gfx.measurestr(label)
+        local btn_w = w + S(20)
+        
+        -- Wrap Check relative to panel start
+        if draw_x + btn_w > limit_x then
+            x = padding
+            y = y + btn_h + S(5)
+            draw_x = panel_x + x
+            draw_y = panel_y + y
+        end
+        
+        if not calc_only then
+             -- Logic drawing ...
+             -- Active state determination
+            local is_active = (current_actor_in_input == actor)
+            local bg_col = is_active and {0.2, 0.6, 0.2} or UI.C_BTN
+            
+            -- Hover Check for Right Click
+            -- Adjust hit test to relative coords
+            local hover = (gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + btn_w and gfx.mouse_y >= draw_y and gfx.mouse_y <= draw_y + btn_h)
+            
+            if draw_btn_inline(draw_x, draw_y, btn_w, btn_h, label, bg_col) then
+                -- Toggle Logic
+                local txt = director_state.input.text
+                if is_active then
+                    -- Toggle Off
+                    local clean_text = txt:gsub("^%[.-%]%s*", "")
+                    director_state.input.text = clean_text
+                else
+                    -- Toggle On
+                    local clean_text = txt:gsub("^%[.-%]%s*", "")
+                    director_state.input.text = "[" .. actor .. "] " .. clean_text
+                end
+                director_state.input.cursor = #director_state.input.text
+                director_state.input.focus = true
+            end
+            
+            -- Right Click
+            if hover and is_right_mouse_clicked() then
+                -- ... (Context Menu Logic) ...
+                mouse_handled = true
+
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local menu_str2 = "Змінити ім'я|Видалити"
+                local ret2 = gfx.showmenu(menu_str2)
+                if ret2 == 1 then
+                    -- RENAME
+                    local ok, new_name = reaper.GetUserInputs("Змінити ім'я актора", 1, "Нове ім'я:", actor)
+                    if ok and new_name ~= "" and new_name ~= actor then
+                        -- Merge check
+                        local target_exists = false
+                        for _, act in ipairs(director_actors) do
+                            if act == new_name then target_exists = true break end
+                        end
+                        
+                        if target_exists then
+                            push_undo("Об'єднати актора '" .. actor .. "' з '" .. new_name.. "' (Режисер)")
+                            table.remove(director_actors, i)
+                            save_project_data(last_project_id)
+                            local ops = rename_actor_globally(actor, new_name)
+                            if get_current_actor(director_state.input.text) == actor then
+                                 local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
+                                 director_state.input.text = "[" .. new_name .. "] " .. clean
+                            end
+                            show_snackbar("Об'єднано з '" .. new_name .. "' (" .. ops .. " змін) (Режисер)", "success")
+                        else
+                            push_undo("Змінити ім'я актора " .. actor .. " -> " .. new_name)
+                            director_actors[i] = new_name
+                            save_project_data(last_project_id)
+                            local ops = rename_actor_globally(actor, new_name)
+                            if get_current_actor(director_state.input.text) == actor then
+                                 local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
+                                 director_state.input.text = "[" .. new_name .. "] " .. clean
+                            end
+                            show_snackbar("Змінено ім'я у '" .. ops .. "' місцях (Режисер)", "success")
+                        end
+                    end
+                elseif ret2 == 2 then
+                    -- DELETE
+                    local ok = reaper.MB("Ви дійсно хочете видалити актора '" .. actor .. "'? Це видалить його префікс з усіх правок.", "Підтвердження", 4)
+                    if ok == 6 then
+                        push_undo("Видалити актора '" .. actor .. "' (Режисер)")
+                        table.remove(director_actors, i)
+                        save_project_data(last_project_id)
+                        local ops = delete_actor_globally(actor)
+                        if get_current_actor(director_state.input.text) == actor then
+                            local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
+                            director_state.input.text = clean
+                        end
+                        show_snackbar("Видалено актора та '" .. ops .. "' префіксів (Режисер)", "info")
+                    end
+                end
+            end
+        end
+        x = x + btn_w + S(5)
+        draw_x = panel_x + x -- Update draw X
+    end
+    
+    -- Add Actor Button
+    if draw_x + S(24) > limit_x then
+        x = padding
+        y = y + btn_h + S(5)
+        draw_x = panel_x + x
+        draw_y = panel_y + y
+    end
+    
+    if not calc_only then
+        if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "+", UI.C_BTN) then
+            local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
+            if ok and name ~= "" then
+                -- Check duplication
+                local exists = false
+                for _, act in ipairs(director_actors) do
+                    if act == name then exists = true break end
+                end
+                
+                if not exists then
+                    push_undo("Додати актора '" .. name .. "' (Режисер)")
+                    table.insert(director_actors, name)
+                    save_project_data(last_project_id)
+                end
+            end
+        end
+    end
+    
+    -- --- ROW 2: INPUT & SAVE ---
+    x = padding -- Reset X to start of line
+    y = y + btn_h + S(10) -- Move down from last button row
+    draw_x = panel_x + x -- Update absolute draw X
+    draw_y = panel_y + y -- Update absolute draw Y
+    
+    -- Recalculate Input Height dynamically based on remaining space
+    
+    local min_input_h = S(50)
+    local input_h = min_input_h
+    
+    -- Reserve space for save button in Right layout (vertical stacking)
+    local is_right_layout = (cfg.director_layout == "right")
+    local save_btn_space = is_right_layout and (S(30) + S(10)) or 0 -- Button height + gap
+    
+    if panel_h > (y + min_input_h + padding + save_btn_space) then
+        input_h = panel_h - y - padding - save_btn_space
+    end
+    
+    if not calc_only then
+        ui_text_input(draw_x, draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true)
+    
+        local save_col = director_state.last_marker_id and {0.2, 0.4, 0.6} or {0.2, 0.5, 0.2}
+        local save_label = director_state.last_marker_id and "Оновити" or "Зберегти"
+        
+        -- Position save button: vertical stack for Right mode, horizontal for Bottom mode
+        local is_right_layout = (cfg.director_layout == "right")
+        local save_x = is_right_layout and draw_x or (draw_x + input_w + S(10))
+        local save_y = is_right_layout and (draw_y + input_h + S(10)) or draw_y
+        local save_h = S(30)
+        
+        if draw_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
+            local txt = director_state.input.text
+            if txt ~= "" then
+                push_undo(save_label .. " правку (Режисер)")
+                if director_state.last_marker_id then
+                    reaper.SetProjectMarker4(0, director_state.last_marker_id, false, cur_time, 0, txt, 0, 0)
+                else
+                    reaper.AddProjectMarker(0, false, cur_time, 0, txt, -1)
+                end
+                ass_markers = capture_project_markers()
+                update_regions_cache()
+                
+                -- Force table refresh
+                table_data_cache.state_count = -1
+                last_layout_state.state_count = -1
+                prompter_drawer.marker_cache.count = -1
+                
+                director_state.last_marker_id = nil
+                director_state.input.text = ""
+                show_snackbar("Збережено", "success")
+            end
+        end
+    end
+    
+    -- Return total needed height
+    return y + input_h + padding
+end
+
 local function draw_table(input_queue)
     local show_actor = ass_file_loaded
     local start_y = S(65)
     col_vis_menu.handled = false -- Reset per frame
     
-    -- Helper for inline buttons
-    local function draw_btn_inline(x, y, w, h, text, bg_col)
-        local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
-        set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
-        gfx.rect(x, y, w, h, 1)
-        set_color(UI.C_TXT)
-        local str_w, str_h = gfx.measurestr(text)
-        gfx.x = x + (w - str_w) / 2
-        gfx.y = y + (h - str_h) / 2
-        gfx.drawstr(text)
-        if hover and is_mouse_clicked() then return true end
-        return false
-    end
-
     local h_header = cfg.reader_mode and 0 or S(25)
     local row_h = cfg.reader_mode and S(80) or S(24)
 
@@ -9746,12 +10000,21 @@ local function draw_table(input_queue)
     gfx.setfont(F.std) -- Use the (possibly locally scaled) standard font for global elements
     local filter_y = S(35)
     local filter_h = S(25)
+    -- LAYOUT INITIALIZATION (Calculate avail sizes first)
+    local w_director = cfg.w_director or S(300)
+    local is_dir_right = (cfg.director_layout == "right")
+    local h_director = (cfg.director_mode and not is_dir_right) and (dynamic_director_h or S(150)) or 0
+    if cfg.director_mode and is_dir_right then h_director = 0 end
+    
+    local avail_w = gfx.w
+    if cfg.director_mode and is_dir_right then avail_w = gfx.w - w_director end
+
     local filter_x = S(10)
     local opt_btn_w = S(30)
     local chk_w = S(25)
     local gap = S(5)
     
-    local filter_w = gfx.w - S(20) - opt_btn_w - chk_w - (gap * 2)
+    local filter_w = avail_w - S(20) - opt_btn_w - chk_w - (gap * 2)
     
     local prev_text = table_filter_state.text
     ui_text_input(filter_x, filter_y, filter_w, filter_h, table_filter_state, "Фільтр (Текст або Актор)...", input_queue)
@@ -9785,6 +10048,12 @@ local function draw_table(input_queue)
     else
         -- MENU BUTTON (Standard)
         if draw_btn_inline(btn_x, filter_y, opt_btn_w, filter_h, "≡", UI.C_BTN) then
+            -- Clear input focus on menu click
+            director_state.input.focus = false
+            table_filter_state.focus = false
+            find_replace_state.find.focus = false
+            find_replace_state.replace.focus = false
+            
             if col_vis_menu.show or time_shift_menu.show then
                 col_vis_menu.show = false
                 time_shift_menu.show = false
@@ -9793,9 +10062,10 @@ local function draw_table(input_queue)
                 local col_label = (any_hidden and "• " or "") .. "Колонки..."
                 local reader_label = (cfg.reader_mode and "• " or "") .. "Режим читача"
                 local markers_label = (cfg.show_markers_in_table and "• " or "") .. "Відображати правки в таблиці"
+                local director_label = (cfg.director_mode and "• " or "") .. "Режим Режисера"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу|" .. markers_label
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу|" .. markers_label .. "|" .. director_label
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     find_replace_state.show = true
@@ -9820,6 +10090,12 @@ local function draw_table(input_queue)
                     time_shift_menu.y = filter_y + filter_h + gap
                 elseif ret == 5 then
                     cfg.show_markers_in_table = not cfg.show_markers_in_table
+                    save_settings()
+                elseif ret == 6 then
+                    cfg.director_mode = not cfg.director_mode
+                    if cfg.director_mode then
+                        cfg.show_markers_in_table = true
+                    end
                     save_settings()
                 end
             end
@@ -10010,7 +10286,8 @@ local function draw_table(input_queue)
     if input_queue then
         for _, key in ipairs(input_queue) do
             -- Verify we are not typing in a text field
-            if not table_filter_state.focus and not find_replace_state.replace.focus then
+            if not table_filter_state.focus and not find_replace_state.find.focus and 
+               not find_replace_state.replace.focus and not director_state.input.focus then
                 -- Ctrl+A (Select All)
                 if key == 1 then
                     table_selection = {}
@@ -10279,7 +10556,7 @@ local function draw_table(input_queue)
         
         -- Calculate height for each row using the already prepared data_source
         local content_x_start = x_off[#x_off] or S(10)
-        local max_w = gfx.w - content_x_start - 30 -- padding + scrollbar
+        local max_w = avail_w - content_x_start - 30 -- padding + scrollbar (updated to use avail_w)
         
         gfx.setfont(F.table_reader)
         local line_h = gfx.texth
@@ -10322,8 +10599,31 @@ local function draw_table(input_queue)
     end
 
     local total_h = #table_layout_cache > 0 and (table_layout_cache[#table_layout_cache].y + table_layout_cache[#table_layout_cache].h) or 0
+    
+    -- Dynamic Layout Variables
+    local is_dir_right = (cfg.director_mode and cfg.director_layout == "right")
+    -- (Variables w_director, is_dir_right, avail_w, h_director already calculated at top of function)
+
+    -- Logic for manual vs dynamic height is handled at top.
+    -- Just need to ensure `h_director` variable is correct for Bottom/Manual logic below.
+    if cfg.director_mode and not is_dir_right and cfg.h_director then
+        -- Allow manual resize to override dynamic?
+        -- The resizing sets cfg.h_director.
+        -- The top logic uses MAX(dynamic, cfg.h_director) if we implemented that?
+        -- Previous: h_director = (cfg.director_mode and not is_dir_right) and (dynamic_director_h or S(150)) or 0
+        -- We probably want: h_director = MAX(cfg.h_director, dynamic_director_h)
+        local manual = cfg.h_director or S(150)
+        if dynamic_director_h and dynamic_director_h > manual and not director_resize_drag then
+            h_director = dynamic_director_h
+        else
+            h_director = manual
+        end
+    end
+    
     local content_y = start_y + h_header
-    local avail_h = gfx.h - content_y
+    local avail_h = gfx.h - content_y - h_director
+    if avail_h < 0 then avail_h = 0 end
+
     local max_scroll = math.max(0, total_h - avail_h)
     
     -- Auto-scroll to current playback position (only when position changes)
@@ -10370,7 +10670,8 @@ local function draw_table(input_queue)
     end
     
     -- Smooth Scroll Logic
-    if gfx.mouse_wheel ~= 0 then
+    local mouse_in_director = cfg.director_mode and gfx.mouse_y >= gfx.h - h_director
+    if gfx.mouse_wheel ~= 0 and not mouse_in_director then
         target_scroll_y = target_scroll_y - (gfx.mouse_wheel * 0.25)
         if target_scroll_y < 0 then target_scroll_y = 0 end
         if target_scroll_y > max_scroll then target_scroll_y = max_scroll end
@@ -10588,12 +10889,20 @@ local function draw_table(input_queue)
             -- FIX: Check bit 1 (Left Mouse) regardless of other flags
             if (gfx.mouse_cap & 1 == 1) and (last_mouse_cap & 1 == 0) and not mouse_in_menu and not col_vis_menu.handled then
                 -- Safety check: click must be within both the visible content area AND the row itself
-                if gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h and
+                -- Also check horizontal bounds to prevent clicks in Director Panel (when docked right)
+                if gfx.mouse_x < avail_w and
+                   gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h and
                    gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h_dynamic then
                     -- Checkbox click? (Only if visible and not a marker)
                     if not cfg.reader_mode and not line.is_marker and chk_x and gfx.mouse_x >= chk_x - S(5) and gfx.mouse_x <= chk_x + chk_sz + S(10) then
                         -- BULK CHECKBOX LOGIC
                         push_undo("Перемикання видимості")
+                        
+                        -- Clear input focus on checkbox click
+                        director_state.input.focus = false
+                        table_filter_state.focus = false
+                        find_replace_state.find.focus = false
+                        find_replace_state.replace.focus = false
                         local new_state = not is_enabled
                         
                         if is_selected then
@@ -10645,6 +10954,12 @@ local function draw_table(input_queue)
                             last_tracked_pos = line.t1 -- Always sync position on click
                             last_auto_scroll_idx = i -- Sync to prevent auto-centering immediately after click
                             
+                            -- Clear input focus on row click
+                            director_state.input.focus = false
+                            table_filter_state.focus = false
+                            find_replace_state.find.focus = false
+                            find_replace_state.replace.focus = false
+                            
                             -- Navigate logic
                             local replica_x_start = cfg.reader_mode and 0 or x_off[#x_off]
                             if gfx.mouse_x >= replica_x_start then
@@ -10668,9 +10983,9 @@ local function draw_table(input_queue)
                                             end
                                             if target_idx ~= -1 then
                                                 reaper.SetProjectMarkerByIndex(0, target_idx, false, edit_marker.t1, 0, edit_marker.markindex, new_text, edit_marker.marker_color or 0)
-                                            else
-                                                reaper.SetProjectMarker4(0, edit_marker.markindex, false, edit_marker.t1, 0, new_text, edit_marker.marker_color or 0, 0)
                                             end
+                                            
+                                            ass_markers = capture_project_markers()
                                             table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
                                             last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
                                             prompter_drawer.marker_cache.count = -1 -- FORCE UPDATE MARKERS
@@ -10703,7 +11018,8 @@ local function draw_table(input_queue)
                     
             elseif (gfx.mouse_cap & 2 == 2) and (last_mouse_cap & 2 == 0) and not mouse_in_menu then
                 -- Right Click on Row (with safety check)
-                if gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h and
+                if gfx.mouse_x < avail_w and
+                   gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h and
                    gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h_dynamic then
                     mouse_handled = true -- Suppress global menu
                     
@@ -10848,21 +11164,130 @@ local function draw_table(input_queue)
     
     -- Blit back to screen
     gfx.dest = prev_dest
-    gfx.blit(98, 1, 0, 0, 0, gfx.w, avail_h, 0, content_y)
+    -- Blit table canvas to available area
+    -- If Right Layout: blit to 0..avail_w
+    gfx.blit(98, 1, 0, 0, 0, avail_w, avail_h, 0, content_y)
     
     gfx.setfont(F.std) -- RESTORE standard font for menus and bars
     
     -- Scrollbar
     target_scroll_y = draw_scrollbar(gfx.w - 10, content_y, 10, avail_h, total_h, avail_h, target_scroll_y)
     
+    -- Draw Director Panel
+    if cfg.director_mode then
+        if is_dir_right then
+            -- Right Layout
+            draw_director_panel(avail_w, content_y, w_director, avail_h + h_director, input_queue, false)
+            
+            -- Draw Vertical Separator Border (Already drawn by resize logic, but ensure it's clean)
+        else
+            -- Bottom Layout
+            local draw_y = gfx.h - h_director
+            
+            -- Draw
+            draw_director_panel(0, draw_y, gfx.w, h_director, input_queue, false)
+            
+            -- Recalculate height for NEXT frame to ensure smooth resizing
+            local needed = draw_director_panel(0, draw_y, gfx.w, h_director, nil, true)
+            if needed < S(100) then needed = S(100) end
+            
+            -- Auto-expand logic: If content needs more than current setting AND we are not resizing
+            if not director_resize_drag and needed > h_director then
+                cfg.h_director = needed
+            end
+            dynamic_director_h = needed -- Keep tracking for ref
+        end
+        
+        -- RESIZE HANDLE LOGIC (Moved to end for Z-order)
+        local resize_zone = S(8)
+        local strip_sz = S(2)
+        local grab_long = S(40)
+        local grab_thick = S(12)
+        local handle_x, handle_y, handle_w, handle_h
+        local is_hover = false
+        
+        if is_dir_right then
+            local border_x = avail_w
+            handle_w = grab_thick
+            handle_h = grab_long
+            handle_x = border_x - (handle_w / 2)
+            handle_y = content_y + (avail_h + h_director - handle_h) / 2
+            
+            -- Draw Separator
+            is_hover = math.abs(gfx.mouse_x - border_x) <= resize_zone and (gfx.mouse_y >= content_y)
+            set_color(is_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
+            gfx.rect(border_x, content_y, strip_sz, avail_h + h_director, 1)
+
+            -- Logic
+            if is_hover or director_resize_drag then
+                reaper.SetCursorContext(2, 0)
+                if is_hover and gfx.mouse_cap == 1 and not col_resize.dragging then
+                    director_resize_drag = true
+                    col_resize.key = nil
+                end
+            end
+            
+            if director_resize_drag and gfx.mouse_cap == 1 then
+                local new_w = gfx.w - gfx.mouse_x
+                if new_w < S(250) then new_w = S(250) end
+                if new_w > gfx.w - S(150) then new_w = gfx.w - S(150) end
+                cfg.w_director = new_w
+            elseif director_resize_drag then
+                director_resize_drag = false
+                save_settings()
+                reaper.SetCursorContext(0, 0)
+            end
+        else
+            -- Bottom
+            local border_y = gfx.h - h_director
+            handle_w = grab_long
+            handle_h = grab_thick
+            handle_x = (gfx.w - handle_w) / 2
+            handle_y = border_y - (handle_h / 2)
+
+            is_hover = math.abs(gfx.mouse_y - border_y) <= resize_zone
+            set_color(is_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
+            gfx.rect(0, border_y, gfx.w, strip_sz, 1)
+
+            if is_hover or director_resize_drag then
+                reaper.SetCursorContext(1, 0)
+                if is_hover and gfx.mouse_cap == 1 and not col_resize.dragging then
+                    director_resize_drag = true
+                end
+            end
+            
+            if director_resize_drag and gfx.mouse_cap == 1 then
+                local new_h = gfx.h - gfx.mouse_y
+                if new_h < S(120) then new_h = S(120) end
+                local max_h = gfx.h - S(150)
+                if new_h > max_h then new_h = max_h end
+                cfg.h_director = new_h
+            elseif director_resize_drag then
+                director_resize_drag = false
+                save_settings()
+                reaper.SetCursorContext(0, 0)
+            end
+        end
+
+        -- Draw Handle Pill (Only on hover or drag)
+        if is_hover or director_resize_drag then
+            set_color({1, 1, 1, 0.8})
+            gfx.rect(handle_x, handle_y, handle_w, handle_h, 1)
+            set_color({0, 0, 0, 0.5})
+            gfx.rect(handle_x, handle_y, handle_w, handle_h, 0)
+        end
+    end
+
     -- Draw Header LAST (always on top)
     if not cfg.reader_mode then
         set_color({0.1, 0.1, 0.1})
-        gfx.rect(0, start_y, gfx.w, h_header, 1)
+        gfx.rect(0, start_y, avail_w, h_header, 1)
     end
     
     local function draw_header_cell(idx, label, x, y, col_name)
-        local next_x = x_off[idx + 1] or gfx.w
+        -- Clamp next_x to avail_w to prevent overlap with Director Panel
+        local next_start = x_off[idx + 1] or avail_w
+        local next_x = math.min(next_start, avail_w)
         local cell_w = next_x - x
         local arrow_w = S(12)
         local text_padding = S(5)
@@ -11286,6 +11711,7 @@ local function main()
     local curs_state = reaper.GetProjectStateChangeCount(0)
     if curs_state ~= proj_change_count then
         update_regions_cache()
+        load_director_actors_from_state()
         proj_change_count = curs_state
     end
 
@@ -11304,10 +11730,12 @@ local function main()
     if not text_editor_state.active then
         for _, c in ipairs(input_queue) do
             if c == 26 then -- Ctrl+Z / Cmd+Z
-                if gfx.mouse_cap & 8 ~= 0 then -- Shift is held
-                    redo_action()
-                else
-                    undo_action()
+                if not is_any_text_input_focused() then
+                    if gfx.mouse_cap & 8 ~= 0 then -- Shift is held
+                        redo_action()
+                    else
+                        undo_action()
+                    end
                 end
             elseif not dict_modal.show and not text_editor_state.active then
                 -- Global Pass-Through Shortcuts (Standard Defaults)
