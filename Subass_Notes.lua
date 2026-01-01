@@ -6051,7 +6051,7 @@ local function do_check()
     requirements_state.reapack = (reaper.ReaPack_GetOwner ~= nil)
     requirements_state.js_api = (reaper.JS_Window_Find ~= nil)
     requirements_state.reaimgui = (reaper.ImGui_CreateContext ~= nil)
-    
+
     local py_ok, py_ver = get_py_ver()
     
     -- If sync check returned definitive result (or for non-Windows), set it. 
@@ -6107,6 +6107,22 @@ local function draw_requirements_window()
         -- Right
         for i = ty, ty + th, dash_len * 2 do
             gfx.line(tx + tw, i, tx + tw, math.min(i + dash_len, ty + th))
+        end
+    end
+
+    -- Helper to open URLs safely (fallback if SWS not installed)
+    local function open_url(url)
+        if reaper.CF_ShellExecute then
+            reaper.CF_ShellExecute(url)
+        else
+            local os_name = reaper.GetOS()
+            if os_name:match("Win") then
+                reaper.ExecProcess('cmd.exe /C start "" "' .. url .. '"', 0)
+            elseif os_name:match("OSX") or os_name:match("macOS") then
+                os.execute('open "' .. url .. '"')
+            else
+                os.execute('xdg-open "' .. url .. '"')
+            end
         end
     end
 
@@ -6353,7 +6369,7 @@ local function draw_requirements_window()
                                     
                                     if is_mouse_clicked() and gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + link_w and
                                        gfx.mouse_y >= line_y and gfx.mouse_y <= line_y + S(22) then
-                                        reaper.CF_ShellExecute(p.url)
+                                        open_url(p.url)
                                         mouse_handled = true
                                     end
                                     draw_x = draw_x + link_w
