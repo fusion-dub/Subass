@@ -94,6 +94,20 @@ local col_resize = {
     start_w = 0
 }
 
+-- Requirements Check State
+local requirements_state = {
+    show = false,
+    checked = false,
+    sws = false,
+    reapack = false,
+    js_api = false,
+    reaimgui = false,
+    python = { ok = false, version = "N/A" },
+    all_ok = false,
+    scroll_y = 0,
+    target_scroll_y = 0
+}
+
 -- Global Scale Helper
 local function S(val)
     return math.floor(val * cfg.gui_scale)
@@ -120,7 +134,8 @@ local F = {
     dict_bld_sm = 8, -- 16px
     tip = 9, -- 12px
     cor = 10, -- Corrections font
-    table_reader = 11 -- Dedicated slot for table scaling
+    table_reader = 11, -- Dedicated slot for table scaling
+    tip_bld = 12 -- Bold tooltip font
 }
 
 -- Prompter Rendering Cache (moved to global for invalidation on font change)
@@ -150,6 +165,7 @@ local function update_prompter_fonts()
     
     -- Tooltip / Small Font
     gfx.setfont(F.tip, "Arial", S(12))
+    gfx.setfont(F.tip_bld, "Arial", S(12), string.byte('b'))
 
     -- Reader Mode Table Font
     gfx.setfont(F.table_reader, cfg.p_font, S(20))
@@ -5925,6 +5941,496 @@ local function draw_dictionary_modal(input_queue)
             dict_modal.show = false
         end
     end
+end
+
+--- Check Python version
+-- @return boolean support, string version
+local function get_py_ver()
+    local function extract_ver(s)
+        if not s or type(s) ~= "string" or s == "" then return nil end
+        s = s:gsub("Python%s+", "")
+        for v in s:gmatch("[%d%.]+") do
+            local major, minor = v:match("(%d+)%.(%d+)")
+            if major and minor then
+                local n_maj, n_min = tonumber(major), tonumber(minor)
+                if n_maj and n_min then
+                    if n_maj > 3 or (n_maj == 3 and n_min >= 9) then return true, v end
+                    return false, v
+                end
+            end
+        end
+        return nil
+    end
+
+    local os_name = reaper.GetOS()
+    if os_name:match("Win") then
+        -- Async check for Windows to avoid terminal popup
+        local cmds = {"python --version", "python3 --version"}
+        
+        local function try_next_cmd(idx)
+            if idx > #cmds then
+                requirements_state.python.version = "N/A"
+                requirements_state.python.ok = false
+                return
+            end
+            
+            run_async_command(cmds[idx], function(output)
+                local success, version = extract_ver(output)
+                if success ~= nil then
+                    requirements_state.python.ok = success
+                    requirements_state.python.version = version
+                    -- Updates state if success
+                    if requirements_state.python.ok then
+                        requirements_state.all_ok = (requirements_state.sws and requirements_state.reapack and 
+                                                    requirements_state.js_api and requirements_state.reaimgui and 
+                                                    requirements_state.python.ok)
+                        -- If everything became OK, we can potentially hide window or re-layout
+                    end
+                else
+                    try_next_cmd(idx + 1)
+                end
+            end)
+        end
+            
+        -- Start async chain
+        requirements_state.python.version = "Checking..."
+        try_next_cmd(1)
+        
+        -- Return pending state
+        return false, "Checking..." 
+    else
+        -- macOS/Linux - Keep synchronous as it works fine
+        local p = "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin "
+        local cmds = {
+            '/bin/sh -c "' .. p .. 'python3 --version 2>&1"',
+            '/bin/sh -c "' .. p .. 'python --version 2>&1"',
+            "/opt/homebrew/bin/python3 --version",
+            "/usr/local/bin/python3 --version",
+            "/usr/bin/python3 --version",
+            "python3 --version",
+            "python --version"
+        }
+        
+        -- 1. Try ExecProcess
+        for _, cmd in ipairs(cmds) do
+            local _, output = reaper.ExecProcess(cmd, 2000)
+            local success, version = extract_ver(output)
+            if success ~= nil then return success, version end
+        end
+    
+        -- 2. Try io.popen
+        for _, cmd in ipairs(cmds) do
+            local f = io.popen(cmd)
+            if f then
+                local output = f:read("*a")
+                f:close()
+                local success, version = extract_ver(output)
+                if success ~= nil then return success, version end
+            end
+        end
+    
+        -- 3. Direct path probing
+        local paths = {"/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3", "/usr/bin/python"}
+        for _, path in ipairs(paths) do
+            local file = io.open(path, "rb")
+            if file then
+                file:close()
+                local _, output = reaper.ExecProcess(path .. " --version", 2000)
+                local success, version = extract_ver(output)
+                if success ~= nil then return success, version end
+            end
+        end
+            
+        return false, "N/A"
+    end
+end
+
+--- Perform requirements check
+local function do_check()
+    requirements_state.sws = (reaper.CF_SetClipboard ~= nil)
+    requirements_state.reapack = (reaper.ReaPack_GetOwner ~= nil)
+    requirements_state.js_api = (reaper.JS_Window_Find ~= nil)
+    requirements_state.reaimgui = (reaper.ImGui_CreateContext ~= nil)
+    
+    local py_ok, py_ver = get_py_ver()
+    
+    -- If sync check returned definitive result (or for non-Windows), set it. 
+    -- For Windows async, 'py_ver' will be "Checking..." initially.
+    if py_ver ~= "Checking..." or not reaper.GetOS():match("Win") then
+        requirements_state.python.ok = py_ok
+        requirements_state.python.version = py_ver
+    end
+
+    requirements_state.all_ok = (requirements_state.sws and requirements_state.reapack and 
+                                requirements_state.js_api and requirements_state.reaimgui and 
+                                requirements_state.python.ok)
+    if not requirements_state.all_ok then requirements_state.show = true end
+    requirements_state.checked = true
+end
+
+local function draw_requirements_window()
+    if not requirements_state.checked then do_check() end
+    if not requirements_state.show then return end
+
+    -- Backdrop
+    gfx.set(0, 0, 0, 0.7)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+    
+    -- Responsive Main Box (70% width, 80% height, with smaller min constraints)
+    local bw = math.max(S(200), math.min(S(700), gfx.w * 0.85))
+    local bh = math.max(S(200), math.min(S(600), gfx.h * 0.85))
+    local bx, by = (gfx.w - bw) / 2, (gfx.h - bh) / 2
+    
+    -- Background
+    set_color({0.15, 0.15, 0.15, 1})
+    gfx.rect(bx, by, bw, bh, 1)
+
+    --- Draw a bold dashed rectangle to draw attention
+    dash_len = 15
+    thickness = 4
+    set_color({1, 0.9, 0, 1}) -- Yellow
+    
+    for t = 0, thickness - 1 do
+        local tx, ty, tw, th = bx - t, by - t, bw + t*2, bh + t*2
+        -- Top
+        for i = tx, tx + tw, dash_len * 2 do
+            gfx.line(i, ty, math.min(i + dash_len, tx + tw), ty)
+        end
+        -- Bottom
+        for i = tx, tx + tw, dash_len * 2 do
+            gfx.line(i, ty + th, math.min(i + dash_len, tx + tw), ty + th)
+        end
+        -- Left
+        for i = ty, ty + th, dash_len * 2 do
+            gfx.line(tx, i, tx, math.min(i + dash_len, ty + th))
+        end
+        -- Right
+        for i = ty, ty + th, dash_len * 2 do
+            gfx.line(tx + tw, i, tx + tw, math.min(i + dash_len, ty + th))
+        end
+    end
+
+    -- List Requirements
+    local items = {
+        { 
+            name = "SWS Extension", 
+            ok = requirements_state.sws, 
+            info = "Необхідно для роботи з буфером обміну.\n\n**КРОК 1:** Натисніть на посилання [sws-extension.org](https://www.sws-extension.org/) і завантажте версію для вашої ОС.\n\n**КРОК 2 (WINDOWS):** Запустіть завантажений інсталятор і слідуйте інструкціям.\n\n**КРОК 2 (macOS):** Відкрийте .dmg файл. У REAPER натисніть **Options** -> **Show REAPER resource path**. Відкрийте папку **UserPlugins**. Перетягніть файл `reaper_sws...dylib` з .dmg у цю папку.\n\n**КРОК 3:** Після встановлення **ОБОВ'ЯЗКОВО** перезапустіть REAPER." 
+        },
+        { 
+            name = "ReaPack", 
+            ok = requirements_state.reapack, 
+            info = "Менеджер розширень для REAPER.\n\n**КРОК 1:** Натисніть на посилання [reapack.com](https://reapack.com/) і завантажте файл для вашої ОС.\n\n**КРОК 2:** У REAPER відкрийте меню **'Options'** (вгорі) і виберіть **'Show REAPER resource path in explorer/finder'**.\n\n**КРОК 3:** У відкритій папці знайдіть або створіть папку **'UserPlugins'**.\n\n**КРОК 4:** Скопіюйте завантажений файл ReaPack (.dll для Windows або .dylib для macOS) у цю папку 'UserPlugins'.\n\n**КРОК 5:** Перезапустіть REAPER.\n\n**КРОК 6:** Перевірте, що в меню 'Extensions' з'явився пункт 'ReaPack'." 
+        },
+        { 
+            name = "JS_ReaScriptAPI", 
+            ok = requirements_state.js_api, 
+            info = "Розширений API для скриптів.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack (див. вище)!\n\n**КРОК 1:** У REAPER відкрийте меню **'Extensions'** (вгорі).\n\n**КРОК 2:** Виберіть **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 3:** У вікні що відкрилося, у полі пошуку вгорі введіть **'js_ReaScriptAPI'**.\n\n**КРОК 4:** Знайдіть пакет 'js_ReaScriptAPI' у списку, клацніть по ньому **ПРАВОЮ кнопкою миші**.\n\n**КРОК 5:** У меню виберіть **'Install'**.\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** натисніть кнопку **'Apply'** внизу вікна ReaPack.\n\n**КРОК 7:** Дочекайтеся завершення встановлення (з'явиться повідомлення)." 
+        },
+        { 
+            name = "ReaImGui", 
+            ok = requirements_state.reaimgui, 
+            info = "Графічний движок для інтерфейсу оверлея.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack!\n\n**КРОК 1:** Відкрийте **'Extensions'** → **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 2:** У полі пошуку введіть **'ReaImGui'** (без пробілів).\n\n**КРОК 3:** Знайдіть пакет 'ReaImGui' від 'cfillion' у списку результатів.\n\n**КРОК 4:** Клацніть по ньому **ПРАВОЮ кнопкою миші** і виберіть **'Install'**.\n\n**КРОК 5:** Натисніть кнопку **'Apply'** внизу вікна ReaPack (почекайте встановлення).\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** перезапустіть REAPER (навіть якщо не просить)." 
+        },
+        {
+            name = "Python (>= 3.9)", 
+            ok = requirements_state.python.ok, 
+            info = "Поточна версія: " .. requirements_state.python.version .. ". Мова програмування для зупуску ШІ наголосів.\n\n**КРОК 1:** Натисніть [python.org](https://www.python.org/downloads/) і завантажте Python 3.11+.\n\n**КРОК 2 (WINDOWS):** Під час встановлення **ОБОВ'ЯЗКОВО** поставте галочку **'Add Python to PATH'**!\n\n**КРОК 2 (macOS):** Запустіть інсталятор і слідуйте інструкціям.\n\n**КРОК 3:** Перезапустіть REAPER.\n\n**КРОК 4:** Перевірка (не обов'язково): у терміналі введіть **'python --version'** (або **'python3 --version'**). Має бути 3.9+." 
+        }
+    }
+    
+    -- Content Area Setup (increased spacing after title)
+    local view_y = by + S(60)
+    local view_h = bh - S(70)
+    local col_x = bx + S(40)
+    
+    -- Calculate layout and total height (cache layout to ensure stable rendering)
+    local total_h = 0
+    gfx.setfont(F.dict_std_sm)
+    local wrap_w = bw - S(120)
+    
+    for i, item in ipairs(items) do
+        local entry_base_h = S(28)  -- Icon + name height
+        item.render_lines = {} -- Store laid out lines here: array of {parts}
+        
+        if item.ok then
+            -- If requirement is met, only show header (collapsed)
+            item.entry_h = entry_base_h + S(5) -- Minimal spacing
+        else
+            -- Split by newlines first
+            local lines_raw = {}
+            for line in (item.info .. "\n"):gmatch("(.-)\n") do
+                table.insert(lines_raw, line)
+            end
+            
+            -- Process each line
+            for _, raw_line in ipairs(lines_raw) do
+                if raw_line ~= "" then
+                    -- Parse line into segments (text, links, bold)
+                    local segments = {}
+                    local remaining = raw_line
+                    
+                    while remaining ~= "" do
+                        local link_start, link_end, link_text, link_url = remaining:find("%[(.-)%]%((.-)%)")
+                        local bold_start, bold_end, bold_text = remaining:find("%*%*(.-)%*%*")
+                        
+                        local next_special = nil
+                        local next_pos = math.huge
+                        
+                        if link_start and link_start < next_pos then
+                            next_special = "link"
+                            next_pos = link_start
+                        end
+                        if bold_start and bold_start < next_pos then
+                            next_special = "bold"
+                            next_pos = bold_start
+                        end
+                        
+                        if next_special == "link" then
+                            if link_start > 1 then
+                                table.insert(segments, {type = "text", content = remaining:sub(1, link_start - 1)})
+                            end
+                            table.insert(segments, {type = "link", text = link_text, url = link_url})
+                            remaining = remaining:sub(link_end + 1)
+                        elseif next_special == "bold" then
+                            if bold_start > 1 then
+                                table.insert(segments, {type = "text", content = remaining:sub(1, bold_start - 1)})
+                            end
+                            table.insert(segments, {type = "bold", content = bold_text})
+                            remaining = remaining:sub(bold_end + 1)
+                        else
+                            table.insert(segments, {type = "text", content = remaining})
+                            remaining = ""
+                        end
+                    end
+                    
+                    -- Build line parts
+                    local line_parts = {}
+                    for _, seg in ipairs(segments) do
+                        if seg.type == "text" then
+                            for word in seg.content:gmatch("%S+") do
+                                table.insert(line_parts, {type = "text", content = word})
+                            end
+                        elseif seg.type == "bold" then
+                            for word in seg.content:gmatch("%S+") do
+                                table.insert(line_parts, {type = "bold", content = word})
+                            end
+                        else
+                            table.insert(line_parts, {type = "link", content = seg.text, url = seg.url})
+                        end
+                    end
+                    
+                    -- Wrap lines and store in render_lines
+                    local current_line = {}
+                    local current_width = 0
+                    
+                    for i, part in ipairs(line_parts) do
+                        local part_text = part.content
+                        
+                        -- Measure with appropriate font
+                        if part.type == "bold" then
+                            gfx.setfont(F.dict_bld_sm)
+                        else
+                            gfx.setfont(F.dict_std_sm)
+                        end
+                        
+                        local test_text = (#current_line > 0) and " " .. part_text or part_text
+                        local test_w = gfx.measurestr(test_text)
+                        
+                        if current_width + test_w > wrap_w and #current_line > 0 then
+                            -- Flush current line
+                            table.insert(item.render_lines, current_line)
+                            
+                            -- Start new line
+                            current_line = {part}
+                            current_width = gfx.measurestr(part_text)
+                        else
+                            table.insert(current_line, part)
+                            current_width = current_width + test_w
+                        end
+                    end
+                    if #current_line > 0 then
+                        table.insert(item.render_lines, current_line)
+                    end
+                else
+                    -- Empty line
+                    table.insert(item.render_lines, {})
+                end
+            end
+            
+            local text_h = #item.render_lines * S(22)
+            item.entry_h = entry_base_h + text_h + S(20)  -- Add spacing between entries
+        end
+        total_h = total_h + item.entry_h
+    end
+    
+    -- Smooth Scroll Logic (similar to draw_file)
+    local max_scroll = math.max(0, total_h - view_h)
+    
+    if gfx.mouse_x >= bx and gfx.mouse_x <= bx + bw and gfx.mouse_y >= by and gfx.mouse_y <= by + bh then
+        if gfx.mouse_wheel ~= 0 then
+            requirements_state.target_scroll_y = requirements_state.target_scroll_y - (gfx.mouse_wheel * 0.25)
+            if requirements_state.target_scroll_y < 0 then requirements_state.target_scroll_y = 0 end
+            if requirements_state.target_scroll_y > max_scroll then requirements_state.target_scroll_y = max_scroll end
+            gfx.mouse_wheel = 0
+        end
+    end
+    
+    -- Interpolate scroll position
+    local diff = requirements_state.target_scroll_y - requirements_state.scroll_y
+    if math.abs(diff) > 0.5 then
+        requirements_state.scroll_y = requirements_state.scroll_y + (diff * 0.8)
+    else
+        requirements_state.scroll_y = requirements_state.target_scroll_y
+    end
+    
+    -- Clamp scroll
+    if requirements_state.scroll_y < 0 then requirements_state.scroll_y = 0 end
+    if requirements_state.scroll_y > max_scroll then requirements_state.scroll_y = max_scroll end
+
+    -- Draw content with scroll offset (clipped to view area)
+    local draw_y = view_y - math.floor(requirements_state.scroll_y)
+
+    for _, item in ipairs(items) do
+        -- Use cached height from layout calculation
+        local entry_h = item.entry_h or (S(28) + S(20)) -- Fallback if not calculated
+        
+        -- Check visibility (draw if any part is in view)
+        if draw_y + entry_h > view_y and draw_y < view_y + view_h then
+            
+            -- Header (Icon + Name)
+            -- Only draw if header is visible below the mask area
+            if draw_y + S(28) > view_y then
+                gfx.setfont(F.dict_bld)
+
+                if item.ok then
+                    set_color({0.2, 0.8, 0.2, 1}) -- Green
+                    gfx.x, gfx.y = col_x, draw_y
+                    gfx.drawstr("[OK]")
+                else
+                    set_color({1, 0.2, 0.2, 1}) -- Red
+                    gfx.x, gfx.y = col_x, draw_y
+                    gfx.drawstr("[ X ]")
+                end
+                
+                -- Name
+                set_color(UI.C_TXT)
+                gfx.x = col_x + S(50)
+                gfx.y = draw_y
+                gfx.drawstr(item.name)
+            end
+            
+            local line_y = draw_y + S(28)
+            
+            -- Draw cached lines
+            if item.render_lines then
+                for _, line_parts in ipairs(item.render_lines) do
+                    if #line_parts == 0 then
+                        -- Empty line
+                        line_y = line_y + S(22)
+                    else
+                        -- Draw visible lines only
+                        if line_y + S(22) > view_y and line_y < view_y + view_h then
+                            local draw_x = col_x + S(50)
+                            
+                            for j, p in ipairs(line_parts) do
+                                -- Add space if not first
+                                if j > 1 then
+                                    gfx.setfont(F.dict_std_sm)
+                                    set_color({0.7, 0.7, 0.7, 1})
+                                    gfx.x, gfx.y = draw_x, line_y
+                                    local space_w = gfx.measurestr(" ")
+                                    gfx.drawstr(" ")
+                                    draw_x = draw_x + space_w
+                                end
+                                
+                                if p.type == "link" then
+                                    gfx.setfont(F.dict_std_sm)
+                                    set_color({0.3, 0.6, 1, 1})
+                                    gfx.x, gfx.y = draw_x, line_y
+                                    local link_w = gfx.measurestr(p.content)
+                                    gfx.drawstr(p.content)
+                                    
+                                    if is_mouse_clicked() and gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + link_w and
+                                       gfx.mouse_y >= line_y and gfx.mouse_y <= line_y + S(22) then
+                                        reaper.CF_ShellExecute(p.url)
+                                        mouse_handled = true
+                                    end
+                                    draw_x = draw_x + link_w
+                                elseif p.type == "bold" then
+                                    gfx.setfont(F.dict_bld_sm)
+                                    set_color({1, 1, 1, 1})
+                                    gfx.x, gfx.y = draw_x, line_y
+                                    local bold_w = gfx.measurestr(p.content)
+                                    gfx.drawstr(p.content)
+                                    draw_x = draw_x + bold_w
+                                else
+                                    gfx.setfont(F.dict_std_sm)
+                                    set_color({0.7, 0.7, 0.7, 1})
+                                    gfx.x, gfx.y = draw_x, line_y
+                                    local text_w = gfx.measurestr(p.content)
+                                    gfx.drawstr(p.content)
+                                    draw_x = draw_x + text_w
+                                end
+                            end
+                        end
+                        line_y = line_y + S(22)
+                    end
+                end
+            end
+        end
+        draw_y = draw_y + entry_h
+    end
+    
+    -- Header Background (Mask) & Title Elements (Moved here for Z-ordering)
+    -- Opaque background to mask scrolling content (inset to preserve border)
+    set_color({0.15, 0.15, 0.15, 1}) 
+    gfx.rect(bx + S(4), by + S(4), bw - S(8), S(56), 1)
+
+    -- Close Button (Red X)
+    local btn_size = S(24)
+    local cbx, cby = bx + bw - btn_size - S(10), by + S(10)
+    local over_close = gfx.mouse_x >= cbx and gfx.mouse_x <= cbx + btn_size and 
+                      gfx.mouse_y >= cby and gfx.mouse_y <= cby + btn_size
+    
+    if over_close then
+        set_color({0.8, 0.2, 0.2, 1})
+        if is_mouse_clicked() then
+            requirements_state.show = false
+            return
+        end
+    else
+        set_color({0.6, 0.1, 0.1, 1})
+    end
+
+    gfx.rect(cbx, cby, btn_size, btn_size, 1)
+    set_color({1, 1, 1, 1})
+    gfx.line(cbx + 5, cby + 5, cbx + btn_size - 5, cby + btn_size - 5)
+    gfx.line(cbx + btn_size - 5, cby + 5, cbx + 5, cby + btn_size - 5)
+    
+    -- Content Header (Re-drawn over mask)
+    local title = "Налаштування середовища"
+    gfx.setfont(F.dict_bld)
+    set_color(UI.C_TXT)
+    local title_max_w = bw - S(80)
+    local title_display = fit_text_width(title, title_max_w)
+    
+    gfx.x, gfx.y = bx + S(20), by + S(15)
+    gfx.drawstr(title_display)
+
+    -- Scrollbar indicator if needed (thicker for visibility)
+    if total_h > view_h then
+        set_color({0.3, 0.3, 0.3, 1})
+        local sbw = S(8)  -- Increased from S(4)
+        local sbx = bx + bw - sbw - S(4)
+        local progress = requirements_state.scroll_y / max_scroll
+        local sb_track_h = view_h - S(10)
+        local sbh = math.max(S(20), (view_h / total_h) * sb_track_h)
+        local sby = view_y + progress * (sb_track_h - sbh)
+        gfx.rect(sbx, sby, sbw, sbh, 1)
+    end
+
+    mouse_handled = true
 end
 
 --- Open the text editor modal
@@ -11986,8 +12492,6 @@ local function main()
         
         -- Context Menu logic (Right-click on tab bar / empty space)
         -- Must strictly check mouse_handled AND window bounds to avoid global capture.
-        local inside_window = gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= 0 and gfx.mouse_y <= gfx.h
-        
         if inside_window and gfx.mouse_cap == 2 and last_mouse_cap == 0 and not mouse_handled then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local dock_state = gfx.dock(-1)
@@ -12008,6 +12512,9 @@ local function main()
 
     draw_snackbar()
     draw_tooltip()
+    
+    -- Draw Requirements Overlay (top-most priority, but below snackbar/tooltip)
+    draw_requirements_window()
 
     local cur_dock = gfx.dock(-1)
     if cur_dock > 0 and cur_dock ~= last_dock_state then
