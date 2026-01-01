@@ -7519,24 +7519,38 @@ local function draw_prompter_drawer(input_queue)
                     
                     if query == "" or clean_id:find(query, 1, true) or clean_name:find(query, 1, true) then
                         local lines = {}
-                        local current_text = m.name
-                        while #current_text > 0 do
-                            local best_fit = ""
-                            for p, code in utf8.codes(current_text) do
-                                local char = utf8.char(code)
-                                local test_sub = current_text:sub(1, p + #char - 1)
-                                if gfx.measurestr(test_sub) > col_text_w - S(10) then break end
-                                best_fit = test_sub
-                            end
-                            if best_fit == "" then
-                                for p, code in utf8.codes(current_text) do
-                                    best_fit = utf8.char(code)
-                                    break
+                        
+                        -- Split by newlines first
+                        local raw_lines = {}
+                        for line in (m.name .. "\n"):gmatch("(.-)\n") do
+                            table.insert(raw_lines, line)
+                        end
+                        if #raw_lines == 0 then table.insert(raw_lines, "") end
+
+                        for _, raw_line in ipairs(raw_lines) do
+                            local current_text = raw_line
+                            if current_text == "" then
+                                table.insert(lines, "")
+                            else
+                                while #current_text > 0 do
+                                    local best_fit = ""
+                                    for p, code in utf8.codes(current_text) do
+                                        local char = utf8.char(code)
+                                        local test_sub = current_text:sub(1, p + #char - 1)
+                                        if gfx.measurestr(test_sub) > col_text_w - S(10) then break end
+                                        best_fit = test_sub
+                                    end
+                                    if best_fit == "" then
+                                        for p, code in utf8.codes(current_text) do
+                                            best_fit = utf8.char(code)
+                                            break
+                                        end
+                                        if best_fit == "" then best_fit = current_text:sub(1,1) end
+                                    end
+                                    table.insert(lines, best_fit)
+                                    current_text = current_text:sub(#best_fit + 1)
                                 end
-                                if best_fit == "" then best_fit = current_text:sub(1,1) end
                             end
-                            table.insert(lines, best_fit)
-                            current_text = current_text:sub(#best_fit + 1)
                         end
                         
                         local m_h = math.max(1, #lines) * base_row_h
