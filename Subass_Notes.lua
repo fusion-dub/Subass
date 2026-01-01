@@ -9810,9 +9810,83 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 show_snackbar("Немає правок для копіювання", "info")
             end
         elseif ret == 2 then
-            local ok = reaper.MB("Переконайтеся, що у вікні експорту вибрано галочку 'Markers' (а не 'Regions'), щоб експортувати тільки правки.\n\nПродовжити?", "Експорт правок", 1)
-            if ok == 1 then
-                reaper.Main_OnCommand(41758, 0) -- Markers/Regions: Export markers/regions to file
+            if not reaper.JS_Dialog_BrowseForSaveFile then
+                local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
+                if not has_reapack then
+                    msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
+                else
+                    msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
+                end
+                reaper.MB(msg, "Відсутні компоненти", 0)
+                return -- STRICT STOP
+            end
+
+            if #ass_markers == 0 then
+                show_snackbar("Немає правок для експорту", "info")
+                return
+            end
+
+            -- Отримуємо ім'я проекту для дефолтної назви файлу
+            local _, proj_path = reaper.EnumProjects(-1)
+            local proj_name = "Project"
+            if proj_path and proj_path ~= "" then
+                -- Витягуємо ім'я файлу без шляху та розширення (кейс-незалежно)
+                proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
+            end
+            local default_filename = proj_name .. "_правки.csv"
+
+            -- Відкриваємо діалог збереження файлу
+            local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти маркери як CSV", "", default_filename, "CSV files (.csv)\0*.csv\0All Files (*.*)\0*.*\0")
+            
+            if retval == 1 and filename ~= "" then
+                -- Додаємо розширення .csv якщо його немає
+                if not filename:match("%.csv$") then
+                    filename = filename .. ".csv"
+                end
+                
+                -- Відкриваємо файл для запису
+                local file = io.open(filename, "w")
+                if not file then
+                    reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
+                    return
+                end
+                
+                -- Записуємо заголовок CSV
+                file:write("#,Name,Start,Color\n")
+                
+                -- Перебираємо всі маркери (вже захоплені в ass_markers)
+                for _, m in ipairs(ass_markers) do
+                    -- Формуємо ID маркера (M + номер)
+                    local marker_id = "M" .. m.markindex
+                    
+                    -- Конвертуємо позицію у стандартний формат (H:M:S.ms)
+                    local time_str = reaper.format_timestr(m.pos, "")
+                    
+                    -- Екрануємо назву якщо містить коми або лапки
+                    local escaped_name = m.name
+                    if m.name:match('[,"]') then
+                        escaped_name = '"' .. m.name:gsub('"', '""') .. '"'
+                    end
+                    
+                    -- Конвертуємо колір з BGR у RGB hex формат без #
+                    local color_str = ""
+                    if m.color and m.color > 0 then
+                        local r = (m.color & 0xFF)
+                        local g = (m.color >> 8) & 0xFF
+                        local b = (m.color >> 16) & 0xFF
+                        color_str = string.format("%02X%02X%02X", r, g, b)
+                    end
+                    
+                    -- Записуємо рядок у CSV
+                    file:write(string.format("%s,%s,%s,%s\n", 
+                        marker_id,
+                        escaped_name,
+                        time_str,
+                        color_str))
+                end
+                
+                file:close()
+                show_snackbar("Експортовано " .. #ass_markers .. " правок у CSV", "success")
             end
         elseif ret == 3 then
             -- Import
