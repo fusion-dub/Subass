@@ -98,6 +98,7 @@ local col_resize = {
 local requirements_state = {
     show = false,
     checked = false,
+    checking = false, -- New flag for async check status
     sws = false,
     reapack = false,
     js_api = false,
@@ -5971,6 +5972,7 @@ local function get_py_ver()
             if idx > #cmds then
                 requirements_state.python.version = "N/A"
                 requirements_state.python.ok = false
+                requirements_state.checking = false -- Check finished
                 return
             end
             
@@ -5985,7 +5987,9 @@ local function get_py_ver()
                                                     requirements_state.js_api and requirements_state.reaimgui and 
                                                     requirements_state.python.ok)
                         -- If everything became OK, we can potentially hide window or re-layout
+                        if requirements_state.all_ok then requirements_state.show = false end
                     end
+                    requirements_state.checking = false -- Check finished
                 else
                     try_next_cmd(idx + 1)
                 end
@@ -5994,6 +5998,7 @@ local function get_py_ver()
             
         -- Start async chain
         requirements_state.python.version = "Checking..."
+        requirements_state.checking = true -- checking started
         try_next_cmd(1)
         
         -- Return pending state
@@ -6070,6 +6075,23 @@ end
 
 local function draw_requirements_window()
     if not requirements_state.checked then do_check() end
+
+    -- STARTUP LOADING SCREEN (Prevent flash)
+    if requirements_state.checking then
+        -- Backdrop
+        gfx.set(0, 0, 0, 0.7)
+        gfx.rect(0, 0, gfx.w, gfx.h, 1)
+        
+        -- Centered Text
+        gfx.setfont(F.dict_bld)
+        set_color({1, 1, 1, 1})
+        local str = "Checking environment..."
+        local sw, sh = gfx.measurestr(str)
+        gfx.x, gfx.y = (gfx.w - sw)/2, (gfx.h - sh)/2
+        gfx.drawstr(str)
+        return
+    end
+
     if not requirements_state.show then return end
 
     -- Backdrop
@@ -6141,11 +6163,13 @@ local function draw_requirements_window()
         { 
             name = "JS_ReaScriptAPI", 
             ok = requirements_state.js_api, 
+            reapack_search = "js_ReaScriptAPI: API functions for ReaScripts",
             info = "Розширений API для скриптів.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack (див. вище)!\n\n**КРОК 1:** У REAPER відкрийте меню **'Extensions'** (вгорі).\n\n**КРОК 2:** Виберіть **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 3:** У вікні що відкрилося, у полі пошуку вгорі введіть **'js_ReaScriptAPI'**.\n\n**КРОК 4:** Знайдіть пакет 'js_ReaScriptAPI' у списку, клацніть по ньому **ПРАВОЮ кнопкою миші**.\n\n**КРОК 5:** У меню виберіть **'Install'**.\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** натисніть кнопку **'Apply'** внизу вікна ReaPack.\n\n**КРОК 7:** Дочекайтеся завершення встановлення (з'явиться повідомлення)." 
         },
         { 
             name = "ReaImGui", 
             ok = requirements_state.reaimgui, 
+            reapack_search = "ReaImGui: ReaScript binding for Dear ImGui",
             info = "Графічний движок для інтерфейсу оверлея.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack!\n\n**КРОК 1:** Відкрийте **'Extensions'** → **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 2:** У полі пошуку введіть **'ReaImGui'** (без пробілів).\n\n**КРОК 3:** Знайдіть пакет 'ReaImGui' від 'cfillion' у списку результатів.\n\n**КРОК 4:** Клацніть по ньому **ПРАВОЮ кнопкою миші** і виберіть **'Install'**.\n\n**КРОК 5:** Натисніть кнопку **'Apply'** внизу вікна ReaPack (почекайте встановлення).\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** перезапустіть REAPER (навіть якщо не просить)." 
         },
         {
@@ -6275,6 +6299,12 @@ local function draw_requirements_window()
             end
             
             local text_h = #item.render_lines * S(22)
+            
+            -- Extra space for ReaPack button if available
+            if requirements_state.reapack and item.reapack_search then
+                text_h = text_h + S(35)
+            end
+            
             item.entry_h = entry_base_h + text_h + S(20)  -- Add spacing between entries
         end
         total_h = total_h + item.entry_h
@@ -6391,6 +6421,24 @@ local function draw_requirements_window()
                             end
                         end
                         line_y = line_y + S(22)
+                    end
+                end
+                
+                -- Draw "Open in ReaPack" button
+                if requirements_state.reapack and item.reapack_search and not item.ok then
+                    local btn_y = line_y + S(5)
+                    local btn_h = S(24)
+                    local btn_w = S(180)
+                    local btn_x = col_x + S(50)
+                    
+                    if btn_y + btn_h > view_y and btn_y < view_y + view_h then
+                        if btn(btn_x, btn_y, btn_w, btn_h, "Відкрити в ReaPack") then
+                            if reaper.ReaPack_BrowsePackages then
+                                reaper.ReaPack_BrowsePackages(item.reapack_search)
+                            else
+                                reaper.MB("ReaPack не знайдено, хоча перевірка каже ОК.", "Error", 0)
+                            end
+                        end
                     end
                 end
             end
