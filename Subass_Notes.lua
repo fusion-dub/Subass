@@ -8169,13 +8169,11 @@ local function draw_prompter(input_queue)
         
         -- 1. Measure Total Width
         local total_w = 0
-        for _, span in ipairs(line_spans) do
+        local pending_karaoke_comp = 0
+        
+        for i, span in ipairs(line_spans) do
             -- Build flags: 'b' is usually handled by font selection or separate font ID,
             -- but 'i' implies italics. 
-            -- Reaper GFX flags: 'b' (bold)=? No standard flag for Bold in `setfont`, 
-            -- normally you load "Arial Bold" etc. 
-            -- But we can simulate or use flag 'BI' strings if supported? No, setfont takes (id, face, size, flags).
-            -- Flags: 'b', 'i' works on Windows usually.
             
             local f_flags = 0
             local effective_font = font_name
@@ -8196,18 +8194,10 @@ local function draw_prompter(input_queue)
             end
             
             if measure_bold then
-                -- If we already have italic, we might struggle to do both with simple flags.
-                -- Start with Bold flag if Italic handled by name, or try to override?
-                -- Simple fallback: Bold takes precedence in flags if name not changed, 
-                -- or just use 'b' and hope for the best if both? 
-                -- Actually, if we have both, usually we need a specific font face.
-                -- Let's prioritize Bold flag if we didn't change name for Italic.
                 if effective_font == font_name then
                     f_flags = string.byte('b')
                 end
                 
-                -- Improvement: If we have both, maybe append "Bold"? 
-                -- Ideally we'd map "Helvetica Oblique" -> "Helvetica Bold Oblique"
                 if span.i and font_name == "Helvetica" then
                     effective_font = "Helvetica Bold Oblique"
                 end
@@ -8215,18 +8205,99 @@ local function draw_prompter(input_queue)
             
             -- We must setup font to measure
             gfx.setfont(font_slot, effective_font, base_size, f_flags)
-            -- Correct width measurement for stress marks
-            -- If we are going to draw manually, we should measure effectively 0 width for stress mark char?
-            -- Actually, if we correct it visually but return total path width including it, alignment might be off.
-            -- We should measure as if stress mark doesn't exist for layout purposes.
-            local measure_text = span.text:gsub(acute, "") -- Remove stress marks for width calculation
+            
+            local measure_text = span.text:gsub(acute, "")
             if cfg.all_caps then
                 measure_text = utf8_upper(measure_text)
             end
             
-            gfx.setfont(font_slot, effective_font, base_size, f_flags)
+            -- CURRENT WIDTH (Visual)
             span.width = gfx.measurestr(measure_text)
             span.height = gfx.texth
+            
+            -- KARAOKE COMP: If this is a split word, we don't want extra padding YET.
+            -- We want current spans to be tight, and the LAST span of the word to take the expansion.
+            if cfg.karaoke_mode and (font_slot == F.lrg or font_slot == F.nxt) then
+                -- Calculate "Bold" width (Target) vs "Normal" width (If it wasn't bold)
+                -- Actually measure_bold is ALREADY true here.
+                -- So span.width IS the bold width.
+                -- Wait, if the word IS NOT active, it is drawn NORMAL.
+                -- BUT we measure it BOLD to reserve space.
+                -- The issue: "wo" (bold width) + "rd" (bold width) > "word" (normal width) + gap?
+                -- No, the issue is:
+                -- Drawn: "wo" (normal) ... gap ... "rd" (normal)
+                -- because we assigned them BOLD widths.
+                
+                -- We want: Use NORMAL width for layout, but ensure TOTAL "word" width = BOLD width.
+                
+                -- 1. Measure NORMAL width (what will be drawn if inactive)
+                local normal_flags = f_flags
+                local normal_font = effective_font
+                if not span.b then -- strip bold if it was forced
+                     if normal_font == "Helvetica Bold Oblique" then normal_font = "Helvetica Oblique" end
+                     if normal_flags == string.byte('b') then normal_flags = 0 end
+                end
+                
+                gfx.setfont(font_slot, normal_font, base_size, normal_flags)
+                local normal_w = gfx.measurestr(measure_text)
+                
+                -- 2. Measure BOLD width (Target space reservation)
+                -- (Already setup above as 'effective_font' includes bold logic)
+                gfx.setfont(font_slot, effective_font, base_size, f_flags)
+                local target_w = gfx.measurestr(measure_text)
+                
+                -- Check if connected to next span (simple heuristic: neither ends with space?)
+                -- Actually simpler: Is the next span existing and does it NOT start with space?
+                -- And current span does NOT end with space.
+                local is_connected = false
+                if i < #line_spans then
+                    local next_s = line_spans[i+1]
+                    if not span.text:match("%s$") and not next_s.text:match("^%s") then
+                        is_connected = true
+                    end
+                end
+                
+                if is_connected then
+                    -- Use TIGHT width (Normal) for the actual text
+                    span.text_width = normal_w  -- Store actual text width for underlines
+                    
+                    -- FIX: Italic overlap prevention
+                    -- For italic text, we need to measure the ACTUAL italic width (not just add padding)
+                    -- because different fonts have different slant angles
+                    if span.i then
+                        -- Measure with italic flags to get real visual width
+                        local italic_flags = f_flags  -- Already has italic flag from earlier
+                        local italic_font = effective_font  -- Already adjusted for italic
+                        gfx.setfont(font_slot, italic_font, base_size, italic_flags)
+                        local italic_w = gfx.measurestr(measure_text)
+                        span.width = italic_w  -- Use actual italic width for cursor advance
+                    else
+                        span.width = normal_w
+                    end
+
+                    -- Accumulate the missing space reserved for bold
+                    pending_karaoke_comp = pending_karaoke_comp + (target_w - normal_w)
+                else
+                    -- End of word (or single word)
+                    -- Use Target Width + any pending from previous parts
+                    span.width = target_w + pending_karaoke_comp
+                    
+                    -- For text_width, we need the ACTUAL visual width (not the reserved space)
+                    -- This is important for underlines to match the actual text, not the bold reservation
+                    if span.i then
+                        -- Measure actual italic width
+                        local italic_flags = f_flags
+                        local italic_font = effective_font
+                        gfx.setfont(font_slot, italic_font, base_size, italic_flags)
+                        span.text_width = gfx.measurestr(measure_text)
+                    else
+                        span.text_width = normal_w
+                    end
+                    
+                    pending_karaoke_comp = 0
+                end
+            end
+            
             total_w = total_w + span.width
         end
         
@@ -8351,9 +8422,11 @@ local function draw_prompter(input_queue)
                 dash_w = math.max(S(3), dash_w)
                 local gap_w = math.max(S(3), dash_w - S(1))
                 
+                -- Use text_width for proper alignment
+                local comment_width = span.text_width or span.width
                 local cur_dash_x = cursor_x
-                while cur_dash_x < cursor_x + span.width do
-                    local draw_w = math.min(dash_w, cursor_x + span.width - cur_dash_x)
+                while cur_dash_x < cursor_x + comment_width do
+                    local draw_w = math.min(dash_w, cursor_x + comment_width - cur_dash_x)
                     gfx.rect(cur_dash_x, y_base + span.height - 2, draw_w, strip_h, 1)
                     cur_dash_x = cur_dash_x + dash_w + gap_w
                 end
@@ -8363,7 +8436,8 @@ local function draw_prompter(input_queue)
             -- Manual Rendering of Underline / Strikeout
             if span.u then
                 local ly = y_base + span.height - 2
-                gfx.line(cursor_x, ly, cursor_x + span.width, ly)
+                local underline_width = span.text_width or span.width
+                gfx.line(cursor_x, ly, cursor_x + underline_width, ly)
             end
             
             -- Wavy Underline logic
@@ -8372,7 +8446,9 @@ local function draw_prompter(input_queue)
                 local wave_h = S(2)
                 local step = S(3)
                 local x_pos = cursor_x
-                local end_x = cursor_x + span.width
+                -- Use text_width if available (for proper alignment), otherwise fall back to width
+                local underline_width = span.text_width or span.width
+                local end_x = cursor_x + underline_width
                 
                 local up = true
                 while x_pos < end_x do
@@ -8388,7 +8464,8 @@ local function draw_prompter(input_queue)
 
             if span.s then
                 local ly = y_base + span.height / 2
-                gfx.line(cursor_x, ly, cursor_x + span.width, ly)
+                local strikeout_width = span.text_width or span.width
+                gfx.line(cursor_x, ly, cursor_x + strikeout_width, ly)
             end
             
             cursor_x = cursor_x + span.width
