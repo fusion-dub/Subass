@@ -208,7 +208,8 @@ local text_editor_state = {
     active = false,
     focus = true, -- Default to focused when opened
     context_line_idx = nil, -- Index of current line being edited
-    context_all_lines = nil -- All lines for context
+    context_all_lines = nil, -- All lines for context
+    needs_focus_nudge = 0, -- Frames to aggressively request focus
 }
 
 -- Table Filter State
@@ -839,54 +840,35 @@ local function run_async_command(shell_cmd, callback)
     if reaper.GetOS():match("Win") then
         out_file = out_file:gsub("/", "\\")
         done_file = done_file:gsub("/", "\\")
-        
-        -- Windows: Create a temporary batch file to avoid quoting hell with 'start' and 'cmd'
-        local bat_file = path .. "async_exec_" .. id .. ".bat"
-        bat_file = bat_file:gsub("/", "\\")
-        
+        local bat_file = (path .. "async_exec_" .. id .. ".bat"):gsub("/", "\\")
+
         local f_bat = io.open(bat_file, "w")
-        if f_bat then
-            f_bat:write("@echo off\n")
-            f_bat:write("chcp 65001 > NUL\n") -- Force UTF-8
-            -- Check if shell_cmd already has specific redirection. If so, don't double redirect stdout.
-            -- IMPORTANT: Escape '%' to '%%' for Batch files, otherwise URL encoded chars (%20) get mangled!
-            local bat_cmd = shell_cmd:gsub("%%", "%%%%")
-            
-            if bat_cmd:find(">") then
-                f_bat:write(bat_cmd .. "\n")
-            else
-                -- Ensure we capture STDERR too (2>&1), otherwise errors (like 'curl not found') result in empty out_file
-                -- f_bat:write('echo DEBUG_BATCH_STARTED > "' .. out_file .. '"\n')
-                f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\n')
-            end
-            f_bat:write('echo DONE > "' .. done_file .. '"\n')
-            f_bat:close()
-            
-            -- Create a VBScript wrapper to run the BATCH file silently (WindowStyle=0, Wait=False)
-            -- This is the only reliable way to suppress the console window COMPLETELY on Windows.
-            local vbs_file = path .. "async_exec_" .. id .. ".vbs"
-            vbs_file = vbs_file:gsub("/", "\\")
-            
-            local f_vbs = io.open(vbs_file, "w")
-            if f_vbs then
-                f_vbs:write('Dim WShell\n')
-                f_vbs:write('Set WShell = CreateObject("WScript.Shell")\n')
-                -- Run bat_file directly. Quotes needed for paths with spaces.
-                f_vbs:write('WShell.Run """' .. bat_file .. '""", 0, False\n')
-                f_vbs:write('Set WShell = Nothing\n')
-                f_vbs:close()
-                
-                -- Execute the VBScript using wscript.exe
-                reaper.ExecProcess('wscript.exe "' .. vbs_file .. '"', 0)
-            else
-                -- Fallback to direct batch execution if VBS creation fails
-                os.execute('start /B "" "' .. bat_file .. '"')
-            end
+        if not f_bat then return end
+
+        f_bat:write("@echo off\r\n")
+        f_bat:write("chcp 65001 > NUL\r\n")
+
+        local bat_cmd = shell_cmd:gsub("%%", "%%%%")
+
+        if bat_cmd:find(">") then
+            f_bat:write(bat_cmd .. "\r\n")
         else
-            -- Fallback
-            local full_cmd = 'start /B "" cmd /c "' .. shell_cmd .. ' > "' .. out_file .. '" & echo DONE > "' .. done_file .. '"'
-            os.execute(full_cmd)
+            f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
         end
+
+        f_bat:write('echo DONE > "' .. done_file .. '"\r\n')
+
+        f_bat:write('set _self=%~f0\r\n')
+        f_bat:write('cmd /c ping 127.0.0.1 -n 2 > NUL & del "%_self%"\r\n')
+
+        f_bat:close()
+
+        local ps_cmd =
+            'powershell -NoProfile -ExecutionPolicy Bypass ' ..
+            '-WindowStyle Hidden -Command "Start-Process ' ..
+            '\\\"' .. bat_file .. '\\\" -WindowStyle Hidden"'
+
+        reaper.ExecProcess(ps_cmd, 0)
     else
         -- Unix/Mac background execution: &
         -- Use ';' to ensure done file created even on error
@@ -1064,6 +1046,29 @@ local function is_any_text_input_focused()
 end
 
 --- Return focus to REAPER's Arrange View with internal safeguards and aggressive triggers
+local function is_window_focused()
+    if not reaper.JS_Window_GetForeground then return true end
+    local fg_hwnd = reaper.JS_Window_GetForeground()
+    if not fg_hwnd then return false end
+    
+    -- Option A: Check by Title (Robust on macOS)
+    if reaper.JS_Window_GetTitle then
+        local title = reaper.JS_Window_GetTitle(fg_hwnd)
+        if title and title:find("Subass Notes") then return true end
+    end
+    
+    -- Option B: Check if it belongs to REAPER's hierarchy
+    local main_hwnd = reaper.GetMainHwnd()
+    local current = fg_hwnd
+    while current do
+        if current == main_hwnd then return true end
+        if not reaper.JS_Window_GetParent then break end
+        current = reaper.JS_Window_GetParent(current)
+    end
+    
+    return false
+end
+
 local function return_focus_to_reaper(force)
     -- Safeguards: don't steal focus if user is actively typing or manipulating UI
     if not force then
@@ -5929,6 +5934,8 @@ end
 --- @param all_lines table|nil Optional context all lines
 local function open_text_editor(initial_text, callback, line_idx, all_lines)
     text_editor_state.active = true
+    text_editor_state.focus = true -- Auto-focus the input field
+    text_editor_state.needs_focus_nudge = 10 -- Nudge focus for several frames to overcome OS delays
     text_editor_state.text = initial_text or ""
     text_editor_state.cursor = #text_editor_state.text
     text_editor_state.anchor = text_editor_state.cursor
@@ -11439,7 +11446,7 @@ local function draw_table(input_queue)
             set_color(is_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
             gfx.rect(0, border_y, gfx.w, strip_sz, 1)
 
-            if is_hover or director_resize_drag then
+            if (is_hover or director_resize_drag) and is_window_focused() then
                 reaper.SetCursorContext(1, 0)
                 if is_hover and gfx.mouse_cap == 1 and not col_resize.dragging then
                     director_resize_drag = true
@@ -11784,9 +11791,11 @@ reaper.gmem_attach("SubassSync")
 
 local function focus_plugin_window()
     if reaper.JS_Window_Find then
-        local hwnd = reaper.JS_Window_Find(script_title, true)
+        -- Non-exact match (false) is more robust
+        local hwnd = reaper.JS_Window_Find(script_title, false)
         if hwnd then
-            reaper.JS_Window_SetFocus(hwnd)
+            reaper.JS_Window_SetForeground(hwnd) -- Grab OS focus
+            reaper.JS_Window_SetFocus(hwnd) -- Set internal focus
         end
     end
 end
@@ -11794,9 +11803,6 @@ end
 local function handle_remote_commands()
     local cmd_id = reaper.gmem_read(0)
     if cmd_id == 0 then return end
-    
-    -- Focus window when any command received
-    focus_plugin_window()
     
     -- Clear command immediately
     reaper.gmem_write(0, 0)
@@ -11810,6 +11816,7 @@ local function handle_remote_commands()
             if pos >= r.pos and pos < r.rgnend then
                 for i, line in ipairs(ass_lines) do
                     if math.abs(line.t1 - r.pos) < 0.01 and math.abs(line.t2 - r.rgnend) < 0.01 then
+                        focus_plugin_window()
                         open_text_editor(line.text, function(new_text)
                             push_undo("Редагування тексту (Remote)")
                             line.text = new_text
@@ -11839,6 +11846,7 @@ local function handle_remote_commands()
             local next_rgn = regions[current_rgn_idx + 1]
              for i, line in ipairs(ass_lines) do
                 if math.abs(line.t1 - next_rgn.pos) < 0.01 and math.abs(line.t2 - next_rgn.rgnend) < 0.01 then
+                    focus_plugin_window()
                     open_text_editor(line.text, function(new_text)
                         push_undo("Редагування тексту (Remote Next)")
                         line.text = new_text
@@ -11864,6 +11872,7 @@ local function handle_remote_commands()
         -- Find exact match by time
         for i, line in ipairs(ass_lines) do
             if math.abs(line.t1 - t1) < 0.01 and math.abs(line.t2 - t2) < 0.01 then
+                focus_plugin_window()
                 open_text_editor(line.text, function(new_text)
                     push_undo("Редагування тексту (Remote Specific)")
                     line.text = new_text
@@ -11879,6 +11888,13 @@ local function main()
     -- Heartbeat for Lionzz
     reaper.gmem_write(100, reaper.time_precise())
     handle_remote_commands()
+
+    -- Persistently nudge focus if requested (to overcome OS race conditions)
+    if text_editor_state.needs_focus_nudge and text_editor_state.needs_focus_nudge > 0 then
+        focus_plugin_window()
+        text_editor_state.needs_focus_nudge = text_editor_state.needs_focus_nudge - 1
+    end
+
     tooltip_state.text = ""
     tooltip_state.immediate = false
     mouse_handled = false
@@ -11951,8 +11967,10 @@ local function main()
     
     -- Only draw main content if text editor not active
     if not text_editor_state.active then
+        local inside_window = gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= 0 and gfx.mouse_y <= gfx.h
+
         if current_tab == 1 then 
-            handle_drag_drop()
+            if inside_window then handle_drag_drop() end
             draw_file()
         elseif current_tab == 2 then draw_table(input_queue)
         elseif current_tab == 3 then draw_prompter(input_queue) 
