@@ -3689,72 +3689,105 @@ local function import_notes_from_csv(file_path)
     local content = f:read("*all")
     f:close()
     
-    -- Parse CSV
+    -- Parse CSV (RFC 4180 compliant - handles multiline quoted fields)
     local notes = {}
-    local line_num = 0
     
-    for line in content:gmatch("[^\r\n]+") do
-        line_num = line_num + 1
-        line = line:match("^%s*(.-)%s*$") -- Trim
-
-        -- Skip header line and empty lines
-        if line ~= "" and not line:match("^#,Name,Start") then
-            -- Parse CSV with proper quote handling
-            -- Format: M1,"text with, commas",80.3.00,FFC864
-            -- or: M1,simple text,0:40.273
+    -- Character-by-character parser to handle quoted fields with newlines
+    local function parse_csv_content(text)
+        local records = {}
+        local current_record = {}
+        local current_field = ""
+        local in_quotes = false
+        local i = 1
+        
+        while i <= #text do
+            local char = text:sub(i, i)
+            local next_char = text:sub(i+1, i+1)
             
-            local parts = {}
-            local current = ""
-            local in_quotes = false
-            local i = 1
-            
-            while i <= #line do
-                local char = line:sub(i, i)
-                
+            if in_quotes then
                 if char == '"' then
-                    -- Check for escaped quote ""
-                    if i < #line and line:sub(i+1, i+1) == '"' then
-                        current = current .. '"'
+                    if next_char == '"' then
+                        -- Escaped quote ""
+                        current_field = current_field .. '"'
                         i = i + 1
                     else
-                        in_quotes = not in_quotes
+                        -- End of quoted field
+                        in_quotes = false
                     end
-                elseif char == ',' and not in_quotes then
-                    table.insert(parts, current)
-                    current = ""
                 else
-                    current = current .. char
+                    -- Any character inside quotes (including \n, \r)
+                    current_field = current_field .. char
                 end
-                
-                i = i + 1
+            else
+                if char == '"' then
+                    -- Start of quoted field
+                    in_quotes = true
+                elseif char == ',' then
+                    -- Field separator
+                    table.insert(current_record, current_field)
+                    current_field = ""
+                elseif char == '\n' or char == '\r' then
+                    -- End of record (skip \r\n combinations)
+                    if char == '\r' and next_char == '\n' then
+                        i = i + 1
+                    end
+                    if #current_field > 0 or #current_record > 0 then
+                        table.insert(current_record, current_field)
+                        if #current_record > 0 then
+                            table.insert(records, current_record)
+                        end
+                        current_record = {}
+                        current_field = ""
+                    end
+                else
+                    -- Regular character
+                    current_field = current_field .. char
+                end
             end
-            table.insert(parts, current) -- Add last part
             
-            if #parts >= 3 then
-                -- parts[1] = ID (M1, M2, etc)
-                -- parts[2] = Name (text)
-                -- parts[3] = Start (time)
-                -- parts[4] = Color (optional)
-                
-                local name = parts[2]
-                local time_str = parts[3]
-                
-                -- Parse REAPER time format: seconds.frames.subframes (e.g., 80.3.00)
-                -- Or standard format: MM:SS.mmm
-                local time
-                
-                -- Try REAPER format first (NNN.F.SS)
-                local sec, frames = time_str:match("^(%d+)%.%d+%.%d+$")
-                if sec then
-                    time = tonumber(sec)
-                else
-                    -- Try standard timestamp formats
-                    time = parse_notes_timestamp(time_str)
-                end
-                
-                if time and name then
-                    table.insert(notes, {time = time, text = name})
-                end
+            i = i + 1
+        end
+        
+        -- Add last field and record if any
+        if #current_field > 0 or #current_record > 0 then
+            table.insert(current_record, current_field)
+            if #current_record > 0 then
+                table.insert(records, current_record)
+            end
+        end
+        
+        return records
+    end
+    
+    local records = parse_csv_content(content)
+    
+    -- Process parsed records
+    for line_num, parts in ipairs(records) do
+        -- Skip header line (starts with #)
+        if #parts >= 3 and not (parts[1] or ""):match("^#") then
+            -- parts[1] = ID (M1, M2, etc)
+            -- parts[2] = Name (text)
+            -- parts[3] = Start (time)
+            -- parts[4] = Color (optional)
+            
+            local name = parts[2]
+            local time_str = parts[3]
+            
+            -- Parse REAPER time format: seconds.frames.subframes (e.g., 80.3.00)
+            -- Or standard format: MM:SS.mmm
+            local time
+            
+            -- Try REAPER format first (NNN.F.SS)
+            local sec, frames = time_str:match("^(%d+)%.%d+%.%d+$")
+            if sec then
+                time = tonumber(sec)
+            else
+                -- Try standard timestamp formats
+                time = parse_notes_timestamp(time_str)
+            end
+            
+            if time and name then
+                table.insert(notes, {time = time, text = name})
             end
         end
     end
@@ -10461,7 +10494,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
 
                 local out_lines = {}
                 for _, act in ipairs(actors_list) do
-                    table.insert(out_lines, act)
+                    table.insert(out_lines,"⭐ " .. act)
                     -- Sort markers by time
                     table.sort(groups[act], function(a, b) return a.time < b.time end)
                     
@@ -10530,9 +10563,9 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                     -- Конвертуємо позицію у стандартний формат (H:M:S.ms)
                     local time_str = reaper.format_timestr(m.pos, "")
                     
-                    -- Екрануємо назву якщо містить коми або лапки
+                    -- Екрануємо назву якщо містить коми, лапки або переходи на новий рядок
                     local escaped_name = m.name
-                    if m.name:match('[,"]') then
+                    if m.name:match('[,"\n\r]') then
                         escaped_name = '"' .. m.name:gsub('"', '""') .. '"'
                     end
                     
