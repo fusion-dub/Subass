@@ -4547,9 +4547,35 @@ local function toggle_reaper_startup(enable)
     end
     
     if enable then
+        -- Find Command ID for better isolation
+        local cmd_id = nil
+        local kb_path = resource_path .. "/reaper-kb.ini"
+        local f_kb = io.open(kb_path, "r")
+        if f_kb then
+            local escaped_path = script_path:gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])", "%%%1")
+            for line in f_kb:lines() do
+                if line:find(escaped_path) then
+                    local rs_part = line:match("RS([%a%d]+)")
+                    if rs_part then
+                        cmd_id = "_RS" .. rs_part
+                        break
+                    end
+                end
+            end
+            f_kb:close()
+        end
+
+        local launch_cmd
+        if cmd_id then
+            launch_cmd = string.format("reaper.defer(function() reaper.Main_OnCommand(reaper.NamedCommandLookup(\"%s\"), 0) end)", cmd_id)
+        else
+            -- Fallback to dofile if not registered
+            launch_cmd = string.format("reaper.defer(function() dofile([[%s]]) end)", script_path)
+        end
+
         -- Add at the beginning to ensure it runs
         table.insert(new_lines, 1, tag_end)
-        table.insert(new_lines, 1, string.format("reaper.defer(function() dofile([[%s]]) end)", script_path))
+        table.insert(new_lines, 1, launch_cmd)
         table.insert(new_lines, 1, tag_start)
     end
     
