@@ -2962,6 +2962,44 @@ local function load_director_actors_from_state()
     end
 end
 
+--- Add actors to director_actors list if not already present
+--- @param new_actors table|string Table of actor names or string containing [Actor] prefix
+local function ensure_director_actors(new_actors)
+    if not new_actors then return end
+    local actors_to_add = {}
+    
+    if type(new_actors) == "string" then
+        -- Extract from [Name] or [Name 1, Name 2] at the start of string
+        local bracket_content = new_actors:match("^%[([^%]]+)%]")
+        if bracket_content then
+            for name in bracket_content:gmatch("[^,]+") do
+                name = name:match("^%s*(.-)%s*$") -- Trim
+                if name ~= "" then table.insert(actors_to_add, name) end
+            end
+        end
+    elseif type(new_actors) == "table" then
+        actors_to_add = new_actors
+    end
+    
+    local changed = false
+    local existing = {}
+    for _, a in ipairs(director_actors) do existing[a] = true end
+    
+    for _, name in ipairs(actors_to_add) do
+        if name and name ~= "" and not existing[name] then
+            table.insert(director_actors, name)
+            existing[name] = true
+            changed = true
+        end
+    end
+    
+    if changed then
+        -- Sort actors alphabetically for better UI
+        table.sort(director_actors)
+        save_project_data()
+    end
+end
+
 --- Load project data from ProjectExtState
 local function load_project_data()
     -- ALWAYS reset state first
@@ -3818,6 +3856,10 @@ local function import_notes()
     -- Finalize notes list for creation
     local notes = {}
     for _, note in ipairs(merged_notes) do
+        if #note.actors > 0 then
+            ensure_director_actors(note.actors)
+        end
+
         local final_text = note.text
         if #note.actors > 0 then
             table.sort(note.actors) -- Sort actors alphabetically for consistency
@@ -3990,6 +4032,7 @@ local function import_notes_from_csv(file_path)
             end
             
             if time and name then
+                ensure_director_actors(name)
                 table.insert(notes, {time = time, text = name})
             end
         end
@@ -10550,19 +10593,25 @@ end
 -- Helper: Rename actor globally in all project markers
 local function rename_actor_globally(old_name, new_name)
     local count = 0
-    -- Escape magic characters for pattern matching
-    local old_pat = "^%[" .. old_name:gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])", "%%%1") .. "%]%s*"
     
     -- 1. Update Project Markers/Regions
     local i = 0
     while true do
-        local retval, isrgn, pos, rgnend, name, markindex = reaper.EnumProjectMarkers3(0, i)
+        local retval, isrgn, pos, rgnend, mark_name, markindex = reaper.EnumProjectMarkers3(0, i)
         if not retval or retval == 0 then break end
         
-        -- Check if marker starts with [OldName]
-        if name:match(old_pat) then
-            local clean_text = name:gsub(old_pat, "")
-            local new_text = "[" .. new_name .. "] " .. clean_text
+        local actors, actor_set = get_actors_from_text(mark_name)
+        if actor_set[old_name] then
+            -- Replace in the list
+            local new_actors = {}
+            for _, a in ipairs(actors) do
+                table.insert(new_actors, (a == old_name) and new_name or a)
+            end
+            
+            -- Rebuild text
+            local clean_text = mark_name:gsub("^%[.-%]%s*", "")
+            local new_text = "[" .. table.concat(new_actors, ", ") .. "] " .. clean_text
+            
             reaper.SetProjectMarker4(0, markindex, isrgn, pos, rgnend, new_text, 0, 0)
             count = count + 1
         end
@@ -10581,8 +10630,6 @@ end
 -- Helper: Delete actor prefix globally in all project markers
 local function delete_actor_globally(name)
     local count = 0
-    -- Escape magic characters for pattern matching
-    local pattern = "^%[" .. name:gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])", "%%%1") .. "%]%s*"
     
     -- 1. Update Project Markers/Regions
     local i = 0
@@ -10590,8 +10637,21 @@ local function delete_actor_globally(name)
         local retval, isrgn, pos, rgnend, mark_name, markindex = reaper.EnumProjectMarkers3(0, i)
         if not retval or retval == 0 then break end
         
-        if mark_name:match(pattern) then
-            local new_text = mark_name:gsub(pattern, "")
+        local actors, actor_set = get_actors_from_text(mark_name)
+        if actor_set[name] then
+            -- Remove from the list
+            local new_actors = {}
+            for _, a in ipairs(actors) do
+                if a ~= name then table.insert(new_actors, a) end
+            end
+            
+            -- Rebuild text
+            local clean_text = mark_name:gsub("^%[.-%]%s*", "")
+            local new_text = clean_text
+            if #new_actors > 0 then
+                new_text = "[" .. table.concat(new_actors, ", ") .. "] " .. clean_text
+            end
+            
             reaper.SetProjectMarker4(0, markindex, isrgn, pos, rgnend, new_text, 0, 0)
             count = count + 1
         end
@@ -10958,7 +11018,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 mouse_handled = true
 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str2 = "Змінити ім'я|Видалити"
+                local menu_str2 = "Змінити ім'я|Видалити ім'я"
                 local ret2 = gfx.showmenu(menu_str2)
                 if ret2 == 1 then
                     -- RENAME
@@ -10975,6 +11035,11 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                             table.remove(director_actors, i)
                             save_project_data(last_project_id)
                             local ops = rename_actor_globally(actor, new_name)
+
+                            -- Force prompter drawer caches to refresh
+                            prompter_drawer.marker_cache.count = -1
+                            prompter_drawer.filtered_cache.state_count = -1
+                            prompter_drawer.has_markers_cache.count = -1
                             
                             -- Update Input if needed
                             local list, set = get_actors_from_text(director_state.input.text)
@@ -10993,6 +11058,11 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                             director_actors[i] = new_name
                             save_project_data(last_project_id)
                             local ops = rename_actor_globally(actor, new_name)
+
+                            -- Force prompter drawer caches to refresh
+                            prompter_drawer.marker_cache.count = -1
+                            prompter_drawer.filtered_cache.state_count = -1
+                            prompter_drawer.has_markers_cache.count = -1
                             
                             -- Update Input if needed
                             local list, set = get_actors_from_text(director_state.input.text)
@@ -11010,12 +11080,17 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                     end
                 elseif ret2 == 2 then
                     -- DELETE
-                    local ok = reaper.MB("Ви дійсно хочете видалити актора '" .. actor .. "'? Це видалить його префікс з усіх правок.", "Підтвердження", 4)
+                    local ok = reaper.MB("Ви дійсно хочете видалити ім'я актора '" .. actor .. "'? Це видалить його префікс з усіх правок, але не самі правки.", "Підтвердження", 4)
                     if ok == 6 then
                         push_undo("Видалити актора '" .. actor .. "' (Режисер)")
                         table.remove(director_actors, i)
                         save_project_data(last_project_id)
                         local ops = delete_actor_globally(actor)
+
+                        -- Force prompter drawer caches to refresh
+                        prompter_drawer.marker_cache.count = -1
+                        prompter_drawer.filtered_cache.state_count = -1
+                        prompter_drawer.has_markers_cache.count = -1
                         
                         -- Update Input if needed
                         local list, set = get_actors_from_text(director_state.input.text)
