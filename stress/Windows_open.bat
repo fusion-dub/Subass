@@ -3,7 +3,7 @@ chcp 65001 >nul
 cls
 
 echo ================================================
-echo   🇺🇦 Ukrainian Stress Tool
+echo    Ukrainian Stress Tool
 echo ================================================
 echo.
 
@@ -19,12 +19,12 @@ if %ERRORLEVEL% EQU 0 (
     if %ERRORLEVEL% EQU 0 (
         python3 ukrainian_stress_tool.py
     ) else (
-        echo ❌ Помилка: Python не знайдено!
+        echo Error: Python not found!
         echo.
-        echo Будь ласка, встановіть Python 3.9 або новіше:
+        echo Please install Python 3.9 or newer:
         echo https://www.python.org/downloads/
         echo.
-        echo Або встановіть через winget:
+        echo Or install via winget:
         echo winget install -e --id Python.Python.3.11
         echo.
         pause
@@ -33,5 +33,5 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 echo.
-echo Сервер зупинено.
+echo Server stopped.
 pause
