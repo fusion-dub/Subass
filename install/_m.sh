@@ -48,11 +48,26 @@ else
 fi
 
 # 4. Download Extensions
+ARCH=$(uname -m)
+if [ "$ARCH" = "arm64" ]; then
+    echo "Вибрано архітектуру Apple Silicon (ARM64)"
+    PACK_URL="https://reapack.com/download/reaper_reapack-arm64.dylib"
+    SWS_URL="https://www.sws-extension.org/download/pre-release/reaper_sws-arm64.dylib"
+    JS_URL="https://github.com/juliansader/ReaExtensions/raw/master/js_ReaScriptAPI/v1.310/reaper_js_ReaScriptAPI64ARM.dylib"
+    IMGUI_URL="https://github.com/cfillion/reaimgui/releases/latest/download/reaper_imgui-arm64.dylib"
+else
+    echo "Вибрано архітектуру Intel (x86_64)"
+    PACK_URL="https://reapack.com/download/reaper_reapack-x86_64.dylib"
+    SWS_URL="https://www.sws-extension.org/download/pre-release/reaper_sws-x86_64.dylib"
+    JS_URL="https://github.com/juliansader/ReaExtensions/raw/master/js_ReaScriptAPI/v1.310/reaper_js_ReaScriptAPI64.dylib"
+    IMGUI_URL="https://github.com/cfillion/reaimgui/releases/latest/download/reaper_imgui-x86_64.dylib"
+fi
+
 declare -A EXTS=(
-    ["ReaPack"]="https://reapack.com/download/reaper_reapack-x86_64.dylib"
-    ["SWS Extension"]="https://www.sws-extension.org/download/pre-release/reaper_sws-x86_64.dylib"
-    ["js_ReaScriptAPI"]="https://github.com/juliansader/ReaExtensions/raw/master/js_ReaScriptAPI/reaper_js_ReaScriptAPI.dylib"
-    ["ReaImGui"]="https://github.com/cfillion/reaimgui/releases/latest/download/reaper_imgui-x86_64.dylib"
+    ["ReaPack"]="$PACK_URL"
+    ["SWS Extension"]="$SWS_URL"
+    ["js_ReaScriptAPI"]="$JS_URL"
+    ["ReaImGui"]="$IMGUI_URL"
 )
 
 for NAME in "${(@k)EXTS}"; do
