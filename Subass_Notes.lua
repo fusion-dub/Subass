@@ -4344,18 +4344,36 @@ apply_stress_marks_async = function()
         local info = debug.getinfo(1, "S")
         local path = info.source
         if path:sub(1, 1) == "@" then path = path:sub(2) end
-        local dir = path:match("(.*[\\/])")
-
-        if not dir then 
-            dir = reaper.GetResourcePath() .. "/Scripts/" 
+        
+        -- Fallback: try to get absolute path from action context if path is just a filename
+        if not path:find("[\\/]") then
+            local _, filename = reaper.get_action_context()
+            if filename and filename ~= "" and filename:find("[\\/]") then
+                path = filename
+            end
         end
 
         local separator = package.config:sub(1, 1)
-        if dir:sub(-1):match("[\\/]") then
-            return dir .. "stress" .. separator
-        else
-            return dir .. separator .. "stress" .. separator
+        local opposite_sep = (separator == "/" and "\\" or "/")
+        
+        -- Normalize path separators
+        path = path:gsub(opposite_sep, separator)
+        
+        -- Extract the directory part (everything up to the last separator)
+        local dir = path:gsub("[^" .. (separator == "\\" and "\\\\" or separator) .. "]*$", "")
+
+        if not dir or dir == "" then 
+            -- Ultimate fallback to ResourcePath/Scripts
+            dir = reaper.GetResourcePath() .. separator .. "Scripts" .. separator
+            dir = dir:gsub(opposite_sep, separator)
         end
+
+        -- Ensure trailing separator and append 'stress'
+        if dir:sub(-1) ~= separator then
+            dir = dir .. separator
+        end
+        
+        return dir .. "stress" .. separator
     end
     local script_path = get_actual_script_path()
 
@@ -4393,8 +4411,8 @@ apply_stress_marks_async = function()
                     end
                     -- More aggressive yielding to prevent "Export Text" freeze
                     if (i % 50 == 0) and (os.clock() - time_batch_start > 0.01) then
-                         coroutine.yield()
-                         time_batch_start = os.clock()
+                        coroutine.yield()
+                        time_batch_start = os.clock()
                     end
                 end
                 
@@ -4503,10 +4521,22 @@ end
 --- Get current script absolute path
 local function get_script_path()
     local info = debug.getinfo(1, 'S')
+    local path = ""
     if info and info.source then
-        return info.source:match("@?(.*)")
+        path = info.source:match("@?(.*)")
     end
-    return ""
+    
+    -- Fallback: try to get absolute path from action context
+    if path == "" or not path:find("[\\/]") then
+        local _, filename = reaper.get_action_context()
+        if filename and filename ~= "" then
+            path = filename
+        end
+    end
+
+    local separator = package.config:sub(1, 1)
+    local opposite_sep = (separator == "/" and "\\" or "/")
+    return path:gsub(opposite_sep, separator)
 end
 
 --- Manage REAPER startup script. Edit REAPER __startup.lua file with our startup logic
