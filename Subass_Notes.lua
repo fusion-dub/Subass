@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 2.6
+-- @version 2.7
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v2.6"
+local script_title = "Subass Notes v2.7"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -3532,6 +3532,7 @@ local function import_notes()
         "• MM:SS - текст\n" ..
         "• MM:SS - MM:SS - текст (діапазон)\n" ..
         "• #N - текст (індекс регіону)\n" ..
+        "• ⭐ Ім'я (групування за актором)\n" ..
         "• Багаторядковий текст",
         "Імпорт правок",
         1  -- OK/Cancel
@@ -3547,82 +3548,144 @@ local function import_notes()
     end
     
     -- Parse input
-    local notes = {}
+    local raw_notes = {}
     local failed_lines = {} -- Track lines that couldn't be parsed
+    local current_actor = nil -- Track active actor (single, persistent)
     
     for line in input:gmatch("[^\r\n]+") do
         line = line:match("^%s*(.-)%s*$") -- Trim
         if line ~= "" then
             local matched = false
             
-            -- Check if line starts with timestamp or # (new entry)
-            -- If not, it's a continuation of previous note
-            local is_continuation = not line:match("^[#%d]")
-            
-            if is_continuation and #notes > 0 then
-                -- Append to last note's text
-                notes[#notes].text = notes[#notes].text .. "\n" .. line
+            -- Check for actor line: ⭐ Name
+            local actor_name = line:match("^⭐%s*(.+)$")
+            if actor_name then
+                actor_name = actor_name:match("^%s*(.-)%s*$") -- Trim
+                if actor_name == "-- без актора --" then
+                    current_actor = nil -- Clear active actor
+                else
+                    current_actor = actor_name -- Set new persistent actor
+                end
                 matched = true
             else
-                -- Try region index format first: #N - text
-                local region_idx, note_text = line:match("^#(%d+)%s*%-%s*(.+)$")
-                if region_idx then
-                    region_idx = tonumber(region_idx)
-                    
-                    -- Find region by index in ass_lines
-                    local found = false
-                    if ass_lines then
-                        for _, ass_line in ipairs(ass_lines) do
-                            if ass_line.index == region_idx then
-                                table.insert(notes, {time = ass_line.t1, text = note_text})
-                                found = true
-                                matched = true
-                                break
+                -- Check if line starts with timestamp or # (new entry)
+                -- If not, it's a continuation of previous note
+                local is_continuation = not line:match("^[#%d]")
+                
+                if is_continuation and #raw_notes > 0 then
+                    -- Append to last note's text
+                    raw_notes[#raw_notes].text = raw_notes[#raw_notes].text .. "\n" .. line
+                    matched = true
+                else
+                    -- Try region index format first: #N - text
+                    local region_idx, note_text = line:match("^#(%d+)%s*%-%s*(.+)$")
+                    if region_idx then
+                        region_idx = tonumber(region_idx)
+                        
+                        -- Find region by index in ass_lines
+                        local found = false
+                        if ass_lines then
+                            for _, ass_line in ipairs(ass_lines) do
+                                if ass_line.index == region_idx then
+                                    table.insert(raw_notes, {time = ass_line.t1, text = note_text, actor = current_actor})
+                                    found = true
+                                    matched = true
+                                    break
+                                end
                             end
                         end
-                    end
-                    
-                    if not found then
-                        table.insert(failed_lines, line)
-                    end
-                else
-                    -- More precise timestamp pattern that doesn't capture text
-                    -- Match: digits, then colons/dots with digits, ending before " - "
-                    -- Examples: 2:26, 02:38.080, 1:2:26, 2.30
-                    
-                    -- Try to match time range format: TIME - TIME - text
-                    -- Pattern: capture timestamp, space-dash-space, another timestamp, space-dash-space, then text
-                    local time1_str, time2_str, note_text = line:match("^([%d:.]+)%s*%-%s*([%d:.]+)%s*%-%s*(.+)$")
-                    
-                    if time1_str and time2_str and note_text then
-                        -- Time range format: create marker at first time with end time in text
-                        local time1 = parse_notes_timestamp(time1_str)
-                        local time2 = parse_notes_timestamp(time2_str)
-                        if time1 and time2 then
-                            local full_text = string.format("аж до %s - %s", time2_str, note_text)
-                            table.insert(notes, {time = time1, text = full_text})
-                            matched = true
-                        else
+                        
+                        if not found then
                             table.insert(failed_lines, line)
                         end
                     else
-                        -- Try single time format: TIME - text
-                        time1_str, note_text = line:match("^([%d:.]+)%s*%-%s*(.+)$")
-                        if time1_str and note_text then
-                            local time = parse_notes_timestamp(time1_str)
-                            if time then
-                                table.insert(notes, {time = time, text = note_text})
+                        -- More precise timestamp pattern that doesn't capture text
+                        -- Match: digits, then colons/dots with digits, ending before " - "
+                        -- Examples: 2:26, 02:38.080, 1:2:26, 2.30
+                        
+                        -- Try to match time range format: TIME - TIME - text
+                        -- Pattern: capture timestamp, space-dash-space, another timestamp, space-dash-space, then text
+                        local time1_str, time2_str, note_text = line:match("^([%d:.]+)%s*%-%s*([%d:.]+)%s*%-%s*(.+)$")
+                        
+                        if time1_str and time2_str and note_text then
+                            -- Time range format: create marker at first time with end time in text
+                            local time1 = parse_notes_timestamp(time1_str)
+                            local time2 = parse_notes_timestamp(time2_str)
+                            if time1 and time2 then
+                                local full_text = string.format("аж до %s - %s", time2_str, note_text)
+                                table.insert(raw_notes, {time = time1, text = full_text, actor = current_actor})
                                 matched = true
                             else
                                 table.insert(failed_lines, line)
                             end
                         else
-                            table.insert(failed_lines, line)
+                            -- Try single time format: TIME - text
+                            time1_str, note_text = line:match("^([%d:.]+)%s*%-%s*(.+)$")
+                            if time1_str and note_text then
+                                local time = parse_notes_timestamp(time1_str)
+                                if time then
+                                    table.insert(raw_notes, {time = time, text = note_text, actor = current_actor})
+                                    matched = true
+                                else
+                                    table.insert(failed_lines, line)
+                                end
+                            else
+                                table.insert(failed_lines, line)
+                            end
                         end
                     end
                 end
             end
         end
+    end
+
+    -- Merge duplicate notes (same time and text) and combine actors
+    local merged_notes = {}
+    local note_map = {} -- key: "time_text", value: index in merged_notes
+
+    for _, note in ipairs(raw_notes) do
+        -- Create a unique key for matching duplicates (using formatted time to avoid float precision issues)
+        local key = string.format("%.3f_%s", note.time, note.text)
+        
+        if note_map[key] then
+            -- Note exists, check if we need to add actor
+            local existing_note = merged_notes[note_map[key]]
+            if note.actor then
+                -- Check if actor is already in the list
+                local has_actor = false
+                for _, act in ipairs(existing_note.actors) do
+                    if act == note.actor then has_actor = true; break; end
+                end
+                
+                if not has_actor then
+                    table.insert(existing_note.actors, note.actor)
+                end
+            end
+        else
+            -- New unique note
+            local new_entry = {
+                time = note.time,
+                text = note.text,
+                actors = {}
+            }
+            if note.actor then
+                table.insert(new_entry.actors, note.actor)
+            end
+            table.insert(merged_notes, new_entry)
+            note_map[key] = #merged_notes
+        end
+    end
+    
+    -- Finalize notes list for creation
+    local notes = {}
+    for _, note in ipairs(merged_notes) do
+        local final_text = note.text
+        if #note.actors > 0 then
+            table.sort(note.actors) -- Sort actors alphabetically for consistency
+            local actor_prefix = "[" .. table.concat(note.actors, ", ") .. "] "
+            final_text = actor_prefix .. final_text
+        end
+        table.insert(notes, {time = note.time, text = final_text})
     end
 
     if #notes == 0 then
