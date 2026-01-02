@@ -1634,17 +1634,45 @@ local function clean_html(html)
 end
 
 --- Parse mixed text with <a> tags into segments
-local function parse_rich_text(html)
+local function hex_to_rgb(hex)
+    local h = hex:lower()
+    -- Remap dark blues to lighter shades for dark background
+    if h == "#000080" then return {0.4, 0.7, 1.0, 1} end -- Was Navy, now Light Blue
+    if h == "#333399" then return {0.6, 0.7, 1.0, 1} end -- Was Dark Periwinkle, now Lighter
+    
+    hex = hex:gsub("#","")
+    if #hex == 3 then
+        local r = tonumber("0x"..hex:sub(1,1)..hex:sub(1,1))
+        local g = tonumber("0x"..hex:sub(2,2)..hex:sub(2,2))
+        local b = tonumber("0x"..hex:sub(3,3)..hex:sub(3,3))
+        return {r/255, g/255, b/255, 1}
+    elseif #hex == 6 then
+        local r = tonumber("0x"..hex:sub(1,2))
+        local g = tonumber("0x"..hex:sub(3,4))
+        local b = tonumber("0x"..hex:sub(5,6))
+        return {r/255, g/255, b/255, 1}
+    end
+    return nil
+end
+
+local function parse_rich_text(html, inherited)
     local segments = {}
     local remaining = html:gsub("%s+", " ")
+    inherited = inherited or {}
     
     local tags = {
-        { tag = "a", pattern = "<a%s+([^>]-)>([^\0]-)</a>" },
-        { tag = "span", pattern = "<span%s+([^>]-)>([^\0]-)</span>" },
-        { tag = "b", pattern = "<b[^>]*>([^\0]-)</b>" },
-        { tag = "strong", pattern = "<strong[^>]*>([^\0]-)</strong>" },
-        { tag = "i", pattern = "<i[^>]*>([^\0]-)</i>" },
-        { tag = "em", pattern = "<em[^>]*>([^\0]-)</em>" }
+        { tag = "a",      pattern = "<a%s+([^>]-)>([^\0]-)</a>" },
+        { tag = "span",   pattern = "<span%s+([^>]-)>([^\0]-)</span>" },
+        { tag = "b",      pattern = "<b([^>]-)>([^\0]-)</b>" },
+        { tag = "strong", pattern = "<strong([^>]-)>([^\0]-)</strong>" },
+        { tag = "i",      pattern = "<i([^>]-)>([^\0]-)</i>" },
+        { tag = "em",     pattern = "<em([^>]-)>([^\0]-)</em>" }
+    }
+    
+    -- Fallback for tags without any attributes/spaces
+    local tags_fallback = {
+        { tag = "a",      pattern = "<a()>([^\0]-)</a>" },
+        { tag = "span",   pattern = "<span()>([^\0]-)</span>" }
     }
     
     while #remaining > 0 do
@@ -1655,14 +1683,7 @@ local function parse_rich_text(html)
         local chosen_text = ""
         
         for _, t in ipairs(tags) do
-            local s, e, a, txt
-            if t.tag == "a" or t.tag == "span" then
-                s, e, a, txt = remaining:find(t.pattern)
-            else
-                s, e, txt = remaining:find(t.pattern)
-                a = ""
-            end
-            
+            local s, e, a, txt = remaining:find(t.pattern)
             if s and s < best_start then
                 best_start = s
                 best_end = e
@@ -1672,54 +1693,82 @@ local function parse_rich_text(html)
             end
         end
         
+        for _, t in ipairs(tags_fallback) do
+            local s, e, a, txt = remaining:find(t.pattern)
+            if s and s < best_start then
+                best_start = s
+                best_end = e
+                chosen_tag = t.tag
+                chosen_attr = ""
+                chosen_text = txt or ""
+            end
+        end
+        
         if chosen_tag then
-            -- Prefix (plain text before tag)
+            -- Prefix
             local prefix = remaining:sub(1, best_start - 1)
             if #prefix > 0 then
-                table.insert(segments, {text = clean_html(prefix)})
+                table.insert(segments, {
+                    text = clean_html(prefix),
+                    is_bold = inherited.is_bold,
+                    is_italic = inherited.is_italic,
+                    is_plain = inherited.is_plain,
+                    color = inherited.color,
+                    is_link = inherited.is_link,
+                    word = inherited.word
+                })
             end
             
-            -- Tag specific logic
+            local next_inherited = {
+                is_bold = inherited.is_bold,
+                is_italic = inherited.is_italic,
+                is_plain = inherited.is_plain,
+                color = inherited.color,
+                is_link = inherited.is_link,
+                word = inherited.word
+            }
+            
             if chosen_tag == "a" then
                 local word = chosen_attr:match('href=".-/([^/"]+)"') or chosen_text
                 word = url_decode(clean_html(word)):gsub("^%s+", ""):gsub("%s+$", "")
-                table.insert(segments, {
-                    text = clean_html(chosen_text),
-                    is_link = true,
-                    word = word
-                })
+                next_inherited.is_link = true
+                next_inherited.word = word
             elseif chosen_tag == "span" then
-                local is_plain_class = chosen_attr:find('short.interpret') or chosen_attr:find('interpret') or 
-                    chosen_attr:find('remark') or 
-                    chosen_attr:find('gram') or 
-                    chosen_attr:find('info') or
-                    chosen_attr:find('description') or
-                    chosen_attr:find('term') or
-                    chosen_attr:find('note') or
-                    chosen_attr:find('interpret%-formula')
-               
-                -- Support nested tags within span by recursive parsing
-                local inner_segments = parse_rich_text(chosen_text)
-                for _, s in ipairs(inner_segments) do
-                    if is_plain_class then s.is_plain = true end
-                    table.insert(segments, s)
+                local attr_lower = chosen_attr:lower()
+                local is_plain_class = attr_lower:find('short.interpret') or attr_lower:find('interpret') or 
+                    attr_lower:find('remark') or attr_lower:find('gram') or 
+                    attr_lower:find('info') or attr_lower:find('description') or
+                    attr_lower:find('term') or attr_lower:find('note') or
+                    attr_lower:find('interpret%-formula')
+                
+                if is_plain_class then next_inherited.is_plain = true end
+                
+                -- Extract color
+                local color_hex = chosen_attr:match("[Cc][Oo][Ll][Oo][Rr]%s*:%s*(#[0-9a-fA-F]+)")
+                if color_hex then
+                    next_inherited.color = hex_to_rgb(color_hex)
                 end
-            elseif chosen_tag == "b" or chosen_tag == "strong"  then
-                table.insert(segments, {
-                    text = clean_html(chosen_text),
-                    is_bold = true
-                })
+            elseif chosen_tag == "b" or chosen_tag == "strong" then
+                next_inherited.is_bold = true
             elseif chosen_tag == "i" or chosen_tag == "em" then
-                table.insert(segments, {
-                    text = clean_html(chosen_text),
-                    is_italic = true,
-                    is_plain = true
-                })
+                next_inherited.is_italic = true
+                next_inherited.is_plain = true
             end
+            
+            local inner = parse_rich_text(chosen_text, next_inherited)
+            for _, s in ipairs(inner) do table.insert(segments, s) end
             
             remaining = remaining:sub(best_end + 1)
         else
-            table.insert(segments, {text = clean_html(remaining)})
+            table.insert(segments, {
+                text = clean_html(remaining),
+                is_bold = inherited.is_bold,
+                is_italic = inherited.is_italic,
+                is_plain = inherited.is_plain,
+                color = inherited.color,
+                is_link = inherited.is_link,
+                word = inherited.word
+            })
             remaining = ""
         end
     end
@@ -1731,15 +1780,31 @@ local function parse_rich_text(html)
         seg.is_link = seg.is_link or false
         seg.is_plain = (seg.is_plain == true) -- Force boolean
         seg.is_bold = seg.is_bold or false
+        seg.is_italic = seg.is_italic or false
         seg.word = seg.word or ""
+        -- Color comparison logic needs to be careful with tables
         
         if #seg.text > 0 or seg.is_link then
             local last = merged[#merged]
+            
+            -- Helper to compare colors
+            local colors_match = false
+            if not last then
+                 -- No last segment
+            elseif not last.color and not seg.color then
+                colors_match = true
+            elseif last.color and seg.color then
+                colors_match = (last.color[1] == seg.color[1] and 
+                                last.color[2] == seg.color[2] and 
+                                last.color[3] == seg.color[3])
+            end
+
             local can_merge = last and 
                 (last.is_link == seg.is_link) and 
                 (last.is_plain == seg.is_plain) and 
                 (last.is_bold == seg.is_bold) and
                 (last.is_italic == seg.is_italic) and
+                colors_match and
                 (not seg.is_link or (last.word == seg.word))
            
             if can_merge then
@@ -1748,8 +1813,11 @@ local function parse_rich_text(html)
                 table.insert(merged, {
                     text = seg.text,
                     is_link = seg.is_link,
+                    is_plain = seg.is_plain,
+                    is_bold = seg.is_bold,
+                    is_italic = seg.is_italic,
                     word = seg.word,
-                    is_plain = seg.is_plain, is_bold = seg.is_bold, is_italic = seg.is_italic
+                    color = seg.color
                 })
             end
         end
@@ -1770,10 +1838,17 @@ local function parse_dictionary_table_html(table_html)
             local colspan = tonumber(cell_attr:match('colspan="?(%d+)"?')) or 1
             local rowspan = tonumber(cell_attr:match('rowspan="?(%d+)"?')) or 1
             local is_cell_header = cell_attr:find('class="[^"]*header[^"]*"')
+            
+            -- Use rich text parsing for cell content to support colors/styles
+            local segments = parse_rich_text(cell_html)
+            
+            -- Also keep a plain text version for debugging or fallback if needed
             local cleaned = clean_html(cell_html)
             cleaned = cleaned:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+            
             table.insert(row_data.cells, {
                 text = cleaned,
+                segments = segments,
                 colspan = colspan,
                 rowspan = rowspan,
                 is_cell_header = is_cell_header
@@ -1908,6 +1983,69 @@ local function parse_dictionary_definition(html, category)
             end
 
             table.insert(lines, { segments = "" })
+        elseif category == "Слововживання" then
+            -- 1. Header (Word + short interpret)
+            local header_html = block:match('<h2 [^>]-class="page__sub%-header"[^>]->([^\0]-)</h2>')
+            if header_html then
+                local rich = parse_rich_text(header_html)
+                if #rich > 0 then
+                   table.insert(lines, { segments = rich, indent = 0, is_header = true })
+                end
+            end
+
+            -- Clean up source info manually on the whole block first
+            -- Remove divs with source-info
+            block = block:gsub("<div[^>]*class=['\"][^'\"]*source%-info[^'\"]*['\"][^>]*>[^\0]-</div>", "")
+            -- Remove spans with source-info
+            block = block:gsub("<span[^>]*class=['\"][^'\"]*source%-info[^'\"]*['\"][^>]*>[^\0]-</span>", "")
+            -- Remove links with source-info (including source-info__link)
+            block = block:gsub("<a[^>]*class=['\"][^'\"]*source%-info[^'\"]*['\"][^>]*>[^\0]-</a>", "")
+            
+                    -- 2. Body (Content with colored spans)
+            -- Use match to extract the body content
+            local body = block:match('<div class="article%-block__body">([^\0]-)</div>%s-</div>') 
+                      or block:match('<div class="article%-block__body">([^\0]-)</div>')
+            if body then
+                local pos = 1
+                while true do
+                    local t_start, t_end = body:find('<table.-</table>', pos)
+                    if not t_start then
+                        -- Remaining text
+                        local rem = body:sub(pos)
+                        if #rem > 0 then
+                            -- Clean up extra newlines/spaces
+                            local rich = parse_rich_text(rem)
+                            if #rich > 0 then 
+                                table.insert(lines, { segments = rich, indent = 1 }) 
+                            end
+                        end
+                        break
+                    end
+                    
+                    -- Text before table
+                    if t_start > pos then
+                        local pre = body:sub(pos, t_start - 1)
+                        if pre:match("%S") then -- Only if meaningful text
+                             local rich = parse_rich_text(pre)
+                             if #rich > 0 then 
+                                table.insert(lines, { segments = rich, indent = 1 }) 
+                             end
+                        end
+                    end
+                    
+                    -- Table
+                    local table_html = body:sub(t_start, t_end)
+                    local grid = parse_dictionary_table_html(table_html)
+                    if grid then
+                        table.insert(lines, grid)
+                        table.insert(lines, { segments = "" }) -- Spacing after table
+                    end
+                    
+                    pos = t_end + 1
+                end
+            end
+
+            table.insert(lines, { segments = "" })
         end
     end
     
@@ -1922,7 +2060,8 @@ local function fetch_dictionary_category(word, display_name)
         ["Тлумачення"] = "Тлумачення",
         ["Словозміна"] = "Словозміна",
         ["Синоніми"] = "Синонімія",
-        ["Фразеологія"] = "Фразеологія"
+        ["Фразеологія"] = "Фразеологія",
+        ["Слововживання"] = "Слововживання"
     }
     
     local url_part = categories[display_name]
@@ -4446,12 +4585,25 @@ local function wrap_rich_text(segments, max_w, is_header)
             end
             
             local last_seg = current_line[#current_line]
+            
+            -- Helper to compare colors
+            local colors_match = false
+            if not last_seg then
+            elseif not last_seg.color and not seg.color then
+                colors_match = true
+            elseif last_seg.color and seg.color then
+                colors_match = (last_seg.color[1] == seg.color[1] and 
+                                last_seg.color[2] == seg.color[2] and 
+                                last_seg.color[3] == seg.color[3])
+            end
+
             local can_merge = last_seg and 
                 (last_seg.is_link == seg.is_link) and 
                 (last_seg.is_plain == seg.is_plain) and 
                 (last_seg.is_bold == seg.is_bold) and
                 (last_seg.is_italic == seg.is_italic) and
-                (last_seg.word == seg.word)
+                (last_seg.word == seg.word) and
+                colors_match
             
             if can_merge then
                 last_seg.text = last_seg.text .. test_word
@@ -4462,7 +4614,8 @@ local function wrap_rich_text(segments, max_w, is_header)
                     word = seg.word,
                     is_plain = seg.is_plain, 
                     is_bold = seg.is_bold, 
-                    is_italic = seg.is_italic
+                    is_italic = seg.is_italic,
+                    color = seg.color
                 })
             end
            current_w = current_w + word_w
@@ -5707,10 +5860,18 @@ local function draw_dictionary_modal(input_queue)
     end
     
     -- Tabs UI
-    local categories = {"Тлумачення", "Словозміна", "Синоніми", "Фразеологія"}
+    local categories = {"Тлумачення", "Словозміна", "Синоніми", "Фразеологія", "Слововживання"}
     local tab_x = box_x + S(15)
     local tab_y = box_y + S(55)
-    local tab_w = S(115) -- Wider tabs as requested
+    local tab_w = S(125)
+    
+    -- Dynamic resizing if tabs don't fit
+    local max_width = box_w - S(50) -- Available width minus margins (increased right padding)
+    local total_req_w = #categories * tab_w
+    if total_req_w > max_width then
+        tab_w = math.floor(max_width / #categories)
+    end
+    
     local tab_h = S(30)
     
     gfx.setfont(F.dict_std_sm)
@@ -5733,10 +5894,11 @@ local function draw_dictionary_modal(input_queue)
         end
         
         -- Tab Label
-        local tw, th = gfx.measurestr(cat)
+        local display_text = fit_text_width(cat, tab_w - S(10))
+        local tw, th = gfx.measurestr(display_text)
         gfx.x = bx + (tab_w - tw) / 2
         gfx.y = by + (tab_h - th) / 2
-        gfx.drawstr(cat)
+        gfx.drawstr(display_text)
         
         -- Click detection
         if is_mouse_clicked() then
@@ -5828,13 +5990,15 @@ local function draw_dictionary_modal(input_queue)
                         while occupancy[r_idx][l_col] do l_col = l_col + 1 end
                         
                         local cell_w = col_w * cell.colspan
-                        local wrapped = wrap_text(cell.text, cell_w - 8)
+                        
+                        -- Use rich text wrapping
+                        local wrapped = wrap_rich_text(cell.segments, cell_w - 8, cell.is_header or grid_row.is_header)
                         local needed_h = #wrapped * line_h
                         
                         -- Store cell info
                         local cell_info = {
-                            text = cell.text,
-                            wrapped = wrapped,
+                            text = cell.text, -- Plain text fallback
+                            wrapped = wrapped, -- Now contains rich lines
                             colspan = cell.colspan,
                             rowspan = cell.rowspan,
                             is_header = cell.is_header or grid_row.is_header
@@ -5906,20 +6070,50 @@ local function draw_dictionary_modal(input_queue)
                                 local text_h = #cell.wrapped * line_h
                                 local text_y = row_y + (total_cell_h - text_h) / 2
                                 
-                                set_color(UI.C_TXT)
-                                for l_idx, line in ipairs(cell.wrapped) do
+                                -- Draw rich text lines
+                                for l_idx, rich_line in ipairs(cell.wrapped) do
                                     local ly = text_y + (l_idx - 1) * line_h
                                     -- Clip individual lines
                                     if ly + line_h > content_y and ly < content_y + content_h then
+                                        local current_x
                                         if is_span_header then
-                                            local tw = gfx.measurestr((line:gsub(acute, "")))
-                                            gfx.x = cell_x + (cell_w - tw) / 2
+                                            -- Measure full line width for centering (approximate)
+                                            local tw = 0
+                                            for _, seg in ipairs(rich_line) do
+                                                gfx.setfont(seg.is_bold and F.dict_bld or F.dict_std)
+                                                tw = tw + gfx.measurestr((seg.text:gsub(acute, "")))
+                                            end
+                                            current_x = cell_x + (cell_w - tw) / 2
                                         else
-                                            gfx.x = cell_x + 4
+                                            current_x = cell_x + 4
                                         end
+                                        
                                         gfx.y = ly
-                                        draw_text_with_stress_marks(line)
-                                   end
+                                        
+                                        for _, seg in ipairs(rich_line) do
+                                            -- Set font
+                                            if seg.is_bold or (cell.is_header and not seg.is_plain) then
+                                                gfx.setfont(F.dict_bld)
+                                            else
+                                                gfx.setfont(F.dict_std)
+                                            end
+                                            
+                                            -- Set Color
+                                            if seg.is_link then
+                                                set_color(UI.C_SEL)
+                                            elseif seg.color then
+                                                set_color(seg.color)
+                                            else
+                                                set_color(UI.C_TXT)
+                                            end
+
+                                            gfx.x = current_x
+                                            draw_text_with_stress_marks(seg.text)
+                                            
+                                            -- Advance X
+                                            current_x = current_x + gfx.measurestr((seg.text:gsub(acute, "")))
+                                        end
+                                    end
                                 end
                                
                                 -- Draw cell borders (bottom and right separators)
@@ -5998,6 +6192,9 @@ local function draw_dictionary_modal(input_queue)
                                         trigger_dictionary_lookup(seg.word)
                                     end
                                 end
+                            elseif seg.color then
+                                -- Apply custom color from HTML style
+                                set_color(seg.color)
                             else
                                 set_color(UI.C_TXT)
                             end
