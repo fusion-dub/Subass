@@ -63,12 +63,12 @@ if (-not $pythonCheck) {
 $extensions = @(
     @{
         Name = "ReaPack"
-        Url  = "https://reapack.com/download/reaper_reapack64.dll"
-        File = "reaper_reapack64.dll"
+        Url  = "https://github.com/cfillion/reapack/releases/latest/download/reaper_reapack-x64.dll"
+        File = "reaper_reapack-x64.dll"
     },
     @{
         Name = "SWS Extension"
-        Url  = "https://www.sws-extension.org/download/pre-release/reaper_sws-x64.dll"
+        Url  = "https://github.com/reaper-oss/sws/releases/download/v2.14.0.7/reaper_sws-x64.dll"
         File = "reaper_sws-x64.dll"
     },
     @{
@@ -83,6 +83,22 @@ $extensions = @(
     }
 )
 
+function Download-File {
+    param($Url, $TargetPath)
+    try {
+        if (Get-Command "curl.exe" -ErrorAction SilentlyContinue) {
+            # curl is built into Windows 10/11 and is very robust
+            curl.exe -L -k -s -o "$TargetPath" "$Url"
+            if (Test-Path $TargetPath) { return $true }
+        }
+        # Fallback to PowerShell
+        Invoke-WebRequest -Uri $Url -OutFile $TargetPath -UserAgent "Mozilla/5.0" -ErrorAction Stop
+        return $true
+    } catch {
+        return $false
+    }
+}
+
 foreach ($ext in $extensions) {
     $target = Join-Path $userPluginsPath $ext.File
     $isInstalled = Test-Path $target
@@ -94,10 +110,9 @@ foreach ($ext in $extensions) {
 
     if (-not $isInstalled) {
         Write-Host-Color "Downloading $($ext.Name)..." "Cyan"
-        try {
-            Invoke-WebRequest -Uri $ext.Url -OutFile $target
+        if (Download-File $ext.Url $target) {
             Write-Host-Color "$($ext.Name) installed." "Green"
-        } catch {
+        } else {
             Write-Host-Color "Failed to download $($ext.Name). Please install manually." "Red"
         }
     } else {
