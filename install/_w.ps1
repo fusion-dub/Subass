@@ -73,7 +73,7 @@ $extensions = @(
     },
     @{
         Name = "js_ReaScriptAPI"
-        Url  = "https://github.com/juliansader/ReaExtensions/raw/master/js_ReaScriptAPI/reaper_js_ReaScriptAPI64.dll"
+        Url  = "https://github.com/juliansader/ReaExtensions/raw/master/js_ReaScriptAPI/v1.310/reaper_js_ReaScriptAPI64.dll"
         File = "reaper_js_ReaScriptAPI64.dll"
     },
     @{
