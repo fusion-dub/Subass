@@ -612,13 +612,14 @@ end
 --- Serialize and send Prompter data to ExtState for the satellite Overlay script
 
 function open_overlay_satellite()
+    local sep = package.config:sub(1, 1)
     local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
-    local satellite_path = script_path .. "Lionzz_SubOverlay_Subass.lua"
+    local satellite_path = script_path .. "overlay" .. sep .. "Lionzz_SubOverlay_Subass.lua"
     
     -- Check if satellite exists
     local f_check = io.open(satellite_path, "r")
     if not f_check then
-        reaper.MB("Файл Lionzz_SubOverlay_Subass.lua не знайдено поруч із основним скриптом.", "Помилка", 0)
+        reaper.MB("Файл не знайдено за шляхом:\n" .. satellite_path, "Помилка", 0)
         return
     end
     f_check:close()
@@ -645,7 +646,7 @@ function open_overlay_satellite()
     if f then
         for line in f:lines() do
             -- Look for the script name in the action line
-            if line:find("Lionzz_SubOverlay_Subass.lua", 1, true) then
+            if line:find("overlay[\\/]Lionzz_SubOverlay_Subass.lua") then
                 -- Extract the RS... part (e.g., SCR 4 0 RS7d3...)
                 local rs_part = line:match("RS([%a%d]+)")
                 if rs_part then
@@ -661,7 +662,7 @@ function open_overlay_satellite()
     if cmd_id and reaper.NamedCommandLookup(cmd_id) ~= 0 then
         reaper.Main_OnCommand(reaper.NamedCommandLookup(cmd_id), 0)
     else
-        reaper.MB("REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл Lionzz_SubOverlay_Subass.lua\n\nПісля цього Оверлей буде відкриватися миттєво з меню.", "Потрібна реєстрація", 0)
+        reaper.MB("REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл Lionzz_SubOverlay_Subass.lua з папки overlay\n\nПісля цього Оверлей буде відкриватися миттєво з меню.", "Потрібна реєстрація", 0)
     end
 end
 
@@ -4099,8 +4100,17 @@ apply_stress_marks_async = function()
         local path = info.source
         if path:sub(1, 1) == "@" then path = path:sub(2) end
         local dir = path:match("(.*[\\/])")
-        if not dir then dir = reaper.GetResourcePath() .. "/Scripts/" end
-        return dir
+
+        if not dir then 
+            dir = reaper.GetResourcePath() .. "/Scripts/" 
+        end
+
+        local separator = package.config:sub(1, 1)
+        if dir:sub(-1):match("[\\/]") then
+            return dir .. "stress" .. separator
+        else
+            return dir .. separator .. "stress" .. separator
+        end
     end
     local script_path = get_actual_script_path()
 
