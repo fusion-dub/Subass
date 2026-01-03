@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 2.8
+-- @version 2.9
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v2.8"
+local script_title = "Subass Notes v2.9"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -3436,6 +3436,111 @@ local function redo_action()
     rebuild_regions()
     save_project_data(last_project_id) -- Sync to metadata
     show_snackbar("Повторено: " .. next_state.label, "info")
+end
+
+local function apply_item_coloring(reset)
+    local items = {}
+    local item_count = reaper.CountSelectedMediaItems(0)
+    
+    if item_count > 0 then
+        for i = 0, item_count - 1 do
+            table.insert(items, reaper.GetSelectedMediaItem(0, i))
+        end
+    else
+        local track_count = reaper.CountSelectedTracks(0)
+        if track_count > 0 then
+            local processed_tracks = {}
+            for i = 0, track_count - 1 do
+                local track = reaper.GetSelectedTrack(0, i)
+                if not processed_tracks[track] then
+                    processed_tracks[track] = true
+                    
+                    -- If it's a folder, find all its children
+                    local depth = reaper.GetTrackDepth(track)
+                    -- IP_TRACKNUMBER is 1-based index in the track list
+                    local track_idx = reaper.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER")
+                    local total_tracks = reaper.CountTracks(0)
+                    
+                    for j = track_idx, total_tracks - 1 do
+                        local child = reaper.GetTrack(0, j)
+                        if child and reaper.GetTrackDepth(child) > depth then
+                            processed_tracks[child] = true
+                        else
+                            break
+                        end
+                    end
+                end
+            end
+            
+            -- Collect all items from all identified tracks
+            for tr in pairs(processed_tracks) do
+                local track_item_count = reaper.CountTrackMediaItems(tr)
+                for j = 0, track_item_count - 1 do
+                    table.insert(items, reaper.GetTrackMediaItem(tr, j))
+                end
+            end
+        end
+    end
+
+    if #items == 0 then
+        show_snackbar("Виберіть Media Item або Треки", "info")
+        return
+    end
+
+    local colored = 0
+    for _, item in ipairs(items) do
+        if item then
+            if reset then
+                reaper.SetMediaItemInfo_Value(item, "I_CUSTOMCOLOR", 0)
+                colored = colored + 1
+            else
+                local item_start = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                local item_end = item_start + reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                
+                local max_overlap = 0
+                local best_color = nil
+                
+                -- Efficiently find overlapping regions
+                local _, num_markers, num_regions = reaper.CountProjectMarkers(0)
+                local total = num_markers + num_regions
+                
+                for j = 0, total - 1 do
+                    local _, isrgn, r_start, r_end, _, _, color = reaper.EnumProjectMarkers3(0, j)
+                    if isrgn and color ~= 0 then
+                        -- Calculate intersection
+                        local overlap_start = math.max(item_start, r_start)
+                        local overlap_end = math.min(item_end, r_end)
+                        local overlap = overlap_end - overlap_start
+                        
+                        if overlap > max_overlap then
+                            max_overlap = overlap
+                            best_color = color
+                        end
+                    end
+                end
+
+                local item_len = item_end - item_start
+                if best_color and max_overlap > 0 then
+                    -- Higher precision thresholds:
+                    -- At least 0.8s (substantial chunk) OR more than 50% of the item
+                    if max_overlap > 0.8 or (max_overlap / item_len) > 0.5 then
+                        -- For Media Items, we need the 0x1000000 flag for custom colors
+                        reaper.SetMediaItemInfo_Value(item, "I_CUSTOMCOLOR", best_color | 0x1000000)
+                        colored = colored + 1
+                    end
+                end
+            end
+        end
+    end
+    
+    if colored > 0 then
+        reaper.UpdateArrange()
+        show_snackbar((reset and "Скинуто колір для " or "Розфарбовано ") .. colored .. " айтемів", "success")
+    else
+        if not reset then
+            show_snackbar("Айтеми не знаходяться в межах регіонів акторів", "info")
+        end
+    end
 end
 
 -- =============================================================================
@@ -11341,7 +11446,7 @@ local function draw_table(input_queue)
                 local director_label = (cfg.director_mode and "• " or "") .. "Режим Режисера"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу|" .. markers_label .. "|" .. director_label
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу|" .. markers_label .. "|" .. director_label .. "|>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     find_replace_state.show = true
@@ -11373,6 +11478,10 @@ local function draw_table(input_queue)
                         cfg.show_markers_in_table = true
                     end
                     save_settings()
+                elseif ret == 7 then
+                    apply_item_coloring(false) -- Colorize
+                elseif ret == 8 then
+                    apply_item_coloring(true) -- Reset
                 end
             end
         end
@@ -13085,7 +13194,7 @@ local function main()
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local dock_state = gfx.dock(-1)
             local check = (dock_state > 0) and "!" or ""
-            local ret = gfx.showmenu(check .. "Dock Window")
+            local ret = gfx.showmenu(check .. "Закріпити вікно (Dock)")
             if ret == 1 then
                 local target_dock = dock_state > 0 and 0 or 1
                 gfx.dock(target_dock)
