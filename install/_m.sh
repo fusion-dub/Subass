@@ -98,6 +98,7 @@ PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
 SCRIPT_SOURCE="$PROJECT_ROOT/plugin/Subass_Notes.lua"
 STRESS_SOURCE="$PROJECT_ROOT/plugin/stress"
 OVERLAY_SOURCE="$PROJECT_ROOT/plugin/overlay/Lionzz_SubOverlay_Subass.lua"
+DICTIONARY_SOURCE="$PROJECT_ROOT/plugin/dictionary"
 
 if [ -f "$SCRIPT_SOURCE" ]; then
     cp "$SCRIPT_SOURCE" "$SCRIPTS_PATH/"
@@ -107,6 +108,9 @@ if [ -f "$SCRIPT_SOURCE" ]; then
     if [ -f "$OVERLAY_SOURCE" ]; then
         mkdir -p "$SCRIPTS_PATH/overlay"
         cp "$OVERLAY_SOURCE" "$SCRIPTS_PATH/overlay/Lionzz_SubOverlay_Subass.lua"
+    fi
+    if [ -d "$DICTIONARY_SOURCE" ]; then
+        cp -R "$DICTIONARY_SOURCE" "$SCRIPTS_PATH/"
     fi
     echo "\033[1;32mScripts copied to $SCRIPTS_PATH\033[0m"
 else
@@ -120,6 +124,7 @@ KB_FILE="$REAPER_PATH/reaper-kb.ini"
 MENU_FILE="$REAPER_PATH/reaper-menu.ini"
 ACTION_ID="RS77777777777777777777777777777777"
 OVERLAY_ID="RS88888888888888888888888888888888"
+DICT_ID="RS99999999999999999999999999999999"
 
 # Python helper to update INI files
 python3 <<EOF
@@ -129,8 +134,10 @@ kb_file = "$KB_FILE"
 menu_file = "$MENU_FILE"
 action_id_target = "$ACTION_ID"
 overlay_id_target = "$OVERLAY_ID"
+dict_id_target = "$DICT_ID"
 rel_path = "Subass/Subass_Notes.lua"
 overlay_rel = "Subass/overlay/Lionzz_SubOverlay_Subass.lua"
+dict_rel = "Subass/dictionary/Subass_Dictionary.lua"
 
 # 1. Update reaper-kb.ini - Clean up old paths and duplicates
 if os.path.exists(kb_file):
@@ -140,10 +147,11 @@ if os.path.exists(kb_file):
     new_kb_lines = []
     found_main = False
     found_overlay = False
+    found_dict = False
     
     for line in kb_lines:
         # Keep unrelated lines
-        if "Subass_Notes.lua" not in line and "Lionzz_SubOverlay_Subass.lua" not in line:
+        if "Subass_Notes.lua" not in line and "Lionzz_SubOverlay_Subass.lua" not in line and "Subass_Dictionary.lua" not in line:
             new_kb_lines.append(line)
             continue
         
@@ -164,10 +172,20 @@ if os.path.exists(kb_file):
                 new_kb_lines.append(line)
                 found_overlay = True
 
+        # If it's our dictionary script
+        if "Subass_Dictionary.lua" in line:
+            if dict_rel in line and not found_dict:
+                m = re.search(r'SCR 4 0 (RS[0-9a-f]+)', line)
+                if m: dict_id_target = m.group(1)
+                new_kb_lines.append(line)
+                found_dict = True
+
     if not found_main:
         new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
     if not found_overlay:
         new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
+    if not found_dict:
+        new_kb_lines.append(f'SCR 4 0 {dict_id_target} "Custom: Subass Dictionary" "{dict_rel}"\n')
 
     with open(kb_file, 'w', encoding='utf-8') as f:
         f.writelines(new_kb_lines)
@@ -210,7 +228,7 @@ if os.path.exists(menu_file):
                      other_items.append(val)
 
     # 2. Build the new section items
-    final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", "0"]
+    final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", f"_{dict_id_target} Subass: Dictionary", "0"]
     
     # 3. Assemble the file
     new_lines = content_before
