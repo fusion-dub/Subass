@@ -59,6 +59,21 @@ if (-not $pythonCheck) {
     Write-Host-Color "Python 3 is already installed." "Green"
 }
 
+# 3.5 Check FFmpeg via Winget
+Write-Host-Color "Checking FFmpeg..." "Cyan"
+$ffmpegCheck = where.exe ffmpeg 2>$null
+if (-not $ffmpegCheck) {
+    Write-Host-Color "FFmpeg not found. Attempting to install via winget..." "Yellow"
+    try {
+        Start-Process winget -ArgumentList "install -e --id Gyan.FFmpeg --silent" -Wait
+        Write-Host-Color "FFmpeg installed successfully." "Green"
+    } catch {
+        Write-Host-Color "Failed auto-install of FFmpeg. Please install manually from https://www.gyan.dev/ffmpeg/builds/" "Red"
+    }
+} else {
+    Write-Host-Color "FFmpeg is already installed." "Green"
+}
+
 # 4. Download Extensions
 $extensions = @(
     @{
