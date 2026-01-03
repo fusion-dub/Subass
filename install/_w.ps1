@@ -122,24 +122,31 @@ foreach ($ext in $extensions) {
 
 # 5. Copy Scripts
 Write-Host-Color "Installing Subass Notes scripts..." "Cyan"
-$currentDir = Get-Location
-$scriptFile = "plugin\Subass_Notes.lua"
-$stressFolder = "plugin\stress"
-$overlayFile = "plugin\overlay\Lionzz_SubOverlay_Subass.lua"
 
-if (Test-Path (Join-Path $currentDir $scriptFile)) {
-    Copy-Item (Join-Path $currentDir $scriptFile) $scriptsPath -Force
-    if (Test-Path (Join-Path $currentDir $stressFolder)) {
-        Copy-Item (Join-Path $currentDir $stressFolder) $scriptsPath -Recurse -Force
+# Robust path detection: use the script's location instead of CWD
+# _w.ps1 is in 'install\', so project root is one level up
+$scriptBase = $PSScriptRoot
+if (-not $scriptBase) { $scriptBase = Get-Location }
+$projectRoot = Split-Path $scriptBase -Parent
+
+$scriptSource = Join-Path $projectRoot "plugin\Subass_Notes.lua"
+$stressSource = Join-Path $projectRoot "plugin\stress"
+$overlaySource = Join-Path $projectRoot "plugin\overlay\Lionzz_SubOverlay_Subass.lua"
+
+if (Test-Path $scriptSource) {
+    Copy-Item $scriptSource $scriptsPath -Force
+    if (Test-Path $stressSource) {
+        Copy-Item $stressSource $scriptsPath -Recurse -Force
     }
-    if (Test-Path (Join-Path $currentDir $overlayFile)) {
+    if (Test-Path $overlaySource) {
         $overlayTargetDir = Join-Path $scriptsPath "overlay"
         if (-not (Test-Path $overlayTargetDir)) { New-Item -ItemType Directory $overlayTargetDir | Out-Null }
-        Copy-Item (Join-Path $currentDir $overlayFile) (Join-Path $overlayTargetDir "Lionzz_SubOverlay_Subass.lua") -Force
+        Copy-Item $overlaySource (Join-Path $overlayTargetDir "Lionzz_SubOverlay_Subass.lua") -Force
     }
     Write-Host-Color "Scripts copied to REAPER/Scripts/Subass" "Green"
 } else {
-    Write-Host-Color "ERROR: Could not find $scriptFile in current directory." "Red"
+    Write-Host-Color "ERROR: Could not find plugin in $projectRoot\plugin" "Red"
+    Write-Host-Color "Make sure you extracted the entire ZIP file before running the installer." "Yellow"
 }
 
 # 6. Register Action and Menu Item
