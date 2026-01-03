@@ -47,6 +47,21 @@ else
     echo "\033[1;32mPython 3 встановлено.\033[0m"
 fi
 
+# 3.5 Check FFmpeg
+echo "\033[1;34m>> Checking FFmpeg...\033[0m"
+if ! command -v ffmpeg &> /dev/null; then
+    echo "\033[1;33mFFmpeg не знайдено.\033[0m"
+    if command -v brew &> /dev/null; then
+        echo "Встановлюю FFmpeg через Homebrew..."
+        brew install ffmpeg
+    else
+        echo "\033[1;33mFFmpeg необхідний для роботи деяких функцій (наприклад, обробки аудіо).\033[0m"
+        echo "\033[1;33mБудь ласка, встановіть Homebrew (brew.sh) або встановіть FFmpeg вручну.\033[0m"
+    fi
+else
+    echo "\033[1;32mFFmpeg встановлено.\033[0m"
+fi
+
 # 4. Download Extensions
 ARCH=$(uname -m)
 if [ "$ARCH" = "arm64" ]; then
