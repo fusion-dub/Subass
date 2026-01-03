@@ -611,15 +611,15 @@ end
 
 --- Serialize and send Prompter data to ExtState for the satellite Overlay script
 
-function open_overlay_satellite()
+local function run_satellite_script(folder, filename, label)
     local sep = package.config:sub(1, 1)
     local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
-    local satellite_path = script_path .. "overlay" .. sep .. "Lionzz_SubOverlay_Subass.lua"
+    local full_path = script_path .. folder .. sep .. filename
     
-    -- Check if satellite exists
-    local f_check = io.open(satellite_path, "r")
+    -- Check if file exists
+    local f_check = io.open(full_path, "r")
     if not f_check then
-        reaper.MB("Файл не знайдено за шляхом:\n" .. satellite_path, "Помилка", 0)
+        reaper.MB("Файл не знайдено за шляхом:\n" .. full_path, "Помилка", 0)
         return
     end
     f_check:close()
@@ -629,25 +629,24 @@ function open_overlay_satellite()
     local has_imgui = reaper.ImGui_CreateContext ~= nil
 
     if not has_imgui then
-        local msg = "Для роботи нового Оверлея необхідне розширення ReaImGui.\n\n"
+        local msg = "Для роботи " .. label .. " необхідне розширення ReaImGui.\n\n"
         if not has_reapack then
             msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть ReaImGui через ReaPack"
         else
             msg = msg .. "Будь ласка, встановіть 'ReaImGui' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
         end
         reaper.MB(msg, "Відсутні компоненти", 0)
-        return -- STRICT STOP
+        return
     end
 
-    -- 1. Try to find the Command ID in reaper-kb.ini
+    -- Try to find the Command ID in reaper-kb.ini
     local kb_path = reaper.GetResourcePath() .. "/reaper-kb.ini"
     local f = io.open(kb_path, "r")
     local cmd_id = nil
     if f then
+        local pattern = folder .. "[\\/]" .. filename
         for line in f:lines() do
-            -- Look for the script name in the action line
-            if line:find("overlay[\\/]Lionzz_SubOverlay_Subass.lua") then
-                -- Extract the RS... part (e.g., SCR 4 0 RS7d3...)
+            if line:find(pattern) then
                 local rs_part = line:match("RS([%a%d]+)")
                 if rs_part then
                     cmd_id = "_RS" .. rs_part
@@ -658,11 +657,11 @@ function open_overlay_satellite()
         f:close()
     end
 
-    -- 2. If found, run it. If not, ask the user to register it once.
+    -- If found, run it. If not, ask the user to register it once.
     if cmd_id and reaper.NamedCommandLookup(cmd_id) ~= 0 then
         reaper.Main_OnCommand(reaper.NamedCommandLookup(cmd_id), 0)
     else
-        reaper.MB("REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл Lionzz_SubOverlay_Subass.lua з папки overlay\n\nПісля цього Оверлей буде відкриватися миттєво з меню.", "Потрібна реєстрація", 0)
+        reaper.MB("REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл " .. filename .. " з папки " .. folder .. "\n\nПісля цього вікно буде відкриватися миттєво з меню.", "Потрібна реєстрація", 0)
     end
 end
 
@@ -9924,14 +9923,16 @@ local function draw_prompter(input_queue)
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "Відобразити SubOverlay від Lionzz||" .. dock_check .. "Закріпити вікно (Dock)"
+        local menu = "Відобразити SubOverlay від Lionzz|Відобразити Словник||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         mouse_handled = true -- Tell framework we handled this click
         
         if ret == 1 then
-            open_overlay_satellite()
+            run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею")
         elseif ret == 2 then
+            run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника")
+        elseif ret == 3 then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
