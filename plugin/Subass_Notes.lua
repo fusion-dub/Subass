@@ -864,6 +864,7 @@ local function run_async_command(shell_cmd, callback)
 
         f_bat:write("@echo off\r\n")
         f_bat:write("chcp 65001 > NUL\r\n")
+        f_bat:write("set PYTHONUTF8=1\r\n")
 
         local bat_cmd = shell_cmd:gsub("%%", "%%%%")
 
