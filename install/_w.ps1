@@ -132,6 +132,7 @@ $projectRoot = Split-Path $scriptBase -Parent
 $scriptSource = Join-Path $projectRoot "plugin\Subass_Notes.lua"
 $stressSource = Join-Path $projectRoot "plugin\stress"
 $overlaySource = Join-Path $projectRoot "plugin\overlay\Lionzz_SubOverlay_Subass.lua"
+$dictionarySource = Join-Path $projectRoot "plugin\dictionary"
 
 if (Test-Path $scriptSource) {
     Copy-Item $scriptSource $scriptsPath -Force
@@ -142,6 +143,9 @@ if (Test-Path $scriptSource) {
         $overlayTargetDir = Join-Path $scriptsPath "overlay"
         if (-not (Test-Path $overlayTargetDir)) { New-Item -ItemType Directory $overlayTargetDir | Out-Null }
         Copy-Item $overlaySource (Join-Path $overlayTargetDir "Lionzz_SubOverlay_Subass.lua") -Force
+    }
+    if (Test-Path $dictionarySource) {
+        Copy-Item $dictionarySource $scriptsPath -Recurse -Force
     }
     Write-Host-Color "Scripts copied to REAPER/Scripts/Subass" "Green"
 } else {
@@ -154,6 +158,7 @@ $kbFile = Join-Path $reaperPath "reaper-kb.ini"
 $menuFile = Join-Path $reaperPath "reaper-menu.ini"
 $actionId = "RS77777777777777777777777777777777"
 $overlayActionId = "RS88888888888888888888888888888888"
+$dictActionId = "RS99999999999999999999999999999999"
 
 Write-Host-Color "Updating REAPER configuration..." "Cyan"
 Write-Host-Color "Menu File: $menuFile" "Gray"
@@ -162,14 +167,16 @@ if (Test-Path $kbFile) {
     Write-Host-Color "Updating actions in reaper-kb.ini..." "Cyan"
     $scriptRelativePath = "Subass/Subass_Notes.lua"
     $overlayRelativePath = "Subass/overlay/Lionzz_SubOverlay_Subass.lua"
+    $dictRelativePath = "Subass/dictionary/Subass_Dictionary.lua"
     $kbContent = [System.IO.File]::ReadAllLines($kbFile)
     
     $newKb = New-Object System.Collections.Generic.List[string]
     $foundMain = $false
     $foundOverlay = $false
+    $foundDict = $false
     
     foreach ($line in $kbContent) {
-        if ($line -notmatch "Subass_Notes.lua" -and $line -notmatch "Lionzz_SubOverlay_Subass.lua") {
+        if ($line -notmatch "Subass_Notes.lua" -and $line -notmatch "Lionzz_SubOverlay_Subass.lua" -and $line -notmatch "Subass_Dictionary.lua") {
             $newKb.Add($line)
             continue
         }
@@ -186,11 +193,18 @@ if (Test-Path $kbFile) {
                 $newKb.Add($line)
                 $foundOverlay = $true
             }
+        } elseif ($line -match "Subass[/\\]+dictionary[/\\]+Subass_Dictionary.lua") {
+            if (-not $foundDict) {
+                if ($line -match "SCR 4 0 (RS[0-9a-fA-F]+)") { $dictActionId = $matches[1] }
+                $newKb.Add($line)
+                $foundDict = $true
+            }
         }
     }
     
     if (-not $foundMain) { $newKb.Add("SCR 4 0 $actionId ""Custom: Subass Notes"" ""$scriptRelativePath""") }
     if (-not $foundOverlay) { $newKb.Add("SCR 4 0 $overlayActionId ""Custom: Subass SubOverlay (Lionzz)"" ""$overlayRelativePath""") }
+    if (-not $foundDict) { $newKb.Add("SCR 4 0 $dictActionId ""Custom: Subass Dictionary"" ""$dictRelativePath""") }
     
     [System.IO.File]::WriteAllLines($kbFile, $newKb)
     Write-Host-Color "Found Notes ID: $actionId" "Green"
@@ -248,7 +262,7 @@ if (Test-Path $menuFile) {
     }
 
     # Build the item list: Old Items + Separator + Subass 1 + Subass 2 + Separator
-    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "0")
+    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "_$dictActionId Subass: Dictionary", "0")
     
     $newMenu = New-Object System.Collections.Generic.List[string]
     foreach ($l in $contentBefore) { $newMenu.Add($l) }
