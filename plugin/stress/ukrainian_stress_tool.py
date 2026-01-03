@@ -15,10 +15,16 @@ import io
 # Fix for Windows UnicodeEncodeError when printing Ukrainian characters to console
 if sys.platform == "win32":
     try:
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="backslashreplace")
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="backslashreplace")
-    except Exception:
-        pass
+        # Python 3.7+ approach for reconfiguring standard streams
+        sys.stdout.reconfigure(encoding='utf-8', errors='backslashreplace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='backslashreplace')
+    except (AttributeError, Exception):
+        # Fallback for older Python versions or unexpected errors
+        try:
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="backslashreplace")
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="backslashreplace")
+        except Exception:
+            pass
 
 
 # Python 3.9+ is required for ukrainian-word-stress internal usage of importlib.resources
