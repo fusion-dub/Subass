@@ -183,7 +183,7 @@ if (Test-Path $kbFile) {
     }
     
     if (-not $foundMain) { $newKb.Add("SCR 4 0 $actionId ""Custom: Subass Notes"" ""$scriptRelativePath""") }
-    if (-not $foundOverlay) { $newKb.Add("SCR 4 0 $overlayActionId ""Custom: Subass Overlay"" ""$overlayRelativePath""") }
+    if (-not $foundOverlay) { $newKb.Add("SCR 4 0 $overlayActionId ""Custom: Subass SubOverlay (Lionzz)"" ""$overlayRelativePath""") }
     
     [System.IO.File]::WriteAllLines($kbFile, $newKb)
     Write-Host-Color "Found Notes ID: $actionId" "Green"
@@ -241,7 +241,7 @@ if (Test-Path $menuFile) {
     }
 
     # Build the item list: Old Items + Separator + Subass 1 + Subass 2 + Separator
-    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: Overlay", "0")
+    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "0")
     
     $newMenu = New-Object System.Collections.Generic.List[string]
     foreach ($l in $contentBefore) { $newMenu.Add($l) }
