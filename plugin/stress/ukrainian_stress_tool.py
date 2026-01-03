@@ -10,6 +10,15 @@ import argparse
 import re
 import os
 import subprocess
+import io
+
+# Fix for Windows UnicodeEncodeError when printing Ukrainian characters to console
+if sys.platform == "win32":
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="backslashreplace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="backslashreplace")
+    except Exception:
+        pass
 
 
 # Python 3.9+ is required for ukrainian-word-stress internal usage of importlib.resources
