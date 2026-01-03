@@ -1,9 +1,11 @@
 -- @description Subass Dictionary
--- @version 1.2
+-- @version 1.3
 -- @author Fusion (Fusion Dub)
 -- @about Dictionary of slang, idioms and terminology for dubbing.
 
 local ctx = reaper.ImGui_CreateContext('Subass Dictionary')
+local font_main = reaper.ImGui_CreateFont('sans-serif', 15)
+reaper.ImGui_Attach(ctx, font_main)
 
 -- Initial window size
 local WIN_W, WIN_H = 600, 500
@@ -12,6 +14,8 @@ local WIN_W, WIN_H = 600, 500
 local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
 local data_file = script_path .. "dictionary_data.lua"
 local categories = {}
+local cached_results = {}
+local last_filter = nil
 
 local function utf8_lower(s)
     if not s then return "" end
@@ -64,6 +68,47 @@ local function load_data()
         reaper.ShowConsoleMsg("Error loading dictionary data: " .. tostring(err) .. "\n")
         categories = { { name = "Помилка завантаження", entries = {} } }
     end
+    last_filter = nil -- Force cache rebuild
+end
+
+local function update_search_cache(filter)
+    local search_term = utf8_lower(filter)
+    cached_results = {}
+    
+    -- Categories can be an array or a map
+    local sorted_categories = {}
+    for k, v in pairs(categories) do
+        local cat_name, entries
+        if type(k) == "number" then
+            cat_name = v.name
+            entries = v.entries
+        else
+            cat_name = k
+            entries = v
+        end
+        
+        if cat_name and entries then
+            local items = {}
+            for _, entry in ipairs(entries) do
+                local word = entry.title or entry.word or ""
+                local meaning = entry.definition or entry.meaning or ""
+                
+                if filter == "" or 
+                   utf8_lower(word):find(search_term, 1, true) or 
+                   utf8_lower(meaning):find(search_term, 1, true) then
+                    table.insert(items, {word = word, meaning = meaning})
+                end
+            end
+            if #items > 0 then
+                table.insert(sorted_categories, { name = cat_name, entries = items })
+            end
+        end
+    end
+    
+    -- Sort categories by name
+    table.sort(sorted_categories, function(a, b) return a.name < b.name end)
+    cached_results = sorted_categories
+    last_filter = filter
 end
 
 load_data()
@@ -77,39 +122,49 @@ function loop()
     
     local visible, open = reaper.ImGui_Begin(ctx, 'Subass Dictionary', true, reaper.ImGui_WindowFlags_NoScrollbar())
     if visible then
-        -- Search bar
-        reaper.ImGui_SetNextItemWidth(ctx, -1)
+        -- Search bar and Reload button
+        reaper.ImGui_SetNextItemWidth(ctx, -120)
         local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search', "Пошук виразів...", filter)
         if changed then filter = new_filter end
         
+        reaper.ImGui_SameLine(ctx)
+        if reaper.ImGui_Button(ctx, "Оновити", 110) then
+            load_data()
+        end
+        
         reaper.ImGui_Separator(ctx)
+        
+        -- Update cache if filter changed
+        if filter ~= last_filter then
+            update_search_cache(filter)
+        end
         
         -- Main Content Area
         if reaper.ImGui_BeginChild(ctx, "content_area") then
-            -- Prepare search term once (UTF-8 case-insensitive)
-            local search_term = utf8_lower(filter)
-            
-            for _, cat in ipairs(categories) do
-                local items_to_draw = {}
-                for _, entry in ipairs(cat.entries) do
-                    if filter == "" or 
-                       utf8_lower(entry.word):find(search_term, 1, true) or 
-                       utf8_lower(entry.meaning):find(search_term, 1, true) then
-                        table.insert(items_to_draw, entry)
-                    end
-                end
-
-                if #items_to_draw > 0 then
-                    if reaper.ImGui_CollapsingHeader(ctx, cat.name, reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
-                        for _, entry in ipairs(items_to_draw) do
-                            reaper.ImGui_Bullet(ctx)
-                            reaper.ImGui_TextColored(ctx, 0xFFCC00FF, entry.word)
-                            reaper.ImGui_SameLine(ctx)
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xBBBBBBFF)
-                            reaper.ImGui_TextWrapped(ctx, " - " .. entry.meaning)
-                            reaper.ImGui_PopStyleColor(ctx)
-                            reaper.ImGui_Spacing(ctx)
-                        end
+            for _, cat in ipairs(cached_results) do
+                if reaper.ImGui_CollapsingHeader(ctx, cat.name, reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
+                    for _, entry in ipairs(cat.entries) do
+                        
+                        -- Draw Word (Title) in Large Font (2x fallback to 30)
+                        reaper.ImGui_PushFont(ctx, font_main, 30)
+                        reaper.ImGui_TextColored(ctx, 0xFFCC00FF, entry.word)
+                        reaper.ImGui_PopFont(ctx)
+                        
+                        -- Draw Meaning (Definition) below/flowing
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xBBBBBBFF)
+                        reaper.ImGui_PushFont(ctx, font_main, 15)
+                        
+                        -- Using a separator that looks nice
+                        local meaning = "— " .. entry.meaning
+                        reaper.ImGui_PushTextWrapPos(ctx, 0.0)
+                        reaper.ImGui_Text(ctx, meaning)
+                        reaper.ImGui_PopTextWrapPos(ctx)
+                        
+                        reaper.ImGui_PopFont(ctx)
+                        reaper.ImGui_PopStyleColor(ctx)
+                        
+                        reaper.ImGui_Spacing(ctx)
+                        reaper.ImGui_Spacing(ctx)
                     end
                 end
             end
