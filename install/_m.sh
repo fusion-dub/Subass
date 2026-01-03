@@ -161,7 +161,7 @@ if os.path.exists(kb_file):
     if not found_main:
         new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
     if not found_overlay:
-        new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass Overlay" "{overlay_rel}"\n')
+        new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
 
     with open(kb_file, 'w', encoding='utf-8') as f:
         f.writelines(new_kb_lines)
@@ -204,7 +204,7 @@ if os.path.exists(menu_file):
                      other_items.append(val)
 
     # 2. Build the new section items
-    final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: Overlay", "0"]
+    final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", "0"]
     
     # 3. Assemble the file
     new_lines = content_before
