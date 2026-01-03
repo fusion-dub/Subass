@@ -90,22 +90,28 @@ done
 
 # 5. Copy Scripts
 echo "\033[1;34m>> Installing Subass Notes scripts...\033[0m"
-SCRIPT_FILE="plugin/Subass_Notes.lua"
-STRESS_FOLDER="plugin/stress"
-OVERLAY_FILE="plugin/overlay/Lionzz_SubOverlay_Subass.lua"
 
-if [ -f "$SCRIPT_FILE" ]; then
-    cp "$SCRIPT_FILE" "$SCRIPTS_PATH/"
-    if [ -d "$STRESS_FOLDER" ]; then
-        cp -R "$STRESS_FOLDER" "$SCRIPTS_PATH/"
+# Robust path detection: use the script's location instead of CWD
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
+
+SCRIPT_SOURCE="$PROJECT_ROOT/plugin/Subass_Notes.lua"
+STRESS_SOURCE="$PROJECT_ROOT/plugin/stress"
+OVERLAY_SOURCE="$PROJECT_ROOT/plugin/overlay/Lionzz_SubOverlay_Subass.lua"
+
+if [ -f "$SCRIPT_SOURCE" ]; then
+    cp "$SCRIPT_SOURCE" "$SCRIPTS_PATH/"
+    if [ -d "$STRESS_SOURCE" ]; then
+        cp -R "$STRESS_SOURCE" "$SCRIPTS_PATH/"
     fi
-    if [ -f "$OVERLAY_FILE" ]; then
+    if [ -f "$OVERLAY_SOURCE" ]; then
         mkdir -p "$SCRIPTS_PATH/overlay"
-        cp "$OVERLAY_FILE" "$SCRIPTS_PATH/overlay/Lionzz_SubOverlay_Subass.lua"
+        cp "$OVERLAY_SOURCE" "$SCRIPTS_PATH/overlay/Lionzz_SubOverlay_Subass.lua"
     fi
     echo "\033[1;32mScripts copied to $SCRIPTS_PATH\033[0m"
 else
-    echo "\033[1;31mERROR: Could not find $SCRIPT_FILE in current directory.\033[0m"
+    echo "\033[1;31mERROR: Could not find plugin in $PROJECT_ROOT/plugin\033[0m"
+    echo "\033[1;33mPlease make sure you extracted the entire ZIP file.\033[0m"
 fi
 
 # 6. Register Action and Menu Item
