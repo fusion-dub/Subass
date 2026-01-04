@@ -13177,8 +13177,9 @@ local function handle_remote_commands()
     elseif cmd_id == 4 then -- EDIT_SPECIFIC (with exact times)
         local t1 = reaper.gmem_read(1)
         local t2 = reaper.gmem_read(2)
+        local target_id = reaper.gmem_read(3)
         
-        -- Find exact match by time
+        -- 1. Спроба знайти збіг серед реплік (ass_lines)
         for i, line in ipairs(ass_lines) do
             if math.abs(line.t1 - t1) < 0.01 and math.abs(line.t2 - t2) < 0.01 then
                 focus_plugin_window()
@@ -13188,6 +13189,53 @@ local function handle_remote_commands()
                     rebuild_regions()
                 end, i, ass_lines)
                 return
+            end
+        end
+
+        -- 2. Якщо не знайдено серед реплік — шукаємо серед маркерів
+        if math.abs(t1 - t2) < 0.001 or (target_id and target_id ~= -1) then 
+            local m_count = reaper.CountProjectMarkers(0)
+            for i = 0, m_count - 1 do
+                local retval, isrgn, m_pos, _, m_name, markindex = reaper.EnumProjectMarkers3(0, i)
+                
+                local matches = false
+                if target_id and target_id ~= -1 then
+                    matches = (markindex == target_id)
+                else
+                    matches = (not isrgn and math.abs(m_pos - t1) < 0.001)
+                end
+
+                if matches then
+                    focus_plugin_window()
+                    open_text_editor(m_name, function(new_text)
+                        push_undo("Редагування правки (Remote Overlay)")
+                        -- Знаходимо індекс знову (бо він міг змінитись)
+                        local find_idx = -1
+                        for j = 0, reaper.CountProjectMarkers(0) - 1 do
+                            local _, _, cur_pos, _, _, cur_idx = reaper.EnumProjectMarkers3(0, j)
+                            if cur_idx == markindex then find_idx = j break end
+                        end
+                        
+                        if find_idx ~= -1 then
+                            local _, _, _, _, _, _, m_col = reaper.EnumProjectMarkers3(0, find_idx)
+                            reaper.SetProjectMarkerByIndex(0, find_idx, false, m_pos, 0, markindex, new_text, m_col)
+                        else
+                            -- Fallback за позицією
+                            reaper.SetProjectMarker(markindex, false, m_pos, 0, new_text)
+                        end
+                        
+                        -- ПОВНЕ ОНОВЛЕННЯ ВСІХ КЕШІВ
+                        ass_markers = capture_project_markers()
+                        update_regions_cache()
+                        table_data_cache.state_count = -1
+                        last_layout_state.state_count = -1
+                        prompter_drawer.marker_cache.count = -1
+                        prompter_drawer.filtered_cache.state_count = -1
+                        
+                        rebuild_regions() -- Оновлення решти
+                    end)
+                    return
+                end
             end
         end
     end
