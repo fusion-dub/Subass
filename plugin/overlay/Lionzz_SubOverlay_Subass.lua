@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.0.5
+-- @version 0.0.6
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -12,10 +12,9 @@ local win_X, win_Y, win_w, win_h = 500, 500, 500, 300
 local win_open = true
 local close_requested = false
 
--- Простий кеш для оптимізації
-local last_pos = nil
-local last_proj_change_count = 0
-local cached_current, cached_next, cached_start, cached_stop = nil, nil, nil, nil
+local cached_current, cached_next, cached_next2, cached_start, cached_stop = nil, nil, nil, nil, nil
+local external_ass_lines = {}           -- База даних реплік з Subass_Notes.lua
+local last_external_sync_time = 0      -- Час останньої синхронізації
 
 -- Кеш координат відевікна
 local video_cache_valid = false
@@ -66,6 +65,8 @@ local border = false                    -- малювати фон під тек
 local enable_wrap = true                -- переносити текст по словах
 local wrap_margin = 0                   -- відступ від краю вікна для автопереносу (пікселі)
 local enable_second_line = true         -- показувати другий рядок
+local show_next_two = false             -- показувати 2 наступні репліки
+local show_actor_name = false            -- показувати ім'я актора
 local align_center = true               -- вирівнювання по центру (горизонтально, за замовчуванням увімкн.)
 local align_vertical = false            -- вирівнювання по вертикалі (центрування контенту у вікні)
 local align_bottom = true              -- вирівнювання по низу
@@ -284,6 +285,7 @@ local function merge_comments(old, new)
 end
 
 local function parse_to_tokens(text)
+    if not text then return {} end
     local tokens = {}
     local cursor = 1
     local global_comment = nil
@@ -460,6 +462,8 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "progress_height", tostring(progress_height), true)
     reaper.SetExtState(SETTINGS_SECTION, "progress_offset", tostring(progress_offset), true)
     reaper.SetExtState(SETTINGS_SECTION, "align_center", tostring(align_center), true)
+    reaper.SetExtState(SETTINGS_SECTION, "show_actor_name", tostring(show_actor_name), true)
+    reaper.SetExtState(SETTINGS_SECTION, "show_next_two", tostring(show_next_two), true)
     reaper.SetExtState(SETTINGS_SECTION, "align_vertical", tostring(align_vertical), true)
     reaper.SetExtState(SETTINGS_SECTION, "align_bottom", tostring(align_bottom), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_assimilation", tostring(show_assimilation), true)
@@ -511,6 +515,8 @@ local function load_settings()
     progress_height = tonumber(reaper.GetExtState(SETTINGS_SECTION, "progress_height")) or 4
     progress_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "progress_offset")) or 20
     align_center = (reaper.GetExtState(SETTINGS_SECTION, "align_center") ~= "false")
+    show_actor_name = (reaper.GetExtState(SETTINGS_SECTION, "show_actor_name") == "true")
+    show_next_two = (reaper.GetExtState(SETTINGS_SECTION, "show_next_two") == "true")
     align_vertical = (reaper.GetExtState(SETTINGS_SECTION, "align_vertical") == "true")
     align_bottom = (reaper.GetExtState(SETTINGS_SECTION, "align_bottom") ~= "false")
     show_assimilation = (reaper.GetExtState(SETTINGS_SECTION, "show_assimilation") ~= "false")
@@ -732,6 +738,8 @@ local function draw_context_menu()
         font_scale      = add_change(reaper.ImGui_SliderInt(ctx, "масштаб", font_scale, 10, 100))
         text_color      = add_change(reaper.ImGui_ColorEdit4(ctx, "колір", text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         shadow_color    = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь", shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+        show_actor_name = add_change(reaper.ImGui_Checkbox(ctx, "Відображати ім'я актора", show_actor_name))
+        tooltip("Показувати ім'я актора в дужках [Актор] перед текстом")
 
         -- прогрес-бар
         reaper.ImGui_Separator(ctx)
@@ -761,6 +769,8 @@ local function draw_context_menu()
             next_region_offset  = add_change(reaper.ImGui_SliderInt(ctx, "відступ 2", next_region_offset, 0, 200))
             second_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір 2", second_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             second_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь 2", second_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            show_next_two       = add_change(reaper.ImGui_Checkbox(ctx, "2 наступні репліки", show_next_two))
+            tooltip("Показувати відразу дві наступні репліки")
         end
 
         fill_gaps             = add_change(reaper.ImGui_Checkbox(ctx, "Заповнювати прогалини", fill_gaps))
@@ -1043,6 +1053,75 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
     reaper.ImGui_PopFont(ctx)
 end
 
+-- Синхронізація даних з основного скрипта Subass_Notes.lua
+local function sync_external_data()
+    local now = reaper.time_precise()
+    if now - last_external_sync_time < 1.0 then return end -- Синхронізуємо не частіше ніж раз на секунду
+    last_external_sync_time = now
+
+    local section = "Subass_Notes"
+    local ok, l_dump = reaper.GetProjExtState(0, section, "ass_lines")
+    if not ok or l_dump == "" then 
+        external_ass_lines = {}
+        return 
+    end
+
+    local new_lines = {}
+    for line in l_dump:gmatch("([^\n]*)\n?") do
+        if line ~= "" then
+            -- Формат: t1|t2|actor|enabled|rgn_idx|index|text
+            local t1, t2, act, en, r_idx, idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
+            if not t1 then
+                -- Старий формат: t1|t2|actor|enabled|rgn_idx|text
+                t1, t2, act, en, r_idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
+            end
+            if not t1 then
+                -- Ще старіший: t1|t2|actor|enabled|text
+                t1, t2, act, en, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.*)$")
+            end
+
+            if t1 and act and act ~= "" then
+                table.insert(new_lines, {
+                    t1 = tonumber(t1) or 0,
+                    t2 = tonumber(t2) or 0,
+                    actor = act
+                })
+            end
+        end
+    end
+    external_ass_lines = new_lines
+end
+
+-- Helper to extract actor from name
+local function extract_actor(name, t1, t2)
+    local actor = ""
+    -- 1. Спроба витягти з тексту регіону
+    local a_bra = name:match("^%s*%b[]")
+    if a_bra then
+        actor = a_bra:sub(2, -2):gsub("^%s+", ""):gsub("%s+$", "")
+        name = name:sub(#a_bra + 1):gsub("^%s*", "")
+    else
+        local a_col, rem = name:match("^%s*([^:{%s][^:{}]*)%s*:%s*(.*)$")
+        if a_col and not a_col:find("[{}<>]") then 
+            actor = a_col:gsub("^%s+", ""):gsub("%s+$", "")
+            name = rem
+        end
+    end
+
+    -- 2. Спроба підтягнути з зовнішньої бази, якщо в тексті немає
+    if actor == "" and t1 and t2 and #external_ass_lines > 0 then
+        for _, l in ipairs(external_ass_lines) do
+            -- Шукаємо збіг за часом (з невеликим допуском 1мс)
+            if math.abs(l.t1 - t1) < 0.001 then
+                actor = l.actor
+                break
+            end
+        end
+    end
+
+    return actor, name
+end
+
 -- Отримання поточного та наступного регіонів
 local function get_current_and_next_region_names()
     local play_state = reaper.GetPlayState()
@@ -1068,8 +1147,13 @@ local function get_current_and_next_region_names()
     -- 1. Find ALL overlapping regions
     for i, r in ipairs(regions) do
         if pos >= r.start and pos < r.stop then
+            local r_name = r.name
+            if show_actor_name then
+                local act, cln = extract_actor(r_name, r.start, r.stop)
+                if act ~= "" then r_name = "[" .. act .. "] " .. cln end
+            end
             -- Inject metadata tag with exact times
-            local text_with_meta = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", r.start, r.stop, r.name)
+            local text_with_meta = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", r.start, r.stop, r_name)
             table.insert(current_list, text_with_meta)
             if not start_pos then start_pos = r.start end
             stop_pos = r.stop
@@ -1080,15 +1164,31 @@ local function get_current_and_next_region_names()
 
     local current = table.concat(current_list, "\n")
     local nextreg = ""
+    local nextreg2 = ""
 
     -- 2. Find Next
     if found_overlap then
         -- Next is the first region after the last overlapping one
         if regions[last_overlapping_idx + 1] then
              local next_r = regions[last_overlapping_idx + 1]
-             nextreg = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", next_r.start, next_r.stop, next_r.name)
+             local nr_name = next_r.name
+             if show_actor_name then
+                local act, cln = extract_actor(nr_name, next_r.start, next_r.stop)
+                if act ~= "" then nr_name = "[" .. act .. "] " .. cln end
+             end
+             nextreg = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", next_r.start, next_r.stop, nr_name)
+             
+             if show_next_two and regions[last_overlapping_idx + 2] then
+                local next_r2 = regions[last_overlapping_idx + 2]
+                 local nr2_name = next_r2.name
+                 if show_actor_name then
+                    local act, cln = extract_actor(nr2_name, next_r2.start, next_r2.stop)
+                    if act ~= "" then nr2_name = "[" .. act .. "] " .. cln end
+                 end
+                nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", next_r2.start, next_r2.stop, nr2_name)
+             end
         end
-        return current, nextreg, start_pos, stop_pos
+        return current, nextreg, start_pos, stop_pos, nextreg2
     end
 
     -- 3. No overlap (Gap logic)
@@ -1106,23 +1206,58 @@ local function get_current_and_next_region_names()
     end
 
     if fill_gaps and nearest_idx then
-        current = regions[nearest_idx].name
-        if regions[nearest_idx+1] then
-            nextreg = regions[nearest_idx+1].name
+        local r_name = regions[nearest_idx].name
+        if show_actor_name then
+            local act, cln = extract_actor(r_name, regions[nearest_idx].start, regions[nearest_idx].stop)
+            if act ~= "" then r_name = "[" .. act .. "] " .. cln end
         end
-        return current, nextreg, regions[nearest_idx].start, regions[nearest_idx].stop
+        current = r_name
+        
+        if regions[nearest_idx+1] then
+            local nr_name = regions[nearest_idx+1].name
+            if show_actor_name then
+                local act, cln = extract_actor(nr_name, regions[nearest_idx+1].start, regions[nearest_idx+1].stop)
+                if act ~= "" then nr_name = "[" .. act .. "] " .. cln end
+            end
+            nextreg = nr_name
+            
+            if show_next_two and regions[nearest_idx+2] then
+                local nr2_name = regions[nearest_idx+2].name
+                if show_actor_name then
+                    local act, cln = extract_actor(nr2_name, regions[nearest_idx+2].start, regions[nearest_idx+2].stop)
+                    if act ~= "" then nr2_name = "[" .. act .. "] " .. cln end
+                end
+                nextreg2 = nr2_name
+            end
+        end
+        return current, nextreg, regions[nearest_idx].start, regions[nearest_idx].stop, nextreg2
     end
     
     -- always_show_next logic (when in gap and fill_gaps is OFF)
     if always_show_next then
          for i, r in ipairs(regions) do
              if r.start > pos then
-                 return "", r.name, 0, 0 
-             end
-         end
+                local nr_name = r.name
+                if show_actor_name then
+                    local act, cln = extract_actor(nr_name, r.start, r.stop)
+                    if act ~= "" then nr_name = "[" .. act .. "] " .. cln end
+                end
+                 
+                if show_next_two and regions[i+1] then
+                    local nr2_name = regions[i+1].name
+                    if show_actor_name then
+                        local act, cln = extract_actor(nr2_name, regions[i+1].start, regions[i+1].stop)
+                        if act ~= "" then nr2_name = "[" .. act .. "] " .. cln end
+                    end
+                    nextreg2 = nr2_name
+                end
+
+                return "", nr_name, 0, 0, nextreg2
+            end
+        end
     end
 
-    return "", "", 0, 0
+    return "", "", 0, 0, ""
 end
 
 -- Отримання поточного та наступного текстового ітема на заданому треку
@@ -1157,8 +1292,7 @@ local function get_current_and_next_items(track)
     local items_table = {} 
     local count = reaper.CountTrackMediaItems(track)
     
-    -- Pre-fetch items to sort/iterate easily (items on track are usually sorted by pos but overlapping items might not be perfectly indexed)
-    -- Actually `GetTrackMediaItem` index is usually spatial but let's iterate safely.
+    -- Pre-fetch items to sort/iterate easily
     for i = 0, count-1 do
         local it = reaper.GetTrackMediaItem(track, i)
         local start = reaper.GetMediaItemInfo_Value(it, "D_POSITION")
@@ -1177,22 +1311,46 @@ local function get_current_and_next_items(track)
     
     for i, item in ipairs(items_table) do
         if pos >= item.start and pos < item.stop then
-             table.insert(current_list, item.name)
-             if not start_pos then start_pos = item.start end
-             stop_pos = item.stop
-             last_overlapping_idx = i
-             found_overlap = true
+            local i_name = item.name
+            if show_actor_name then
+                local act, cln = extract_actor(i_name, item.start, item.stop)
+                if act ~= "" then i_name = "[" .. act .. "] " .. cln end
+            end
+            table.insert(current_list, i_name)
+            if not start_pos then start_pos = item.start end
+            stop_pos = item.stop
+            last_overlapping_idx = i
+            found_overlap = true
         end
     end
     
     local current = table.concat(current_list, "\n")
     local next_item = ""
+    local next_item2 = ""
 
     if found_overlap then
         if items_table[last_overlapping_idx + 1] then
-            next_item = items_table[last_overlapping_idx + 1].name
+            local ni_name = items_table[last_overlapping_idx + 1].name
+            if show_actor_name then
+                local ni_start = items_table[last_overlapping_idx + 1].start
+                local ni_stop = items_table[last_overlapping_idx + 1].stop
+                local act, cln = extract_actor(ni_name, ni_start, ni_stop)
+                if act ~= "" then ni_name = "[" .. act .. "] " .. cln end
+            end
+            next_item = ni_name
+            
+            if show_next_two and items_table[last_overlapping_idx + 2] then
+                local ni2_name = items_table[last_overlapping_idx + 2].name
+                if show_actor_name then
+                    local ni2_start = items_table[last_overlapping_idx + 2].start
+                    local ni2_stop = items_table[last_overlapping_idx + 2].stop
+                    local act, cln = extract_actor(ni2_name, ni2_start, ni2_stop)
+                    if act ~= "" then ni2_name = "[" .. act .. "] " .. cln end
+                end
+                next_item2 = ni2_name
+            end
         end
-        return current, next_item, start_pos, stop_pos
+        return current, next_item, start_pos, stop_pos, next_item2
     end
 
     -- Fallback / Gap logic
@@ -1207,22 +1365,61 @@ local function get_current_and_next_items(track)
     end
 
     if fill_gaps and nearest_idx then
-        current = items_table[nearest_idx].name
-        if items_table[nearest_idx+1] then
-            next_item = items_table[nearest_idx+1].name
+        local i_name = items_table[nearest_idx].name
+        if show_actor_name then
+            local act, cln = extract_actor(i_name, items_table[nearest_idx].start, items_table[nearest_idx].stop)
+            if act ~= "" then i_name = "[" .. act .. "] " .. cln end
         end
-        return current, next_item, items_table[nearest_idx].start, items_table[nearest_idx].stop
+        current = i_name
+        
+        if items_table[nearest_idx+1] then
+            local ni_name = items_table[nearest_idx+1].name
+            if show_actor_name then
+                local ni_start = items_table[nearest_idx+1].start
+                local ni_stop = items_table[nearest_idx+1].stop
+                local act, cln = extract_actor(ni_name, ni_start, ni_stop)
+                if act ~= "" then ni_name = "[" .. act .. "] " .. cln end
+            end
+            next_item = ni_name
+            
+            if show_next_two and items_table[nearest_idx+2] then
+                local ni2_name = items_table[nearest_idx+2].name
+                if show_actor_name then
+                    local ni2_start = items_table[nearest_idx+2].start
+                    local ni2_stop = items_table[nearest_idx+2].stop
+                    local act, cln = extract_actor(ni2_name, ni2_start, ni2_stop)
+                    if act ~= "" then ni2_name = "[" .. act .. "] " .. cln end
+                end
+                next_item2 = ni2_name
+            end
+        end
+        return current, next_item, items_table[nearest_idx].start, items_table[nearest_idx].stop, next_item2
     end
 
     if always_show_next then
         for i, item in ipairs(items_table) do
              if item.start > pos then
-                 return "", item.name, 0, 0
-             end
+                local ni_name = item.name
+                if show_actor_name then
+                    local act, cln = extract_actor(ni_name, item.start, item.stop)
+                    if act ~= "" then ni_name = "[" .. act .. "] " .. cln end
+                end
+                 
+                if show_next_two and items_table[i+1] then
+                    local ni2_name = items_table[i+1].name
+                    if show_actor_name then
+                        local act, cln = extract_actor(ni2_name, items_table[i+1].start, items_table[i+1].stop)
+                        if act ~= "" then ni2_name = "[" .. act .. "] " .. cln end
+                    end
+                    next_item2 = ni2_name
+                end
+                 
+                return "", ni_name, 0, 0, next_item2
+            end
         end
     end
 
-    return "", "", 0, 0
+    return "", "", 0, 0, ""
 end
 
 -- Функція для отримання координат відеовікна REAPER
@@ -1468,14 +1665,14 @@ local function loop()
         end
         
         ensure_valid_source_mode()
-
+        sync_external_data() -- Синхронізуємо дані з Subass_Notes
         
         -- Визначаємо поточну позицію плейхеда/курсора
         local play_state = reaper.GetPlayState()
         local pos = (play_state & 1) == 1 and reaper.GetPlayPosition() or reaper.GetCursorPosition()
         
         -- Перевіряємо, чи потрібно оновлювати дані
-        local current, nextreg, start_pos, stop_pos
+        local current, nextreg, start_pos, stop_pos, nextreg2
         local cur_proj_change_count = reaper.GetProjectStateChangeCount(0)
         
         -- FORCE UPDATE EVERY FRAME (Fixes region update lag)
@@ -1485,17 +1682,17 @@ local function loop()
             last_proj_change_count = cur_proj_change_count
             
             if source_mode == 0 then
-                current, nextreg, start_pos, stop_pos = get_current_and_next_region_names()
+                current, nextreg, start_pos, stop_pos, nextreg2 = get_current_and_next_region_names()
             else
                 local tr = reaper.GetTrack(0, source_mode-1)
                 if tr then
-                    current, nextreg, start_pos, stop_pos = get_current_and_next_items(tr)
+                    current, nextreg, start_pos, stop_pos, nextreg2 = get_current_and_next_items(tr)
                 else
-                    current, nextreg, start_pos, stop_pos = "", "", 0, 0
+                    current, nextreg, start_pos, stop_pos, nextreg2 = "", "", 0, 0, ""
                 end
             end
             -- Зберігаємо в кеш
-            cached_current, cached_next, cached_start, cached_stop = current, nextreg, start_pos, stop_pos
+            cached_current, cached_next, cached_next2, cached_start, cached_stop = current, nextreg, nextreg2, start_pos, stop_pos
         -- else
             -- -- Позиція не змінилася - використовуємо кеш
             -- current, nextreg, start_pos, stop_pos = cached_current, cached_next, cached_start, cached_stop
@@ -1504,12 +1701,14 @@ local function loop()
         -- PARSE TO TOKENS (Handles comments, newlines, etc.)
         local current_tokens = parse_to_tokens(current)
         local next_tokens = parse_to_tokens(nextreg)
+        local next2_tokens = parse_to_tokens(nextreg2 or "")
 
         -- ASSIMILATION (Works on tokens)
         -- Use LOCAL setting instead of global ExtState
         if show_assimilation then
             current_tokens = process_assimilation_tokens(current_tokens)
             next_tokens = process_assimilation_tokens(next_tokens)
+            next2_tokens = process_assimilation_tokens(next2_tokens)
         end
 
         local progress = 0.0
@@ -1550,6 +1749,11 @@ local function loop()
                 
                 local next_line_count = calculate_line_count(next_tokens, second_font_index, actual_second_font_scale, win_w)
                 total_height = total_height + next_region_offset + (second_line_h * next_line_count)
+                
+                if show_next_two and #next2_tokens > 0 then
+                    local next2_line_count = calculate_line_count(next2_tokens, second_font_index, actual_second_font_scale, win_w)
+                    total_height = total_height + next_region_offset + (second_line_h * next2_line_count)
+                end
             end
             
             -- Розрахунок позиції Y (округлюємо щоб уникнути "стрибання")
@@ -1585,23 +1789,39 @@ local function loop()
         end
 
         if enable_second_line then 
+            local second_line_h = 0
+            reaper.ImGui_PushFont(ctx, font_objects[second_font_index] or font_objects[1], actual_second_font_scale)
+            second_line_h = reaper.ImGui_GetTextLineHeight(ctx)
+            reaper.ImGui_PopFont(ctx)
+            
+            local next_line_count = calculate_line_count(next_tokens, second_font_index, actual_second_font_scale, win_w)
+            local next_total_h = second_line_h * next_line_count
+            
+            local start_y_next = 0
+            
             -- СТАБІЛЬНЕ ВИРІВНЮВАННЯ ПО НИЗУ
             if align_bottom then
-                reaper.ImGui_PushFont(ctx, font_objects[second_font_index] or font_objects[1], actual_second_font_scale)
-                local second_line_h = reaper.ImGui_GetTextLineHeight(ctx)
-                reaper.ImGui_PopFont(ctx)
-                local next_line_count = calculate_line_count(next_tokens, second_font_index, actual_second_font_scale, win_w)
-                local next_total_h = second_line_h * next_line_count
+                local next2_total_h = 0
+                if show_next_two and #next2_tokens > 0 then
+                    local next2_line_count = calculate_line_count(next2_tokens, second_font_index, actual_second_font_scale, win_w)
+                    next2_total_h = second_line_h * next2_line_count + next_region_offset
+                end
                 
                 -- Фіксована позиція для другого рядка відносно низу вікна
-                local bottom_y = win_h - next_total_h - padding_y * 12
-                reaper.ImGui_SetCursorPosY(ctx, bottom_y)
+                start_y_next = win_h - next_total_h - next2_total_h - padding_y * 12
+                reaper.ImGui_SetCursorPosY(ctx, start_y_next)
             else
                 local cur_y = reaper.ImGui_GetCursorPosY(ctx)
-                reaper.ImGui_SetCursorPosY(ctx, cur_y + next_region_offset) 
+                start_y_next = cur_y + next_region_offset
+                reaper.ImGui_SetCursorPosY(ctx, start_y_next) 
             end
             
             draw_tokens(ctx, next_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true)
+            
+            if show_next_two and #next2_tokens > 0 then
+                reaper.ImGui_SetCursorPosY(ctx, start_y_next + next_total_h + next_region_offset)
+                draw_tokens(ctx, next2_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true)
+            end
         end
         
         win_X, win_Y = reaper.ImGui_GetWindowPos(ctx)
