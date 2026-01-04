@@ -33,6 +33,7 @@ local cfg = {
     
     next_attach = (get_set("next_attach", "0") == "1" or get_set("next_attach", 0) == 1),
     next_padding = get_set("next_padding", 30),
+    show_next_two = (get_set("show_next_two", "0") == "1" or get_set("show_next_two", 0) == 1),
 
     wrap_length = get_set("wrap_length", 42),
     always_next = (get_set("always_next", "1") == "1" or get_set("always_next", 1) == 1),
@@ -144,12 +145,14 @@ local F = {
 local draw_prompter_cache = {
     last_text = nil,
     lines = {},
-    last_next_text = nil,
-    next_lines = {}
+    next_cache = {} -- Map of text -> parsed lines for Next replicas
 }
 
 --- Re-initialize prompter font slots and invalidate measurements
 local function update_prompter_fonts()
+    draw_prompter_cache.last_text = nil
+    draw_prompter_cache.next_cache = {}
+    
     -- Prompter-specific fonts (User Configurable)
     gfx.setfont(F.lrg, cfg.p_font, S(cfg.p_fsize))
     gfx.setfont(F.nxt, cfg.p_font, S(cfg.n_fsize))
@@ -570,6 +573,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "always_next", cfg.always_next and "1" or "0", true)
     reaper.SetExtState(section_name, "next_attach", cfg.next_attach and "1" or "0", true)
     reaper.SetExtState(section_name, "next_padding", tostring(cfg.next_padding), true)
+    reaper.SetExtState(section_name, "show_next_two", cfg.show_next_two and "1" or "0", true)
     
     reaper.SetExtState(section_name, "p_lheight", tostring(cfg.p_lheight), true)
     reaper.SetExtState(section_name, "n_lheight", tostring(cfg.n_lheight), true)
@@ -8522,14 +8526,17 @@ local function draw_prompter(input_queue)
     -- Find ALL regions that contain the current position
     local active_regions = {}
     local next_rgn = nil
+    local next_rgn2 = nil
     local prev_rgn_end = 0
     for _, rgn in ipairs(regions) do
         if cur_pos >= rgn.pos and cur_pos < rgn.rgnend then
             table.insert(active_regions, rgn)
         end
         if rgn.pos > cur_pos then
-            if not next_rgn or rgn.pos < next_rgn.pos then
+            if not next_rgn then
                 next_rgn = rgn
+            elseif not next_rgn2 then
+                next_rgn2 = rgn
             end
         end
         if rgn.rgnend <= cur_pos then
@@ -9029,19 +9036,19 @@ local function draw_prompter(input_queue)
     end
     
     -- Helper function to render next replica (defined here to be accessible in both branches)
-    local function render_next_replica(next_rgn, y_position_mode, override_fsize)
-        if not next_rgn then return end
+    local function render_next_replica(next_rgn, y_position_mode, override_fsize, y_offset)
+        if not next_rgn then return 0, 0 end
+        y_offset = y_offset or 0
         
         set_color({cfg.n_cr, cfg.n_cg, cfg.n_cb})
         
         -- Parse Text (with Cache)
         local display_name = next_rgn.name
         if not display_name or display_name:gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
-        if display_name ~= draw_prompter_cache.last_next_text then
-            draw_prompter_cache.next_lines = parse_rich_text(display_name)
-            draw_prompter_cache.last_next_text = display_name
+        if not draw_prompter_cache.next_cache[display_name] then
+            draw_prompter_cache.next_cache[display_name] = parse_rich_text(display_name)
         end
-        local n_lines = draw_prompter_cache.next_lines
+        local n_lines = draw_prompter_cache.next_cache[display_name]
         
         -- Scale Next
         local max_w = available_w - S(40)
@@ -9088,17 +9095,13 @@ local function draw_prompter(input_queue)
         -- Position: bottom (when in region) or center (when not in region)
         local n_start_y
         if type(y_position_mode) == "number" then
-            n_start_y = y_position_mode
-            -- GUARD: Don't allow next replica to go off-screen
-            if n_start_y + n_total_h > gfx.h - S(10) then
-                n_start_y = gfx.h - n_total_h - S(10)
-            end
+            n_start_y = y_position_mode + y_offset
         elseif y_position_mode == "bottom" then
-            n_start_y = gfx.h - n_total_h - S(10)
+            n_start_y = gfx.h - n_total_h - S(10) - y_offset
         elseif y_position_mode == "top" then
-            n_start_y = S(50)
+            n_start_y = S(50) + y_offset
         else -- "center"
-            n_start_y = (gfx.h - n_total_h) / 2
+            n_start_y = (gfx.h - n_total_h) / 2 + y_offset
         end
         
         -- Bounds for click
@@ -9528,10 +9531,11 @@ local function draw_prompter(input_queue)
             
             -- --- VERTICAL SCALING LOGIC ---
             local next_r = nil
+            local next_r2 = nil
             for _, r in ipairs(regions) do
                 if r.pos > cur_pos then
-                    next_r = r
-                    break
+                    if not next_r then next_r = r
+                    else next_r2 = r break end
                 end
             end
             
@@ -9542,6 +9546,11 @@ local function draw_prompter(input_queue)
                 gfx.setfont(F.nxt, cfg.p_font, cfg.n_fsize)
                 local n_lines = parse_rich_text(next_r.name)
                 unscaled_next_h = #n_lines * math.floor(gfx.texth * (cfg.n_lheight or 1.0))
+                
+                if cfg.show_next_two and next_r2 then
+                    local n_lines2 = parse_rich_text(next_r2.name)
+                    unscaled_next_h = unscaled_next_h + S(15) + #n_lines2 * math.floor(gfx.texth * (cfg.n_lheight or 1.0))
+                end
             end
             
             local cms, unscaled_ch = get_corrections_to_draw(cur_pos, active_regions)
@@ -9580,6 +9589,11 @@ local function draw_prompter(input_queue)
                 gfx.setfont(F.nxt, cfg.p_font, scaled_n_fsize)
                 local n_lines = parse_rich_text(next_r.name)
                 next_h = #n_lines * math.floor(gfx.texth * (cfg.n_lheight or 1.0))
+                
+                if cfg.show_next_two and next_r2 then
+                    local n_lines2 = parse_rich_text(next_r2.name)
+                    next_h = next_h + S(15) + #n_lines2 * math.floor(gfx.texth * (cfg.n_lheight or 1.0))
+                end
             end
 
             local cms, _ = get_corrections_to_draw(cur_pos, active_regions)
@@ -9619,12 +9633,15 @@ local function draw_prompter(input_queue)
             if cfg.p_valign == "top" then
                 start_y = S(60)
             elseif cfg.p_valign == "bottom" then
-                local next_reserve = (cfg.p_next and next_r and not cfg.next_attach) and (next_h + S(30)) or S(30)
+                local next_reserve = S(30)
+                if cfg.p_next and next_r then
+                    next_reserve = next_h + S(30)
+                end
                 start_y = gfx.h - active_corr_h - next_reserve
             end
 
             local top_limit = S(50) -- Account for info overlay and top margin
-            local bottom_limit = (next_h > 0 and not cfg.next_attach) and (gfx.h - next_h - S(30)) or (gfx.h - S(50))
+            local bottom_limit = (next_h > 0) and (gfx.h - next_h - S(30)) or (gfx.h - S(50))
             
             -- Resolve collisions: if we hit boundaries, shift text
             if start_y < top_limit then start_y = top_limit end
@@ -9738,7 +9755,18 @@ local function draw_prompter(input_queue)
                 if cfg.next_attach then
                     next_y = current_y + S(cfg.next_padding)
                 end
-                render_next_replica(next_r, next_y, scaled_n_fsize)
+                
+                if cfg.show_next_two and next_r2 then
+                    if cfg.next_attach then
+                        local h1, y1 = render_next_replica(next_r, next_y, scaled_n_fsize)
+                        render_next_replica(next_r2, y1 + h1 + S(15), scaled_n_fsize)
+                    else
+                        local h2, y2 = render_next_replica(next_r2, "bottom", scaled_n_fsize)
+                        render_next_replica(next_r, "bottom", scaled_n_fsize, h2 + S(15))
+                    end
+                else
+                    render_next_replica(next_r, next_y, scaled_n_fsize)
+                end
             end
         else
             set_color(UI.C_TXT)
@@ -9756,10 +9784,11 @@ local function draw_prompter(input_queue)
         if cfg.p_next and cfg.always_next and #regions > 0 then
             -- Find the next region after current position
             local next_rgn = nil
+            local next_rgn2 = nil
             for _, rgn in ipairs(regions) do
                 if rgn.pos > cur_pos then
-                    next_rgn = rgn
-                    break
+                    if not next_rgn then next_rgn = rgn
+                    else next_rgn2 = rgn break end
                 end
             end
             
@@ -9768,6 +9797,10 @@ local function draw_prompter(input_queue)
                 gfx.setfont(F.nxt, cfg.p_font, cfg.n_fsize)
                 local n_lines = parse_rich_text(next_rgn.name)
                 local n_h_est = #n_lines * math.floor(gfx.texth * (cfg.n_lheight or 1.0)) + 30
+                if cfg.show_next_two and next_rgn2 then
+                    local n_lines2 = parse_rich_text(next_rgn2.name)
+                    n_h_est = n_h_est + #n_lines2 * math.floor(gfx.texth * (cfg.n_lheight or 1.0)) + 15
+                end
                 
                 local cms, ch = get_corrections_to_draw(cur_pos, nil)
                 prompter_drawer.active_markindex = (ch > 0) and cms[1].markindex or nil
@@ -9788,9 +9821,13 @@ local function draw_prompter(input_queue)
 
                 local n_h, n_y = 0, gfx.h - 10
                 if cfg.p_next and cfg.always_next then
-                    -- Temporarily override fonts? No, render_next_replica uses cfg.n_fsize.
-                    -- I need to update render_next_replica to accept an optional font size.
-                    n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize)
+                    if cfg.show_next_two and next_rgn2 then
+                        local h2, y2 = render_next_replica(next_rgn2, "bottom", wait_draw_n_fsize)
+                        n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize, h2 + S(15))
+                        n_h = n_h + h2 + S(15) -- Total group height for corrections positioning
+                    else
+                        n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize)
+                    end
                 end
                 
                 -- Draw corrections with rule-based timing
@@ -10611,10 +10648,18 @@ local function draw_settings()
         end
         y_cursor = y_cursor + S(40)
 
+        if checkbox(x_start + S(30), y_cursor, "Відображати ДВІ наступні репліки", cfg.show_next_two, "Відображення відразу 2 наступних реплік в суфлері.") then
+            cfg.show_next_two = not cfg.show_next_two
+            save_settings()
+        end
+
+        y_cursor = y_cursor + S(40)
+
         if checkbox(x_start + S(30), y_cursor, "Прикріпити до основної репліки", cfg.next_attach, "Наступна репліка не прикріплюватиметься до низу екрану, а буде під основною.") then
             cfg.next_attach = not cfg.next_attach
             save_settings()
         end
+
         y_cursor = y_cursor + S(45)
 
         if cfg.next_attach then
