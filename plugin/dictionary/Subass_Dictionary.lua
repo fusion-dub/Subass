@@ -12,6 +12,8 @@ local WIN_W, WIN_H = 600, 500
 
 -- Load dictionary data
 local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
+-- Global ImGui Style
+local Style = dofile(script_path .. "Subass_ReaImGuiGlobalStyle.lua")
 local data_file = script_path .. "dictionary_data.lua"
 local categories = {}
 local cached_results = {}
@@ -115,65 +117,89 @@ load_data()
 
 local filter = ""
 
-function loop()
+local function loop()
     if not ctx then return end
 
     reaper.ImGui_SetNextWindowSize(ctx, WIN_W, WIN_H, reaper.ImGui_Cond_FirstUseEver())
-    
+
+    -- APPLY GLOBAL STYLE
+    Style.push(ctx)
+
     local visible, open = reaper.ImGui_Begin(ctx, 'Subass Dictionary', true, reaper.ImGui_WindowFlags_NoScrollbar())
+
     if visible then
-        -- Search bar and Reload button
+        -- Search
         reaper.ImGui_SetNextItemWidth(ctx, -120)
-        local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search', "Пошук виразів...", filter)
+        local changed, new_filter =
+            reaper.ImGui_InputTextWithHint(ctx, '##search', "Пошук виразів...", filter)
         if changed then filter = new_filter end
-        
+
         reaper.ImGui_SameLine(ctx)
         if reaper.ImGui_Button(ctx, "Оновити", 110) then
             load_data()
         end
-        
+
         reaper.ImGui_Separator(ctx)
-        
-        -- Update cache if filter changed
+
         if filter ~= last_filter then
             update_search_cache(filter)
         end
-        
-        -- Main Content Area
+
+        -- Content
         if reaper.ImGui_BeginChild(ctx, "content_area") then
             for _, cat in ipairs(cached_results) do
-                if reaper.ImGui_CollapsingHeader(ctx, cat.name, reaper.ImGui_TreeNodeFlags_DefaultOpen()) then
+                local header_flags = 0
+                
+                local header_name = string.format("%s (%d)", cat.name, #cat.entries)
+                if reaper.ImGui_CollapsingHeader( ctx, header_name, header_flags ) then
+                    reaper.ImGui_Indent(ctx, 25)
+                    reaper.ImGui_Dummy(ctx, 0, 5)
                     for _, entry in ipairs(cat.entries) do
-                        
-                        -- Draw Word (Title) in Large Font (2x fallback to 30)
-                        reaper.ImGui_PushFont(ctx, font_main, 30)
-                        reaper.ImGui_TextColored(ctx, 0xFFCC00FF, entry.word)
-                        reaper.ImGui_PopFont(ctx)
-                        
-                        -- Draw Meaning (Definition) below/flowing
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xBBBBBBFF)
-                        reaper.ImGui_PushFont(ctx, font_main, 15)
-                        
-                        -- Using a separator that looks nice
-                        local meaning = "— " .. entry.meaning
-                        reaper.ImGui_PushTextWrapPos(ctx, 0.0)
-                        reaper.ImGui_Text(ctx, meaning)
-                        reaper.ImGui_PopTextWrapPos(ctx)
-                        
-                        reaper.ImGui_PopFont(ctx)
-                        reaper.ImGui_PopStyleColor(ctx)
-                        
-                        reaper.ImGui_Spacing(ctx)
-                        reaper.ImGui_Spacing(ctx)
+                        if cat.name == "Асиміляція" or cat.name == "Відмінки" then
+                            -- Inline Style
+                            reaper.ImGui_PushFont(ctx, font_main, 15)
+                            reaper.ImGui_TextColored(ctx, Style.colors.WordHighlight, entry.word)
+                            reaper.ImGui_SameLine(ctx)
+                            
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), Style.colors.MeaningText)
+                            reaper.ImGui_Text(ctx, "— " .. entry.meaning)
+                            reaper.ImGui_PopStyleColor(ctx)
+                            reaper.ImGui_PopFont(ctx)
+                        else
+                            -- Block Style (Standard)
+                            -- Word
+                            reaper.ImGui_PushFont(ctx, font_main, 30)
+                            reaper.ImGui_TextColored(ctx, Style.colors.WordHighlight, entry.word)
+                            reaper.ImGui_PopFont(ctx)
+
+                            -- Meaning
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), Style.colors.MeaningText)
+                            reaper.ImGui_PushFont(ctx, font_main, 15)
+
+                            reaper.ImGui_PushTextWrapPos(ctx, 0.0)
+                            reaper.ImGui_Text(ctx, "— " .. entry.meaning)
+                            reaper.ImGui_PopTextWrapPos(ctx)
+
+                            reaper.ImGui_PopFont(ctx)
+                            reaper.ImGui_PopStyleColor(ctx)
+
+                            reaper.ImGui_Spacing(ctx)
+                            reaper.ImGui_Spacing(ctx)
+                        end
                     end
+                    reaper.ImGui_Dummy(ctx, 0, 10)
+                    reaper.ImGui_Unindent(ctx, 25)
                 end
             end
             reaper.ImGui_EndChild(ctx)
         end
-        
+
         reaper.ImGui_End(ctx)
     end
-    
+
+    -- POP GLOBAL STYLE
+    Style.pop(ctx)
+
     if open then
         reaper.defer(loop)
     end
