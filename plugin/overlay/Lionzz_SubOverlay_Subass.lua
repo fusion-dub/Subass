@@ -92,6 +92,7 @@ local invert_y_axis = false             -- інвертувати вісь Y (д
 local ignore_newlines = false           -- ігнорувати символи переносу рядка при читанні
 local word_hold = { start_time = 0, word = "", triggered = false }
 local last_window_click = 0
+local is_any_word_held = false
 
 reaper.gmem_attach("SubassSync") -- Shared memory for lightning-fast sync
 
@@ -1006,6 +1007,7 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                 -- Dictionary / Edit Logic
                 local dict_word = tok.orig_text:gsub("[%p]+$", ""):gsub("^[%p]+", "")
                 if reaper.ImGui_IsItemActive(ctx) then
+                    is_any_word_held = true
                     if word_hold.word ~= dict_word then
                         word_hold.word = dict_word
                         word_hold.start_time = reaper.time_precise()
@@ -1017,11 +1019,6 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                             reaper.gmem_write(0, 2) -- Signal DICT
                             word_hold.triggered = true
                         end
-                    end
-                else
-                    if word_hold.word == dict_word then
-                        word_hold.word = ""
-                        word_hold.triggered = false
                     end
                 end
 
@@ -1833,6 +1830,7 @@ local function loop()
         -- Визначаємо поточну позицію плейхеда/курсора
         local play_state = reaper.GetPlayState()
         local pos = (play_state & 1) == 1 and reaper.GetPlayPosition() or reaper.GetCursorPosition()
+        is_any_word_held = false
         
         -- Перевіряємо, чи потрібно оновлювати дані
         local current, nextreg, start_pos, stop_pos, nextreg2
@@ -2077,6 +2075,12 @@ local function loop()
             reaper.ImGui_DrawList_AddLine(draw_list, right_x, win_Y, right_x, win_Y + win_h, guide_color, 1.0)
         end
         
+        -- Global Word Hold Reset
+        if not is_any_word_held then
+            word_hold.word = ""
+            word_hold.triggered = false
+        end
+
         --debug_window()
         draw_context_menu()
         reaper.ImGui_End(ctx)
