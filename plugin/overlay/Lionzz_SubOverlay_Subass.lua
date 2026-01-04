@@ -59,6 +59,13 @@ local second_font_index = 1             -- номер шрифту для дру
 local second_font_scale = 22            -- розмір другого рядка
 local second_text_color = 0x99BB22FF    -- колір другого рядка
 local second_shadow_color = 0x000000FF  -- колір тіні другого рядка
+
+local corr_font_index = 1
+local corr_font_scale = 18
+local corr_text_color = 0xFF4444CC -- Червоний за дефолтом
+local corr_shadow_color = 0x000000FF
+local corr_offset = 12
+
 local source_mode = nil                 -- 0 = регіони, >0 = номер трека з ітемами
 local window_bg_color = 0x00000088      -- чорний з прозорістю
 local border = false                    -- малювати фон під текстом
@@ -67,6 +74,7 @@ local wrap_margin = 0                   -- відступ від краю вік
 local enable_second_line = true         -- показувати другий рядок
 local show_next_two = false             -- показувати 2 наступні репліки
 local show_actor_name = false            -- показувати ім'я актора
+local show_corrections = true           -- показувати правки (маркери)
 local align_center = true               -- вирівнювання по центру (горизонтально, за замовчуванням увімкн.)
 local align_vertical = false            -- вирівнювання по вертикалі (центрування контенту у вікні)
 local align_bottom = true              -- вирівнювання по низу
@@ -293,7 +301,7 @@ local function parse_to_tokens(text)
     local has_text = false
     
     -- Formatting state
-    local state = {b=false, i=false, u=false, s=false, meta_t1=nil, meta_t2=nil}
+    local state = {b=false, i=false, u=false, s=false, meta_t1=nil, meta_t2=nil, meta_id=nil, alpha=255}
 
     -- Normalize newlines
     text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
@@ -307,17 +315,19 @@ local function parse_to_tokens(text)
         
         if segment ~= "" then
             for word in segment:gmatch("%S+") do 
-                 local effective_comment = pending_comment or nil -- Initially use nil, global_comment applied in final pass
-                 table.insert(tokens, {
-                     text = word,
-                     orig_text = word, 
-                     comment = effective_comment,
-                     is_newline = false,
-                     b = state.b, s = state.s, u = state.u, i = state.i,
-                     meta_t1 = state.meta_t1, meta_t2 = state.meta_t2
-                 })
-                 pending_comment = nil
-                 has_text = true
+                local effective_comment = pending_comment or nil -- Initially use nil, global_comment applied in final pass
+                table.insert(tokens, {
+                    text = word,
+                    orig_text = word, 
+                    comment = effective_comment,
+                    is_newline = false,
+                    b = state.b, s = state.s, u = state.u, i = state.i,
+                    meta_t1 = state.meta_t1, meta_t2 = state.meta_t2,
+                    meta_id = state.meta_id,
+                    alpha = state.alpha
+                })
+                pending_comment = nil
+                has_text = true
             end
         end
 
@@ -326,9 +336,9 @@ local function parse_to_tokens(text)
         local char = text:sub(tag_start, tag_start)
         
         if char == "\n" then
-             table.insert(tokens, { is_newline = true, text = "\n" })
-             has_text = false -- Reset for new line
-             cursor = tag_start + 1
+            table.insert(tokens, { is_newline = true, text = "\n" })
+            has_text = false -- Reset for new line
+            cursor = tag_start + 1
              
         elseif char == "{" then
             -- ASS tag or comment
@@ -346,8 +356,13 @@ local function parse_to_tokens(text)
                     state.meta_t2 = tonumber(meta_t2_match)
                     is_formatting = true
                 end
+
+                local meta_id_match = content:match("\\meta_id:(%d+)")
+                if meta_id_match then
+                    state.meta_id = tonumber(meta_id_match)
+                    is_formatting = true
+                end
                 
-                -- Parse supported tags: \b1, \b0, \i1, \u1, \s1
                 -- Parse supported tags: \b1, \b0, \i1, \i0, \u1, \u0, \s1, \s0
                 -- Also handle case-insensitive and tags without digits (defaults to 1)
                 for tag in content:gmatch("\\[bius]%d?") do
@@ -360,6 +375,13 @@ local function parse_to_tokens(text)
                     elseif t == "u" then state.u = v
                     elseif t == "s" then state.s = v
                     end
+                    is_formatting = true
+                end
+
+                -- Alpha tag support: \alpha:XXX (0-255)
+                local alpha_match = content:match("\\alpha:(%d+)")
+                if alpha_match then
+                    state.alpha = tonumber(alpha_match) or 255
                     is_formatting = true
                 end
                 
@@ -464,6 +486,14 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "align_center", tostring(align_center), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_actor_name", tostring(show_actor_name), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_next_two", tostring(show_next_two), true)
+    reaper.SetExtState(SETTINGS_SECTION, "show_corrections", tostring(show_corrections), true)
+    
+    reaper.SetExtState(SETTINGS_SECTION, "corr_font_index", tostring(corr_font_index), true)
+    reaper.SetExtState(SETTINGS_SECTION, "corr_font_scale", tostring(corr_font_scale), true)
+    reaper.SetExtState(SETTINGS_SECTION, "corr_text_color", string.format("%08X", corr_text_color), true)
+    reaper.SetExtState(SETTINGS_SECTION, "corr_shadow_color", string.format("%08X", corr_shadow_color), true)
+    reaper.SetExtState(SETTINGS_SECTION, "corr_offset", tostring(corr_offset), true)
+    
     reaper.SetExtState(SETTINGS_SECTION, "align_vertical", tostring(align_vertical), true)
     reaper.SetExtState(SETTINGS_SECTION, "align_bottom", tostring(align_bottom), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_assimilation", tostring(show_assimilation), true)
@@ -517,6 +547,17 @@ local function load_settings()
     align_center = (reaper.GetExtState(SETTINGS_SECTION, "align_center") ~= "false")
     show_actor_name = (reaper.GetExtState(SETTINGS_SECTION, "show_actor_name") == "true")
     show_next_two = (reaper.GetExtState(SETTINGS_SECTION, "show_next_two") == "true")
+    show_corrections = (reaper.GetExtState(SETTINGS_SECTION, "show_corrections") ~= "false") -- Default ON
+    
+    corr_font_index = tonumber(reaper.GetExtState(SETTINGS_SECTION, "corr_font_index")) or 1
+    corr_font_scale = tonumber(reaper.GetExtState(SETTINGS_SECTION, "corr_font_scale")) or 18
+    if corr_font_scale < 5 then corr_font_scale = 18 end -- Fix for previous tiny scale bug
+    local corr_txt_col = reaper.GetExtState(SETTINGS_SECTION, "corr_text_color")
+    if corr_txt_col ~= "" then corr_text_color = tonumber(corr_txt_col,16) or 0xFF4444FF end
+    local corr_shd_col = reaper.GetExtState(SETTINGS_SECTION, "corr_shadow_color")
+    if corr_shd_col ~= "" then corr_shadow_color = tonumber(corr_shd_col,16) or 0x000000FF end
+    corr_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "corr_offset")) or 12
+    
     align_vertical = (reaper.GetExtState(SETTINGS_SECTION, "align_vertical") == "true")
     align_bottom = (reaper.GetExtState(SETTINGS_SECTION, "align_bottom") ~= "false")
     show_assimilation = (reaper.GetExtState(SETTINGS_SECTION, "show_assimilation") ~= "false")
@@ -750,6 +791,26 @@ local function draw_context_menu()
             progress_height = add_change(reaper.ImGui_SliderInt(ctx, "товщина", progress_height, 1, 10))
             progress_offset = add_change(reaper.ImGui_SliderInt(ctx, "відступ", progress_offset, 0, 200))
         end
+
+        -- Стиль правок (маркерів)
+        reaper.ImGui_Separator(ctx)
+        show_corrections = add_change(reaper.ImGui_Checkbox(ctx, "Правки (Маркери)", show_corrections))
+        tooltip("Відображати текст маркерів між репліками")
+        if show_corrections then
+            if reaper.ImGui_BeginCombo(ctx, "шрифт правок", available_fonts[corr_font_index]) then
+                for i, name in ipairs(available_fonts) do
+                    if reaper.ImGui_Selectable(ctx, name, i == corr_font_index) then
+                        corr_font_index = i
+                        changes = 1
+                    end
+                end
+                reaper.ImGui_EndCombo(ctx)
+            end
+            corr_font_scale   = add_change(reaper.ImGui_SliderInt(ctx, "масштаб правок", math.floor(corr_font_scale), 10, 100))
+            corr_offset       = add_change(reaper.ImGui_SliderInt(ctx, "відступ правок", corr_offset, 0, 100))
+            corr_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір правок", corr_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            corr_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь правок", corr_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+        end
         
         -- Стиль другого рядка
         reaper.ImGui_Separator(ctx)
@@ -969,6 +1030,7 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                     if tok.meta_t1 and tok.meta_t2 then
                         reaper.gmem_write(1, tok.meta_t1)
                         reaper.gmem_write(2, tok.meta_t2)
+                        reaper.gmem_write(3, tok.meta_id or -1)
                         reaper.gmem_write(0, 4) -- CMD_EDIT_SPECIFIC
                     else
                         -- Fallback to old behavior
@@ -978,7 +1040,16 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
 
                 -- 2. Draw Text (Shadow + Main + Bold)
                 local function draw_text_inner(x, y, color)
-                    reaper.ImGui_DrawList_AddText(draw_list, x, y, color, tok.text)
+                    local draw_color = color
+                    if tok.alpha and tok.alpha < 255 then
+                        local r = (color >> 24) & 0xFF
+                        local g = (color >> 16) & 0xFF
+                        local b = (color >> 8) & 0xFF
+                        local a = color & 0xFF
+                        local new_a = math.floor(a * (tok.alpha / 255) + 0.5)
+                        draw_color = (r << 24) | (g << 16) | (b << 8) | new_a
+                    end
+                    reaper.ImGui_DrawList_AddText(draw_list, x, y, draw_color, tok.text)
                 end
 
                 draw_text_inner(temp_x + shadow_offset, line_base_y + shadow_offset, shadow_color)
@@ -1048,6 +1119,8 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
         else
              reaper.ImGui_Dummy(ctx, 1, line_h)
         end
+        -- Advance cursor to next line
+        reaper.ImGui_SetCursorPosY(ctx, cur_y + line_h)
     end
 
     reaper.ImGui_PopFont(ctx)
@@ -1061,6 +1134,14 @@ local function sync_external_data()
 
     local section = "Subass_Notes"
     local ok, l_dump = reaper.GetProjExtState(0, section, "ass_lines")
+    -- Також синхронізуємо стан p_corr (чи увімкнені правки глобально)
+    local p_corr_val = reaper.GetExtState(section, "p_corr")
+    if p_corr_val ~= "" then
+        global_p_corr = (p_corr_val == "1")
+    else
+        global_p_corr = true -- За замовчуванням увімкнено, якщо не знайдено
+    end
+
     if not ok or l_dump == "" then 
         external_ass_lines = {}
         return 
@@ -1122,6 +1203,88 @@ local function extract_actor(name, t1, t2)
     return actor, name
 end
 
+-- Отримання поточних правок (маркерів) навколо позиції
+local function get_current_corrections(pos, start_pos, stop_pos)
+    if not show_corrections or global_p_corr == false then return {} end
+    
+    local _, num_markers, num_regions = reaper.CountProjectMarkers(0)
+    local cor_markers = {}
+    
+    -- 1. Знаходимо ОСТАННІЙ пройдений маркер у всьому проекті (для застарівання)
+    local project_last_passed_pos = -1
+    for i = 0, (num_markers + num_regions) - 1 do
+        local retval, isrgn, m_pos, rgnend, name, markindex = reaper.EnumProjectMarkers3(0, i)
+        if not isrgn and name ~= "" then
+            if m_pos <= pos and m_pos > project_last_passed_pos then
+                project_last_passed_pos = m_pos
+            end
+        end
+    end
+
+    -- 2. Збираємо всі регіони проекту для перевірки приналежності маркера
+    local rgns = {}
+    for i = 0, (num_markers + num_regions) - 1 do
+        local retval, isrgn, s, e, name = reaper.EnumProjectMarkers3(0, i)
+        if isrgn then
+            table.insert(rgns, {s=s, e=e})
+        end
+    end
+    
+    -- 3. Переглядаємо всі маркери (тільки ті, що не застаріли АБО майбутні)
+    for i = 0, (num_markers + num_regions) - 1 do
+        local retval, isrgn, m_pos, rgnend, name, markindex = reaper.EnumProjectMarkers3(0, i)
+        if not isrgn and name ~= "" then
+            -- Маркер вважається застарілим, якщо після нього вже є інший пройдений маркер
+            if m_pos < project_last_passed_pos then
+                goto continue
+            end
+
+            -- Перевіряємо, чи належить маркер до якогось регіону
+            local parent_rgn = nil
+            for _, r in ipairs(rgns) do
+                if m_pos >= r.s and m_pos < r.e then
+                    parent_rgn = r
+                    break
+                end
+            end
+            
+            if parent_rgn then
+                -- КРАЙОВИЙ ВИПАДОК: Маркер всередині регіону (Rule 1)
+                -- Показуємо ТІЛЬКИ доки ми всередині цього регіону
+                if pos >= parent_rgn.s and pos < parent_rgn.e then
+                    table.insert(cor_markers, {pos=m_pos, name=name, id=markindex})
+                end
+            else
+                -- КРАЙОВИЙ ВИПАДОК: Маркер у прогалі (Rule 2)
+                -- Показуємо протягом 10 секунд ПІСЛЯ проходження
+                if pos >= m_pos and pos < m_pos + 10 then
+                    table.insert(cor_markers, {pos=m_pos, name=name, id=markindex})
+                end
+            end
+        end
+        ::continue::
+    end
+    
+    if #cor_markers == 0 then return {} end
+    table.sort(cor_markers, function(a, b) return a.pos < b.pos end)
+
+    -- Пошук "Найкращого" маркера:
+    -- Якщо ми в русі вперед, шукаємо останній пройдений або перший майбутній (в межах видимості)
+    local best_m = nil
+    for _, m in ipairs(cor_markers) do
+        if m.pos >= pos then
+            best_m = m
+            break
+        end
+    end
+    
+    if not best_m then
+        best_m = cor_markers[#cor_markers]
+    end
+    
+    return { best_m }
+end
+
 -- Отримання поточного та наступного регіонів
 local function get_current_and_next_region_names()
     local play_state = reaper.GetPlayState()
@@ -1150,7 +1313,7 @@ local function get_current_and_next_region_names()
             local r_name = r.name
             if show_actor_name then
                 local act, cln = extract_actor(r_name, r.start, r.stop)
-                if act ~= "" then r_name = "[" .. act .. "] " .. cln end
+                if act ~= "" then r_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
             -- Inject metadata tag with exact times
             local text_with_meta = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", r.start, r.stop, r_name)
@@ -1174,7 +1337,7 @@ local function get_current_and_next_region_names()
              local nr_name = next_r.name
              if show_actor_name then
                 local act, cln = extract_actor(nr_name, next_r.start, next_r.stop)
-                if act ~= "" then nr_name = "[" .. act .. "] " .. cln end
+                if act ~= "" then nr_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
              end
              nextreg = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", next_r.start, next_r.stop, nr_name)
              
@@ -1183,7 +1346,7 @@ local function get_current_and_next_region_names()
                  local nr2_name = next_r2.name
                  if show_actor_name then
                     local act, cln = extract_actor(nr2_name, next_r2.start, next_r2.stop)
-                    if act ~= "" then nr2_name = "[" .. act .. "] " .. cln end
+                    if act ~= "" then nr2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                  end
                 nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", next_r2.start, next_r2.stop, nr2_name)
              end
@@ -1209,7 +1372,7 @@ local function get_current_and_next_region_names()
         local r_name = regions[nearest_idx].name
         if show_actor_name then
             local act, cln = extract_actor(r_name, regions[nearest_idx].start, regions[nearest_idx].stop)
-            if act ~= "" then r_name = "[" .. act .. "] " .. cln end
+            if act ~= "" then r_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
         end
         current = r_name
         
@@ -1225,7 +1388,7 @@ local function get_current_and_next_region_names()
                 local nr2_name = regions[nearest_idx+2].name
                 if show_actor_name then
                     local act, cln = extract_actor(nr2_name, regions[nearest_idx+2].start, regions[nearest_idx+2].stop)
-                    if act ~= "" then nr2_name = "[" .. act .. "] " .. cln end
+                    if act ~= "" then nr2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
                 nextreg2 = nr2_name
             end
@@ -1240,14 +1403,14 @@ local function get_current_and_next_region_names()
                 local nr_name = r.name
                 if show_actor_name then
                     local act, cln = extract_actor(nr_name, r.start, r.stop)
-                    if act ~= "" then nr_name = "[" .. act .. "] " .. cln end
+                    if act ~= "" then nr_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
                  
                 if show_next_two and regions[i+1] then
                     local nr2_name = regions[i+1].name
                     if show_actor_name then
                         local act, cln = extract_actor(nr2_name, regions[i+1].start, regions[i+1].stop)
-                        if act ~= "" then nr2_name = "[" .. act .. "] " .. cln end
+                        if act ~= "" then nr2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                     end
                     nextreg2 = nr2_name
                 end
@@ -1314,7 +1477,7 @@ local function get_current_and_next_items(track)
             local i_name = item.name
             if show_actor_name then
                 local act, cln = extract_actor(i_name, item.start, item.stop)
-                if act ~= "" then i_name = "[" .. act .. "] " .. cln end
+                if act ~= "" then i_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
             table.insert(current_list, i_name)
             if not start_pos then start_pos = item.start end
@@ -1335,7 +1498,7 @@ local function get_current_and_next_items(track)
                 local ni_start = items_table[last_overlapping_idx + 1].start
                 local ni_stop = items_table[last_overlapping_idx + 1].stop
                 local act, cln = extract_actor(ni_name, ni_start, ni_stop)
-                if act ~= "" then ni_name = "[" .. act .. "] " .. cln end
+                if act ~= "" then ni_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
             next_item = ni_name
             
@@ -1345,7 +1508,7 @@ local function get_current_and_next_items(track)
                     local ni2_start = items_table[last_overlapping_idx + 2].start
                     local ni2_stop = items_table[last_overlapping_idx + 2].stop
                     local act, cln = extract_actor(ni2_name, ni2_start, ni2_stop)
-                    if act ~= "" then ni2_name = "[" .. act .. "] " .. cln end
+                    if act ~= "" then ni2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
                 next_item2 = ni2_name
             end
@@ -1368,7 +1531,7 @@ local function get_current_and_next_items(track)
         local i_name = items_table[nearest_idx].name
         if show_actor_name then
             local act, cln = extract_actor(i_name, items_table[nearest_idx].start, items_table[nearest_idx].stop)
-            if act ~= "" then i_name = "[" .. act .. "] " .. cln end
+            if act ~= "" then i_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
         end
         current = i_name
         
@@ -1378,7 +1541,7 @@ local function get_current_and_next_items(track)
                 local ni_start = items_table[nearest_idx+1].start
                 local ni_stop = items_table[nearest_idx+1].stop
                 local act, cln = extract_actor(ni_name, ni_start, ni_stop)
-                if act ~= "" then ni_name = "[" .. act .. "] " .. cln end
+                if act ~= "" then ni_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
             next_item = ni_name
             
@@ -1388,7 +1551,7 @@ local function get_current_and_next_items(track)
                     local ni2_start = items_table[nearest_idx+2].start
                     local ni2_stop = items_table[nearest_idx+2].stop
                     local act, cln = extract_actor(ni2_name, ni2_start, ni2_stop)
-                    if act ~= "" then ni2_name = "[" .. act .. "] " .. cln end
+                    if act ~= "" then ni2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
                 next_item2 = ni2_name
             end
@@ -1402,14 +1565,14 @@ local function get_current_and_next_items(track)
                 local ni_name = item.name
                 if show_actor_name then
                     local act, cln = extract_actor(ni_name, item.start, item.stop)
-                    if act ~= "" then ni_name = "[" .. act .. "] " .. cln end
+                    if act ~= "" then ni_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
                  
                 if show_next_two and items_table[i+1] then
                     local ni2_name = items_table[i+1].name
                     if show_actor_name then
                         local act, cln = extract_actor(ni2_name, items_table[i+1].start, items_table[i+1].stop)
-                        if act ~= "" then ni2_name = "[" .. act .. "] " .. cln end
+                        if act ~= "" then ni2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                     end
                     next_item2 = ni2_name
                 end
@@ -1702,6 +1865,18 @@ local function loop()
         local current_tokens = parse_to_tokens(current)
         local next_tokens = parse_to_tokens(nextreg)
         local next2_tokens = parse_to_tokens(nextreg2 or "")
+        
+        -- FETCH AND PARSE CORRECTIONS
+        local corr_list = get_current_corrections(pos, start_pos, stop_pos)
+        local corr_tokens = {}
+        if #corr_list > 0 then
+            -- Inject metadata into text for remote edit support
+            local tagged_text = ""
+            for _, m in ipairs(corr_list) do
+                tagged_text = tagged_text .. string.format("{\\meta_t1:%.3f\\meta_t2:%.3f\\meta_id:%d}%s\n", m.pos, m.pos, m.id or -1, m.name)
+            end
+            corr_tokens = parse_to_tokens(tagged_text)
+        end
 
         -- ASSIMILATION (Works on tokens)
         -- Use LOCAL setting instead of global ExtState
@@ -1756,6 +1931,14 @@ local function loop()
                 end
             end
             
+            -- Висота правок
+            if #corr_tokens > 0 then
+                reaper.ImGui_PushFont(ctx, font_objects[corr_font_index] or font_objects[1], corr_font_scale)
+                local corr_line_h = reaper.ImGui_GetTextLineHeight(ctx)
+                reaper.ImGui_PopFont(ctx)
+                local corr_line_count = calculate_line_count(corr_tokens, corr_font_index, corr_font_scale, win_w)
+                total_height = total_height + corr_offset + (corr_line_h * corr_line_count)
+            end
             -- Розрахунок позиції Y (округлюємо щоб уникнути "стрибання")
             local start_y = 0
             if align_vertical then
@@ -1769,7 +1952,18 @@ local function loop()
         end
         
         -- відображення тексту (використовуємо auto-scaled значення)
-            draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, text_color, shadow_color, win_w, false) -- перший рядок
+        reaper.ImGui_PushID(ctx, "current_line")
+        draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, text_color, shadow_color, win_w, false) -- перший рядок
+        reaper.ImGui_PopID(ctx)
+
+        -- Відображення правок (між основним рядком та другим)
+        if #corr_tokens > 0 then
+            local cur_y = reaper.ImGui_GetCursorPosY(ctx)
+            reaper.ImGui_SetCursorPosY(ctx, cur_y + corr_offset)
+            reaper.ImGui_PushID(ctx, "corr_line")
+            draw_tokens(ctx, corr_tokens, corr_font_index, corr_font_scale, corr_text_color, corr_shadow_color, win_w, true)
+            reaper.ImGui_PopID(ctx)
+        end
 
         -- прогрес-бар
         if show_progress then
@@ -1816,11 +2010,15 @@ local function loop()
                 reaper.ImGui_SetCursorPosY(ctx, start_y_next) 
             end
             
+            reaper.ImGui_PushID(ctx, "next_line_1")
             draw_tokens(ctx, next_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true)
+            reaper.ImGui_PopID(ctx)
             
             if show_next_two and #next2_tokens > 0 then
                 reaper.ImGui_SetCursorPosY(ctx, start_y_next + next_total_h + next_region_offset)
+                reaper.ImGui_PushID(ctx, "next_line_2")
                 draw_tokens(ctx, next2_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true)
+                reaper.ImGui_PopID(ctx)
             end
         end
         
@@ -1897,6 +2095,4 @@ local function loop()
     end
 end
 
-
 reaper.defer(loop)
-
