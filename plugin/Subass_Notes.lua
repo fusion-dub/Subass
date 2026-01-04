@@ -13322,8 +13322,12 @@ local function main()
     set_color(UI.C_BG)
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
     
-    -- Only draw main content if text editor not active
-    if not text_editor_state.active then
+    -- Main Drawing Logic
+    if text_editor_state.active then
+        draw_text_editor(input_queue)
+    elseif dict_modal.show then
+        draw_dictionary_modal(input_queue)
+    else
         local inside_window = gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= 0 and gfx.mouse_y <= gfx.h
 
         if current_tab == 1 then 
@@ -13335,11 +13339,6 @@ local function main()
         
         -- Draw Tabs LAST (Z-Index top)
         draw_tabs()
-        
-        -- Dictionary Modal (Z-index top-most)
-        if dict_modal.show then
-            draw_dictionary_modal(input_queue)
-        end
         
         -- Context Menu logic (Right-click on tab bar / empty space)
         -- Must strictly check mouse_handled AND window bounds to avoid global capture.
@@ -13355,10 +13354,6 @@ local function main()
                 save_settings()
             end
         end
-    else
-        -- Draw text editor overlay
-        -- Pass input queue to editor
-        draw_text_editor(input_queue)
     end
 
     draw_snackbar()
