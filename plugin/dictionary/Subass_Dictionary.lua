@@ -117,6 +117,125 @@ load_data()
 
 local filter = ""
 
+local function draw_inline_entry(ctx, title, meaning, title_size, meaning_size)
+    local tokens = {}
+    
+    -- Title tokens
+    for word in title:gmatch("%S+") do
+        table.insert(tokens, { text = word, color = Style.colors.WordHighlight, size = title_size })
+    end
+    
+    -- Separator token
+    table.insert(tokens, { text = " —", color = Style.colors.MeaningText, size = meaning_size })
+    
+    -- Meaning tokens
+    for word in meaning:gmatch("%S+") do
+        table.insert(tokens, { text = word, color = Style.colors.MeaningText, size = meaning_size })
+    end
+    
+    -- Calculate height difference for alignment
+    local h_title, h_meaning = 0, 0
+    if title_size > meaning_size then
+        reaper.ImGui_PushFont(ctx, font_main, title_size)
+        _, h_title = reaper.ImGui_CalcTextSize(ctx, "A")
+        reaper.ImGui_PopFont(ctx)
+        
+        reaper.ImGui_PushFont(ctx, font_main, meaning_size)
+        _, h_meaning = reaper.ImGui_CalcTextSize(ctx, "A")
+        reaper.ImGui_PopFont(ctx)
+    end
+    local align_offset = math.max(0, h_title - h_meaning - 3) -- -3 for visual baseline correction
+    
+    local line_has_large_text = false 
+    
+    for i, token in ipairs(tokens) do
+        -- Detect if current line has large text (Title)
+        if token.size == title_size and title_size > meaning_size then
+            line_has_large_text = true
+        end
+
+        -- 1. Speculatively attempt to stay on SameLine if not first item
+        if i > 1 then
+            reaper.ImGui_SameLine(ctx, 0, 0)
+            reaper.ImGui_PushFont(ctx, font_main, token.size) 
+            reaper.ImGui_Text(ctx, " ")
+            reaper.ImGui_PopFont(ctx)
+            reaper.ImGui_SameLine(ctx, 0, 0)
+        else
+            -- First item on a fresh block starts a new line logic
+            line_has_large_text = (token.size == title_size and title_size > meaning_size)
+        end
+        
+        -- 2. Measure word
+        reaper.ImGui_PushFont(ctx, font_main, token.size)
+        local w, h = reaper.ImGui_CalcTextSize(ctx, token.text)
+        reaper.ImGui_PopFont(ctx)
+        
+        local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
+        
+        -- 3. Check fit
+        if w > (avail_w - 5) then
+            -- Force NewLine with correct font height context
+            reaper.ImGui_PushFont(ctx, font_main, token.size)
+            reaper.ImGui_NewLine(ctx)
+            reaper.ImGui_PopFont(ctx)
+            
+            -- Reset line state
+            if token.size == title_size and title_size > meaning_size then
+                line_has_large_text = true
+            else
+                line_has_large_text = false
+            end
+        end
+        
+        -- 4. Align Calculation
+        local current_y = reaper.ImGui_GetCursorPosY(ctx)
+        local need_offset = (line_has_large_text and token.size == meaning_size)
+        
+        if need_offset then
+             reaper.ImGui_SetCursorPosY(ctx, current_y + align_offset)
+        end
+
+        -- 5. Render
+        reaper.ImGui_PushFont(ctx, font_main, token.size)
+        reaper.ImGui_TextColored(ctx, token.color, token.text)
+        reaper.ImGui_PopFont(ctx)
+        
+        if need_offset then
+            reaper.ImGui_SetCursorPosY(ctx, current_y) -- Restore Y for next elements
+        end
+    end
+    
+    if line_has_large_text then
+        local extra = title_size - meaning_size
+        if extra > 0 then
+            reaper.ImGui_Dummy(ctx, 0, extra)
+        end
+    end
+    
+    if line_has_large_text then
+        local extra = title_size - meaning_size
+        if extra > 0 then
+           reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + extra)
+        end
+    end
+
+    -- Separator
+    -- 1. Padding BEFORE separator (Only for large types)
+    if title_size > meaning_size then 
+        reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + 15)
+    else
+        reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + 5)
+    end
+    
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Separator(), 0xFFFFFF0B) 
+    reaper.ImGui_Separator(ctx)
+    reaper.ImGui_PopStyleColor(ctx)
+    
+    -- 2. Padding AFTER separator 
+    reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + 5)
+end
+
 local function loop()
     if not ctx then return end
 
@@ -150,45 +269,24 @@ local function loop()
             for _, cat in ipairs(cached_results) do
                 local header_flags = 0
                 
-                local header_name = string.format("%s (%d)", cat.name, #cat.entries)
-                if reaper.ImGui_CollapsingHeader( ctx, header_name, header_flags ) then
-                    reaper.ImGui_Indent(ctx, 25)
+                local header_name = string.format("%s (%d)###%s", cat.name, #cat.entries, cat.name)
+                
+                reaper.ImGui_PushFont(ctx, font_main, 16)
+                local header_open = reaper.ImGui_CollapsingHeader( ctx, header_name, header_flags )
+                reaper.ImGui_PopFont(ctx)
+                
+                if header_open then
+                    reaper.ImGui_Indent(ctx, 29)
                     reaper.ImGui_Dummy(ctx, 0, 5)
                     for _, entry in ipairs(cat.entries) do
                         if cat.name == "Асиміляція" or cat.name == "Відмінки" then
-                            -- Inline Style
-                            reaper.ImGui_PushFont(ctx, font_main, 15)
-                            reaper.ImGui_TextColored(ctx, Style.colors.WordHighlight, entry.word)
-                            reaper.ImGui_SameLine(ctx)
-                            
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), Style.colors.MeaningText)
-                            reaper.ImGui_Text(ctx, "— " .. entry.meaning)
-                            reaper.ImGui_PopStyleColor(ctx)
-                            reaper.ImGui_PopFont(ctx)
+                            draw_inline_entry(ctx, entry.word, entry.meaning, 18, 18)
                         else
-                            -- Block Style (Standard)
-                            -- Word
-                            reaper.ImGui_PushFont(ctx, font_main, 30)
-                            reaper.ImGui_TextColored(ctx, Style.colors.WordHighlight, entry.word)
-                            reaper.ImGui_PopFont(ctx)
-
-                            -- Meaning
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), Style.colors.MeaningText)
-                            reaper.ImGui_PushFont(ctx, font_main, 15)
-
-                            reaper.ImGui_PushTextWrapPos(ctx, 0.0)
-                            reaper.ImGui_Text(ctx, "— " .. entry.meaning)
-                            reaper.ImGui_PopTextWrapPos(ctx)
-
-                            reaper.ImGui_PopFont(ctx)
-                            reaper.ImGui_PopStyleColor(ctx)
-
-                            reaper.ImGui_Spacing(ctx)
-                            reaper.ImGui_Spacing(ctx)
+                            draw_inline_entry(ctx, entry.word, entry.meaning, 30, 16)
                         end
                     end
                     reaper.ImGui_Dummy(ctx, 0, 10)
-                    reaper.ImGui_Unindent(ctx, 25)
+                    reaper.ImGui_Unindent(ctx, 29)
                 end
             end
             reaper.ImGui_EndChild(ctx)
