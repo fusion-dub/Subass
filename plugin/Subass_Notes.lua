@@ -40,6 +40,7 @@ local cfg = {
     text_assimilations = (get_set("text_assimilations", "1") == "1" or get_set("text_assimilations", 1) == 1),
     karaoke_mode = (get_set("karaoke_mode", "0") == "1" or get_set("karaoke_mode", 0) == 1),
     all_caps = (get_set("all_caps", "0") == "1" or get_set("all_caps", 0) == 1),
+    show_actor_name_infront = (get_set("show_actor_name_infront", "0") == "1" or get_set("show_actor_name_infront", 0) == 1),
     wave_bg = (get_set("wave_bg", "1") == "1" or get_set("wave_bg", 1) == 1),
     wave_bg_progress = (get_set("wave_bg_progress", "0") == "1" or get_set("wave_bg_progress", 0) == 1),
     count_timer = (get_set("count_timer", "1") == "1" or get_set("count_timer", 1) == 1),
@@ -579,6 +580,8 @@ local function save_settings()
     reaper.SetExtState(section_name, "karaoke_mode", cfg.karaoke_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "auto_startup", cfg.auto_startup and "1" or "0", true)
     reaper.SetExtState(section_name, "all_caps", cfg.all_caps and "1" or "0", true)
+    reaper.SetExtState(section_name, "show_actor_name_infront", cfg.show_actor_name_infront and "1" or "0", true)
+
     reaper.SetExtState(section_name, "wave_bg", cfg.wave_bg and "1" or "0", true)
     reaper.SetExtState(section_name, "wave_bg_progress", cfg.wave_bg_progress and "1" or "0", true)
 
@@ -3214,7 +3217,7 @@ local function update_regions_cache()
     while i < (num_markers + num_regions) do
         local retval, isrgn, pos, rgnend, name, idx = reaper.EnumProjectMarkers(i)
         if isrgn then
-            local rgn_obj = {idx = idx, pos = pos, rgnend = rgnend, name = name, rgn_index = i}
+            local rgn_obj = {idx = idx, pos = pos, rgnend = rgnend, name = name, rgn_index = i, actor = ""}
             table.insert(regions, rgn_obj)
             rgn_map[idx] = rgn_obj
         end
@@ -3232,6 +3235,7 @@ local function update_regions_cache()
             if line.rgn_idx then
                 local rgn = rgn_map[line.rgn_idx]
                 if rgn then
+                    rgn.actor = line.actor -- Sync actor name to region object
                     -- Update times if changed in REAPER
                     if math.abs(line.t1 - rgn.pos) > 0.0001 or math.abs(line.t2 - rgn.rgnend) > 0.0001 or line.text ~= rgn.name then
                         line.t1 = rgn.pos
@@ -3276,6 +3280,7 @@ local function update_regions_cache()
                 if ass_actors["REAPER"] == nil then ass_actors["REAPER"] = true end
                 changed = true
                 tracked_rgn_idxs[idx] = true -- Don't adopt twice
+                rgn.actor = "REAPER"
             end
         end
         
@@ -8541,7 +8546,7 @@ local function draw_prompter(input_queue)
         
         -- If no active regions, check the next available region
         if #active_regions == 0 and next_rgn then
-             regions_to_check = {next_rgn}
+            regions_to_check = {next_rgn}
         end
 
         if #regions_to_check > 0 then
@@ -8569,7 +8574,7 @@ local function draw_prompter(input_queue)
     -- returns x, y, w, h
     -- line is { {text="foo", b=true, ...}, ... }
     
-    local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name, base_size, no_assimilation)
+    local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name, base_size, no_assimilation, actor_name)
     
         -- ASSIMILATION LOGIC
         if cfg.text_assimilations and not no_assimilation then
@@ -8741,8 +8746,8 @@ local function draw_prompter(input_queue)
                 local normal_flags = f_flags
                 local normal_font = effective_font
                 if not span.b then -- strip bold if it was forced
-                     if normal_font == "Helvetica Bold Oblique" then normal_font = "Helvetica Oblique" end
-                     if normal_flags == string.byte('b') then normal_flags = 0 end
+                    if normal_font == "Helvetica Bold Oblique" then normal_font = "Helvetica Oblique" end
+                    if normal_flags == string.byte('b') then normal_flags = 0 end
                 end
                 
                 gfx.setfont(font_slot, normal_font, base_size, normal_flags)
@@ -8803,21 +8808,47 @@ local function draw_prompter(input_queue)
                     
                     pending_karaoke_comp = 0
                 end
+
             end
             
             total_w = total_w + span.width
         end
         
+        -- ACTOR WIDTH CALCULATION
+        local actor_w = 0
+        local full_actor_text = ""
+        if cfg.show_actor_name_infront and actor_name and actor_name ~= "" then
+            full_actor_text = "[" .. actor_name .. "] "
+            gfx.setfont(font_slot, font_name, math.max(10, base_size - 2))
+            actor_w = gfx.measurestr(full_actor_text)
+            total_w = total_w + actor_w
+        end
+    
         -- 2. Draw
         local start_x 
         if cfg.p_align == "left" then start_x = content_offset_left + 20
         elseif cfg.p_align == "right" then start_x = gfx.w - content_offset_right - total_w - 20
         else start_x = center_x - (total_w / 2) end
-        
+    
         local cursor_x = start_x
+        
+        -- DRAW ACTOR NAME
+        if cfg.show_actor_name_infront and actor_name and actor_name ~= "" then
+            local r, g, b, a = gfx.r, gfx.g, gfx.b, gfx.a
+            gfx.set(r, g, b, a * 0.45) -- 65% more transparent
+            gfx.setfont(font_slot, font_name, math.max(10, base_size - 2))
+            
+            gfx.x = cursor_x
+            gfx.y = y_base + 1 -- Slight vertical adjustment
+            gfx.drawstr(full_actor_text)
+            
+            gfx.set(r, g, b, a) -- restore
+            cursor_x = cursor_x + actor_w
+        end
+
         -- Helper for corrected drawing
         local function draw_string_corrected(text)
-             draw_text_with_stress_marks(text, cfg.all_caps)
+            draw_text_with_stress_marks(text, cfg.all_caps)
         end
 
         for _, span in ipairs(line_spans) do
@@ -9020,6 +9051,14 @@ local function draw_prompter(input_queue)
         
         local base_fsize = override_fsize or cfg.n_fsize
         gfx.setfont(F.nxt, cfg.p_font, base_fsize, n_flags)
+        
+        local next_actor_w = 0
+        if cfg.show_actor_name_infront and next_rgn.actor and next_rgn.actor ~= "" then
+            gfx.setfont(F.nxt, cfg.p_font, math.max(10, base_fsize - 2))
+            next_actor_w = gfx.measurestr("[" .. next_rgn.actor .. "] ")
+            gfx.setfont(F.nxt, cfg.p_font, base_fsize, n_flags)
+        end
+
         for _, line in ipairs(n_lines) do
             local raw = ""
             for _, span in ipairs(line) do 
@@ -9027,7 +9066,7 @@ local function draw_prompter(input_queue)
                 if cfg.all_caps then t = utf8_upper(t) end
                 raw = raw .. t 
             end
-            local w = gfx.measurestr(raw)
+            local w = gfx.measurestr(raw) + next_actor_w
             if w > n_max_raw_w then n_max_raw_w = w end
         end
         
@@ -9067,7 +9106,12 @@ local function draw_prompter(input_queue)
         
         for i, line in ipairs(n_lines) do
             local y = n_start_y + (i-1) * n_lh
-            local lx, ly, lw, l_h = draw_rich_line(line, center_x, y + y_off, F.nxt, cfg.p_font, n_draw_size)
+            -- Pass next_rgn.actor if available
+            local actor_arg = (i==1 and next_rgn) and next_rgn.actor or nil 
+            -- Assuming we only show actor on first line of multi-line? 
+            if i > 1 then actor_arg = nil end
+            
+            local lx, ly, lw, l_h = draw_rich_line(line, center_x, y + y_off, F.nxt, cfg.p_font, n_draw_size, false, actor_arg)
             
             if lx < n_x1 then n_x1 = lx end
             if ly < n_y1 then n_y1 = ly end
@@ -9228,10 +9272,12 @@ local function draw_prompter(input_queue)
             if name == "" then name = "<пусто>" end
             
             local c_x1, c_y1, c_x2, c_y2 = gfx.w, gfx.h, 0, 0
-            local lines = parse_rich_text(name)
-            for _, spans in ipairs(lines) do
-                local y = y_offset + total_h
-                local lx, ly, lw, l_h = draw_rich_line(spans, center_x, y + y_off, F.cor, cfg.p_font, fsize, true)
+            local c_y = y_offset + total_h
+            local spans_lines = parse_rich_text(name)
+            
+            for i_line, spans in ipairs(spans_lines) do
+                local y = c_y + (i_line-1) * line_h
+                local lx, ly, lw, l_h = draw_rich_line(spans, center_x, y + y_off, F.cor, cfg.p_font, fsize, true, nil)
                 
                 -- Update bounds
                 if lx < c_x1 then c_x1 = lx end
@@ -9248,7 +9294,7 @@ local function draw_prompter(input_queue)
                    gfx.mouse_y >= c_y1 - 10 and gfx.mouse_y <= c_y2 + 10 then
                     mouse_handled = true
                     local now = reaper.time_precise()
-                    -- Use -5 as marker for corrections (avoid conflict with overlay -3/-4)
+                    -- Use -5 as marker for corrections
                     if last_click_row == -5 and (now - last_click_time) < 0.5 then
                         
                         -- Define marker edit context
@@ -9264,14 +9310,13 @@ local function draw_prompter(input_queue)
                         local function marker_callback(new_text)
                             push_undo("Редагування правки")
                             
-                            -- Find marker index again (robustly)
                             local target_idx = -1
                             local marker_count = reaper.CountProjectMarkers(0)
-                            for i = 0, marker_count - 1 do
-                                local _, isrgn, pos, _, _, markindex = reaper.EnumProjectMarkers3(0, i)
+                            for j = 0, marker_count - 1 do
+                                local _, isrgn, pos, _, _, markindex = reaper.EnumProjectMarkers3(0, j)
                                 if not isrgn then
                                     if markindex == m.markindex or math.abs(pos - m.pos) < 0.001 then
-                                        target_idx = i
+                                        target_idx = j
                                         m.pos = pos
                                         break
                                     end
@@ -9369,8 +9414,6 @@ local function draw_prompter(input_queue)
                                 local space = text:sub(current_idx, s_start - 1)
                                 table.insert(new_line, {
                                     text = space,
-                                    b = (word_counter < active_idx) or span.b, -- Space after previous word belongs to "active" state of previous?
-                                    
                                     b = (word_counter < active_idx) or span.b,
                                     i = span.i, u = span.u, s = span.s, u_wave = span.u_wave,
                                     comment = span.comment
@@ -9436,6 +9479,13 @@ local function draw_prompter(input_queue)
                 local max_raw_w = 0
                 local p_flags = 0
                 if cfg.karaoke_mode then p_flags = string.byte('b') end
+                
+                local current_actor_w = 0
+                if cfg.show_actor_name_infront and rgn.actor and rgn.actor ~= "" then
+                    gfx.setfont(F.lrg, cfg.p_font, math.max(10, cfg.p_fsize - 2))
+                    current_actor_w = gfx.measurestr("[" .. rgn.actor .. "] ")
+                end
+
                 gfx.setfont(F.lrg, cfg.p_font, cfg.p_fsize, p_flags)
                 
                 for _, line in ipairs(lines) do
@@ -9445,7 +9495,7 @@ local function draw_prompter(input_queue)
                         if cfg.all_caps then t = utf8_upper(t) end
                         raw = raw .. t 
                     end
-                    local w = gfx.measurestr(raw)
+                    local w = gfx.measurestr(raw) + current_actor_w
                     if w > max_raw_w then max_raw_w = w end
                 end
                 
@@ -9466,7 +9516,8 @@ local function draw_prompter(input_queue)
                     draw_size = draw_size,
                     lh = lh,
                     raw_lh = raw_lh,
-                    block_height = block_height
+                    block_height = block_height,
+                    actor = rgn.actor -- Capture actor
                 })
                 
                 if #all_text_blocks > 1 then
@@ -9617,7 +9668,9 @@ local function draw_prompter(input_queue)
                 
                 for i, line in ipairs(block.lines) do
                     local y = current_y + (i-1) * block.lh
-                    local lx, ly, lw, l_h = draw_rich_line(line, center_x, y + y_off, F.lrg, cfg.p_font, block.draw_size)
+                    -- Show actor on first line of block only
+                    local act = (i == 1) and block.actor or nil
+                    local lx, ly, lw, l_h = draw_rich_line(line, center_x, y + y_off, F.lrg, cfg.p_font, block.draw_size, false, act)
                     
                     -- Update bounds for this block
                     if lx < block_x1 then block_x1 = lx end
@@ -10361,6 +10414,11 @@ local function draw_settings()
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, "Режим ВЕЛИКИМИ ЛІТЕРАМИ", cfg.all_caps, "Весь текст відображатиметься ВЕЛИКИМИ ЛІТЕРАМИ.") then
         cfg.all_caps = not cfg.all_caps
+        save_settings()
+    end
+    y_cursor = y_cursor + S(35)
+    if checkbox(x_start, y_cursor, "Відображати ім'я актора", cfg.show_actor_name_infront, "Відображення імені актора перед реплікою.") then
+        cfg.show_actor_name_infront = not cfg.show_actor_name_infront
         save_settings()
     end
     y_cursor = y_cursor + S(60)
