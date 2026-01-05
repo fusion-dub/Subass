@@ -8354,10 +8354,10 @@ local function draw_prompter_drawer(input_queue)
             if input_queue then
                 for _, key in ipairs(input_queue) do
                     if not prompter_drawer.filter.focus then
-                        -- Ctrl+A (Select All)
+                        -- Ctrl+A (Select All Filtered)
                         if key == 1 then
                             prompter_drawer.selection = {}
-                            for _, m in ipairs(prompter_drawer.marker_cache.markers) do
+                            for _, m in ipairs(filtered_markers) do
                                 prompter_drawer.selection[m.markindex] = true
                             end
                             prompter_drawer.last_selected_idx = nil
@@ -11991,7 +11991,11 @@ local function draw_table(input_queue)
         
         -- Delete markers (Robust Method)
         if #selected_marker_indices > 0 then
-            push_undo("Видалення правок")
+            if #selected_ass_entries > 0 then
+                push_undo("Видалення реплік та правок")
+            else
+                push_undo("Видалення правок")
+            end
             
             -- Build a lookup set of IDs to delete
             local markers_to_delete = {}
@@ -12057,25 +12061,13 @@ local function draw_table(input_queue)
             -- Verify we are not typing in a text field
             if not table_filter_state.focus and not find_replace_state.find.focus and 
                not find_replace_state.replace.focus and not director_state.input.focus then
-                -- Ctrl+A (Select All)
+                -- Ctrl+A (Select All Filtered)
                 if key == 1 then
                     table_selection = {}
-                    -- Select ASS lines
-                    for i, l in ipairs(ass_lines) do
-                        table_selection[l.index or i] = true
+                    local current_data = table_data_cache.list or {}
+                    for _, line in ipairs(current_data) do
+                        table_selection[line.index] = true
                     end
-                    
-                    -- Select Markers if visible
-                    if cfg.show_markers_in_table then
-                        local m_count = reaper.CountProjectMarkers(0)
-                        for i = 0, m_count - 1 do
-                            local retval, isrgn, pos, rgnend, name, markindex = reaper.EnumProjectMarkers3(0, i)
-                            if retval and not isrgn then
-                                table_selection["M" .. markindex] = true
-                            end
-                        end
-                    end
-                    
                     last_selected_row = nil
                 end
 
