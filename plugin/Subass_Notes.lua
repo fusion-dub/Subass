@@ -5886,6 +5886,48 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
                 state.focus = false
             end
         end
+    elseif (gfx.mouse_cap & 2 == 2) and (last_mouse_cap & 2 == 0) and hover and not mouse_handled then
+        -- Context Menu (Right Click) - Rising Edge Detection
+        mouse_handled = true -- Prevent global context menu from opening
+        state.focus = true
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local sel_min, sel_max = math.min(state.cursor, state.anchor), math.max(state.cursor, state.anchor)
+        local has_sel = sel_min ~= sel_max
+        local ret = gfx.showmenu("Вирізати|Копіювати|Вставити|Виділити все")
+        
+        -- Force update last_mouse_cap to current state to prevent immediate re-trigger loop 
+        -- if the user is somehow still holding the button (though showmenu blocks).
+        last_mouse_cap = gfx.mouse_cap 
+        
+        if ret == 1 and has_sel then
+            -- Cut
+            set_clipboard(state.text:sub(sel_min + 1, sel_max))
+            state.text = state.text:sub(1, sel_min) .. state.text:sub(sel_max + 1)
+            state.cursor, state.anchor = sel_min, sel_min
+            record_field_history(state)
+        elseif ret == 2 and has_sel then
+            -- Copy
+            set_clipboard(state.text:sub(sel_min + 1, sel_max))
+        elseif ret == 3 then
+            -- Paste
+            local clip = get_clipboard()
+            if clip and clip ~= "" then
+                if not is_multiline then clip = clip:gsub("\n", " "):gsub("\r", "") end
+                if has_sel then
+                    state.text = state.text:sub(1, sel_min) .. clip .. state.text:sub(sel_max + 1)
+                    state.cursor = sel_min + #clip
+                else
+                    state.text = state.text:sub(1, state.cursor) .. clip .. state.text:sub(state.cursor + 1)
+                    state.cursor = state.cursor + #clip
+                end
+                state.anchor = state.cursor
+                record_field_history(state)
+            end
+        elseif ret == 4 then
+            -- Select All
+            state.anchor = 0
+            state.cursor = #state.text
+        end
     end
     
     if state.focus then process_input_events(input_queue, state, is_multiline, visual_lines) end
