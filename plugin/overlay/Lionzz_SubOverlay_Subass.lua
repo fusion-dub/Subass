@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.0.6
+-- @version 0.0.7
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -16,7 +16,7 @@ local cached_current, cached_next, cached_next2, cached_start, cached_stop = nil
 local external_ass_lines = {}           -- База даних реплік з Subass_Notes.lua
 local last_external_sync_time = 0      -- Час останньої синхронізації
 
--- Кеш координат відевікна
+-- Кеш координат відеовікна
 local video_cache_valid = false
 local cached_video_x1, cached_video_y1, cached_video_x2, cached_video_y2 = nil, nil, nil, nil
 local cached_attach_x, cached_attach_y, cached_attach_w = nil, nil, nil
@@ -1290,10 +1290,10 @@ local function get_current_and_next_region_names()
 
     local regions = {}
     for i = 0, (num_markers + num_regions) - 1 do
-        local ret, isrgn, startpos, endpos, name = reaper.EnumProjectMarkers3(0, i)
+        local ret, isrgn, startpos, endpos, name, markrgnindexnumber = reaper.EnumProjectMarkers3(0, i)
         if isrgn then
             if ignore_newlines then name = string.gsub(name or "", "\n", " ") end
-            table.insert(regions, {start = startpos, stop = endpos, name = name or ""})
+            table.insert(regions, {start = startpos, stop = endpos, name = name or "", rgn_id = markrgnindexnumber})
         end
     end
 
@@ -1312,8 +1312,8 @@ local function get_current_and_next_region_names()
                 local act, cln = extract_actor(r_name, r.start, r.stop)
                 if act ~= "" then r_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
-            -- Inject metadata tag with exact times
-            local text_with_meta = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", r.start, r.stop, r_name)
+            -- Inject metadata tag with exact times and region index
+            local text_with_meta = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", r.start, r.stop, r.rgn_id, r_name)
             table.insert(current_list, text_with_meta)
             if not start_pos then start_pos = r.start end
             stop_pos = r.stop
@@ -1336,7 +1336,7 @@ local function get_current_and_next_region_names()
                 local act, cln = extract_actor(nr_name, next_r.start, next_r.stop)
                 if act ~= "" then nr_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
              end
-             nextreg = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", next_r.start, next_r.stop, nr_name)
+             nextreg = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", next_r.start, next_r.stop, next_r.rgn_id, nr_name)
              
              if show_next_two and regions[last_overlapping_idx + 2] then
                 local next_r2 = regions[last_overlapping_idx + 2]
@@ -1345,7 +1345,7 @@ local function get_current_and_next_region_names()
                     local act, cln = extract_actor(nr2_name, next_r2.start, next_r2.stop)
                     if act ~= "" then nr2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                  end
-                nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f}%s", next_r2.start, next_r2.stop, nr2_name)
+                nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", next_r2.start, next_r2.stop, next_r2.rgn_id, nr2_name)
              end
         end
         return current, nextreg, start_pos, stop_pos, nextreg2
@@ -1371,15 +1371,15 @@ local function get_current_and_next_region_names()
             local act, cln = extract_actor(r_name, regions[nearest_idx].start, regions[nearest_idx].stop)
             if act ~= "" then r_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
         end
-        current = r_name
+        current = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[nearest_idx].start, regions[nearest_idx].stop, regions[nearest_idx].rgn_id, r_name)
         
         if regions[nearest_idx+1] then
             local nr_name = regions[nearest_idx+1].name
             if show_actor_name then
                 local act, cln = extract_actor(nr_name, regions[nearest_idx+1].start, regions[nearest_idx+1].stop)
-                if act ~= "" then nr_name = "[" .. act .. "] " .. cln end
+                if act ~= "" then nr_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
-            nextreg = nr_name
+            nextreg = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[nearest_idx+1].start, regions[nearest_idx+1].stop, regions[nearest_idx+1].rgn_id, nr_name)
             
             if show_next_two and regions[nearest_idx+2] then
                 local nr2_name = regions[nearest_idx+2].name
@@ -1387,7 +1387,7 @@ local function get_current_and_next_region_names()
                     local act, cln = extract_actor(nr2_name, regions[nearest_idx+2].start, regions[nearest_idx+2].stop)
                     if act ~= "" then nr2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
-                nextreg2 = nr2_name
+                nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[nearest_idx+2].start, regions[nearest_idx+2].stop, regions[nearest_idx+2].rgn_id, nr2_name)
             end
         end
         return current, nextreg, regions[nearest_idx].start, regions[nearest_idx].stop, nextreg2
@@ -1402,6 +1402,7 @@ local function get_current_and_next_region_names()
                     local act, cln = extract_actor(nr_name, r.start, r.stop)
                     if act ~= "" then nr_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
+                nr_name = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", r.start, r.stop, r.rgn_id, nr_name)
                  
                 if show_next_two and regions[i+1] then
                     local nr2_name = regions[i+1].name
@@ -1409,7 +1410,7 @@ local function get_current_and_next_region_names()
                         local act, cln = extract_actor(nr2_name, regions[i+1].start, regions[i+1].stop)
                         if act ~= "" then nr2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                     end
-                    nextreg2 = nr2_name
+                    nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[i+1].start, regions[i+1].stop, regions[i+1].rgn_id, nr2_name)
                 end
 
                 return "", nr_name, 0, 0, nextreg2
