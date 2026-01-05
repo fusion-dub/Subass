@@ -13539,6 +13539,22 @@ local function handle_remote_commands()
         local target_id = reaper.gmem_read(3)
         
         -- 1. Спроба знайти збіг серед реплік (ass_lines)
+        -- Prioritize target_id matching if available
+        if target_id and target_id ~= -1 then
+            for i, line in ipairs(ass_lines) do
+                if line.rgn_idx == target_id then
+                    focus_plugin_window()
+                    open_text_editor(line.text, function(new_text)
+                        push_undo("Редагування тексту (Remote Specific)")
+                        line.text = new_text
+                        rebuild_regions()
+                    end, i, ass_lines)
+                    return
+                end
+            end
+        end
+        
+        -- Fallback to time-based matching
         for i, line in ipairs(ass_lines) do
             if math.abs(line.t1 - t1) < 0.01 and math.abs(line.t2 - t2) < 0.01 then
                 focus_plugin_window()
