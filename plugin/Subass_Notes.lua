@@ -39,6 +39,8 @@ local cfg = {
     always_next = (get_set("always_next", "1") == "1" or get_set("always_next", 1) == 1),
     random_color_actors = (get_set("random_color_actors", "1") == "1" or get_set("random_color_actors", 1) == 1),
     text_assimilations = (get_set("text_assimilations", "1") == "1" or get_set("text_assimilations", 1) == 1),
+    fix_CP1251 = (get_set("fix_CP1251", "0") == "1" or get_set("fix_CP1251", 0) == 1),
+
     karaoke_mode = (get_set("karaoke_mode", "0") == "1" or get_set("karaoke_mode", 0) == 1),
     all_caps = (get_set("all_caps", "0") == "1" or get_set("all_caps", 0) == 1),
     show_actor_name_infront = (get_set("show_actor_name_infront", "0") == "1" or get_set("show_actor_name_infront", 0) == 1),
@@ -582,6 +584,8 @@ local function save_settings()
 
     reaper.SetExtState(section_name, "random_color_actors", cfg.random_color_actors and "1" or "0", true)
     reaper.SetExtState(section_name, "text_assimilations", cfg.text_assimilations and "1" or "0", true)
+    reaper.SetExtState(section_name, "fix_CP1251", cfg.fix_CP1251 and "1" or "0", true)
+
     reaper.SetExtState(section_name, "karaoke_mode", cfg.karaoke_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "auto_startup", cfg.auto_startup and "1" or "0", true)
     reaper.SetExtState(section_name, "all_caps", cfg.all_caps and "1" or "0", true)
@@ -811,9 +815,89 @@ end
 --- @return string Decoded string
 local function url_decode(str)
     if not str then return "" end
-    str = str:gsub("+", " ")
-    str = str:gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
-    return str
+    return str:gsub("+", " "):gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
+end
+
+--- Check if string is valid UTF-8
+--- @param str string Input string
+--- @return boolean True if valid UTF-8
+local function is_valid_utf8(str)
+    local i, len = 1, #str
+    while i <= len do
+        local b = str:byte(i)
+        if b < 0x80 then
+            i = i + 1
+        elseif b >= 0xC2 and b <= 0xDF then
+            if i + 1 > len or str:byte(i+1) < 0x80 or str:byte(i+1) > 0xBF then return false end
+            i = i + 2
+        elseif b >= 0xE0 and b <= 0xEF then
+            if i + 2 > len then return false end
+            local b2, b3 = str:byte(i+1), str:byte(i+2)
+            if b2 < 0x80 or b2 > 0xBF or b3 < 0x80 or b3 > 0xBF then return false end
+            if b == 0xE0 and b2 < 0xA0 then return false end
+            if b == 0xED and b2 > 0x9F then return false end
+            i = i + 3
+        elseif b >= 0xF0 and b <= 0xF4 then
+            if i + 3 > len then return false end
+            local b2, b3, b4 = str:byte(i+1), str:byte(i+2), str:byte(i+3)
+            if b2 < 0x80 or b2 > 0xBF or b3 < 0x80 or b3 > 0xBF or b4 < 0x80 or b4 > 0xBF then return false end
+            if b == 0xF0 and b2 < 0x90 then return false end
+            if b == 0xF4 and b2 > 0x8F then return false end
+            i = i + 4
+        else
+            return false
+        end
+    end
+    return true
+end
+
+--- Convert legacy CP1251 content to UTF-8 if not already UTF-8
+--- @param str string Input string
+--- @return string Fixed string
+local function fix_encoding(str)
+    if not str or str == "" then return "" end
+    
+    -- Always check if it's already valid UTF-8 first
+    if is_valid_utf8(str) then return str end
+    
+    -- Not valid UTF-8. We MUST sanitize it to prevent crashes in the UI (utf8.codes etc.)
+    -- if cfg.fix_CP1251 is true, we convert CP1251 -> UTF-8
+    -- otherwise, we replace invalid bytes with '?'
+
+    local cp1251_map = {
+        [128] = "\208\130", [129] = "\208\131", [130] = "\226\128\154", [131] = "\209\147", [132] = "\226\128\158", [133] = "\226\128\166", [134] = "\226\128\160", [135] = "\226\128\161",
+        [136] = "\226\130\172", [137] = "\226\128\176", [138] = "\208\137", [139] = "\226\128\185", [140] = "\208\138", [141] = "\208\140", [142] = "\208\139", [143] = "\208\141",
+        [144] = "\208\146", [145] = "\226\128\152", [146] = "\226\128\153", [147] = "\226\128\156", [148] = "\226\128\157", [149] = "\226\128\162", [150] = "\226\128\147", [151] = "\226\128\148",
+        [152] = "\194\152", [153] = "\226\132\162", [154] = "\209\153", [155] = "\226\128\186", [156] = "\209\154", [157] = "\209\156", [158] = "\209\155", [159] = "\209\157",
+        [160] = "\194\160", [161] = "\208\142", [162] = "\209\158", [163] = "\208\147", [164] = "\194\164", [165] = "\210\144", [166] = "\194\166", [167] = "\194\167",
+        [168] = "\208\129", [169] = "\194\169", [170] = "\208\132", [171] = "\194\171", [172] = "\194\172", [173] = "\194\173", [174] = "\194\174", [175] = "\208\135",
+        [176] = "\194\176", [177] = "\194\177", [178] = "\208\134", [179] = "\209\150", [180] = "\210\145", [181] = "\194\181", [182] = "\194\182", [183] = "\194\183",
+        [184] = "\209\145", [185] = "\226\132\150", [186] = "\209\148", [187] = "\194\187", [188] = "\209\152", [189] = "\208\133", [190] = "\209\149", [191] = "\209\151",
+        [192] = "\208\144", [193] = "\208\145", [194] = "\208\146", [195] = "\208\147", [196] = "\208\148", [197] = "\208\149", [198] = "\208\150", [199] = "\208\151",
+        [200] = "\208\152", [201] = "\208\153", [202] = "\208\154", [203] = "\208\155", [204] = "\208\156", [205] = "\208\157", [206] = "\208\158", [207] = "\208\159",
+        [208] = "\208\160", [209] = "\208\161", [210] = "\208\162", [211] = "\208\163", [212] = "\208\164", [213] = "\208\165", [214] = "\208\166", [215] = "\208\167",
+        [216] = "\208\168", [217] = "\208\169", [218] = "\208\170", [219] = "\208\171", [220] = "\208\172", [221] = "\208\173", [222] = "\208\174", [223] = "\208\175",
+        [224] = "\208\176", [225] = "\208\177", [226] = "\208\178", [227] = "\208\179", [228] = "\208\180", [229] = "\208\181", [230] = "\208\182", [231] = "\208\183",
+        [232] = "\208\184", [233] = "\208\185", [234] = "\208\186", [235] = "\208\187", [236] = "\208\188", [237] = "\208\189", [238] = "\208\190", [239] = "\208\191",
+        [240] = "\209\128", [241] = "\209\129", [242] = "\209\130", [243] = "\209\131", [244] = "\209\132", [245] = "\209\133", [246] = "\209\134", [247] = "\209\135",
+        [248] = "\209\136", [249] = "\209\137", [250] = "\209\138", [251] = "\209\139", [252] = "\209\140", [253] = "\209\141", [254] = "\209\142", [255] = "\209\143"
+    }
+    
+    local res = {}
+    for i = 1, #str do
+        local b = str:byte(i)
+        if b < 128 then
+            table.insert(res, string.char(b))
+        else
+            if cfg.fix_CP1251 then
+                table.insert(res, cp1251_map[b] or "?")
+            else
+                -- Sanitization: replace non-UTF8 bytes with '?' if conversion is disabled
+                table.insert(res, "?")
+            end
+        end
+    end
+    return table.concat(res)
 end
 
 --- Parse ASS timestamp format (H:MM:SS.cs) to seconds
@@ -2850,7 +2934,11 @@ end
 --- @return string Fitted text
 local function fit_text_width(str, max_w)
     str = tostring(str or "")
-    if gfx.measurestr(str) <= max_w then return str end
+    
+    local is_valid = is_valid_utf8(str)
+    if is_valid then
+        if gfx.measurestr(str) <= max_w then return str end
+    end
     
     local dots = "..."
     local dots_w = gfx.measurestr(dots)
@@ -2858,12 +2946,24 @@ local function fit_text_width(str, max_w)
     if dots_w > max_w then return dots end -- Not enough space even for dots
     
     local acc = ""
-    for p, c in utf8.codes(str) do
-        local char = utf8.char(c)
-        if gfx.measurestr(acc .. char .. dots) > max_w then
-            return acc .. dots
+    if is_valid then
+        -- Safe to use utf8.codes
+        for p, c in utf8.codes(str) do
+            local char = utf8.char(c)
+            if gfx.measurestr(acc .. char .. dots) > max_w then
+                return acc .. dots
+            end
+            acc = acc .. char
         end
-        acc = acc .. char
+    else
+        -- Fallback for invalid UTF-16/UTF-8: byte-by-byte
+        for i = 1, #str do
+            local char = str:sub(i, i)
+            if gfx.measurestr(acc .. char .. dots) > max_w then
+                return acc .. dots
+            end
+            acc = acc .. char
+        end
     end
     
     return acc .. dots
@@ -3591,7 +3691,7 @@ local function import_srt(file_path, dont_rebuild)
     if not f then return end
     current_file_name = file:match("([^/\\]+)$")
     
-    local content = f:read("*all")
+    local content = fix_encoding(f:read("*all"))
     f:close()
     content = content:gsub("\r\n", "\n")
     -- Ensure trailing double newline for matching last block
@@ -3796,7 +3896,7 @@ local function import_vtt(file_path, dont_rebuild)
     if not f then return end
     current_file_name = file:match("([^/\\]+)$")
     
-    local content = f:read("*all")
+    local content = fix_encoding(f:read("*all"))
     f:close()
     content = content:gsub("\r\n", "\n")
     
@@ -3920,7 +4020,7 @@ local function import_notes()
     if response ~= 1 then return end
     
     -- Read from clipboard
-    local input = get_clipboard()
+    local input = fix_encoding(get_clipboard())
     if not input or input == "" then
         show_snackbar("Буфер обміну порожній", "error")
         return
@@ -4133,7 +4233,7 @@ local function import_notes_from_csv(file_path)
         return
     end
     
-    local content = f:read("*all")
+    local content = fix_encoding(f:read("*all"))
     f:close()
     
     -- Parse CSV (RFC 4180 compliant - handles multiline quoted fields)
@@ -4278,7 +4378,7 @@ local function import_ass(file_path, dont_rebuild)
     if not f then return end
     current_file_name = file:match("([^/\\]+)$")
     
-    local content = f:read("*all")
+    local content = fix_encoding(f:read("*all"))
     f:close()
     
     content = content:gsub("\r\n", "\n")
@@ -10533,6 +10633,11 @@ local function draw_settings()
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, "Показувати асиміляцію", cfg.text_assimilations, "Відображати фонетичні підказки (асиміляції) в тексті.") then
         cfg.text_assimilations = not cfg.text_assimilations
+        save_settings()
+    end
+    y_cursor = y_cursor + S(35)
+    if checkbox(x_start, y_cursor, "Автоматично виправляти невірне кодування (CP1251)", cfg.fix_CP1251, "Якщо файл містить побите кодування CP1251, він буде автоматично виправлений.\n!!Це може призвести до втрати деяких символів!!\nПриклад: перетворить це \"œŒ¯Û, ÏÂÏ.\" в це \"ПрОшу, мем.\"") then
+        cfg.fix_CP1251 = not cfg.fix_CP1251
         save_settings()
     end
     y_cursor = y_cursor + S(60)
