@@ -4831,7 +4831,7 @@ end
 
 --- Delete all project regions
 local function delete_all_regions()
-    local resp = reaper.ShowMessageBox("Ви впевнені, що хочете видалити ВСІ регіони та очистити дані?", "Видалення", 4)
+    local resp = reaper.ShowMessageBox("Ви впевнені, що хочете видалити ВСІ регіони та очистити дані?\n\n!!ДІЯ НЕЗВОРОТНА!!!", "Видалення", 4)
     if resp ~= 6 then return end
 
     -- Clear project data
@@ -7896,6 +7896,30 @@ local function draw_file()
         gfx.drawstr(str)
     end
     y_cursor = y_cursor + S(80)
+
+    -- Context Menu (Right Click on background)
+    if is_mouse_clicked(2) and not mouse_handled then
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local is_docked = gfx.dock(-1) > 0
+        local dock_check = is_docked and "!" or ""
+        local menu = "Видалити ВСІ регіони||" .. dock_check .. "Закріпити вікно (Dock)"
+        
+        local ret = gfx.showmenu(menu)
+        mouse_handled = true -- Tell framework we handled this click
+        
+        if ret == 1 then
+            delete_all_regions()
+        elseif ret == 2 then
+            -- Toggle Docking
+            if is_docked then
+                gfx.dock(0)
+                reaper.SetExtState(section_name, "dock", "0", true)
+            else
+                gfx.dock(1) -- Dock to last valid docker
+                reaper.SetExtState(section_name, "dock", tostring(gfx.dock(-1)), true)
+            end
+        end
+    end
 
     last_file_h = y_cursor
     
