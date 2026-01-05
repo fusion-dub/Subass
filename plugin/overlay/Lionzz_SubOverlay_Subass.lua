@@ -62,9 +62,12 @@ local second_shadow_color = 0x000000FF  -- колір тіні другого р
 
 local corr_font_index = 1
 local corr_font_scale = 18
-local corr_text_color = 0xFF4444CC -- Червоний за дефолтом
+local corr_text_color = 0xFF4444CC      -- Червоний за дефолтом
 local corr_shadow_color = 0x000000FF
 local corr_offset = 12
+local line_spacing_main = 0             -- міжрядковий інтервал (пікселі)
+local line_spacing_corr = 0             -- міжрядковий інтервал для правок
+local line_spacing_next = 0             -- міжрядковий інтервал для другого рядка
 
 local source_mode = nil                 -- 0 = регіони, >0 = номер трека з ітемами
 local window_bg_color = 0x00000088      -- чорний з прозорістю
@@ -73,14 +76,14 @@ local enable_wrap = true                -- переносити текст по 
 local wrap_margin = 0                   -- відступ від краю вікна для автопереносу (пікселі)
 local enable_second_line = true         -- показувати другий рядок
 local show_next_two = false             -- показувати 2 наступні репліки
-local show_actor_name = false            -- показувати ім'я актора
+local show_actor_name = false           -- показувати ім'я актора
 local show_corrections = true           -- показувати правки (маркери)
 local align_center = true               -- вирівнювання по центру (горизонтально, за замовчуванням увімкн.)
 local align_vertical = false            -- вирівнювання по вертикалі (центрування контенту у вікні)
-local align_bottom = true              -- вирівнювання по низу
-local show_assimilation = true         -- показувати асиміляцію (незалежно від Subass Notes)
-local always_show_next = true          -- завжди показувати наступну репліку (навіть у прогалинах)
-local fill_gaps = false                  -- показувати найближчий регіон/ітем між об'єктами
+local align_bottom = true               -- вирівнювання по низу
+local show_assimilation = true          -- показувати асиміляцію (незалежно від Subass Notes)
+local always_show_next = true           -- завжди показувати наступну репліку (навіть у прогалинах)
+local fill_gaps = false                 -- показувати найближчий регіон/ітем між об'єктами
 local show_tooltips = true              -- показувати підказки
 local tooltip_delay = 0.5
 local tooltip_state = {}
@@ -93,6 +96,10 @@ local ignore_newlines = false           -- ігнорувати символи �
 local word_hold = { start_time = 0, word = "", triggered = false }
 local last_window_click = 0
 local is_any_word_held = false
+
+-- New Countdown Timer Settings
+local count_timer = true                -- таймер зворотного відліку
+local count_timer_bottom = false        -- прогрес-бар знизу (якщо false - по боках)
 
 reaper.gmem_attach("SubassSync") -- Shared memory for lightning-fast sync
 
@@ -494,6 +501,9 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "corr_text_color", string.format("%08X", corr_text_color), true)
     reaper.SetExtState(SETTINGS_SECTION, "corr_shadow_color", string.format("%08X", corr_shadow_color), true)
     reaper.SetExtState(SETTINGS_SECTION, "corr_offset", tostring(corr_offset), true)
+    reaper.SetExtState(SETTINGS_SECTION, "line_spacing_main", tostring(line_spacing_main), true)
+    reaper.SetExtState(SETTINGS_SECTION, "line_spacing_corr", tostring(line_spacing_corr), true)
+    reaper.SetExtState(SETTINGS_SECTION, "line_spacing_next", tostring(line_spacing_next), true)
     
     reaper.SetExtState(SETTINGS_SECTION, "align_vertical", tostring(align_vertical), true)
     reaper.SetExtState(SETTINGS_SECTION, "align_bottom", tostring(align_bottom), true)
@@ -507,6 +517,8 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "attach_manual_y", tostring(attach_manual_y), true)
     reaper.SetExtState(SETTINGS_SECTION, "invert_y_axis", tostring(invert_y_axis), true)
     reaper.SetExtState(SETTINGS_SECTION, "ignore_newlines", tostring(ignore_newlines), true)
+    reaper.SetExtState(SETTINGS_SECTION, "count_timer", tostring(count_timer), true)
+    reaper.SetExtState(SETTINGS_SECTION, "count_timer_bottom", tostring(count_timer_bottom), true)
     -- Зберігаємо висоту тільки якщо увімкнено прив'язку до відеовікна
     if attach_to_video then
         reaper.SetExtState(SETTINGS_SECTION, "win_h", tostring(win_h), true)
@@ -558,6 +570,9 @@ local function load_settings()
     local corr_shd_col = reaper.GetExtState(SETTINGS_SECTION, "corr_shadow_color")
     if corr_shd_col ~= "" then corr_shadow_color = tonumber(corr_shd_col,16) or 0x000000FF end
     corr_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "corr_offset")) or 12
+    line_spacing_main = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_main")) or 0
+    line_spacing_corr = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_corr")) or 0
+    line_spacing_next = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_next")) or 0
     
     align_vertical = (reaper.GetExtState(SETTINGS_SECTION, "align_vertical") == "true")
     align_bottom = (reaper.GetExtState(SETTINGS_SECTION, "align_bottom") ~= "false")
@@ -571,6 +586,8 @@ local function load_settings()
     attach_manual_y = tonumber(reaper.GetExtState(SETTINGS_SECTION, "attach_manual_y")) or 0
     invert_y_axis = (reaper.GetExtState(SETTINGS_SECTION, "invert_y_axis") == "true")
     ignore_newlines = (reaper.GetExtState(SETTINGS_SECTION, "ignore_newlines") == "true")
+    count_timer = (reaper.GetExtState(SETTINGS_SECTION, "count_timer") ~= "false") -- Default ON
+    count_timer_bottom = (reaper.GetExtState(SETTINGS_SECTION, "count_timer_bottom") == "true")
     -- Завантажуємо висоту тільки якщо увімкнено прив'язку до відеовікна
     if attach_to_video then
         win_h = tonumber(reaper.GetExtState(SETTINGS_SECTION, "win_h")) or 300
@@ -778,6 +795,7 @@ local function draw_context_menu()
             reaper.ImGui_EndCombo(ctx)
         end
         font_scale      = add_change(reaper.ImGui_SliderInt(ctx, "масштаб", font_scale, 10, 100))
+        line_spacing_main = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Main)", line_spacing_main, -10, 50))
         text_color      = add_change(reaper.ImGui_ColorEdit4(ctx, "колір", text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         shadow_color    = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь", shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         show_actor_name = add_change(reaper.ImGui_Checkbox(ctx, "Відображати ім'я актора", show_actor_name))
@@ -808,6 +826,7 @@ local function draw_context_menu()
                 reaper.ImGui_EndCombo(ctx)
             end
             corr_font_scale   = add_change(reaper.ImGui_SliderInt(ctx, "масштаб правок", math.floor(corr_font_scale), 10, 100))
+            line_spacing_corr = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Corr)", line_spacing_corr, -10, 50))
             corr_offset       = add_change(reaper.ImGui_SliderInt(ctx, "відступ правок", corr_offset, 0, 100))
             corr_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір правок", corr_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             corr_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь правок", corr_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
@@ -828,6 +847,7 @@ local function draw_context_menu()
                 reaper.ImGui_EndCombo(ctx)
             end
             second_font_scale   = add_change(reaper.ImGui_SliderInt(ctx, "масштаб 2", second_font_scale, 10, 100))
+            line_spacing_next   = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Next)", line_spacing_next, -10, 50))
             next_region_offset  = add_change(reaper.ImGui_SliderInt(ctx, "відступ 2", next_region_offset, 0, 200))
             second_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір 2", second_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             second_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь 2", second_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
@@ -853,6 +873,23 @@ local function draw_context_menu()
 
         -- Роздільник та кнопка закриття
         reaper.ImGui_Separator(ctx)
+        
+        if reaper.ImGui_Checkbox(ctx, "Таймер відліку", count_timer) then
+            count_timer = not count_timer
+            save_settings()
+        end
+        
+        if count_timer then
+            reaper.ImGui_Indent(ctx)
+            if reaper.ImGui_Checkbox(ctx, "Прогрес знизу", count_timer_bottom) then
+                count_timer_bottom = not count_timer_bottom
+                save_settings()
+            end
+            reaper.ImGui_Unindent(ctx)
+        end
+        
+        reaper.ImGui_Separator(ctx)
+        
         if reaper.ImGui_Button(ctx, "Закрити вікно") then
             close_requested = true
             reaper.ImGui_CloseCurrentPopup(ctx)
@@ -914,7 +951,7 @@ local function calculate_line_count(tokens, font_index, font_scale, win_w)
 end
 
 -- Функція відображення токенів
-local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shadow_color, win_w, is_next_line)
+local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shadow_color, win_w, is_next_line, line_spacing)
     local font_main = font_objects[font_index] or font_objects[1]
 
     -- We push Main font as default
@@ -1117,7 +1154,7 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
              reaper.ImGui_Dummy(ctx, 1, line_h)
         end
         -- Advance cursor to next line
-        reaper.ImGui_SetCursorPosY(ctx, cur_y + line_h)
+        reaper.ImGui_SetCursorPosY(ctx, cur_y + line_h + (line_spacing or 0))
     end
 
     reaper.ImGui_PopFont(ctx)
@@ -1325,6 +1362,7 @@ local function get_current_and_next_region_names()
     local current = table.concat(current_list, "\n")
     local nextreg = ""
     local nextreg2 = ""
+    local prev_rgn_end = 0  -- To store the end of the previous region
 
     -- 2. Find Next
     if found_overlap then
@@ -1348,7 +1386,7 @@ local function get_current_and_next_region_names()
                 nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", next_r2.start, next_r2.stop, next_r2.rgn_id, nr2_name)
              end
         end
-        return current, nextreg, start_pos, stop_pos, nextreg2
+        return current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end
     end
 
     -- 3. No overlap (Gap logic)
@@ -1390,13 +1428,17 @@ local function get_current_and_next_region_names()
                 nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[nearest_idx+2].start, regions[nearest_idx+2].stop, regions[nearest_idx+2].rgn_id, nr2_name)
             end
         end
-        return current, nextreg, regions[nearest_idx].start, regions[nearest_idx].stop, nextreg2
+        return current, nextreg, regions[nearest_idx].start, regions[nearest_idx].stop, nextreg2, prev_rgn_end
     end
     
     -- always_show_next logic (when in gap and fill_gaps is OFF)
     if always_show_next then
          for i, r in ipairs(regions) do
              if r.start > pos then
+                -- Get previous region end for progress bar calculation
+                if i > 1 then
+                    prev_rgn_end = regions[i-1].stop
+                end
                 local nr_name = r.name
                 if show_actor_name then
                     local act, cln = extract_actor(nr_name, r.start, r.stop)
@@ -1413,7 +1455,7 @@ local function get_current_and_next_region_names()
                     nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[i+1].start, regions[i+1].stop, regions[i+1].rgn_id, nr2_name)
                 end
 
-                return "", nr_name, 0, 0, nextreg2
+                return "", nr_name, 0, 0, nextreg2, prev_rgn_end, r.start -- Return next_rgn_start as 7th arg for gap calc
             end
         end
     end
@@ -1843,18 +1885,23 @@ local function loop()
             last_pos = pos
             last_proj_change_count = cur_proj_change_count
             
+            -- Keep track of next/prev regions for timer
+            local next_rgn_start = 0
+            local prev_rgn_end = 0
+
             if source_mode == 0 then
-                current, nextreg, start_pos, stop_pos, nextreg2 = get_current_and_next_region_names()
+                current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start = get_current_and_next_region_names()
             else
                 local tr = reaper.GetTrack(0, source_mode-1)
                 if tr then
-                    current, nextreg, start_pos, stop_pos, nextreg2 = get_current_and_next_items(tr)
+                    current, nextreg, start_pos, stop_pos, nextreg2 = get_current_and_next_items(tr) -- Consider updating this too if needed
                 else
                     current, nextreg, start_pos, stop_pos, nextreg2 = "", "", 0, 0, ""
                 end
             end
             -- Зберігаємо в кеш
             cached_current, cached_next, cached_next2, cached_start, cached_stop = current, nextreg, nextreg2, start_pos, stop_pos
+            -- Also cache timer data? Ideally yes, but let's keep it simple for now as we force update.
         -- else
             -- -- Позиція не змінилася - використовуємо кеш
             -- current, nextreg, start_pos, stop_pos = cached_current, cached_next, cached_start, cached_stop
@@ -1908,7 +1955,7 @@ local function loop()
             reaper.ImGui_PopFont(ctx)
             
             local current_line_count = calculate_line_count(current_tokens, current_font_index, actual_font_scale, win_w)
-            total_height = total_height + (line_h * current_line_count)
+            total_height = total_height + ((line_h + line_spacing_main) * current_line_count)
             
             -- Висота прогрес-бара (якщо увімкнено)
             if show_progress then
@@ -1922,11 +1969,11 @@ local function loop()
                 reaper.ImGui_PopFont(ctx)
                 
                 local next_line_count = calculate_line_count(next_tokens, second_font_index, actual_second_font_scale, win_w)
-                total_height = total_height + next_region_offset + (second_line_h * next_line_count)
+                total_height = total_height + next_region_offset + ((second_line_h + line_spacing_next) * next_line_count)
                 
                 if show_next_two and #next2_tokens > 0 then
                     local next2_line_count = calculate_line_count(next2_tokens, second_font_index, actual_second_font_scale, win_w)
-                    total_height = total_height + next_region_offset + (second_line_h * next2_line_count)
+                    total_height = total_height + next_region_offset + ((second_line_h + line_spacing_next) * next2_line_count)
                 end
             end
             
@@ -1936,7 +1983,7 @@ local function loop()
                 local corr_line_h = reaper.ImGui_GetTextLineHeight(ctx)
                 reaper.ImGui_PopFont(ctx)
                 local corr_line_count = calculate_line_count(corr_tokens, corr_font_index, corr_font_scale, win_w)
-                total_height = total_height + corr_offset + (corr_line_h * corr_line_count)
+                total_height = total_height + corr_offset + ((corr_line_h + line_spacing_corr) * corr_line_count)
             end
             -- Розрахунок позиції Y (округлюємо щоб уникнути "стрибання")
             local start_y = 0
@@ -1952,7 +1999,7 @@ local function loop()
         
         -- відображення тексту (використовуємо auto-scaled значення)
         reaper.ImGui_PushID(ctx, "current_line")
-        draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, text_color, shadow_color, win_w, false) -- перший рядок
+        draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, text_color, shadow_color, win_w, false, line_spacing_main) -- перший рядок
         reaper.ImGui_PopID(ctx)
 
         -- Відображення правок (між основним рядком та другим)
@@ -1960,7 +2007,7 @@ local function loop()
             local cur_y = reaper.ImGui_GetCursorPosY(ctx)
             reaper.ImGui_SetCursorPosY(ctx, cur_y + corr_offset)
             reaper.ImGui_PushID(ctx, "corr_line")
-            draw_tokens(ctx, corr_tokens, corr_font_index, corr_font_scale, corr_text_color, corr_shadow_color, win_w, true)
+            draw_tokens(ctx, corr_tokens, corr_font_index, corr_font_scale, corr_text_color, corr_shadow_color, win_w, true, line_spacing_corr)
             reaper.ImGui_PopID(ctx)
         end
 
@@ -1975,9 +2022,120 @@ local function loop()
                 reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 6)
                 reaper.ImGui_ProgressBar(ctx, progress, progress_width, progress_height, "")
                 reaper.ImGui_PopStyleVar(ctx)
-            else
-                -- якщо бар "невидимий" (між регіонами/ітемами)
-                reaper.ImGui_Dummy(ctx, progress_width, progress_height)
+            end
+        end
+
+        -- COUNTDOWN TIMER LOGIC (only when in gap and no active text)
+        if count_timer and current == "" and next_rgn_start and next_rgn_start > pos then
+            local gap_to_next = next_rgn_start - pos
+            local total_gap = next_rgn_start - (prev_rgn_end or 0)
+            
+            -- Use very faint alpha for long waits, brighter for < 3s (~50% opacity)
+            local alpha = 0.1
+            if gap_to_next <= 3.0 then alpha = 0.5 end
+            
+            -- Extract RGB from text_color
+            local text_rgb = text_color & 0xFFFFFF00
+            
+            -- Only show if total gap is significant to avoid flicker
+            if total_gap > 3.0 or gap_to_next > 3.0 then
+                -- Draw Countdown Text
+                local countdown_str = ""
+                if gap_to_next > 60 then
+                    local m = math.floor(gap_to_next / 60)
+                    local s = math.floor(gap_to_next % 60)
+                    countdown_str = string.format("%d:%02d", m, s)
+                else
+                    countdown_str = tostring(math.ceil(gap_to_next))
+                end
+
+                reaper.ImGui_PushFont(ctx, ui_font, math.min(win_h, win_w) * 0.4) -- Giant font
+                local tw, th = reaper.ImGui_CalcTextSize(ctx, countdown_str)
+                -- Center in window
+                local cx, cy = (win_w - tw)/2, (win_h - th)/2
+                
+                -- Simple Drop Shadow (like main text)
+                local shadow_off = 2
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x00000000 | math.floor(alpha * 255))
+                reaper.ImGui_SetCursorPos(ctx, cx + shadow_off, cy + shadow_off)
+                reaper.ImGui_Text(ctx, countdown_str)
+                reaper.ImGui_PopStyleColor(ctx)
+                
+                -- Main Text (Colored)
+                reaper.ImGui_SetCursorPos(ctx, cx, cy)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), text_rgb | math.floor(alpha * 255))
+                reaper.ImGui_Text(ctx, countdown_str)
+                reaper.ImGui_PopStyleColor(ctx)
+                reaper.ImGui_PopFont(ctx)
+            end
+            
+            -- JUMP TO NEXT BUTTON
+            if gap_to_next > 10 then
+                local btn_w, btn_h = 60, 100
+                local btn_x = win_w - btn_w - 20
+                local btn_y = (win_h - btn_h) / 2
+                
+                -- Invisible button for interaction
+                reaper.ImGui_SetCursorPos(ctx, btn_x, btn_y)
+                if reaper.ImGui_InvisibleButton(ctx, "jump_next", btn_w, btn_h) then
+                    reaper.SetEditCurPos(next_rgn_start, true, true) -- true, true = move view AND seek play
+                    reaper.SetCursorContext(1, nil) -- Return focus to Arrange View
+                end
+                
+                local hover = reaper.ImGui_IsItemHovered(ctx)
+                local dl = reaper.ImGui_GetWindowDrawList(ctx)
+                
+                -- Draw Double Arrow (>>)
+                local ax = win_X + btn_x + 25
+                local ay = win_Y + btn_y + btn_h / 2
+                local sz = 25
+                -- Use text color, brighter if hover, half-transparent otherwise
+                local arrow_alpha = hover and 0xCC or 0x80 -- 0.8 or 0.5
+                local col = text_rgb | arrow_alpha
+                local thick = 3
+                
+                -- Shadow parameters
+                local s_off = 2
+                local s_col = 0x00000000 | math.floor(arrow_alpha)
+                
+                -- Arrow 1 Shadow
+                reaper.ImGui_DrawList_AddLine(dl, ax + s_off, ay - sz + s_off, ax + sz + s_off, ay + s_off, s_col, thick)
+                reaper.ImGui_DrawList_AddLine(dl, ax + sz + s_off, ay + s_off, ax + s_off, ay + sz + s_off, s_col, thick)
+                -- Arrow 1 Main
+                reaper.ImGui_DrawList_AddLine(dl, ax, ay - sz, ax + sz, ay, col, thick)
+                reaper.ImGui_DrawList_AddLine(dl, ax + sz, ay, ax, ay + sz, col, thick)
+                
+                -- Arrow 2 Shadow (Shifted left)
+                local shift = 15
+                reaper.ImGui_DrawList_AddLine(dl, ax - shift + s_off, ay - sz + s_off, ax + sz - shift + s_off, ay + s_off, s_col, thick)
+                reaper.ImGui_DrawList_AddLine(dl, ax + sz - shift + s_off, ay + s_off, ax - shift + s_off, ay + sz + s_off, s_col, thick)
+                -- Arrow 2 Main
+                reaper.ImGui_DrawList_AddLine(dl, ax - shift, ay - sz, ax + sz - shift, ay, col, thick)
+                reaper.ImGui_DrawList_AddLine(dl, ax + sz - shift, ay, ax - shift, ay + sz, col, thick)
+            end
+            
+            -- Draw Progress Bars (Gap timer)
+            if total_gap >= 0.1 then
+               local gap_progress = 1.0 - math.min(1.0, gap_to_next / math.max(1.0, total_gap))
+               local dl = reaper.ImGui_GetWindowDrawList(ctx)
+               -- Use text color for bars too, ALWAYS visible (min alpha ~0.4)
+               local bar_alpha = math.max(100, math.min(255, math.floor(alpha * 255 * 1.5)))
+               local col = text_rgb | bar_alpha
+               
+               if count_timer_bottom then
+                   -- Bottom Bar
+                   local bar_h = 6
+                   local bar_w = win_w * gap_progress
+                   reaper.ImGui_DrawList_AddRectFilled(dl, win_X + (win_w - bar_w)/2, win_Y + win_h - bar_h, win_X + (win_w + bar_w)/2, win_Y + win_h, col, 0)
+               else
+                   -- Side Bars
+                   local bar_w = 8
+                   local bar_h = win_h * gap_progress
+                   -- Left
+                   reaper.ImGui_DrawList_AddRectFilled(dl, win_X, win_Y + win_h - bar_h, win_X + bar_w, win_Y + win_h, col, 0)
+                   -- Right
+                   reaper.ImGui_DrawList_AddRectFilled(dl, win_X + win_w - bar_w, win_Y + win_h - bar_h, win_X + win_w, win_Y + win_h, col, 0)
+               end
             end
         end
 
@@ -2010,13 +2168,13 @@ local function loop()
             end
             
             reaper.ImGui_PushID(ctx, "next_line_1")
-            draw_tokens(ctx, next_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true)
+            draw_tokens(ctx, next_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true, line_spacing_next)
             reaper.ImGui_PopID(ctx)
             
             if show_next_two and #next2_tokens > 0 then
                 reaper.ImGui_SetCursorPosY(ctx, start_y_next + next_total_h + next_region_offset)
                 reaper.ImGui_PushID(ctx, "next_line_2")
-                draw_tokens(ctx, next2_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true)
+                draw_tokens(ctx, next2_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true, line_spacing_next)
                 reaper.ImGui_PopID(ctx)
             end
         end
@@ -2083,6 +2241,10 @@ local function loop()
         end
 
         --debug_window()
+        
+        -- Fix for ImGui warning "Code uses SetCursorPos()/SetCursorScreenPos() to extend window/parent boundaries"
+        reaper.ImGui_Dummy(ctx, 0, 0)
+        
         draw_context_menu()
         reaper.ImGui_End(ctx)
     end
