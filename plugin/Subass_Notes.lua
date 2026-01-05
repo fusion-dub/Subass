@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 2.9
+-- @version 3.0
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v2.9"
+local script_title = "Subass Notes v3.0"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -45,6 +45,7 @@ local cfg = {
     wave_bg = (get_set("wave_bg", "1") == "1" or get_set("wave_bg", 1) == 1),
     wave_bg_progress = (get_set("wave_bg_progress", "0") == "1" or get_set("wave_bg_progress", 0) == 1),
     count_timer = (get_set("count_timer", "1") == "1" or get_set("count_timer", 1) == 1),
+    count_timer_bottom = (get_set("count_timer_bottom", "0") == "1" or get_set("count_timer_bottom", 0) == 1),
     cps_warning = (get_set("cps_warning", "1") == "1" or get_set("cps_warning", 1) == 1),
     bg_cr = get_set("bg_cr", 0.67),
     bg_cg = get_set("bg_cg", 0.69),
@@ -590,6 +591,8 @@ local function save_settings()
     reaper.SetExtState(section_name, "wave_bg_progress", cfg.wave_bg_progress and "1" or "0", true)
 
     reaper.SetExtState(section_name, "count_timer", cfg.count_timer and "1" or "0", true)
+    reaper.SetExtState(section_name, "count_timer_bottom", cfg.count_timer_bottom and "1" or "0", true)
+
     reaper.SetExtState(section_name, "cps_warning", cfg.cps_warning and "1" or "0", true)
     reaper.SetExtState(section_name, "gemini_api_key", cfg.gemini_api_key, true)
     reaper.SetExtState(section_name, "p_drawer", cfg.p_drawer and "1" or "0", true)
@@ -9915,23 +9918,26 @@ local function draw_prompter(input_queue)
             gfx.drawstr(countdown_str)
         end
 
-        -- Side Progress Bars (Vertical)
+        -- Progress Bars
         if gap_to_next > 0 and total_gap >= 0.1 then
-            local bar_w = 8
-            -- Progress from bottom (0) to top (1)
-            -- We use total_gap to normalize if possible, or a fixed reasonable window (e.g. 10s)
-            -- Actually, user said "rising according to timer". Let's use a 0->1 factor.
-            -- If we want it to reach top at gap=0: 1 - (gap_to_next / total_gap)
-            -- but total_gap can be huge. Let's use a 5-second window for the visual "rise" 
-            -- or just map it to the countdown phase.
-            
             local progress = 1.0 - math.min(1.0, gap_to_next / math.max(1.0, total_gap))
-            local bar_h = gfx.h * progress
             
-            -- Left Bar
-            gfx.rect(content_offset_left, gfx.h - bar_h + 25, bar_w, bar_h, 1)
-            -- Right Bar
-            gfx.rect(gfx.w - content_offset_right - bar_w, gfx.h - bar_h + 25, bar_w, bar_h, 1)
+            if cfg.count_timer_bottom then
+                -- Bottom Horizontal Progress Bar
+                local bar_h = 6
+                local avail_w = gfx.w - content_offset_left - content_offset_right
+                local bar_w = avail_w * progress
+                -- Draw centered
+                gfx.rect(content_offset_left + (avail_w - bar_w)/2, gfx.h - bar_h, bar_w, bar_h, 1)
+            else
+                -- Side Progress Bars (Vertical)
+                local bar_w = 8
+                local bar_h = gfx.h * progress
+                -- Left Bar
+                gfx.rect(content_offset_left, gfx.h - bar_h + 25, bar_w, bar_h, 1)
+                -- Right Bar
+                gfx.rect(gfx.w - content_offset_right - bar_w, gfx.h - bar_h + 25, bar_w, bar_h, 1)
+            end
         end
 
         gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb)
@@ -10426,7 +10432,16 @@ local function draw_settings()
         cfg.count_timer = not cfg.count_timer
         save_settings()
     end
+
     y_cursor = y_cursor + S(35)
+    if cfg.count_timer then
+        if checkbox(x_start + S(30), y_cursor, "Відображати прогрес знизу", cfg.count_timer_bottom, "Відображати прогрес не по краям, а знизу.") then
+            cfg.count_timer_bottom = not cfg.count_timer_bottom
+            save_settings()
+        end
+        y_cursor = y_cursor + S(35)
+    end
+
     if checkbox(x_start, y_cursor, "Попередження про швидкість (CPS)", cfg.cps_warning, "Червона смуга при занадто високій швидкості читання.") then
         cfg.cps_warning = not cfg.cps_warning
         save_settings()
