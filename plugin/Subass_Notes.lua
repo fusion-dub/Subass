@@ -3197,6 +3197,26 @@ local function get_next_line_index()
     return max_idx + 1
 end
 
+--- Check if a replica with same actor, timing and text already exists
+--- @param actor string Actor name
+--- @param t1 number Start time
+--- @param t2 number End time
+--- @param text string Replica text
+--- @return boolean True if duplicate found
+local function is_duplicate_replica(actor, t1, t2, text)
+    if not ass_lines then return false end
+    for _, l in ipairs(ass_lines) do
+        -- Compare with small epsilon for timing
+        if l.actor == actor and 
+           math.abs(l.t1 - t1) < 0.005 and 
+           math.abs(l.t2 - t2) < 0.005 and 
+           l.text == text then
+            return true
+        end
+    end
+    return false
+end
+
 local function capture_project_markers()
     local markers = {}
     local i = 0
@@ -3343,7 +3363,7 @@ local function rebuild_regions()
             -- If 'col' is 0, explicitly set?
             if col == 0 and cfg.random_color_actors then
                 -- Should already be cached in actor_colors
-                 col = get_actor_color(line.actor) 
+                col = get_actor_color(line.actor) 
             end
             
             local target_idx = line.index or i
@@ -3560,7 +3580,7 @@ end
 -- =============================================================================
 
 --- Import SRT subtitle file
-local function import_srt(file_path)
+local function import_srt(file_path, dont_rebuild)
     local file = file_path
     if not file then
         local retval
@@ -3582,9 +3602,14 @@ local function import_srt(file_path)
     -- Derive Actor Name from Filename
     local actor_name = current_file_name:gsub("%.srt$", ""):gsub("%.SRT$", "")
     
-    -- Ensure State Init (Additive)
+    -- Ensure State Init
     if not ass_lines then ass_lines = {} end
     if not ass_actors then ass_actors = {} end
+    
+    if not dont_rebuild then
+        push_undo("Імпорт SRT")
+    end
+    
     ass_file_loaded = true -- Enable Actor view
 
     -- Clear UI state
@@ -3600,6 +3625,7 @@ local function import_srt(file_path)
     local line_idx_counter = get_next_line_index()
     
     -- Robust SRT parsing: handle comma/dot, optional spaces, and ensure last block is captured
+    local duplicates_skipped = 0
     for s_start, s_end, text in content:gmatch("(%d+:%d+:%d+[,.]%d+)%s*%-%->%s*(%d+:%d+:%d+[,.]%d+)%s*\n(.-)\n%s*\n") do
         local t1 = parse_timestamp(s_start)
         local t2 = parse_timestamp(s_end)
@@ -3664,39 +3690,81 @@ local function import_srt(file_path)
                     end
                 end
                 
-                -- Push segments
+                -- Push segments with duplicate check
                 for _, seg in ipairs(segments) do
-                    table.insert(ass_lines, {
-                        t1 = t1,
-                        t2 = t2,
-                        text = seg.text,
-                        actor = seg.actor,
-                        enabled = true,
-                        index = line_idx_counter
-                    })
-                    line_idx_counter = line_idx_counter + 1
+                    if not is_duplicate_replica(seg.actor, t1, t2, seg.text) then
+                        table.insert(ass_lines, {
+                            t1 = t1,
+                            t2 = t2,
+                            text = seg.text,
+                            actor = seg.actor,
+                            enabled = true,
+                            index = line_idx_counter
+                        })
+                        line_idx_counter = line_idx_counter + 1
+                    else
+                        duplicates_skipped = duplicates_skipped + 1
+                    end
                 end
             end
         end
         
-        -- Fallback: If not processed (not split mode or empty text resulted in 0 lines?), 
-        -- logic above handles >0 lines. If text is empty/whitespace, lines_list might be empty.
-        -- Original code allowed text. If text was just newlines, it would be inserted.
-        -- Check if we should insert the original block if lines_processed is false.
+        -- Fallback: If not processed by auto-split, check split_multiline
+        if not lines_processed and cfg.split_multiline then
+            local lines_list = {}
+            for l in (text.."\n"):gmatch("(.-)\n") do
+                l = l:gsub("\r", ""):match("^%s*(.-)%s*$")
+                if l ~= "" then table.insert(lines_list, l) end
+            end
+             
+            if #lines_list > 1 then
+                lines_processed = true
+                local dur = t2 - t1
+                local step = dur / #lines_list
+                for i, l in ipairs(lines_list) do
+                    if not is_duplicate_replica(actor_name, t1 + (i-1) * step, t1 + i * step, l) then
+                        table.insert(ass_lines, {
+                            t1 = t1 + (i-1) * step,
+                            t2 = t1 + i * step,
+                            text = l,
+                            actor = actor_name,
+                            enabled = true,
+                            index = line_idx_counter
+                        })
+                        line_idx_counter = line_idx_counter + 1
+                    else
+                        duplicates_skipped = duplicates_skipped + 1
+                    end
+                end
+            end
+        end
+        
         if not lines_processed then
-            table.insert(ass_lines, {
-                t1 = t1,
-                t2 = t2,
-                text = text,
-                actor = actor_name,
-                enabled = true,
-                index = line_idx_counter
-            })
-            line_idx_counter = line_idx_counter + 1
+            local clean_text = text:gsub("\r", "")
+            if not is_duplicate_replica(actor_name, t1, t2, clean_text) then
+                table.insert(ass_lines, {
+                    t1 = t1,
+                    t2 = t2,
+                    text = clean_text,
+                    actor = actor_name,
+                    enabled = true,
+                    index = line_idx_counter
+                })
+                line_idx_counter = line_idx_counter + 1
+            else
+                duplicates_skipped = duplicates_skipped + 1
+            end
         end
     end
     
-    rebuild_regions() -- This handles clearing old regions and re-adding all (including new ones)
+    if duplicates_skipped > 0 and not dont_rebuild then
+        show_snackbar("Пропущено дублікатів: " .. duplicates_skipped, "info")
+    end
+    
+    if not dont_rebuild then
+        rebuild_regions() -- This handles clearing old regions and re-adding all (including new ones)
+    end
+    return duplicates_skipped
 end
 
 --- Parse VTT timestamp format (HH:MM:SS.mmm or MM:SS.mmm)
@@ -3717,7 +3785,7 @@ end
 
 --- Import VTT subtitle file
 --- @param file_path string|nil Absolute path to file or nil to prompt user
-local function import_vtt(file_path)
+local function import_vtt(file_path, dont_rebuild)
     local file = file_path
     if not file then
         local retval
@@ -3735,9 +3803,14 @@ local function import_vtt(file_path)
     -- Derive Actor Name from Filename
     local actor_name = current_file_name:gsub("%.vtt$", ""):gsub("%.VTT$", "")
     
-    -- Ensure State Init (Additive)
+    -- Ensure State Init
     if not ass_lines then ass_lines = {} end
     if not ass_actors then ass_actors = {} end
+    
+    if not dont_rebuild then
+        push_undo("Імпорт VTT")
+    end
+    
     ass_file_loaded = true
 
     -- Clear UI state
@@ -3748,8 +3821,9 @@ local function import_vtt(file_path)
     -- Register Actor
     ass_actors[actor_name] = true
     
-    local line_idx_counter = 1
+    local line_idx_counter = get_next_line_index()
     
+    local duplicates_skipped = 0
     -- VTT format: timestamp --> timestamp followed by text
     -- Skip WEBVTT header and optional metadata
     for s_start, s_end, text in content:gmatch("(%d[%d:%.]+) %-%-> (%d[%d:%.]+)[^\n]*\n(.-)\n\n") do
@@ -3759,18 +3833,29 @@ local function import_vtt(file_path)
         -- Remove VTT tags like <v Name> or <c.classname>
         text = text:gsub("<[^>]+>", "")
         
-        table.insert(ass_lines, {
-            t1 = t1,
-            t2 = t2,
-            text = text,
-            actor = actor_name,
-            enabled = true,
-            index = line_idx_counter
-        })
-        line_idx_counter = line_idx_counter + 1
+        if not is_duplicate_replica(actor_name, t1, t2, text) then
+            table.insert(ass_lines, {
+                t1 = t1,
+                t2 = t2,
+                text = text,
+                actor = actor_name,
+                enabled = true,
+                index = line_idx_counter
+            })
+            line_idx_counter = line_idx_counter + 1
+        else
+            duplicates_skipped = duplicates_skipped + 1
+        end
     end
     
-    rebuild_regions()
+    if duplicates_skipped > 0 and not dont_rebuild then
+        show_snackbar("Пропущено дублікатів: " .. duplicates_skipped, "info")
+    end
+    
+    if not dont_rebuild then
+        rebuild_regions()
+    end
+    return duplicates_skipped
 end
 
 --- Parse timestamp in various formats to seconds
@@ -4182,7 +4267,7 @@ end
 
 --- Import ASS/SSA subtitle file, parsing styles and events
 --- @param file_path string|nil Absolute path to file or nil to prompt user
-local function import_ass(file_path)
+local function import_ass(file_path, dont_rebuild)
     local file = file_path
     if not file then
         local retval
@@ -4198,17 +4283,19 @@ local function import_ass(file_path)
     
     content = content:gsub("\r\n", "\n")
     
-    -- Reset Cache
-    ass_lines = {}
-    ass_actors = {}
+    -- Ensure State Init
+    if not ass_lines then ass_lines = {} end
+    if not ass_actors then ass_actors = {} end
+    
     ass_file_loaded = true
-    local line_idx_counter = 1
+    local line_idx_counter = get_next_line_index()
     
     -- Clear UI state
     table_filter_state.text = ""
     table_selection = {}
     last_selected_row = nil
     
+    local duplicates_skipped = 0
     local in_events = false
     local format_def = nil
     
@@ -4261,25 +4348,33 @@ local function import_ass(file_path)
 
                     text = text:gsub("\\N", "\n"):gsub("\\n", "\n")
                     
-                    table.insert(ass_lines, {
-                        t1=t1, t2=t2, text=text, actor=actor, enabled=true,
-                        index = line_idx_counter
-                    })
-                    line_idx_counter = line_idx_counter + 1
-                    
-                    if ass_actors[actor] == nil then ass_actors[actor] = true end
+                    if not is_duplicate_replica(actor, t1, t2, text) then
+                        table.insert(ass_lines, {
+                            t1=t1, t2=t2, text=text, actor=actor, enabled=true,
+                            index = line_idx_counter
+                        })
+                        line_idx_counter = line_idx_counter + 1
+                        
+                        if ass_actors[actor] == nil then ass_actors[actor] = true end
+                    else
+                        duplicates_skipped = duplicates_skipped + 1
+                    end
                 end
             end
         end
     end
 
-    -- reset Undo/Redo Stacks
-    undo_stack = {}
-    redo_stack = {}
+    -- Push undo if single import
+    if not dont_rebuild then
+        push_undo("Імпорт ASS")
+    end
 
     -- Initial Build
-    update_regions_cache() 
-    rebuild_regions() -- This calls save_project_data
+    if not dont_rebuild then
+        update_regions_cache() 
+        rebuild_regions() -- This calls save_project_data
+    end
+    return duplicates_skipped or 0
 end
 
 -- =============================================================================
@@ -4590,24 +4685,45 @@ end
 local function handle_drag_drop()
     local file_idx = 0
     local retval, dropped_file = gfx.getdropfile(file_idx)
+    local imported_count = 0
+    local total_duplicates = 0
+    
+    if retval > 0 then
+        push_undo("Імпорт (Drag & Drop)")
+    end
     
     while retval > 0 do
         local ext = dropped_file:match("%.([^.]+)$")
         if ext then
             ext = ext:lower()
             if ext == "srt" then
-                import_srt(dropped_file)
+                total_duplicates = total_duplicates + import_srt(dropped_file, true)
+                imported_count = imported_count + 1
             elseif ext == "ass" then
-                import_ass(dropped_file)
+                total_duplicates = total_duplicates + import_ass(dropped_file, true)
+                imported_count = imported_count + 1
             elseif ext == "vtt" then
-                import_vtt(dropped_file)
+                total_duplicates = total_duplicates + import_vtt(dropped_file, true)
+                imported_count = imported_count + 1
             elseif ext == "csv" then
                 import_notes_from_csv(dropped_file)
+            else
+                show_snackbar("Формат ." .. ext:upper() .. " не підтримується", "error")
             end
+        else
+            show_snackbar("Не вдалося визначити формат файлу", "error")
         end
         
         file_idx = file_idx + 1
         retval, dropped_file = gfx.getdropfile(file_idx)
+    end
+    
+    if imported_count > 0 then
+        update_regions_cache()
+        rebuild_regions()
+        local msg = "Імпортовано файлів: " .. imported_count
+        if total_duplicates > 0 then msg = msg .. " (Дублікатів: " .. total_duplicates .. ")" end
+        show_snackbar(msg, "success")
     end
     
     gfx.getdropfile(-1) -- Clear drop queue
@@ -7189,20 +7305,63 @@ local function draw_file()
     local b_y = get_y(y_cursor)
     if b_y + S(40) > start_y and b_y < gfx.h then
         if btn(S(20), b_y, S(230), S(40), "Імпорт субтитрів (.srt/.ass/.vtt)") then
-            local retval, file = reaper.GetUserFileNameForRead("", "Імпорт субтитрів", "*.srt;*.ass;*.vtt")
-            if retval and file then
-                local ext = file:match("%.([^.]+)$")
-                if ext then
-                    ext = ext:lower()
-                    if ext == "srt" then
-                        import_srt(file)
-                    elseif ext == "ass" then
-                        import_ass(file)
-                    elseif ext == "vtt" then
-                        import_vtt(file)
+            local retval, file_list
+            if reaper.JS_Dialog_BrowseForOpenFiles then
+                retval, file_list = reaper.JS_Dialog_BrowseForOpenFiles("Імпорт субтитрів", "", "", "Subtitle files (*.srt;*.ass;*.vtt)\0*.srt;*.ass;*.vtt\0All files\0*\0", true)
+            else
+                retval, file_list = reaper.GetUserFileNameForRead("", "Імпорт субтитрів", "*.srt;*.ass;*.vtt")
+            end
+            
+            if retval and file_list ~= "" then
+                push_undo("Імпорт субтитрів")
+                local files = {}
+                if reaper.JS_Dialog_BrowseForOpenFiles then
+                    -- JS_Dialog_BrowseForOpenFiles returns a null-separated string
+                    -- Format: Directory\0File1\0File2\0\0
+                    local dir = file_list:match("^(.-)\0")
+                    if dir then
+                        for f in file_list:gmatch("\0([^\0]+)") do
+                            if f ~= "" then
+                                table.insert(files, dir .. "/" .. f)
+                            end
+                        end
                     else
-                        show_snackbar("Непідтримуваний формат файлу", "error")
+                        -- Only one file selected
+                        table.insert(files, file_list)
                     end
+                else
+                    table.insert(files, file_list)
+                end
+                
+                local imported_count = 0
+                local total_duplicates = 0
+                for _, file in ipairs(files) do
+                    local ext = file:match("%.([^.]+)$")
+                    if ext then
+                        ext = ext:lower()
+                        if ext == "srt" then
+                            total_duplicates = total_duplicates + import_srt(file, true)
+                            imported_count = imported_count + 1
+                        elseif ext == "ass" then
+                            total_duplicates = total_duplicates + import_ass(file, true)
+                            imported_count = imported_count + 1
+                        elseif ext == "vtt" then
+                            total_duplicates = total_duplicates + import_vtt(file, true)
+                            imported_count = imported_count + 1
+                        else
+                            show_snackbar("Формат ." .. ext:upper() .. " не підтримується", "error")
+                        end
+                    else
+                        show_snackbar("Не вдалося визначити формат файлу", "error")
+                    end
+                end
+                
+                if imported_count > 0 then
+                    update_regions_cache()
+                    rebuild_regions()
+                    local msg = "Імпортовано файлів: " .. imported_count
+                    if total_duplicates > 0 then msg = msg .. " (Дублікатів: " .. total_duplicates .. ")" end
+                    show_snackbar(msg, "success")
                 end
             end
         end
