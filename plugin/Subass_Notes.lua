@@ -10227,7 +10227,7 @@ local function draw_prompter(input_queue)
             gfx.line(ax + sz - 15, ay, ax - 15, ay + sz, 1)
 
             if hover and gfx.mouse_cap == 1 and last_mouse_cap == 0 and not mouse_handled then
-                reaper.SetEditCurPos(next_rgn.pos, true, false)
+                reaper.SetEditCurPos(next_rgn.pos, true, true) -- true, true = move view AND seek play
                 
                 -- Robust focus return for macOS
                 return_focus_to_reaper()
