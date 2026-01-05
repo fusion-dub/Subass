@@ -5838,9 +5838,13 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
 
     if gfx.mouse_cap == 1 then
         if last_mouse_cap == 0 and hover then
-            state.focus = true
-            local idx = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
-            local now = reaper.time_precise()
+            -- Check for interaction suppression (e.g., preventing bleed-through from opening click)
+            if state.interaction_start_time and reaper.time_precise() < state.interaction_start_time then
+                -- Ignore this click
+            else
+                state.focus = true
+                local idx = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
+                local now = reaper.time_precise()
             if (now - (state.last_click_time or 0)) < 0.3 then
                 state.last_click_state = (state.last_click_state or 0) + 1
             else
@@ -5861,12 +5865,19 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
                     local c = state.text:sub(e+1, e+1)
                     if c:match("[%s%p]") then break end
                     e = e + 1
+
+                    end
+                    state.cursor, state.anchor = e, s
+                elseif state.last_click_state >= 3 then
+                    state.cursor, state.anchor = #state.text, 0
                 end
-                state.cursor, state.anchor = e, s
-            elseif state.last_click_state >= 3 then
-                state.cursor, state.anchor = #state.text, 0
             end
-        elseif state.focus and last_mouse_cap == 1 then
+
+    elseif state.focus and last_mouse_cap == 1 then
+        -- Check for interaction suppression
+        if state.interaction_start_time and reaper.time_precise() < state.interaction_start_time then
+            -- Ignore drag during suppression period
+        else
             -- Dragging
             if (state.last_click_state or 0) >= 3 then
                 -- Triple click (Select All) should adhere to full selection even if mouse jitters
@@ -5896,6 +5907,8 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             else
                 state.cursor = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
             end
+        end
+
         elseif not hover and last_mouse_cap == 0 then
             -- Guard: Don't lose focus if clicking inside the AI modal OR if ai_modal was JUST shown (prevents closing focus on suggestion selection)
             local in_ai = false
@@ -7317,6 +7330,9 @@ local function open_text_editor(initial_text, callback, line_idx, all_lines)
     text_editor_state.callback = callback
     text_editor_state.context_line_idx = line_idx
     text_editor_state.context_all_lines = all_lines
+    
+    -- Suppress interaction for a split second to prevent double-click bleed-through
+    text_editor_state.interaction_start_time = reaper.time_precise() + 0.25
     
     -- Init History
     text_editor_state.history = {
@@ -11334,12 +11350,14 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 director_state.last_marker_id = found_m.markindex
                 director_state.input.text = found_m.name
                 director_state.input.cursor = #found_m.name
+                director_state.input.anchor = director_state.input.cursor -- Reset selection
             end
         else
             if director_state.last_marker_id ~= nil then
                 director_state.last_marker_id = nil
                 director_state.input.text = ""
                 director_state.input.cursor = 0
+                director_state.input.anchor = 0 -- Reset selection
             end
         end
     end
