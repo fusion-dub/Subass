@@ -65,9 +65,9 @@ local corr_font_scale = 18
 local corr_text_color = 0xFF4444CC      -- Червоний за дефолтом
 local corr_shadow_color = 0x000000FF
 local corr_offset = 12
-local line_spacing_main = 0             -- міжрядковий інтервал (пікселі)
-local line_spacing_corr = 0             -- міжрядковий інтервал для правок
-local line_spacing_next = 0             -- міжрядковий інтервал для другого рядка
+local line_spacing_main = 6             -- міжрядковий інтервал (пікселі)
+local line_spacing_corr = 6             -- міжрядковий інтервал для правок
+local line_spacing_next = 6             -- міжрядковий інтервал для другого рядка
 
 local source_mode = nil                 -- 0 = регіони, >0 = номер трека з ітемами
 local window_bg_color = 0x00000088      -- чорний з прозорістю
@@ -570,9 +570,9 @@ local function load_settings()
     local corr_shd_col = reaper.GetExtState(SETTINGS_SECTION, "corr_shadow_color")
     if corr_shd_col ~= "" then corr_shadow_color = tonumber(corr_shd_col,16) or 0x000000FF end
     corr_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "corr_offset")) or 12
-    line_spacing_main = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_main")) or 0
-    line_spacing_corr = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_corr")) or 0
-    line_spacing_next = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_next")) or 0
+    line_spacing_main = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_main")) or 6
+    line_spacing_corr = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_corr")) or 6
+    line_spacing_next = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_next")) or 6
     
     align_vertical = (reaper.GetExtState(SETTINGS_SECTION, "align_vertical") == "true")
     align_bottom = (reaper.GetExtState(SETTINGS_SECTION, "align_bottom") ~= "false")
@@ -2118,9 +2118,8 @@ local function loop()
             if total_gap >= 0.1 then
                local gap_progress = 1.0 - math.min(1.0, gap_to_next / math.max(1.0, total_gap))
                local dl = reaper.ImGui_GetWindowDrawList(ctx)
-               -- Use text color for bars too, ALWAYS visible (min alpha ~0.4)
-               local bar_alpha = math.max(100, math.min(255, math.floor(alpha * 255 * 1.5)))
-               local col = text_rgb | bar_alpha
+                -- Use text color for bars
+                local col = text_rgb | math.floor(alpha * 255)
                
                if count_timer_bottom then
                    -- Bottom Bar
