@@ -66,13 +66,13 @@ fi
 ARCH=$(uname -m)
 if [ "$ARCH" = "arm64" ]; then
     echo "Вибрано архітектуру Apple Silicon (ARM64)"
-    PACK_URL="https://reapack.com/download/reaper_reapack-arm64.dylib"
+    PACK_URL="https://github.com/cfillion/reapack/releases/download/v1.2.6/reaper_reapack-arm64.dylib"
     SWS_URL="https://github.com/reaper-oss/sws/releases/download/v2.14.0.7/reaper_sws-arm64.dylib"
     JS_URL="https://github.com/juliansader/ReaExtensions/raw/master/js_ReaScriptAPI/v1.310/reaper_js_ReaScriptAPI64ARM.dylib"
     IMGUI_URL="https://github.com/cfillion/reaimgui/releases/latest/download/reaper_imgui-arm64.dylib"
 else
     echo "Вибрано архітектуру Intel (x86_64)"
-    PACK_URL="https://reapack.com/download/reaper_reapack-x86_64.dylib"
+    PACK_URL="https://github.com/cfillion/reapack/releases/download/v1.2.6/reaper_reapack-x86_64.dylib"
     SWS_URL="https://github.com/reaper-oss/sws/releases/download/v2.14.0.7/reaper_sws-x86_64.dylib"
     JS_URL="https://github.com/juliansader/ReaExtensions/raw/master/js_ReaScriptAPI/v1.310/reaper_js_ReaScriptAPI64.dylib"
     IMGUI_URL="https://github.com/cfillion/reaimgui/releases/latest/download/reaper_imgui-x86_64.dylib"
