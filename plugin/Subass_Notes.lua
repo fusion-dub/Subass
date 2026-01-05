@@ -5867,7 +5867,35 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
                 state.cursor, state.anchor = #state.text, 0
             end
         elseif state.focus and last_mouse_cap == 1 then
-            state.cursor = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
+            -- Dragging
+            if (state.last_click_state or 0) >= 3 then
+                -- Triple click (Select All) should adhere to full selection even if mouse jitters
+                state.cursor, state.anchor = #state.text, 0
+            elseif (state.last_click_state or 0) == 2 then
+                -- Double click (Word Select) - Snap to word boundaries
+                local raw = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
+                if raw >= state.anchor then
+                    -- Dragging Right: Snap to End of Word
+                    local e = raw
+                    while e < #state.text do
+                        local c = state.text:sub(e+1, e+1)
+                        if c:match("[%s%p]") then break end
+                        e = e + 1
+                    end
+                    state.cursor = e
+                else
+                    -- Dragging Left: Snap to Start of Word
+                    local s = raw
+                    while s > 0 do
+                        local c = state.text:sub(s, s)
+                        if c:match("[%s%p]") then break end
+                        s = s - 1
+                    end
+                    state.cursor = s
+                end
+            else
+                state.cursor = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
+            end
         elseif not hover and last_mouse_cap == 0 then
             -- Guard: Don't lose focus if clicking inside the AI modal OR if ai_modal was JUST shown (prevents closing focus on suggestion selection)
             local in_ai = false
