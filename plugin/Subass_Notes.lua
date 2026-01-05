@@ -13095,6 +13095,9 @@ local function draw_table(input_queue)
         local handle_x, handle_y, handle_w, handle_h
         local is_hover = false
         
+        -- Helper: Check if mouse is strictly inside window
+        local inside_window = gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= 0 and gfx.mouse_y <= gfx.h
+
         if is_dir_right then
             local border_x = avail_w
             handle_w = grab_thick
@@ -13103,7 +13106,7 @@ local function draw_table(input_queue)
             handle_y = content_y + (avail_h + h_director - handle_h) / 2
             
             -- Draw Separator
-            is_hover = math.abs(gfx.mouse_x - border_x) <= resize_zone and (gfx.mouse_y >= content_y)
+            is_hover = inside_window and math.abs(gfx.mouse_x - border_x) <= resize_zone and (gfx.mouse_y >= content_y)
             set_color(is_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
             gfx.rect(border_x, content_y, strip_sz, avail_h + h_director, 1)
 
@@ -13134,7 +13137,7 @@ local function draw_table(input_queue)
             handle_x = (gfx.w - handle_w) / 2
             handle_y = border_y - (handle_h / 2)
 
-            is_hover = math.abs(gfx.mouse_y - border_y) <= resize_zone
+            is_hover = inside_window and math.abs(gfx.mouse_y - border_y) <= resize_zone
             set_color(is_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
             gfx.rect(0, border_y, gfx.w, strip_sz, 1)
 
