@@ -769,11 +769,11 @@ local function draw_context_menu()
             tooltip("Позиція оверлею відносно висоти відеовікна")
             
             -- Ручна корекція X
-            attach_manual_x = add_change(reaper.ImGui_SliderInt(ctx, "Корекція X (px)", attach_manual_x, -2000, 2000))
+            attach_manual_x = add_change(reaper.ImGui_SliderInt(ctx, "Корекція X (px)", attach_manual_x, -500, 500))
             tooltip("Додаткове зміщення по горизонталі")
 
             -- Ручна корекція Y
-            attach_manual_y = add_change(reaper.ImGui_SliderInt(ctx, "Корекція Y (px)", attach_manual_y, -2000, 2000))
+            attach_manual_y = add_change(reaper.ImGui_SliderInt(ctx, "Корекція Y (px)", attach_manual_y, -500, 500))
             tooltip("Додаткове зміщення по вертикалі")
 
             -- macOS Fix
