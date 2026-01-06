@@ -9522,11 +9522,14 @@ local function draw_prompter_slider(input_queue)
     local marker_state = prompter_drawer.marker_cache.count
     if prompter_slider_cache.state_count ~= state_count or prompter_slider_cache.marker_state ~= marker_state or prompter_slider_cache.w ~= available_w or 
        prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
-       prompter_slider_cache.p_corr ~= cfg.p_corr then
+       prompter_slider_cache.p_corr ~= cfg.p_corr or 
+       prompter_slider_cache.p_lheight ~= cfg.p_lheight or prompter_slider_cache.c_lheight ~= cfg.c_lheight then
         
         prompter_slider_cache.state_count, prompter_slider_cache.marker_state, prompter_slider_cache.w, prompter_slider_cache.fsize, prompter_slider_cache.font = state_count, marker_state, available_w, cfg.p_fsize, cfg.p_font
         prompter_slider_cache.project_id = reaper.GetProjectName(0, "")
         prompter_slider_cache.p_corr = cfg.p_corr
+        prompter_slider_cache.p_lheight = cfg.p_lheight
+        prompter_slider_cache.c_lheight = cfg.c_lheight
         prompter_slider_cache.items, prompter_slider_cache.total_h = {}, 0
         
         local raw_items = {}
@@ -9723,7 +9726,7 @@ local function draw_prompter_slider(input_queue)
             
             if item.type == "region" then
                 local is_active = (item.region_idx == active_idx)
-                local alpha = is_active and 1.0 or 0.4
+                local alpha = is_active and 1.0 or 0.3
                 set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, alpha})
                 
                 if cfg.karaoke_mode and is_active then
