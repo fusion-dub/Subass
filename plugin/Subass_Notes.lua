@@ -216,6 +216,9 @@ local UI_STATE = {
     skip_auto_scroll = false,
     last_click_time = 0,
     last_click_row = 0,
+    latched_overlay_time = nil,
+    latched_overlay_region = nil,
+    last_edit_cursor = 0,
     ass_file_loaded = false,
     current_file_name = nil,
     
@@ -9375,10 +9378,11 @@ local function render_corrections(cor_markers, y_offset, font_size, center_x, av
     end
 end
 
-local function handle_info_overlay_interaction(content_offset_left, content_offset_right, active_regions)
+local function handle_info_overlay_interaction(content_offset_left, content_offset_right, active_regions, override_time)
     if not cfg.p_info then return end
     
-    local left_str = format_timestamp(reaper.GetCursorPosition() + 0.001)
+    local display_time = override_time or (reaper.GetPlayState() & 1 == 1 and reaper.GetPlayPosition() or reaper.GetCursorPosition())
+    local left_str = format_timestamp(display_time + 0.001)
     local right_str = ""
     
     if active_regions and #active_regions > 0 then
@@ -9429,13 +9433,14 @@ local function handle_info_overlay_interaction(content_offset_left, content_offs
     end
 end
 
-local function draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions)
+local function draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, override_time)
     if not cfg.p_info then return end
     
     gfx.setfont(F.std)
     gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.5)
     
-    local left_str = format_timestamp(reaper.GetCursorPosition() + 0.001)
+    local display_time = override_time or (reaper.GetPlayState() & 1 == 1 and reaper.GetPlayPosition() or reaper.GetCursorPosition())
+    local left_str = format_timestamp(display_time + 0.001)
     local right_str = ""
     
     if active_regions and #active_regions > 0 then
@@ -9516,7 +9521,39 @@ local function draw_prompter_slider(input_queue)
     
     local current_active_regions = {}
     if active_idx ~= -1 then table.insert(current_active_regions, regions[active_idx]) end
-    handle_info_overlay_interaction(content_offset_left, content_offset_right, current_active_regions)
+    
+    -- Initialize latched time if not set
+    if not UI_STATE.latched_overlay_time then
+        if active_idx ~= -1 then
+            UI_STATE.latched_overlay_time = regions[active_idx].pos
+            UI_STATE.latched_overlay_region = regions[active_idx]
+        else
+            UI_STATE.latched_overlay_time = play_pos
+        end
+    end
+    
+    -- Detect manual jump
+    local edit_cursor = reaper.GetCursorPosition()
+    local edit_cursor_changed = math.abs(edit_cursor - UI_STATE.last_edit_cursor) > 0.01
+    local is_playing = (reaper.GetPlayState() & 1) == 1
+    UI_STATE.last_edit_cursor = edit_cursor
+    
+    -- Update latched time on replica change or manual click
+    if active_idx ~= -1 then
+        if not UI_STATE.latched_overlay_region or UI_STATE.latched_overlay_region.idx ~= regions[active_idx].idx then
+            UI_STATE.latched_overlay_time = regions[active_idx].pos
+            UI_STATE.latched_overlay_region = regions[active_idx]
+        elseif edit_cursor_changed then
+            -- Manual click within region - show click position
+            UI_STATE.latched_overlay_time = edit_cursor
+        end
+    elseif edit_cursor_changed then
+        -- Manual click outside regions - show click position
+        UI_STATE.latched_overlay_time = edit_cursor
+        UI_STATE.latched_overlay_region = nil
+    end
+    
+    handle_info_overlay_interaction(content_offset_left, content_offset_right, current_active_regions, UI_STATE.latched_overlay_time)
 
     local state_count = reaper.GetProjectStateChangeCount(0)
     local marker_state = prompter_drawer.marker_cache.count
@@ -9617,6 +9654,18 @@ local function draw_prompter_slider(input_queue)
 
     if gfx.mouse_wheel ~= 0 and not mouse_over_drawer then
         UI_STATE.prompter_slider_target_y = UI_STATE.prompter_slider_target_y - (gfx.mouse_wheel * 0.5)
+        
+        -- Clamp scroll position to content bounds
+        local min_y = 0
+        local max_y = prompter_slider_cache.total_h
+        if prompter_slider_cache.items and #prompter_slider_cache.items > 0 then
+            local first_item = prompter_slider_cache.items[1]
+            local last_item = prompter_slider_cache.items[#prompter_slider_cache.items]
+            min_y = first_item.y + first_item.h / 2
+            max_y = last_item.y + last_item.h / 2
+        end
+        UI_STATE.prompter_slider_target_y = math.max(min_y, math.min(max_y, UI_STATE.prompter_slider_target_y))
+        
         gfx.mouse_wheel = 0
         UI_STATE.skip_auto_scroll = true
     end
@@ -9760,7 +9809,7 @@ local function draw_prompter_slider(input_queue)
     -- Info Overlay graphics (at the end of content)
     local current_active_regions = {}
     if active_idx ~= -1 then table.insert(current_active_regions, regions[active_idx]) end
-    draw_info_overlay_graphics(content_offset_left, content_offset_right, current_active_regions)
+    draw_info_overlay_graphics(content_offset_left, content_offset_right, current_active_regions, UI_STATE.latched_overlay_time)
 
     if cfg.p_drawer then draw_prompter_drawer(input_queue) end
 
@@ -9836,7 +9885,38 @@ local function draw_prompter(input_queue)
             table.insert(active_regions_for_info, rgn)
         end
     end
-    handle_info_overlay_interaction(content_offset_left, content_offset_right, active_regions_for_info)
+    
+    -- Initialize latched time if not set
+    if not UI_STATE.latched_overlay_time then
+        if #active_regions_for_info > 0 then
+            UI_STATE.latched_overlay_time = active_regions_for_info[1].pos
+            UI_STATE.latched_overlay_region = active_regions_for_info[1]
+        else
+            UI_STATE.latched_overlay_time = cur_pos
+        end
+    end
+    
+    -- Detect manual jump (edit cursor change)
+    local edit_cursor = reaper.GetCursorPosition()
+    local edit_cursor_changed = math.abs(edit_cursor - UI_STATE.last_edit_cursor) > 0.01
+    UI_STATE.last_edit_cursor = edit_cursor
+    
+    -- Update latched time on replica change or manual click
+    if #active_regions_for_info > 0 then
+        if not UI_STATE.latched_overlay_region or UI_STATE.latched_overlay_region.idx ~= active_regions_for_info[1].idx then
+            UI_STATE.latched_overlay_time = active_regions_for_info[1].pos
+            UI_STATE.latched_overlay_region = active_regions_for_info[1]
+        elseif edit_cursor_changed then
+            -- Manual click within region - show click position
+            UI_STATE.latched_overlay_time = edit_cursor
+        end
+    elseif edit_cursor_changed then
+        -- Manual click outside regions - show click position
+        UI_STATE.latched_overlay_time = edit_cursor
+        UI_STATE.latched_overlay_region = nil
+    end
+    
+    handle_info_overlay_interaction(content_offset_left, content_offset_right, active_regions_for_info, UI_STATE.latched_overlay_time)
 
     update_marker_cache()
 
@@ -10536,7 +10616,7 @@ local function draw_prompter(input_queue)
     end
 
     -- Info Overlay graphics (OVER EVERYTHING ELSE)
-    draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions)
+    draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, UI_STATE.latched_overlay_time)
 
     -- === DRAWER UI DRAWING (OVER EVERYTHING) ===
     if cfg.p_drawer then
