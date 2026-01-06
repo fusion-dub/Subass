@@ -46,18 +46,48 @@ if (-not (Test-Path $scriptsPath)) { New-Item -ItemType Directory $scriptsPath |
 
 # 3. Install Python 3 via Winget
 Write-Host-Color "Checking Python 3..." "Cyan"
-$pythonCheck = where.exe python 2>$null
-if (-not $pythonCheck) {
-    Write-Host-Color "Python not found. Attempting to install via winget..." "Yellow"
+
+function Get-Python-Command {
+    foreach ($cmd in "python3", "python") {
+        $check = where.exe $cmd 2>$null
+        if ($check) {
+            try {
+                # Try to get version. Redirect stderr to stdout because some versions print to stderr
+                $versionInfo = & $cmd --version 2>&1 | Out-String
+                # Windows Store redirector often returns just "Python" or opens a window
+                if ($versionInfo -match "Python 3\.") {
+                    return $cmd
+                }
+            } catch {}
+        }
+    }
+    return $null
+}
+
+$pythonCmd = Get-Python-Command
+
+if (-not $pythonCmd) {
+    Write-Host-Color "Python 3 not found or invalid (found Windows Store placeholder). Attempting to install via winget..." "Yellow"
     try {
-        Start-Process winget -ArgumentList "install -e --id Python.Python.3.11 --silent" -Wait
-        Write-Host-Color "Python 3 installed successfully." "Green"
-    } catch {
-        Write-Host-Color "Failed auto-install. Please install Python 3.11 manually from https://www.python.org/" "Red"
+        # Check if winget exists first
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            Start-Process winget -ArgumentList "install -e --id Python.Python.3.11 --silent" -Wait
+            $pythonCmd = Get-Python-Command
+        }
+    } catch {}
+    
+    if (-not $pythonCmd) {
+        Write-Host-Color "Failed auto-install or Python still not detected. Please install Python 3.11+ manually from https://www.python.org/" "Red"
+        Write-Host-Color "IMPORTANT: Check 'Add Python to PATH' during installation." "Yellow"
+    } else {
+        Write-Host-Color "Python 3 installed and verified: $(& $pythonCmd --version)" "Green"
     }
 } else {
-    Write-Host-Color "Python 3 is already installed." "Green"
+    Write-Host-Color "Python 3 is already installed: $(& $pythonCmd --version)" "Green"
 }
+
+# Store the detected python command for later use in verification
+$env:SUBASS_PYTHON = if ($pythonCmd) { $pythonCmd } else { "python" }
 
 # 3.5 Check FFmpeg via Winget
 Write-Host-Color "Checking FFmpeg..." "Cyan"
@@ -167,6 +197,26 @@ if (Test-Path $scriptSource) {
     Write-Host-Color "ERROR: Could not find plugin in $projectRoot\plugin" "Red"
     Write-Host-Color "Make sure you extracted the entire ZIP file before running the installer." "Yellow"
 }
+    
+    # 5.5 Verify Stress Tool Dependencies
+    Write-Host-Color "Verifying Ukrainian Stress Tool..." "Cyan"
+    $stressTool = Join-Path $scriptsPath "stress\ukrainian_stress_tool.py"
+    if (Test-Path $stressTool) {
+        Write-Host "Running stress tool self-check (may install dependencies)..."
+        try {
+            $pyCmd = if ($env:SUBASS_PYTHON) { $env:SUBASS_PYTHON } else { "python" }
+            $process = Start-Process $pyCmd -ArgumentList "`"$stressTool`"", "`"Привіт`"" -PassThru -NoNewWindow -Wait
+            if ($process.ExitCode -eq 0) {
+                Write-Host-Color "Stress tool verification successful." "Green"
+            } else {
+                Write-Host-Color "WARNING: Stress tool verification failed (Exit Code: $($process.ExitCode))." "Yellow"
+            }
+        } catch {
+             Write-Host-Color "WARNING: Failed to run stress tool verification: $($_.Exception.Message)" "Yellow"
+        }
+    } else {
+        Write-Host-Color "Stress tool not found at $stressTool" "Yellow"
+    }
 
 # 6. Register Action and Menu Item
 $kbFile = Join-Path $reaperPath "reaper-kb.ini"
