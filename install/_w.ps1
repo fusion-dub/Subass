@@ -1,7 +1,9 @@
 # Subass Notes Installer for Windows
 # This script automates the installation of Python and REAPER extensions.
 
-$ErrorActionPreference = "Stop"
+try {
+
+$ErrorActionPreference = "Continue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
 function Write-Host-Color {
@@ -48,17 +50,17 @@ if (-not (Test-Path $scriptsPath)) { New-Item -ItemType Directory $scriptsPath |
 Write-Host-Color "Checking Python 3..." "Cyan"
 
 function Get-Python-Command {
-    foreach ($cmd in "python3", "python") {
-        $check = where.exe $cmd 2>$null
-        if ($check) {
+    foreach ($cmd in "python", "python3") {
+        $cmdInfo = Get-Command $cmd -ErrorAction SilentlyContinue
+        if ($cmdInfo) {
             try {
-                # Try to get version. Redirect stderr to stdout because some versions print to stderr
                 $versionInfo = & $cmd --version 2>&1 | Out-String
-                # Windows Store redirector often returns just "Python" or opens a window
                 if ($versionInfo -match "Python 3\.") {
                     return $cmd
                 }
-            } catch {}
+            } catch {
+                # Ignore failures of specific commands
+            }
         }
     }
     return $null
@@ -67,31 +69,37 @@ function Get-Python-Command {
 $pythonCmd = Get-Python-Command
 
 if (-not $pythonCmd) {
-    Write-Host-Color "Python 3 not found or invalid (found Windows Store placeholder). Attempting to install via winget..." "Yellow"
+    Write-Host-Color "Python 3 not found or invalid. Attempting to install via winget..." "Yellow"
     try {
-        # Check if winget exists first
         if (Get-Command winget -ErrorAction SilentlyContinue) {
             Start-Process winget -ArgumentList "install -e --id Python.Python.3.11 --silent" -Wait
             $pythonCmd = Get-Python-Command
         }
-    } catch {}
+    } catch {
+        Write-Host-Color "Auto-install attempt failed." "Gray"
+    }
     
     if (-not $pythonCmd) {
-        Write-Host-Color "Failed auto-install or Python still not detected. Please install Python 3.11+ manually from https://www.python.org/" "Red"
+        Write-Host-Color "CRITICAL: Python still not detected." "Red"
+        Write-Host-Color "Please install Python 3.11+ manually from https://www.python.org/" "Yellow"
         Write-Host-Color "IMPORTANT: Check 'Add Python to PATH' during installation." "Yellow"
+        Pause
+        exit
     } else {
-        Write-Host-Color "Python 3 installed and verified: $(& $pythonCmd --version)" "Green"
+        $vStr = & $pythonCmd --version
+        Write-Host-Color "Python 3 installed successfully: $vStr" "Green"
     }
 } else {
-    Write-Host-Color "Python 3 is already installed: $(& $pythonCmd --version)" "Green"
+    $vStr = & $pythonCmd --version
+    Write-Host-Color "Detected Python: $vStr" "Green"
 }
 
-# Store the detected python command for later use in verification
-$env:SUBASS_PYTHON = if ($pythonCmd) { $pythonCmd } else { "python" }
+# Store the detected python command
+$env:SUBASS_PYTHON = $pythonCmd
 
 # 3.5 Check FFmpeg via Winget
 Write-Host-Color "Checking FFmpeg..." "Cyan"
-$ffmpegCheck = where.exe ffmpeg 2>$null
+$ffmpegCheck = Get-Command ffmpeg -ErrorAction SilentlyContinue
 if (-not $ffmpegCheck) {
     Write-Host-Color "FFmpeg not found. Attempting to install via winget..." "Yellow"
     try {
@@ -132,11 +140,9 @@ function Download-File {
     param($Url, $TargetPath)
     try {
         if (Get-Command "curl.exe" -ErrorAction SilentlyContinue) {
-            # curl is built into Windows 10/11 and is very robust
             curl.exe -L -k -s -o "$TargetPath" "$Url"
             if (Test-Path $TargetPath) { return $true }
         }
-        # Fallback to PowerShell
         Invoke-WebRequest -Uri $Url -OutFile $TargetPath -UserAgent "Mozilla/5.0" -ErrorAction Stop
         return $true
     } catch {
@@ -148,7 +154,6 @@ foreach ($ext in $extensions) {
     $target = Join-Path $userPluginsPath $ext.File
     $isInstalled = Test-Path $target
     
-    # Extra check for ReaPack alternative names
     if ($ext.Name -eq "ReaPack" -and -not $isInstalled) {
         if (Test-Path (Join-Path $userPluginsPath "reaper_reapack-x64.dll")) { $isInstalled = $true }
     }
@@ -168,8 +173,6 @@ foreach ($ext in $extensions) {
 # 5. Copy Scripts
 Write-Host-Color "Installing Subass Notes scripts..." "Cyan"
 
-# Robust path detection: use the script's location instead of CWD
-# _w.ps1 is in 'install\', so project root is one level up
 $scriptBase = $PSScriptRoot
 if (-not $scriptBase) { $scriptBase = Get-Location }
 $projectRoot = Split-Path $scriptBase -Parent
@@ -195,28 +198,27 @@ if (Test-Path $scriptSource) {
     Write-Host-Color "Scripts copied to REAPER/Scripts/Subass" "Green"
 } else {
     Write-Host-Color "ERROR: Could not find plugin in $projectRoot\plugin" "Red"
-    Write-Host-Color "Make sure you extracted the entire ZIP file before running the installer." "Yellow"
 }
     
-    # 5.5 Verify Stress Tool Dependencies
-    Write-Host-Color "Verifying Ukrainian Stress Tool..." "Cyan"
-    $stressTool = Join-Path $scriptsPath "stress\ukrainian_stress_tool.py"
-    if (Test-Path $stressTool) {
-        Write-Host "Running stress tool self-check (may install dependencies)..."
-        try {
-            $pyCmd = if ($env:SUBASS_PYTHON) { $env:SUBASS_PYTHON } else { "python" }
-            $process = Start-Process $pyCmd -ArgumentList "`"$stressTool`"", "`"Привіт`"" -PassThru -NoNewWindow -Wait
-            if ($process.ExitCode -eq 0) {
-                Write-Host-Color "Stress tool verification successful." "Green"
-            } else {
-                Write-Host-Color "WARNING: Stress tool verification failed (Exit Code: $($process.ExitCode))." "Yellow"
-            }
-        } catch {
-             Write-Host-Color "WARNING: Failed to run stress tool verification: $($_.Exception.Message)" "Yellow"
+# 5.5 Verify Stress Tool Dependencies
+Write-Host-Color "Verifying Ukrainian Stress Tool..." "Cyan"
+$stressTool = Join-Path $scriptsPath "stress\ukrainian_stress_tool.py"
+if (Test-Path $stressTool) {
+    Write-Host "Running stress tool self-check..."
+    try {
+        $pyCmd = "python"
+        if ($env:SUBASS_PYTHON) { $pyCmd = $env:SUBASS_PYTHON }
+        
+        $process = Start-Process $pyCmd -ArgumentList "`"$stressTool`"", "`"Привіт`"" -PassThru -NoNewWindow -Wait
+        if ($process.ExitCode -eq 0) {
+            Write-Host-Color "Stress tool verification successful." "Green"
+        } else {
+            Write-Host-Color "WARNING: Stress tool verification failed (Exit Code: $($process.ExitCode))." "Yellow"
         }
-    } else {
-        Write-Host-Color "Stress tool not found at $stressTool" "Yellow"
+    } catch {
+         Write-Host-Color "WARNING: Failed to run stress tool verification: $($_.Exception.Message)" "Yellow"
     }
+}
 
 # 6. Register Action and Menu Item
 $kbFile = Join-Path $reaperPath "reaper-kb.ini"
@@ -226,7 +228,6 @@ $overlayActionId = "RS88888888888888888888888888888888"
 $dictActionId = "RS99999999999999999999999999999999"
 
 Write-Host-Color "Updating REAPER configuration..." "Cyan"
-Write-Host-Color "Menu File: $menuFile" "Gray"
 
 if (Test-Path $kbFile) {
     Write-Host-Color "Updating actions in reaper-kb.ini..." "Cyan"
@@ -272,13 +273,9 @@ if (Test-Path $kbFile) {
     if (-not $foundDict) { $newKb.Add("SCR 4 0 $dictActionId ""Custom: Subass Dictionary"" ""$dictRelativePath""") }
     
     [System.IO.File]::WriteAllLines($kbFile, $newKb)
-    Write-Host-Color "Found Notes ID: $actionId" "Green"
-    Write-Host-Color "Found Overlay ID: $overlayActionId" "Green"
 }
 
-# Handle missing menu file
 if (-not (Test-Path $menuFile)) {
-    Write-Host-Color "Extensions menu file not found. Creating new..." "Yellow"
     [System.IO.File]::WriteAllText($menuFile, "`r`n[Main Extensions]`r`n")
 }
 
@@ -293,7 +290,6 @@ if (Test-Path $menuFile) {
 
     foreach ($line in $lines) {
         $clean = $line.Trim()
-        # More flexible section matching
         if ($clean -match "^\[\s*Main Extensions\s*\]$") {
             $state = "in"
             $contentBefore += $line
@@ -310,7 +306,6 @@ if (Test-Path $menuFile) {
         } elseif ($state -eq "in") {
             if ($line -match "^item_(\d+)=(.*)") {
                 $val = $matches[2]
-                # Filter out everything related to Subass to start fresh
                 if ($val -notmatch "Subass" -and $val -ne "0" -and $val -ne "-1000" -and $val -ne "-1001") {
                     $otherItems += $val
                 }
@@ -319,14 +314,10 @@ if (Test-Path $menuFile) {
     }
 
     if ($state -eq "before") {
-        Write-Host-Color "Section [Main Extensions] not found. Adding to end of file." "Yellow"
         if ($contentBefore.Count -gt 0 -and $contentBefore[-1] -ne "") { $contentBefore += "" }
         $contentBefore += "[Main Extensions]"
-    } else {
-        Write-Host-Color "Section found. Syncing items..." "Gray"
     }
 
-    # Build the item list: Old Items + Separator + Subass 1 + Subass 2 + Separator
     $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "_$dictActionId Subass: Dictionary", "0")
     
     $newMenu = New-Object System.Collections.Generic.List[string]
@@ -340,10 +331,8 @@ if (Test-Path $menuFile) {
         foreach ($l in $contentAfter) { $newMenu.Add($l) }
     }
 
-    # Write without BOM for maximum compatibility
     $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllLines($menuFile, $newMenu, $utf8NoBOM)
-    Write-Host-Color "Menu updated successfully." "Green"
+    [System.IO.File]::WriteAllLines($menuFile, [string[]]$newMenu, $utf8NoBOM)
 }
 
 Write-Host ""
@@ -354,3 +343,9 @@ Write-Host "   in the Actions list (Ctrl+Alt+S) or in the Extensions menu."
 Write-Host "================================================" -ForegroundColor Green
 Write-Host ""
 Pause
+
+} catch {
+    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host $_.ScriptStackTrace -ForegroundColor Gray
+    Pause
+}
