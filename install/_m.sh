@@ -30,48 +30,69 @@ mkdir -p "$SCRIPTS_PATH"
 
 # 3. Check Python 3
 echo "\033[1;34m>> Checking Python 3...\033[0m"
-if ! command -v python3 &> /dev/null; then
-    echo "\033[1;33mPython 3 не знайдено.\033[0m"
+
+check_python() {
+    if command -v python3 &> /dev/null; then
+        PY_VER=$(python3 --version 2>&1)
+        if [[ $PY_VER == *"Python 3"* ]]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+if ! check_python; then
+    echo "\033[1;33mPython 3 not found or not working properly.\033[0m"
     
     if command -v brew &> /dev/null; then
-        echo "Знайдено Homebrew. Встановлюю Python..."
+        echo "Installing Python through Homebrew..."
         brew install python
     else
-        echo "Завантажую офіційний інсталятор Python..."
+        echo "Downloading official Python installer..."
         curl -L "https://www.python.org/ftp/python/3.11.5/python-3.11.5-macos11.pkg" -o "/tmp/python_install.pkg"
         open "/tmp/python_install.pkg"
-        echo "\033[1;33mБудь ласка, завершіть встановлення у вікні, що відкрилося, і запустіть інсталятор Subass знову.\033[0m"
+        echo "\033[1;33mPlease complete the installation in the window that opened and run the Subass installer again.\033[0m"
         exit 1
     fi
 else
-    echo "\033[1;32mPython 3 встановлено.\033[0m"
+    echo "\033[1;32m$(python3 --version) installed.\033[0m"
 fi
 
 # 3.5 Check FFmpeg
 echo "\033[1;34m>> Checking FFmpeg...\033[0m"
 if ! command -v ffmpeg &> /dev/null; then
-    echo "\033[1;33mFFmpeg не знайдено.\033[0m"
+    echo "\033[1;33mFFmpeg not found.\033[0m"
     if command -v brew &> /dev/null; then
-        echo "Встановлюю FFmpeg через Homebrew..."
+        echo "Installing FFmpeg through Homebrew..."
         brew install ffmpeg
     else
-        echo "\033[1;33mFFmpeg необхідний для роботи деяких функцій (наприклад, обробки аудіо).\033[0m"
-        echo "\033[1;33mБудь ласка, встановіть Homebrew (brew.sh) або встановіть FFmpeg вручну.\033[0m"
+        echo "\033[1;33mFFmpeg is required for some functions (e.g., audio processing).\033[0m"
+        echo "\033[1;33mPlease install Homebrew (brew.sh) or install FFmpeg manually.\033[0m"
     fi
 else
-    echo "\033[1;32mFFmpeg встановлено.\033[0m"
+    echo "\033[1;32mFFmpeg installed.\033[0m"
 fi
 
 # 4. Download Extensions
 ARCH=$(uname -m)
+IS_ROSETTA=$(sysctl -n sysctl.proc_translated 2>/dev/null)
+
+if [ "$IS_ROSETTA" = "1" ]; then
+    echo "\033[1;33mWARNING: Running under Rosetta emulation.\033[0m"
+    echo "Architecture detected: $ARCH (emulated)"
+    echo "If you use native ARM REAPER, this might install wrong extension versions."
+else
+    echo "Detected architecture: $ARCH"
+fi
+
 if [ "$ARCH" = "arm64" ]; then
-    echo "Вибрано архітектуру Apple Silicon (ARM64)"
+    echo "Selected architecture Apple Silicon (ARM64)"
     PACK_URL="https://github.com/cfillion/reapack/releases/download/v1.2.6/reaper_reapack-arm64.dylib"
     SWS_URL="https://github.com/reaper-oss/sws/releases/download/v2.14.0.7/reaper_sws-arm64.dylib"
     JS_URL="https://github.com/juliansader/ReaExtensions/raw/master/js_ReaScriptAPI/v1.310/reaper_js_ReaScriptAPI64ARM.dylib"
     IMGUI_URL="https://github.com/cfillion/reaimgui/releases/latest/download/reaper_imgui-arm64.dylib"
 else
-    echo "Вибрано архітектуру Intel (x86_64)"
+    echo "Selected architecture Intel (x86_64)"
     PACK_URL="https://github.com/cfillion/reapack/releases/download/v1.2.6/reaper_reapack-x86_64.dylib"
     SWS_URL="https://github.com/reaper-oss/sws/releases/download/v2.14.0.7/reaper_sws-x86_64.dylib"
     JS_URL="https://github.com/juliansader/ReaExtensions/raw/master/js_ReaScriptAPI/v1.310/reaper_js_ReaScriptAPI64.dylib"
@@ -95,11 +116,19 @@ for NAME in "${(@k)EXTS}"; do
         curl -L "$URL" -o "$TARGET"
         if [ $? -eq 0 ]; then
             echo "\033[1;32m$NAME installed.\033[0m"
+            # Remove from quarantine if it's a dylib (Gatekeeper fix for M1/M2)
+            if [[ "$TARGET" == *.dylib ]]; then
+                xattr -d com.apple.quarantine "$TARGET" 2>/dev/null
+            fi
         else
             echo "\033[1;31mFailed to download $NAME.\033[0m"
         fi
     else
         echo "\033[1;30m$NAME is already installed.\033[0m"
+        # Always try to remove quarantine just in case it was stuck
+        if [[ "$TARGET" == *.dylib ]]; then
+            xattr -d com.apple.quarantine "$TARGET" 2>/dev/null
+        fi
     fi
 done
 
@@ -133,6 +162,21 @@ else
     echo "\033[1;33mPlease make sure you extracted the entire ZIP file.\033[0m"
 fi
 
+# 5.5 Verify Stress Tool Dependencies
+echo "\033[1;34m>> Verifying Ukrainian Stress Tool...\033[0m"
+STRESS_TOOL="$SCRIPTS_PATH/stress/ukrainian_stress_tool.py"
+if [ -f "$STRESS_TOOL" ]; then
+    echo "Running stress tool self-check (may install dependencies)..."
+    python3 "$STRESS_TOOL" "Привіт" > /dev/null
+    if [ $? -eq 0 ]; then
+        echo "\033[1;32mStress tool verification successful.\033[0m"
+    else
+        echo "\033[1;33mWARNING: Stress tool verification failed. You may need to run it manually to check for errors.\033[0m"
+    fi
+else
+    echo "\033[1;33mStress tool not found at $STRESS_TOOL\033[0m"
+fi
+
 # 6. Register Action and Menu Item
 echo "\033[1;34m>> Registering Action and Menu Item...\033[0m"
 KB_FILE="$REAPER_PATH/reaper-kb.ini"
@@ -143,121 +187,116 @@ DICT_ID="RS99999999999999999999999999999999"
 
 # Python helper to update INI files
 python3 <<EOF
-import os, re
+import os, re, sys
 
-kb_file = "$KB_FILE"
-menu_file = "$MENU_FILE"
-action_id_target = "$ACTION_ID"
-overlay_id_target = "$OVERLAY_ID"
-dict_id_target = "$DICT_ID"
-rel_path = "Subass/Subass_Notes.lua"
-overlay_rel = "Subass/overlay/Lionzz_SubOverlay_Subass.lua"
-dict_rel = "Subass/dictionary/Subass_Dictionary.lua"
+def update_ini():
+    try:
+        kb_file = "$KB_FILE"
+        menu_file = "$MENU_FILE"
+        action_id_target = "$ACTION_ID"
+        overlay_id_target = "$OVERLAY_ID"
+        dict_id_target = "$DICT_ID"
+        rel_path = "Subass/Subass_Notes.lua"
+        overlay_rel = "Subass/overlay/Lionzz_SubOverlay_Subass.lua"
+        dict_rel = "Subass/dictionary/Subass_Dictionary.lua"
 
-# 1. Update reaper-kb.ini - Clean up old paths and duplicates
-if os.path.exists(kb_file):
-    with open(kb_file, 'r', encoding='utf-8', errors='ignore') as f:
-        kb_lines = f.readlines()
-    
-    new_kb_lines = []
-    found_main = False
-    found_overlay = False
-    found_dict = False
-    
-    for line in kb_lines:
-        # Keep unrelated lines
-        if "Subass_Notes.lua" not in line and "Lionzz_SubOverlay_Subass.lua" not in line and "Subass_Dictionary.lua" not in line:
-            new_kb_lines.append(line)
-            continue
+        # 1. Update reaper-kb.ini
+        if os.path.exists(kb_file):
+            print(f"Updating {os.path.basename(kb_file)}...")
+            with open(kb_file, 'r', encoding='utf-8', errors='ignore') as f:
+                kb_lines = f.readlines()
+            
+            new_kb_lines = []
+            found_main = found_overlay = found_dict = False
+            
+            for line in kb_lines:
+                # Keep unrelated lines
+                if "Subass_Notes.lua" not in line and "Lionzz_SubOverlay_Subass.lua" not in line and "Subass_Dictionary.lua" not in line:
+                    new_kb_lines.append(line)
+                    continue
+                
+                if "Subass_Notes.lua" in line and rel_path in line and not found_main:
+                    m = re.search(r'SCR 4 0 (RS[0-9a-fA-F]+)', line)
+                    if m: action_id_target = m.group(1)
+                    new_kb_lines.append(line)
+                    found_main = True
+                elif "Lionzz_SubOverlay_Subass.lua" in line and overlay_rel in line and not found_overlay:
+                    m = re.search(r'SCR 4 0 (RS[0-9a-fA-F]+)', line)
+                    if m: overlay_id_target = m.group(1)
+                    new_kb_lines.append(line)
+                    found_overlay = True
+                elif "Subass_Dictionary.lua" in line and dict_rel in line and not found_dict:
+                    m = re.search(r'SCR 4 0 (RS[0-9a-fA-F]+)', line)
+                    if m: dict_id_target = m.group(1)
+                    new_kb_lines.append(line)
+                    found_dict = True
+
+            if not found_main: new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
+            if not found_overlay: new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
+            if not found_dict: new_kb_lines.append(f'SCR 4 0 {dict_id_target} "Custom: Subass Dictionary" "{dict_rel}"\n')
+
+            with open(kb_file, 'w', encoding='utf-8') as f:
+                f.writelines(new_kb_lines)
+
+        # 2. Update reaper-menu.ini
+        print(f"Updating {os.path.basename(menu_file)}...")
+        lines = []
+        if os.path.exists(menu_file):
+            with open(menu_file, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = f.readlines()
         
-        # If it's our main script, only keep the ONE with the relative path we want
-        if "Subass_Notes.lua" in line:
-            if rel_path in line and not found_main:
-                # Extract the actual ID REAPER might have assigned
-                m = re.search(r'SCR 4 0 (RS[0-9a-f]+)', line)
-                if m: action_id_target = m.group(1)
-                new_kb_lines.append(line)
-                found_main = True
+        content_before = []
+        content_after = []
+        other_items = []
+        state = "before"
         
-        # If it's our overlay script
-        if "Lionzz_SubOverlay_Subass.lua" in line:
-            if overlay_rel in line and not found_overlay:
-                m = re.search(r'SCR 4 0 (RS[0-9a-f]+)', line)
-                if m: overlay_id_target = m.group(1)
-                new_kb_lines.append(line)
-                found_overlay = True
-
-        # If it's our dictionary script
-        if "Subass_Dictionary.lua" in line:
-            if dict_rel in line and not found_dict:
-                m = re.search(r'SCR 4 0 (RS[0-9a-f]+)', line)
-                if m: dict_id_target = m.group(1)
-                new_kb_lines.append(line)
-                found_dict = True
-
-    if not found_main:
-        new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
-    if not found_overlay:
-        new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
-    if not found_dict:
-        new_kb_lines.append(f'SCR 4 0 {dict_id_target} "Custom: Subass Dictionary" "{dict_rel}"\n')
-
-    with open(kb_file, 'w', encoding='utf-8') as f:
-        f.writelines(new_kb_lines)
-
-# 2. Update reaper-menu.ini - Reconstruct [Main Extensions] section
-if os.path.exists(menu_file):
-    with open(menu_file, 'r', encoding='utf-8', errors='ignore') as f:
-        lines = f.readlines()
-    
-    new_lines = []
-    in_section = False
-    other_items = [] # Non-Subass items in this section
-    
-    # 1. Parse entire file and extract non-Subass items from [Main Extensions]
-    content_before = []
-    content_after = []
-    state = "before"
-    
-    for line in lines:
-        clean = line.strip()
-        if clean == "[Main Extensions]":
-            state = "in"
-            content_before.append(line)
-            continue
+        # Regex to find section, case-insensitive and whitespace-tolerant
+        section_re = re.compile(r'^\[\s*Main Extensions\s*\]$', re.IGNORECASE)
         
-        if state == "in" and clean.startswith("["):
-            state = "after"
-        
+        for line in lines:
+            clean = line.strip()
+            if section_re.match(clean):
+                state = "in"
+                content_before.append(line)
+                continue
+            
+            if state == "in" and clean.startswith("["):
+                state = "after"
+            
+            if state == "before":
+                content_before.append(line)
+            elif state == "after":
+                content_after.append(line)
+            elif state == "in":
+                if clean.startswith("item_"):
+                    val = clean.split("=", 1)[1]
+                    if "Subass" not in val and val not in ["0", "-1000", "-1001"]:
+                         other_items.append(val)
+
         if state == "before":
-            content_before.append(line)
-        elif state == "after":
-            content_after.append(line)
-        elif state == "in":
-            # We are inside [Main Extensions]. Collect items that are NOT Subass and NOT our separators
-            # ( separators are item_N=0 )
-            if clean.startswith("item_"):
-                val = clean.split("=", 1)[1]
-                # Filter out: Subass name, 0 (our separator), -1000/-1001 (our submenus)
-                if "Subass" not in val and val != "0" and val != "-1000" and val != "-1001":
-                     other_items.append(val)
+            print("Section [Main Extensions] not found. Creating it...")
+            if content_before and content_before[-1].strip() != "":
+                content_before.append("\n")
+            content_before.append("[Main Extensions]\n")
 
-    # 2. Build the new section items
-    final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", f"_{dict_id_target} Subass: Dictionary", "0"]
-    
-    # 3. Assemble the file
-    new_lines = content_before
-    for i, item_val in enumerate(final_items):
-        new_lines.append(f"item_{i}={item_val}\n")
-    
-    # Add a blank line if missing before next section
-    if content_after and not content_after[0].strip() == "":
-        new_lines.append("\n")
+        final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", f"_{dict_id_target} Subass: Dictionary", "0"]
         
-    new_lines.extend(content_after)
+        new_lines = content_before
+        for i, item_val in enumerate(final_items):
+            new_lines.append(f"item_{i}={item_val}\n")
+        
+        if content_after:
+            if new_lines[-1].strip() != "": new_lines.append("\n")
+            new_lines.extend(content_after)
 
-    with open(menu_file, 'w', encoding='utf-8') as f:
-        f.writelines(new_lines)
+        with open(menu_file, 'w', encoding='utf-8') as f:
+            f.writelines(new_lines)
+            
+    except Exception as e:
+        print(f"ERROR updating INI files: {e}")
+        sys.exit(1)
+
+update_ini()
 EOF
 
 echo "\033[1;32mRegistered in Actions and Extensions menu (cleaned up duplicates).\033[0m"
