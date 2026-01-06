@@ -49,6 +49,8 @@ def bootstrap():
 
         packages = ["ukrainian-word-stress"]
 
+        print(f"Using Python: {sys.executable}")
+        
         # Base install command
         cmd = [
             sys.executable,
@@ -59,7 +61,20 @@ def bootstrap():
         ] + packages
 
         try:
+            # Check if pip is available
+            subprocess.check_call([sys.executable, "-m", "pip", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            print("--- ERROR: PIP_MISSING ---")
+            print("Python install does not have 'pip'.")
+            if sys.platform == "win32":
+                print("Try: python -m ensurepip --default-pip")
+            else:
+                print("Try: python3 -m ensurepip --default-pip")
+            return False
+
+        try:
             # Try normal install
+            print(f"Running: {' '.join(cmd)}")
             subprocess.check_call(cmd)
         except subprocess.CalledProcessError:
             # Try with --break-system-packages for macOS/Linux system Python
@@ -68,11 +83,11 @@ def bootstrap():
                 subprocess.check_call(cmd + ["--break-system-packages"])
             except subprocess.CalledProcessError as e:
                 print("--- ERROR: DEPENDENCY_INSTALL_FAILED ---")
-                print(f"\nError: Could not install dependencies automatically.")
+                print(f"\nError: Could not install dependencies automatically (Exit Code: {e.returncode}).")
                 print(
                     f"Please try running manually: {sys.executable} -m pip install ukrainian-word-stress"
                 )
-                sys.exit(1)
+                return False
 
         print("\nDependencies installed successfully!")
         print(
