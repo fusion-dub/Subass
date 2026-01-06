@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 3.0
+-- @version 3.1
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v3.0"
+local script_title = "Subass Notes v3.1"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -90,6 +90,7 @@ local cfg = {
     gui_scale = get_set("gui_scale", 1.1),
     director_mode = (get_set("director_mode", "0") == "1" or get_set("director_mode", 0) == 1),
     director_layout = get_set("director_layout", "bottom"),
+    prompter_slider_mode = (get_set("prompter_slider_mode", "0") == "1" or get_set("prompter_slider_mode", 0) == 1),
 }
 
 local col_resize = {
@@ -151,6 +152,16 @@ local draw_prompter_cache = {
     next_cache = {} -- Map of text -> parsed lines for Next replicas
 }
 
+local prompter_slider_cache = {
+    state_count = -1,
+    project_id = "",
+    w = -1,
+    fsize = -1,
+    font = "",
+    items = {}, -- { {h, lines}, ... }
+    total_h = 0
+}
+
 --- Re-initialize prompter font slots and invalidate measurements
 local function update_prompter_fonts()
     draw_prompter_cache.last_text = nil
@@ -188,32 +199,47 @@ end
 -- Initial font setup
 update_prompter_fonts()
 
--- State
-local current_tab = 3 -- Default to Prompter
-local tabs = {"Файл", "Таблиця", "Суфлер", "Налаштування"}
-local last_mouse_cap = 0
-local mouse_handled = false -- Global flag to suppress context menu if handled by UI
-local scroll_y = 0
-local target_scroll_y = 0 -- For smooth scrolling
-local last_project_id = "" -- Initialize empty to force load on first frame
-local script_loading_state = { active = false, text = "" } -- Global Loading Indicator State
-
--- Tooltip State
-local tooltip_state = {
-    hover_id = nil,
-    text = "",
-    start_time = 0,
-    x = 0,
-    y = 0
+-- Grouped State (to fix Lua local variable limit)
+local UI_STATE = {
+    tabs = {"Нотатки", "Репліки", "Суфлер", "Налаштування"},
+    current_tab = 3, -- Default to Prompter
+    last_mouse_cap = 0,
+    mouse_handled = false,
+    scroll_y = 0,
+    target_scroll_y = 0,
+    prompter_slider_y = 0,
+    prompter_slider_target_y = 0,
+    last_project_id = "",
+    tab_scroll_y = {0, 0, 0, 0},
+    tab_target_scroll_y = {0, 0, 0, 0},
+    last_tracked_pos = 0,
+    skip_auto_scroll = false,
+    last_click_time = 0,
+    last_click_row = 0,
+    ass_file_loaded = false,
+    current_file_name = nil,
+    
+    script_loading_state = {
+        active = false,
+        text = ""
+    },
+    
+    tooltip_state = {
+        hover_id = nil,
+        text = "",
+        start_time = 0,
+        x = 0,
+        y = 0,
+        immediate = false
+    },
+    snackbar_state = {
+        text = "",
+        show_time = 0,
+        duration = 3.0,
+        type = "info"
+    }
 }
 
--- Per-tab scroll positions
-local tab_scroll_y = {0, 0, 0, 0}
-local tab_target_scroll_y = {0, 0, 0, 0}
-local last_tracked_pos = 0 -- For auto-scroll detection
-local skip_auto_scroll = false -- Skip auto-scroll after manual row click
-local last_click_time = 0 -- For double-click detection
-local last_click_row = 0 -- Which row was clicked
 local regions = {}
 local proj_change_count = reaper.GetProjectStateChangeCount(0)
 
@@ -253,14 +279,6 @@ local last_layout_state = { w = 0, count = 0, mode = nil, filter = "", sort_col 
 local table_selection = {} -- { [row_index] = true }
 local table_data_cache = { state_count = -1, project_id = "", filter = "", sort_dir = 0, show_markers = nil, case_sensitive = nil, list = {} }
 local last_selected_row = nil -- for Shift range selection
-
--- Snackbar State
-local snackbar_state = {
-    text = "",
-    show_time = 0,
-    duration = 3.0, -- seconds
-    type = "info" -- "info" (yellow), "success" (green), "error" (red)
-}
 
 -- Constants
 local acute = "\204\129" -- UTF-8 Combining Acute Accent (0xCC 0x81)
@@ -406,13 +424,13 @@ end
 local function save_session_state(id)
     if not id then return end
     -- Sync current tab's scroll before saving
-    tab_scroll_y[current_tab] = scroll_y
-    tab_target_scroll_y[current_tab] = target_scroll_y
+    UI_STATE.tab_scroll_y[UI_STATE.current_tab] = UI_STATE.scroll_y
+    UI_STATE.tab_target_scroll_y[UI_STATE.current_tab] = UI_STATE.target_scroll_y
 
     session_states[id] = {
-        current_tab = current_tab,
-        tab_scroll_y = {table.unpack(tab_scroll_y)},
-        tab_target_scroll_y = {table.unpack(tab_target_scroll_y)},
+        current_tab = UI_STATE.current_tab,
+        tab_scroll_y = {table.unpack(UI_STATE.tab_scroll_y)},
+        tab_target_scroll_y = {table.unpack(UI_STATE.tab_target_scroll_y)},
         -- Editor state
         text_editor_state = deep_copy(text_editor_state),
         -- Modal states (minimal)
@@ -437,12 +455,12 @@ end
 local function load_session_state(id)
     local state = session_states[id]
     if state then
-        current_tab = state.current_tab or 3
-        tab_scroll_y = {table.unpack(state.tab_scroll_y or {0,0,0,0})}
-        tab_target_scroll_y = {table.unpack(state.tab_target_scroll_y or {0,0,0,0})}
+        UI_STATE.current_tab = state.current_tab or 3
+        UI_STATE.tab_scroll_y = {table.unpack(state.tab_scroll_y or {0,0,0,0})}
+        UI_STATE.tab_target_scroll_y = {table.unpack(state.tab_target_scroll_y or {0,0,0,0})}
         -- Sync global scroll from restored active tab state
-        scroll_y = tab_scroll_y[current_tab] or 0
-        target_scroll_y = tab_target_scroll_y[current_tab] or 0
+        UI_STATE.scroll_y = UI_STATE.tab_scroll_y[UI_STATE.current_tab] or 0
+        UI_STATE.target_scroll_y = UI_STATE.tab_target_scroll_y[UI_STATE.current_tab] or 0
         -- Editor
         if state.text_editor_state then
             text_editor_state = deep_copy(state.text_editor_state)
@@ -493,8 +511,9 @@ local ass_lines = {}
 local ass_actors = {}
 local ass_markers = {} -- { {pos, name, markindex, color}, ... }
 local actor_colors = {} -- {ActorName = integerColor}
-local ass_file_loaded = false
-local current_file_name = nil
+
+UI_STATE.ass_file_loaded = false
+UI_STATE.current_file_name = nil
 
 local UI = {
     C_BG = {0.15, 0.15, 0.15},
@@ -598,6 +617,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "count_timer_bottom", cfg.count_timer_bottom and "1" or "0", true)
 
     reaper.SetExtState(section_name, "cps_warning", cfg.cps_warning and "1" or "0", true)
+    reaper.SetExtState(section_name, "prompter_slider_mode", cfg.prompter_slider_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "gemini_api_key", cfg.gemini_api_key, true)
     reaper.SetExtState(section_name, "p_drawer", cfg.p_drawer and "1" or "0", true)
     reaper.SetExtState(section_name, "p_drawer_left", cfg.p_drawer_left and "1" or "0", true)
@@ -720,7 +740,7 @@ end
 --- @param h number Height
 --- @param total_h number Total content height
 --- @param visible_h number Visible content height
---- @param scroll_y number Current scroll position
+--- @param UI_STATE.scroll_y number Current scroll position
 --- @return number New scroll position (updated if dragged)
 local function draw_scrollbar(x, y, w, h, total_h, visible_h, scroll_y)
     if total_h <= visible_h then return 0 end
@@ -733,11 +753,12 @@ local function draw_scrollbar(x, y, w, h, total_h, visible_h, scroll_y)
     local handle_h = math.max(20, h * ratio)
     local max_scroll = total_h - visible_h
     
-    -- Clamp scroll_y
-    if scroll_y < 0 then scroll_y = 0 end
-    if scroll_y > max_scroll then scroll_y = max_scroll end
+    -- Clamp local scroll_y (input might be raw)
+    local local_scroll = scroll_y
+    if local_scroll < 0 then local_scroll = 0 end
+    if local_scroll > max_scroll then local_scroll = max_scroll end
     
-    local handle_y = y + (scroll_y / max_scroll) * (h - handle_h)
+    local handle_y = y + (local_scroll / max_scroll) * (h - handle_h)
     
     -- Draw Handle
     local is_hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= handle_y and gfx.mouse_y <= handle_y + handle_h)
@@ -763,7 +784,7 @@ local function draw_scrollbar(x, y, w, h, total_h, visible_h, scroll_y)
         end
     end
     
-    return scroll_y
+    return local_scroll
 end
 
 --- Get color for CPS (Characters Per Second) with smooth gradient for high speeds
@@ -997,8 +1018,8 @@ local function run_async_command(shell_cmd, callback)
         callback = callback
     })
     
-    script_loading_state.active = true
-    script_loading_state.text = "Завантаження даних..."
+    UI_STATE.script_loading_state.active = true
+    UI_STATE.script_loading_state.text = "Завантаження даних..."
 end
 
 local sws_alert_shown = false
@@ -1062,7 +1083,7 @@ local function check_async_pool()
             
             -- Use defer to allow UI update if multiple tasks finish
             if #global_async_pool == 0 and not current_stress_job then
-                script_loading_state.active = false
+                UI_STATE.script_loading_state.active = false
             end
         end
     end
@@ -1070,7 +1091,7 @@ end
 
 --- Draw a global loading overlay with spinner when async tasks are active
 local function draw_loader()
-    if not script_loading_state.active then return end
+    if not UI_STATE.script_loading_state.active then return end
     
     -- Overlay
     gfx.set(0, 0, 0, 0.7)
@@ -1080,7 +1101,7 @@ local function draw_loader()
     gfx.setfont(F.bld)
     set_color(UI.C_TXT)
     
-    local str = script_loading_state.text or "Завантаження..."
+    local str = UI_STATE.script_loading_state.text or "Завантаження..."
     local sw, sh = gfx.measurestr(str)
     
     local cx, cy = gfx.w / 2, gfx.h / 2
@@ -1120,13 +1141,13 @@ local function is_mouse_clicked(btn)
     -- Cap 1 is bit 0, Cap 2 is bit 1. 
     -- But gfx.mouse_cap usually returns 1 for Left, 2 for Right.
     -- Strict check: 
-    return (gfx.mouse_cap & cap == cap) and (last_mouse_cap & cap == 0)
+    return (gfx.mouse_cap & cap == cap) and (UI_STATE.last_mouse_cap & cap == 0)
 end
 
 --- Check if mouse right button was just clicked
 --- @return boolean True if clicked this frame
 local function is_right_mouse_clicked()
-    return gfx.mouse_cap == 2 and last_mouse_cap == 0
+    return gfx.mouse_cap == 2 and UI_STATE.last_mouse_cap == 0
 end
 
 -- =============================================================================
@@ -1231,18 +1252,18 @@ end
 --- @param type string? Notification type: "success", "error", "info" (default)
 --- @param delay number? Optional duration in seconds
 local function show_snackbar(text, type, delay)
-    snackbar_state.duration = delay or 3.0
-    snackbar_state.text = text
-    snackbar_state.type = type or "info"
-    snackbar_state.show_time = reaper.time_precise()
+    UI_STATE.snackbar_state.duration = delay or 3.0
+    UI_STATE.snackbar_state.text = text
+    UI_STATE.snackbar_state.type = type or "info"
+    UI_STATE.snackbar_state.show_time = reaper.time_precise()
 end
 
 --- Draw tooltip at mouse position
 local function draw_tooltip()
-    if not tooltip_state.text or tooltip_state.text == "" then return end
+    if not UI_STATE.tooltip_state.text or UI_STATE.tooltip_state.text == "" then return end
     
     local now = reaper.time_precise()
-    if not tooltip_state.immediate and (now - tooltip_state.start_time < 1.0) then return end
+    if not UI_STATE.tooltip_state.immediate and (now - UI_STATE.tooltip_state.start_time < 1.0) then return end
     
     gfx.setfont(F.tip)
     
@@ -1256,7 +1277,7 @@ local function draw_tooltip()
     local wrapped_lines = {}
     local current_max_w = 0
     
-    for paragraph in tooltip_state.text:gmatch("[^\r\n]+") do
+    for paragraph in UI_STATE.tooltip_state.text:gmatch("[^\r\n]+") do
         local words = {}
         for w in paragraph:gmatch("%S+") do table.insert(words, w) end
         
@@ -1327,26 +1348,26 @@ end
 
 --- Draw snackbar notification with fade-out animation
 local function draw_snackbar()
-    if snackbar_state.text == "" then return end
+    if UI_STATE.snackbar_state.text == "" then return end
     
     local current_time = reaper.time_precise()
-    local elapsed = current_time - snackbar_state.show_time
+    local elapsed = current_time - UI_STATE.snackbar_state.show_time
     
-    if elapsed > snackbar_state.duration then
-        snackbar_state.text = "" -- Hide snackbar
+    if elapsed > UI_STATE.snackbar_state.duration then
+        UI_STATE.snackbar_state.text = "" -- Hide snackbar
         return
     end
     
     -- Calculate fade-out alpha
     local alpha = 1.0
-    if elapsed > snackbar_state.duration - 0.2 then
+    if elapsed > UI_STATE.snackbar_state.duration - 0.2 then
         -- Fade out in last 0.2 seconds
-        alpha = (snackbar_state.duration - elapsed) / 0.2
+        alpha = (UI_STATE.snackbar_state.duration - elapsed) / 0.2
     end
     
     -- Measure text
     gfx.setfont(F.std)
-    local text_w, text_h = gfx.measurestr(snackbar_state.text)
+    local text_w, text_h = gfx.measurestr(UI_STATE.snackbar_state.text)
     
     -- Snackbar dimensions
     local padding = 15
@@ -1357,9 +1378,9 @@ local function draw_snackbar()
     
     -- Background
     -- Background based on type
-    if snackbar_state.type == "success" then
+    if UI_STATE.snackbar_state.type == "success" then
         set_color({0.1, 0.35, 0.1, alpha * 0.95}) -- Dark Green
-    elseif snackbar_state.type == "error" then
+    elseif UI_STATE.snackbar_state.type == "error" then
         set_color({0.4, 0.1, 0.1, alpha * 0.95}) -- Dark Red
     else
         set_color({0.35, 0.3, 0.1, alpha * 0.95}) -- Dark Yellow (Amber)
@@ -1374,7 +1395,7 @@ local function draw_snackbar()
     set_color({1, 1, 1, alpha})
     gfx.x = snack_x + padding
     gfx.y = snack_y + padding / 2
-    gfx.drawstr(snackbar_state.text)
+    gfx.drawstr(UI_STATE.snackbar_state.text)
 end
 
 -- =============================================================================
@@ -1749,7 +1770,7 @@ local function hex_to_rgb(hex)
     return nil
 end
 
-local function parse_rich_text(html, inherited)
+local function parse_html_to_spans(html, inherited)
     local segments = {}
     local remaining = html:gsub("%s+", " ")
     inherited = inherited or {}
@@ -1849,7 +1870,7 @@ local function parse_rich_text(html, inherited)
                 next_inherited.is_plain = true
             end
             
-            local inner = parse_rich_text(chosen_text, next_inherited)
+            local inner = parse_html_to_spans(chosen_text, next_inherited)
             for _, s in ipairs(inner) do table.insert(segments, s) end
             
             remaining = remaining:sub(best_end + 1)
@@ -1934,7 +1955,7 @@ local function parse_dictionary_table_html(table_html)
             local is_cell_header = cell_attr:find('class="[^"]*header[^"]*"')
             
             -- Use rich text parsing for cell content to support colors/styles
-            local segments = parse_rich_text(cell_html)
+            local segments = parse_html_to_spans(cell_html)
             
             -- Also keep a plain text version for debugging or fallback if needed
             local cleaned = clean_html(cell_html)
@@ -2012,7 +2033,7 @@ local function parse_dictionary_definition(html, category)
                       or block
             
             for item in body:gmatch('class="interpret.-"[^>]->([^\0]-)</div>') do
-               local rich = parse_rich_text(item)
+               local rich = parse_html_to_spans(item)
                 if #rich > 0 then
                     rich[1].text = "• " .. rich[1].text
                     table.insert(lines, { segments = rich, indent = 0, is_header = false }) 
@@ -2021,7 +2042,7 @@ local function parse_dictionary_definition(html, category)
             
             -- Fallback items
             for item in body:gmatch('<div class="list%-item.-">([^\0]-)</div>') do
-                local rich = parse_rich_text(item)
+                local rich = parse_html_to_spans(item)
                 if #rich > 0 then
                     rich[1].text = "• " .. rich[1].text
                     table.insert(lines, { segments = rich, indent = 0, is_header = false })
@@ -2033,7 +2054,7 @@ local function parse_dictionary_definition(html, category)
            if header_html then
                 -- Add " - " prefix to short-interpret span
                 header_html = header_html:gsub('(<span[^>]-class="short%-interpret"[^>]->)', '%1 — ')
-                local rich = parse_rich_text(header_html)
+                local rich = parse_html_to_spans(header_html)
 
                 if #rich > 0 then
                     table.insert(lines, { segments = rich, indent = 0, is_header = true })
@@ -2053,7 +2074,7 @@ local function parse_dictionary_definition(html, category)
             if header_html then
                 -- Add "- " prefix to short-interpret span
                 header_html = header_html:gsub('%s*(<span[^>]-class="short%-interpret"[^>]->)', '%1 — ')
-                local rich = parse_rich_text(header_html)
+                local rich = parse_html_to_spans(header_html)
 
                 if #rich > 0 then
                     table.insert(lines, { segments = rich, indent = 0, is_header = true })
@@ -2061,7 +2082,7 @@ local function parse_dictionary_definition(html, category)
             end
             -- 2. Indented items (synonyms or phrase interprets)
             for item in block:gmatch('class="interpret.-"[^>]->([^\0]-)</div>') do
-                local rich = parse_rich_text(item)
+                local rich = parse_html_to_spans(item)
                 if #rich > 0 then
                     rich[1].text = "• " .. rich[1].text
                     table.insert(lines, { segments = rich, indent = 1, is_header = false })
@@ -2069,7 +2090,7 @@ local function parse_dictionary_definition(html, category)
             end
             
             for item in block:gmatch('class="list%-item.-">([^\0]-)</div>') do
-                local rich = parse_rich_text(item)
+                local rich = parse_html_to_spans(item)
                 if #rich > 0 then
                     rich[1].text = "• " .. rich[1].text
                     table.insert(lines, { segments = rich, indent = 1, is_header = false })
@@ -2081,7 +2102,7 @@ local function parse_dictionary_definition(html, category)
             -- 1. Header (Word + short interpret)
             local header_html = block:match('<h2 [^>]-class="page__sub%-header"[^>]->([^\0]-)</h2>')
             if header_html then
-                local rich = parse_rich_text(header_html)
+                local rich = parse_html_to_spans(header_html)
                 if #rich > 0 then
                    table.insert(lines, { segments = rich, indent = 0, is_header = true })
                 end
@@ -2108,7 +2129,7 @@ local function parse_dictionary_definition(html, category)
                         local rem = body:sub(pos)
                         if #rem > 0 then
                             -- Clean up extra newlines/spaces
-                            local rich = parse_rich_text(rem)
+                            local rich = parse_html_to_spans(rem)
                             if #rich > 0 then 
                                 table.insert(lines, { segments = rich, indent = 1 }) 
                             end
@@ -2120,7 +2141,7 @@ local function parse_dictionary_definition(html, category)
                     if t_start > pos then
                         local pre = body:sub(pos, t_start - 1)
                         if pre:match("%S") then -- Only if meaningful text
-                             local rich = parse_rich_text(pre)
+                             local rich = parse_html_to_spans(pre)
                              if #rich > 0 then 
                                 table.insert(lines, { segments = rich, indent = 1 }) 
                              end
@@ -2738,7 +2759,7 @@ local function merge_comments(old, new)
     return s1 .. "\n" .. s2
 end
 
-local function parse_rich_text(str)
+local function parse_prompter_to_lines(str)
     local lines = {}
     local current_line = {}
     
@@ -3024,9 +3045,9 @@ local function save_project_data()
     end
     reaper.SetProjExtState(0, section_name, "actor_colors", table.concat(col_tbl))
 
-    reaper.SetProjExtState(0, section_name, "ass_loaded", ass_file_loaded and "1" or "0")
-    if current_file_name then
-        reaper.SetProjExtState(0, section_name, "ass_fname", current_file_name)
+    reaper.SetProjExtState(0, section_name, "ass_loaded", UI_STATE.ass_file_loaded and "1" or "0")
+    if UI_STATE.current_file_name then
+        reaper.SetProjExtState(0, section_name, "ass_fname", UI_STATE.current_file_name)
     end
 
     local mark_tbl = {}
@@ -3117,15 +3138,15 @@ local function load_project_data()
     ass_actors = {}
     actor_colors = {}
     ass_markers = {} -- Added explicit reset
-    ass_file_loaded = false
-    current_file_name = nil
+    UI_STATE.ass_file_loaded = false
+    UI_STATE.current_file_name = nil
     
     local ok, loaded = reaper.GetProjExtState(0, section_name, "ass_loaded")
     if ok and loaded == "1" then
-        ass_file_loaded = true
+        UI_STATE.ass_file_loaded = true
         
         local okF, fname = reaper.GetProjExtState(0, section_name, "ass_fname")
-        if okF then current_file_name = fname end
+        if okF then UI_STATE.current_file_name = fname end
         
         local ok2, l_dump = reaper.GetProjExtState(0, section_name, "ass_lines")
         if ok2 then
@@ -3392,7 +3413,7 @@ local function update_regions_cache()
         for idx, rgn in pairs(rgn_map) do
             if not tracked_rgn_idxs[idx] then
                 -- This is a new region! Adopt it.
-                if not ass_file_loaded then ass_file_loaded = true end
+                if not UI_STATE.ass_file_loaded then UI_STATE.ass_file_loaded = true end
                 
                 local new_line = {
                     t1 = rgn.pos,
@@ -3536,7 +3557,7 @@ local function undo_action()
     
     cleanup_actors()
     rebuild_regions()
-    save_project_data(last_project_id) -- Sync to metadata
+    save_project_data(UI_STATE.last_project_id) -- Sync to metadata
     show_snackbar("Відмінено: " .. last_state.label, "info")
 end
 
@@ -3566,7 +3587,7 @@ local function redo_action()
     
     cleanup_actors()
     rebuild_regions()
-    save_project_data(last_project_id) -- Sync to metadata
+    save_project_data(UI_STATE.last_project_id) -- Sync to metadata
     show_snackbar("Повторено: " .. next_state.label, "info")
 end
 
@@ -3689,7 +3710,7 @@ local function import_srt(file_path, dont_rebuild)
     end
     local f = io.open(file, "r")
     if not f then return end
-    current_file_name = file:match("([^/\\]+)$")
+    UI_STATE.current_file_name = file:match("([^/\\]+)$")
     
     local content = fix_encoding(f:read("*all"))
     f:close()
@@ -3700,7 +3721,7 @@ local function import_srt(file_path, dont_rebuild)
     end
     
     -- Derive Actor Name from Filename
-    local actor_name = current_file_name:gsub("%.srt$", ""):gsub("%.SRT$", "")
+    local actor_name = UI_STATE.current_file_name:gsub("%.srt$", ""):gsub("%.SRT$", "")
     
     -- Ensure State Init
     if not ass_lines then ass_lines = {} end
@@ -3710,7 +3731,7 @@ local function import_srt(file_path, dont_rebuild)
         push_undo("Імпорт SRT")
     end
     
-    ass_file_loaded = true -- Enable Actor view
+    UI_STATE.ass_file_loaded = true -- Enable Actor view
 
     -- Clear UI state
     table_filter_state.text = ""
@@ -3894,14 +3915,14 @@ local function import_vtt(file_path, dont_rebuild)
     end
     local f = io.open(file, "r")
     if not f then return end
-    current_file_name = file:match("([^/\\]+)$")
+    UI_STATE.current_file_name = file:match("([^/\\]+)$")
     
     local content = fix_encoding(f:read("*all"))
     f:close()
     content = content:gsub("\r\n", "\n")
     
     -- Derive Actor Name from Filename
-    local actor_name = current_file_name:gsub("%.vtt$", ""):gsub("%.VTT$", "")
+    local actor_name = UI_STATE.current_file_name:gsub("%.vtt$", ""):gsub("%.VTT$", "")
     
     -- Ensure State Init
     if not ass_lines then ass_lines = {} end
@@ -3911,7 +3932,7 @@ local function import_vtt(file_path, dont_rebuild)
         push_undo("Імпорт VTT")
     end
     
-    ass_file_loaded = true
+    UI_STATE.ass_file_loaded = true
 
     -- Clear UI state
     table_filter_state.text = ""
@@ -4376,7 +4397,7 @@ local function import_ass(file_path, dont_rebuild)
     end
     local f = io.open(file, "r")
     if not f then return end
-    current_file_name = file:match("([^/\\]+)$")
+    UI_STATE.current_file_name = file:match("([^/\\]+)$")
     
     local content = fix_encoding(f:read("*all"))
     f:close()
@@ -4387,7 +4408,7 @@ local function import_ass(file_path, dont_rebuild)
     if not ass_lines then ass_lines = {} end
     if not ass_actors then ass_actors = {} end
     
-    ass_file_loaded = true
+    UI_STATE.ass_file_loaded = true
     local line_idx_counter = get_next_line_index()
     
     -- Clear UI state
@@ -4491,7 +4512,7 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
     local changed_lines = 0
     local ai_error_type = nil
     
-    script_loading_state.active = false
+    UI_STATE.script_loading_state.active = false
     
     -- Check if success by verifying output file content (run_async_command manages process wait)
     -- In run_async_command callback, 'output' is the STDOUT of the command wrapper.
@@ -4570,7 +4591,7 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
     
     -- ERROR HANDLING (No fallback)
     if not python_success then
-        script_loading_state.active = false
+        UI_STATE.script_loading_state.active = false
         
         local msg = "Не вдалося розставити наголоси.\n--------------------------------------------------\n\n"
         if ai_error_type == "PERMISSION" then
@@ -4632,13 +4653,13 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
         return
     end
     
-    script_loading_state.active = false
+    UI_STATE.script_loading_state.active = false
     
     if changed_lines > 0 then
         push_undo("Авто-наголоси (" .. changed_lines .. ")")
         cleanup_actors()
         rebuild_regions()
-        save_project_data(last_project_id)
+        save_project_data(UI_STATE.last_project_id)
         show_snackbar("Наголоси додано: " .. changed_lines .. " рядків", "success")
     else
         show_snackbar("Наголоси не потрібні або не знайдені", "info")
@@ -4647,8 +4668,8 @@ end
 
 --- Apply stress marks asynchronously
 apply_stress_marks_async = function()
-    script_loading_state.active = true
-    script_loading_state.text = "Ініціалізація..."
+    UI_STATE.script_loading_state.active = true
+    UI_STATE.script_loading_state.text = "Ініціалізація..."
     
     -- Calculate paths OUTSIDE coroutine to avoid debug.getinfo issues
     local is_windows = reaper.GetOS():match("Win") ~= nil
@@ -4707,7 +4728,7 @@ apply_stress_marks_async = function()
         
         -- Prepare Data
         if has_python_tool then
-            script_loading_state.text = "Експорт тексту..."
+            UI_STATE.script_loading_state.text = "Експорт тексту..."
             coroutine.yield()
             
             os.remove(temp_out)
@@ -4733,7 +4754,7 @@ apply_stress_marks_async = function()
                 f_in:close()
                 
                 if export_count > 0 then
-                    script_loading_state.text = "AI обробка..."
+                    UI_STATE.script_loading_state.text = "AI обробка..."
                     coroutine.yield()
                     
                     local tool_p = python_tool
@@ -4776,7 +4797,7 @@ apply_stress_marks_async = function()
     local ok, err = coroutine.resume(global_coroutine)
     if not ok then
         reaper.ShowConsoleMsg("Coroutine Error: " .. tostring(err) .. "\n")
-        script_loading_state.active = false
+        UI_STATE.script_loading_state.active = false
         global_coroutine = nil
     end
 end
@@ -4837,7 +4858,7 @@ local function delete_all_regions()
     -- Clear project data
     ass_lines = {}
     ass_actors = {}
-    ass_file_loaded = false
+    UI_STATE.ass_file_loaded = false
 
     -- Clear undo/redo history
     undo_stack = {}
@@ -4980,10 +5001,11 @@ local function wrap_text(text, max_w)
 end
 
 --- Wrap rich text (segments) to fit width
-local function wrap_rich_text(segments, max_w, is_header)
+local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, is_header, first_line_indent)
     local lines = {}
     local current_line = {}
     local current_w = 0
+    local is_first_line = true
     
     for _, seg in ipairs(segments) do
         local words = {}
@@ -4998,20 +5020,31 @@ local function wrap_rich_text(segments, max_w, is_header)
             if #words == 1 and seg.text:sub(1,1) ~= " " and current_w == 0 then test_word = w end
             
             -- Apply font based on segment/header status for measurement
-            if seg.is_bold or (is_header and not seg.is_plain) then
-                gfx.setfont(F.dict_bld)
-            else
-                gfx.setfont(F.dict_std)
+            local f_flags, effective_font = 0, font_name
+            local is_bold = seg.b or seg.is_bold or (is_header and not (seg.is_plain or seg.s))
+            local is_italic = seg.i or seg.is_italic
+            
+            if is_italic then
+                if font_name == "Helvetica" then effective_font = "Helvetica Oblique"
+                else f_flags = string.byte('i') end
             end
+            if is_bold then
+                if effective_font == font_name then f_flags = string.byte('b') end
+                if is_italic and font_name == "Helvetica" then effective_font = "Helvetica Bold Oblique" end
+            end
+            gfx.setfont(font_slot, effective_font, base_size, f_flags)
             
             -- Ignore stress marks for layout measurement
             local measure_word_for_width = test_word:gsub(acute, "")
             local word_w = gfx.measurestr(measure_word_for_width)
             
-            if current_w + word_w > max_w and current_w > 0 then
+            local effective_max_w = (is_first_line and first_line_indent) and (max_w - first_line_indent) or max_w
+            
+            if current_w + word_w > effective_max_w and current_w > 0 then
                 table.insert(lines, current_line)
                 current_line = {}
                 current_w = 0
+                is_first_line = false
                 test_word = w
                 word_w = gfx.measurestr((test_word:gsub(acute, "")))
             end
@@ -5032,25 +5065,30 @@ local function wrap_rich_text(segments, max_w, is_header)
             local can_merge = last_seg and 
                 (last_seg.is_link == seg.is_link) and 
                 (last_seg.is_plain == seg.is_plain) and 
-                (last_seg.is_bold == seg.is_bold) and
-                (last_seg.is_italic == seg.is_italic) and
+                ((last_seg.b or last_seg.is_bold) == (seg.b or seg.is_bold)) and
+                ((last_seg.i or last_seg.is_italic) == (seg.i or seg.is_italic)) and
+                ((last_seg.u or false) == (seg.u or false)) and
+                ((last_seg.u_wave or false) == (seg.u_wave or false)) and
+                ((last_seg.s or false) == (seg.s or false)) and
+                (last_seg.comment == seg.comment) and
                 (last_seg.word == seg.word) and
                 colors_match
             
             if can_merge then
                 last_seg.text = last_seg.text .. test_word
             else
-                table.insert(current_line, {
-                    text = test_word,
-                    is_link = seg.is_link,
-                    word = seg.word,
-                    is_plain = seg.is_plain, 
-                    is_bold = seg.is_bold, 
-                    is_italic = seg.is_italic,
-                    color = seg.color
-                })
+                local new_seg = {}
+                for k, v in pairs(seg) do new_seg[k] = v end
+                new_seg.text = test_word
+                -- Ensure both old and new flag names are present for compatibility
+                new_seg.b = seg.b or seg.is_bold
+                new_seg.i = seg.i or seg.is_italic
+                new_seg.is_bold = new_seg.b
+                new_seg.is_italic = new_seg.i
+                
+                table.insert(current_line, new_seg)
             end
-           current_w = current_w + word_w
+            current_w = current_w + word_w
         end
     end
     
@@ -5837,7 +5875,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     end
 
     if gfx.mouse_cap == 1 then
-        if last_mouse_cap == 0 and hover then
+        if UI_STATE.last_mouse_cap == 0 and hover then
             -- Check for interaction suppression (e.g., preventing bleed-through from opening click)
             if state.interaction_start_time and reaper.time_precise() < state.interaction_start_time then
                 -- Ignore this click
@@ -5873,7 +5911,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
                 end
             end
 
-    elseif state.focus and last_mouse_cap == 1 then
+    elseif state.focus and UI_STATE.last_mouse_cap == 1 then
         -- Check for interaction suppression
         if state.interaction_start_time and reaper.time_precise() < state.interaction_start_time then
             -- Ignore drag during suppression period
@@ -5909,7 +5947,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             end
         end
 
-        elseif not hover and last_mouse_cap == 0 then
+        elseif not hover and UI_STATE.last_mouse_cap == 0 then
             -- Guard: Don't lose focus if clicking inside the AI modal OR if ai_modal was JUST shown (prevents closing focus on suggestion selection)
             local in_ai = false
             if ai_modal and ai_modal.show and ai_modal.x then
@@ -5927,18 +5965,18 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
                 state.focus = false
             end
         end
-    elseif (gfx.mouse_cap & 2 == 2) and (last_mouse_cap & 2 == 0) and hover and not mouse_handled then
+    elseif (gfx.mouse_cap & 2 == 2) and (UI_STATE.last_mouse_cap & 2 == 0) and hover and not UI_STATE.mouse_handled then
         -- Context Menu (Right Click) - Rising Edge Detection
-        mouse_handled = true -- Prevent global context menu from opening
+        UI_STATE.mouse_handled = true -- Prevent global context menu from opening
         state.focus = true
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local sel_min, sel_max = math.min(state.cursor, state.anchor), math.max(state.cursor, state.anchor)
         local has_sel = sel_min ~= sel_max
         local ret = gfx.showmenu("Вирізати|Копіювати|Вставити|Виділити все")
         
-        -- Force update last_mouse_cap to current state to prevent immediate re-trigger loop 
+        -- Force update UI_STATE.last_mouse_cap to current state to prevent immediate re-trigger loop 
         -- if the user is somehow still holding the button (though showmenu blocks).
-        last_mouse_cap = gfx.mouse_cap 
+        UI_STATE.last_mouse_cap = gfx.mouse_cap 
         
         if ret == 1 and has_sel then
             -- Cut
@@ -6369,7 +6407,7 @@ local function draw_dictionary_modal(input_queue)
     gfx.y = close_y + (close_sz - gfx.texth) / 2
     gfx.drawstr("✕")
     
-    if close_hover and gfx.mouse_cap == 1 and last_mouse_cap == 0 then
+    if close_hover and gfx.mouse_cap == 1 and UI_STATE.last_mouse_cap == 0 then
         dict_modal.show = false
         return
     end
@@ -6380,7 +6418,7 @@ local function draw_dictionary_modal(input_queue)
     local tab_y = box_y + S(55)
     local tab_w = S(125)
     
-    -- Dynamic resizing if tabs don't fit
+    -- Dynamic resizing if UI_STATE.tabs don't fit
     local max_width = box_w - S(50) -- Available width minus margins (increased right padding)
     local total_req_w = #categories * tab_w
     if total_req_w > max_width then
@@ -6507,7 +6545,7 @@ local function draw_dictionary_modal(input_queue)
                         local cell_w = col_w * cell.colspan
                         
                         -- Use rich text wrapping
-                        local wrapped = wrap_rich_text(cell.segments, cell_w - 8, cell.is_header or grid_row.is_header)
+                        local wrapped = wrap_rich_text(cell.segments, cell_w - 8, F.dict_std, "Arial", S(17), cell.is_header or grid_row.is_header)
                         local needed_h = #wrapped * line_h
                         
                         -- Store cell info
@@ -6677,7 +6715,7 @@ local function draw_dictionary_modal(input_queue)
                     indent_x = 0
                 end
 
-                local lines_to_draw = wrap_rich_text(segments, effective_w, is_header)
+                local lines_to_draw = wrap_rich_text(segments, effective_w, F.dict_std, "Arial", S(17), is_header)
 
                 for _, rich_line in ipairs(lines_to_draw) do
                     if cur_y + line_h > content_y and cur_y < content_y + content_h then
@@ -7218,7 +7256,7 @@ local function draw_requirements_window()
                                     if is_mouse_clicked() and gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + link_w and
                                        gfx.mouse_y >= line_y and gfx.mouse_y <= line_y + S(22) then
                                         open_url(p.url)
-                                        mouse_handled = true
+                                        UI_STATE.mouse_handled = true
                                     end
                                     draw_x = draw_x + link_w
                                 elseif p.type == "bold" then
@@ -7312,7 +7350,7 @@ local function draw_requirements_window()
         gfx.rect(sbx, sby, sbw, sbh, 1)
     end
 
-    mouse_handled = true
+    UI_STATE.mouse_handled = true
 end
 
 --- Open the text editor modal
@@ -7345,16 +7383,16 @@ local function open_text_editor(initial_text, callback, line_idx, all_lines)
     text_editor_state.history_pos = 1
 end
 
---- Draw main navigation tabs
+--- Draw main navigation UI_STATE.tabs
 local function draw_tabs()
     local btn_scan_w = S(30)
     local total_tab_w = gfx.w - btn_scan_w
-    local tab_w = total_tab_w / #tabs
+    local tab_w = total_tab_w / #UI_STATE.tabs
     local h = S(25)
     
-    for i, name in ipairs(tabs) do
+    for i, name in ipairs(UI_STATE.tabs) do
         local x = (i - 1) * tab_w
-        local is_act = (current_tab == i)
+        local is_act = (UI_STATE.current_tab == i)
         
         set_color(is_act and UI.C_TAB_ACT or UI.C_TAB_INA)
         gfx.rect(x, 0, tab_w, h, 1)
@@ -7374,13 +7412,13 @@ local function draw_tabs()
         if is_mouse_clicked() and not dict_modal.show then
             if gfx.mouse_x >= x and gfx.mouse_x < x+tab_w and gfx.mouse_y >= 0 and gfx.mouse_y <= h then
                 -- Save current tab's scroll position
-                tab_scroll_y[current_tab] = scroll_y
-                tab_target_scroll_y[current_tab] = target_scroll_y
+                UI_STATE.tab_scroll_y[UI_STATE.current_tab] = UI_STATE.scroll_y
+                UI_STATE.tab_target_scroll_y[UI_STATE.current_tab] = UI_STATE.target_scroll_y
                 -- Switch tab
-                current_tab = i
+                UI_STATE.current_tab = i
                 -- Restore new tab's scroll position
-                scroll_y = tab_scroll_y[current_tab] or 0
-                target_scroll_y = tab_target_scroll_y[current_tab] or 0
+                UI_STATE.scroll_y = UI_STATE.tab_scroll_y[UI_STATE.current_tab] or 0
+                UI_STATE.target_scroll_y = UI_STATE.tab_target_scroll_y[UI_STATE.current_tab] or 0
             end
         end
     end
@@ -7464,24 +7502,24 @@ local function draw_file()
     
     -- Smooth Scroll Logic
     if gfx.mouse_wheel ~= 0 then
-        target_scroll_y = target_scroll_y - (gfx.mouse_wheel * 0.25)
-        if target_scroll_y < 0 then target_scroll_y = 0 end
-        if target_scroll_y > max_scroll then target_scroll_y = max_scroll end
+        UI_STATE.target_scroll_y = UI_STATE.target_scroll_y - (gfx.mouse_wheel * 0.25)
+        if UI_STATE.target_scroll_y < 0 then UI_STATE.target_scroll_y = 0 end
+        if UI_STATE.target_scroll_y > max_scroll then UI_STATE.target_scroll_y = max_scroll end
         gfx.mouse_wheel = 0
     end
     
-     local diff = target_scroll_y - scroll_y
+     local diff = UI_STATE.target_scroll_y - UI_STATE.scroll_y
     if math.abs(diff) > 0.5 then
-        scroll_y = scroll_y + (diff * 0.8)
+        UI_STATE.scroll_y = UI_STATE.scroll_y + (diff * 0.8)
     else
-        scroll_y = target_scroll_y
+        UI_STATE.scroll_y = UI_STATE.target_scroll_y
     end
     
-    if scroll_y < 0 then scroll_y = 0 end
-    if scroll_y > max_scroll then scroll_y = max_scroll end
+    if UI_STATE.scroll_y < 0 then UI_STATE.scroll_y = 0 end
+    if UI_STATE.scroll_y > max_scroll then UI_STATE.scroll_y = max_scroll end
 
     local function get_y(offset)
-        return start_y + offset - math.floor(scroll_y)
+        return start_y + offset - math.floor(UI_STATE.scroll_y)
     end
     
     -- Content
@@ -7566,11 +7604,11 @@ local function draw_file()
         end
         
         -- Filename Display (Next to import button)
-        if ass_file_loaded and current_file_name then
+        if UI_STATE.ass_file_loaded and UI_STATE.current_file_name then
             gfx.setfont(F.std)
             set_color(UI.C_TXT)
             -- Vertical center relative to button
-            local str = "Обрано: " .. current_file_name
+            local str = "Обрано: " .. UI_STATE.current_file_name
             local max_width = notes_btn_x - S(265) - S(10) -- Space between subtitle button and notes button
             str = fit_text_width(str, max_width)
             gfx.x = S(265)
@@ -7581,7 +7619,7 @@ local function draw_file()
     y_cursor = y_cursor + S(80)
     
     -- Actor Filter (if loaded)
-    if ass_file_loaded then
+    if UI_STATE.ass_file_loaded then
         local t_y = get_y(y_cursor)
         if t_y + S(20) > start_y and t_y < gfx.h then
             set_color(UI.C_TXT)
@@ -7810,7 +7848,7 @@ local function draw_file()
                                 save_project_data()
                             end
                         end
-                        mouse_handled = true -- Suppress global context menu
+                        UI_STATE.mouse_handled = true -- Suppress global context menu
                     end
                 end
             end
@@ -7898,14 +7936,14 @@ local function draw_file()
     y_cursor = y_cursor + S(80)
 
     -- Context Menu (Right Click on background)
-    if is_mouse_clicked(2) and not mouse_handled then
+    if is_mouse_clicked(2) and not UI_STATE.mouse_handled then
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
         local menu = "Видалити ВСІ регіони||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
-        mouse_handled = true -- Tell framework we handled this click
+        UI_STATE.mouse_handled = true -- Tell framework we handled this click
         
         if ret == 1 then
             delete_all_regions()
@@ -7924,7 +7962,7 @@ local function draw_file()
     last_file_h = y_cursor
     
     -- Scrollbar
-    target_scroll_y = draw_scrollbar(gfx.w - 10, start_y, 10, avail_h, last_file_h, avail_h, target_scroll_y)
+    UI_STATE.target_scroll_y = draw_scrollbar(gfx.w - 10, start_y, 10, avail_h, last_file_h, avail_h, UI_STATE.target_scroll_y)
 end
 
 -- =============================================================================
@@ -8317,9 +8355,9 @@ local function draw_prompter_drawer(input_queue)
         end
         
         -- Use robust click detection
-        if hover and is_mouse_clicked(1) and not mouse_handled then
+        if hover and is_mouse_clicked(1) and not UI_STATE.mouse_handled then
             prompter_drawer.open = true
-            mouse_handled = true
+            UI_STATE.mouse_handled = true
             -- Ensure width is sane when opening
             if not prompter_drawer.width or prompter_drawer.width < S(80) then
                 prompter_drawer.width = S(300)
@@ -8367,10 +8405,10 @@ local function draw_prompter_drawer(input_queue)
             gfx.y = close_y + (close_sz - gfx.texth) / 2
             gfx.drawstr("✕")
             
-            if close_hover and gfx.mouse_cap == 1 and last_mouse_cap == 0 and not mouse_handled then
+            if close_hover and gfx.mouse_cap == 1 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
                 prompter_drawer.open = false
                 save_settings()
-                mouse_handled = true
+                UI_STATE.mouse_handled = true
             end
 
             local table_y = drawer_top_y + header_h
@@ -8600,7 +8638,7 @@ local function draw_prompter_drawer(input_queue)
                             gfx.rect(drawer_x, bg_draw_y, prompter_drawer.width, bg_draw_h, 1)
                             
                             -- LEFT CLICK
-                            if gfx.mouse_cap & 1 == 1 and last_mouse_cap & 1 == 0 and not mouse_handled then
+                            if gfx.mouse_cap & 1 == 1 and UI_STATE.last_mouse_cap & 1 == 0 and not UI_STATE.mouse_handled then
                                 local now = reaper.time_precise()
                                 local cap = gfx.mouse_cap
                                 local is_ctrl = (cap & 4 == 4) or (cap & 32 == 32)
@@ -8692,9 +8730,9 @@ local function draw_prompter_drawer(input_queue)
                                         prompter_drawer.last_click_time = now
                                     end
                                 end
-                                mouse_handled = true
+                                UI_STATE.mouse_handled = true
                             -- RIGHT CLICK
-                            elseif gfx.mouse_cap & 2 == 2 and last_mouse_cap & 2 == 0 and not mouse_handled then
+                            elseif gfx.mouse_cap & 2 == 2 and UI_STATE.last_mouse_cap & 2 == 0 and not UI_STATE.mouse_handled then
                                 if not prompter_drawer.selection[m.markindex] then
                                     prompter_drawer.selection = {[m.markindex] = true}
                                     prompter_drawer.last_selected_idx = idx
@@ -8708,7 +8746,7 @@ local function draw_prompter_drawer(input_queue)
                                 if ret == 1 then
                                     prompter_delete_logic()
                                 end
-                                mouse_handled = true
+                                UI_STATE.mouse_handled = true
                             end
                         end
                     end
@@ -8803,10 +8841,10 @@ local function draw_prompter_drawer(input_queue)
                 gfx.rect(grab_x, grab_y, grab_w, grab_h, 0)
             end
             
-            -- Handle dragging (Priority: ignore mouse_handled if hovering the handle strip)
-            if handle_hover and (gfx.mouse_cap & 1 == 1) and last_mouse_cap == 0 then
+            -- Handle dragging (Priority: ignore UI_STATE.mouse_handled if hovering the handle strip)
+            if handle_hover and (gfx.mouse_cap & 1 == 1) and UI_STATE.last_mouse_cap == 0 then
                 prompter_drawer.dragging = true
-                mouse_handled = true
+                UI_STATE.mouse_handled = true
             end
             
             if prompter_drawer.dragging then
@@ -8837,7 +8875,902 @@ local function draw_prompter_drawer(input_queue)
     end
 end
 
+local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name, base_size, no_assimilation, actor_name, available_w, content_offset_left, content_offset_right)
+    -- ASSIMILATION LOGIC
+    if cfg.text_assimilations and not no_assimilation then
+        local rules = {
+            {"ться", "цця"}, {"зш", "шш"}, {"сш", "шш"}, {"зч", "чч"}, {"стч", "шч"},
+            {"сч", "чч"}, {"тч", "чч"}, {"дч", "чч"}, {"шся", "сся"}, {"чся", "цся"},
+            {"зж", "жж"}, {"чці", "цці"}, {"жці", "зці"}, {"стд", "зд"}, {"стці", "сці"},
+            {"нтст", "нст"}, {"стська", "сська"}, {"нтськ", "нська"}, {"стс", "сс"}, {"тс", "ц"},
+        }
+         
+        local new_spans = {}
+        local function process_text(text, style_span, orig_word)
+            if text == "" then return end
+            local best_pos, best_rule = nil, nil
+            local l_text = utf8_lower(text)
+            for _, r in ipairs(rules) do
+                local p = l_text:find(r[1], 1, true)
+                if p and (not best_pos or p < best_pos) then best_pos, best_rule = p, r end
+            end
+            
+            if best_pos then
+                local before = text:sub(1, best_pos - 1)
+                local match_len = #best_rule[1]
+                local original_match = text:sub(best_pos, best_pos + match_len - 1)
+                local remainder = text:sub(best_pos + match_len)
+                local replacement = best_rule[2]
+                if original_match == utf8_upper(original_match) then replacement = utf8_upper(replacement)
+                elseif original_match == utf8_capitalize(utf8_lower(original_match)) then replacement = utf8_capitalize(replacement) end
+                if before ~= "" then table.insert(new_spans, {text=before, b=style_span.b, i=style_span.i, u=style_span.u, s=style_span.s, orig_word=orig_word, comment=style_span.comment}) end
+                table.insert(new_spans, {text = replacement, b=style_span.b, i=style_span.i, u=false, u_wave=true, s=style_span.s, orig_word=orig_word, comment=style_span.comment})
+                process_text(remainder, style_span, orig_word)
+            else
+                table.insert(new_spans, {text=text, b=style_span.b, i=style_span.i, u=style_span.u, s=style_span.s, orig_word=orig_word, comment=style_span.comment})
+            end
+        end
+
+        for _, span in ipairs(line_spans) do
+            local segments = get_words_and_separators(span.text)
+            for _, seg in ipairs(segments) do
+                if seg.is_word and (not dict_modal.show) then process_text(seg.text, span, seg.text:gsub(acute, ""))
+                else table.insert(new_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, comment=span.comment}) end
+            end
+        end
+        line_spans = new_spans
+    end
+    
+    local total_w, pending_karaoke_comp = 0, 0
+    for i, span in ipairs(line_spans) do
+        local f_flags, effective_font = 0, font_name
+        local measure_bold = span.b
+        if cfg.karaoke_mode and (font_slot == F.lrg or font_slot == F.nxt) then measure_bold = true end
+        if span.i then
+            if font_name == "Helvetica" then effective_font = "Helvetica Oblique"
+            else f_flags = string.byte('i') end
+        end
+        if measure_bold then
+            if effective_font == font_name then f_flags = string.byte('b') end
+            if span.i and font_name == "Helvetica" then effective_font = "Helvetica Bold Oblique" end
+        end
+        gfx.setfont(font_slot, effective_font, base_size, f_flags)
+        local measure_text = span.text:gsub(acute, "")
+        if cfg.all_caps then measure_text = utf8_upper(measure_text) end
+        span.width = gfx.measurestr(measure_text)
+        span.height = gfx.texth
+        
+        if cfg.karaoke_mode and (font_slot == F.lrg or font_slot == F.nxt) then
+            local nf, nfl = effective_font, f_flags
+            if not span.b then
+                if nf == "Helvetica Bold Oblique" then nf = "Helvetica Oblique" end
+                if nfl == string.byte('b') then nfl = 0 end
+            end
+            gfx.setfont(font_slot, nf, base_size, nfl)
+            local normal_w = gfx.measurestr(measure_text)
+            gfx.setfont(font_slot, effective_font, base_size, f_flags)
+            local target_w = gfx.measurestr(measure_text)
+            local is_connected = false
+            if i < #line_spans then
+                local next_s = line_spans[i+1]
+                if not span.text:match("%s$") and not next_s.text:match("^%s") then is_connected = true end
+            end
+            if is_connected then
+                span.text_width = normal_w
+                if span.i then
+                    gfx.setfont(font_slot, effective_font, base_size, f_flags)
+                    span.width = gfx.measurestr(measure_text)
+                else span.width = normal_w end
+                pending_karaoke_comp = pending_karaoke_comp + (target_w - normal_w)
+            else
+                span.width = target_w + pending_karaoke_comp
+                if span.i then
+                    gfx.setfont(font_slot, effective_font, base_size, f_flags)
+                    span.text_width = gfx.measurestr(measure_text)
+                else span.text_width = normal_w end
+                pending_karaoke_comp = 0
+            end
+        end
+        total_w = total_w + span.width
+    end
+    
+    local actor_w, full_actor_text = 0, ""
+    if cfg.show_actor_name_infront and actor_name and actor_name ~= "" then
+        full_actor_text = "[" .. actor_name .. "] "
+        gfx.setfont(font_slot, font_name, math.max(10, base_size - 2))
+        actor_w = gfx.measurestr(full_actor_text)
+        total_w = total_w + actor_w
+    end
+
+    local start_x 
+    if cfg.p_align == "left" then 
+        start_x = content_offset_left + 20
+    elseif cfg.p_align == "right" then 
+        start_x = gfx.w - content_offset_right - total_w - 20
+    else 
+        start_x = center_x - (total_w / 2) 
+    end
+
+    -- Clamp to visible area
+    local min_x = content_offset_left + 20
+    local max_x = gfx.w - content_offset_right - 20
+    if start_x < min_x then start_x = min_x end
+    if start_x + total_w > max_x and total_w < (max_x - min_x) then
+        start_x = max_x - total_w
+    end
+    
+    local cursor_x = start_x
+    
+    if cfg.show_actor_name_infront and actor_name and actor_name ~= "" then
+        local r, g, b, a = gfx.r, gfx.g, gfx.b, gfx.a
+        gfx.set(r, g, b, a * 0.45)
+        gfx.setfont(font_slot, font_name, math.max(10, base_size - 2))
+        gfx.x, gfx.y = cursor_x, y_base + 1
+        gfx.drawstr(full_actor_text)
+        gfx.set(r, g, b, a)
+        cursor_x = cursor_x + actor_w
+    end
+
+    for _, span in ipairs(line_spans) do
+        local f_flags, effective_font = 0, font_name
+        if span.i then
+           if font_name == "Helvetica" then effective_font = "Helvetica Oblique"
+           else f_flags = string.byte('i') end
+        end
+        if span.b then
+            if effective_font == font_name then f_flags = string.byte('b') end
+            if span.i and font_name == "Helvetica" then effective_font = "Helvetica Bold Oblique" end
+        end
+        gfx.setfont(font_slot, effective_font, base_size, f_flags)
+        gfx.x, gfx.y = cursor_x, y_base
+        
+        local segments = get_words_and_separators(span.text)
+        local temp_x = cursor_x
+        for _, seg in ipairs(segments) do
+            local measure_text = seg.text:gsub(acute, "")
+            if cfg.all_caps then measure_text = utf8_upper(measure_text) end
+            local sw = gfx.measurestr(measure_text)
+            if seg.is_word and (not dict_modal.show) then
+                local is_over = gfx.mouse_x >= temp_x - 2 and gfx.mouse_x <= temp_x + sw + 2 and gfx.mouse_y >= y_base - 5 and gfx.mouse_y <= y_base + span.height + 5
+                if is_over then
+                    if gfx.mouse_cap & 1 == 1 then
+                        if UI_STATE.last_mouse_cap == 0 then
+                            local clean = seg.text:gsub(acute, "")
+                            if clean:find("[%a\128-\255]") then
+                                word_trigger.active, word_trigger.start_time, word_trigger.word, word_trigger.triggered = true, reaper.time_precise(), span.orig_word or clean, false
+                                word_trigger.hit_x, word_trigger.hit_y, word_trigger.hit_w, word_trigger.hit_h = temp_x, y_base, sw, span.height
+                            end
+                        elseif word_trigger.active and not word_trigger.triggered then
+                            if reaper.time_precise() - word_trigger.start_time > 0.4 then word_trigger.triggered = true; trigger_dictionary_lookup(word_trigger.word) end
+                        end
+                    end
+                elseif word_trigger.active and not word_trigger.triggered then
+                    if not (gfx.mouse_x >= word_trigger.hit_x - 10 and gfx.mouse_x <= word_trigger.hit_x + word_trigger.hit_w + 10 and gfx.mouse_y >= word_trigger.hit_y - 10 and gfx.mouse_y <= word_trigger.hit_y + word_trigger.hit_h + 10) then word_trigger.active = false end
+                end
+            end
+            temp_x = temp_x + sw
+        end
+        if word_trigger.active and gfx.mouse_cap & 1 == 0 then word_trigger.active = false end
+        if span.comment and (not dict_modal.show) then
+            if gfx.mouse_x >= cursor_x and gfx.mouse_x <= cursor_x + span.width and gfx.mouse_y >= y_base and gfx.mouse_y <= y_base + span.height then
+                local id = tostring(span)
+                if UI_STATE.tooltip_state.hover_id ~= id then UI_STATE.tooltip_state.hover_id, UI_STATE.tooltip_state.start_time = id, reaper.time_precise() end
+                UI_STATE.tooltip_state.text, UI_STATE.tooltip_state.immediate = span.comment, true
+            end
+        end
+        draw_text_with_stress_marks(span.text, cfg.all_caps)
+        if span.comment then
+            local sr, sg, sb, sa = gfx.r, gfx.g, gfx.b, gfx.a
+            set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.15})
+            local comment_width = span.text_width or span.width
+            local comm_len = utf8.len(span.comment) or #span.comment
+            local dash_w = math.max(S(3), S(8) - math.min(S(5), math.floor(comm_len / 15)))
+            local gap_w = math.max(S(3), dash_w - S(1))
+            local cur_dash_x = cursor_x
+            while cur_dash_x < cursor_x + comment_width do
+                local draw_w = math.min(dash_w, cursor_x + comment_width - cur_dash_x)
+                gfx.rect(cur_dash_x, y_base + span.height - 2, draw_w, 3, 1)
+                cur_dash_x = cur_dash_x + dash_w + gap_w
+            end
+            gfx.r, gfx.g, gfx.b, gfx.a = sr, sg, sb, sa
+        end
+        if span.u then local ly = y_base + span.height - 2; local uw = span.text_width or span.width; gfx.line(cursor_x, ly, cursor_x + uw, ly) end
+        if span.u_wave then
+            local wave_y, wave_h, step, x_pos, uw = y_base + span.height - S(2), S(2), S(3), cursor_x, span.text_width or span.width
+            local end_x, up = x_pos + uw, true
+            while x_pos < end_x do
+                local next_x = math.min(x_pos + step, end_x)
+                local y1, y2 = up and wave_y or (wave_y + wave_h), up and (wave_y + wave_h) or wave_y
+                gfx.line(x_pos, y1, next_x, y2); x_pos, up = next_x, not up
+            end
+        end
+        if span.s then local ly = y_base + span.height / 2; local sw = span.text_width or span.width; gfx.line(cursor_x, ly, cursor_x + sw, ly) end
+        cursor_x = cursor_x + span.width
+    end
+    return start_x, y_base, total_w, (#line_spans > 0 and line_spans[1].height or gfx.texth)
+end
+
+local function handle_prompter_context_menu()
+    if is_mouse_clicked(2) and not UI_STATE.mouse_handled then
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local is_docked = gfx.dock(-1) > 0
+        local dock_check = is_docked and "!" or ""
+        local slider_check = cfg.prompter_slider_mode and "• " or ""
+        local menu = "Відобразити SubOverlay від Lionzz|Відобразити Словник|" .. slider_check .. "Режим Слайдера||" .. dock_check .. "Закріпити вікно (Dock)"
+        
+        local ret = gfx.showmenu(menu)
+        UI_STATE.mouse_handled = true -- Tell framework we handled this click
+        
+        if ret == 1 then
+            run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею")
+        elseif ret == 2 then
+            run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника")
+        elseif ret == 3 then
+            cfg.prompter_slider_mode = not cfg.prompter_slider_mode
+            save_settings()
+        elseif ret == 4 then
+            -- Toggle Docking
+            if is_docked then
+                gfx.dock(0)
+                reaper.SetExtState(section_name, "dock", "0", true)
+            else
+                gfx.dock(1) -- Dock to last valid docker
+                reaper.SetExtState(section_name, "dock", tostring(gfx.dock(-1)), true)
+            end
+        end
+    end
+end
+
+-- --- Shared Prompter Helpers ---
+
+--- Helper: Count words in lines
+local function count_words_in_lines(lines_structure)
+    local count = 0
+    for _, line in ipairs(lines_structure) do
+        for _, span in ipairs(line) do
+            for _ in span.text:gmatch("[^%s]+") do
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+--- Helper: Apply Karaoke Styling
+local function apply_karaoke_style(lines_structure, active_idx)
+    if not active_idx then return lines_structure end
+    
+    local new_lines = {}
+    local word_counter = 0
+    
+    for _, line in ipairs(lines_structure) do
+        local new_line = {}
+        for _, span in ipairs(line) do
+            local text = span.text
+            
+            -- Manual tokenizer to preserve exact original text and spacing
+            local current_idx = 1
+            while current_idx <= #text do
+                -- Find next non-space
+                local s_start, s_end = text:find("[^%s]+", current_idx)
+                
+                if not s_start then
+                    -- Only whitespace remaining
+                    local remainder = text:sub(current_idx)
+                    if #remainder > 0 then
+                        local new_seg = {}
+                        for k, v in pairs(span) do new_seg[k] = v end
+                        new_seg.text = remainder
+                        new_seg.b = (word_counter < active_idx) or span.b
+                        table.insert(new_line, new_seg)
+                    end
+                    break
+                end
+                
+                -- Space before word
+                if s_start > current_idx then
+                    local space = text:sub(current_idx, s_start - 1)
+                    local new_seg = {}
+                    for k, v in pairs(span) do new_seg[k] = v end
+                    new_seg.text = space
+                    new_seg.b = (word_counter < active_idx) or span.b
+                    table.insert(new_line, new_seg)
+                end
+                
+                -- The Word
+                word_counter = word_counter + 1
+                local word = text:sub(s_start, s_end)
+                local new_seg = {}
+                for k, v in pairs(span) do new_seg[k] = v end
+                new_seg.text = word
+                new_seg.b = (word_counter <= active_idx) or span.b
+                table.insert(new_line, new_seg)
+                
+                current_idx = s_end + 1
+            end
+        end
+        table.insert(new_lines, new_line)
+    end
+    return new_lines
+end
+
+--- Get corrections to display based on timing rules
+--- @param cur_pos number
+--- @param active_rgns table Current regions list
+--- @return table markers, number total_h
+local function get_corrections_to_draw(cur_pos, active_rgns, override_fsize)
+    if not cfg.p_corr then return {}, 0 end
+    
+    local seen = {}
+    local cor_markers = {}
+    
+    local function add(m)
+        if not seen[m.markindex] then
+            table.insert(cor_markers, m)
+            seen[m.markindex] = true
+        end
+    end
+
+    local m_list = prompter_drawer.marker_cache.markers
+    if #m_list == 0 then return {}, 0 end
+
+    -- RULE 1: Inside active region (Show all for full duration)
+    if active_rgns and #active_rgns > 0 then
+        for _, r in ipairs(active_rgns) do
+            for _, m in ipairs(m_list) do
+                if m.pos >= r.pos and m.pos < r.rgnend then
+                    add(m)
+                end
+            end
+        end
+    end
+
+    -- RULE 2: Outside regions (Show next upcoming marker regardless of time)
+    local r_ptr = 1
+    for _, m in ipairs(m_list) do
+        local is_inside_any = false
+        while r_ptr <= #regions and regions[r_ptr].rgnend <= m.pos do
+            r_ptr = r_ptr + 1
+        end
+        
+        if r_ptr <= #regions and m.pos >= regions[r_ptr].pos then
+            is_inside_any = true
+        end
+        
+        if not is_inside_any then
+            if cur_pos >= m.pos and cur_pos < m.pos + 10 then
+                add(m)
+            end
+        end
+    end
+
+    if #cor_markers == 0 then return {}, 0 end
+    
+    table.sort(cor_markers, function(a, b) return a.pos < b.pos end)
+    
+    local project_last_passed_pos = -1
+    for _, m in ipairs(m_list) do
+        if m.pos <= cur_pos and m.pos > project_last_passed_pos then
+            project_last_passed_pos = m.pos
+        end
+    end
+    
+    local filtered_candidates = {}
+    for _, m in ipairs(cor_markers) do
+        if m.pos >= project_last_passed_pos then
+            table.insert(filtered_candidates, m)
+        end
+    end
+    
+    if #filtered_candidates == 0 then return {}, 0 end
+
+    local best_m = nil
+    for _, m in ipairs(filtered_candidates) do
+        if m.pos > cur_pos then
+            best_m = m
+            break
+        end
+    end
+    
+    if not best_m then
+        best_m = filtered_candidates[#filtered_candidates]
+    end
+    
+    cor_markers = { best_m }
+    
+    gfx.setfont(F.cor, cfg.p_font, override_fsize or cfg.c_fsize)
+    local raw_lh = gfx.texth
+    local line_h = math.floor(raw_lh * (cfg.c_lheight or 1.0))
+    
+    local total_lines = 0
+    for _, m in ipairs(cor_markers) do
+        local lines = parse_prompter_to_lines(m.name or "")
+        total_lines = total_lines + #lines
+    end
+    
+    return cor_markers, total_lines * line_h
+end
+
+--- Render corrections (markers) 
+--- @param cor_markers table
+--- @param y_offset number
+local function render_corrections(cor_markers, y_offset, font_size, center_x, available_w, content_offset_left, content_offset_right)
+    if #cor_markers == 0 then return end
+    
+    local fsize = font_size or cfg.c_fsize
+    set_color({cfg.c_cr, cfg.c_cg, cfg.c_cb})
+    gfx.setfont(F.cor, cfg.p_font, fsize)
+    
+    local raw_lh = gfx.texth
+    local line_h = math.floor(raw_lh * (cfg.c_lheight or 1.0))
+    local y_off = math.floor((line_h - raw_lh) / 2)
+    local total_h = 0
+    
+    for i, m in ipairs(cor_markers) do
+        local name = m.name or ""
+        if name == "" then name = "<пусто>" end
+        
+        local c_x1, c_y1, c_x2, c_y2 = gfx.w, gfx.h, 0, 0
+        local c_y = y_offset + total_h
+        local spans_lines = parse_prompter_to_lines(name)
+        
+        for i_line, spans in ipairs(spans_lines) do
+            local y = c_y + (i_line-1) * line_h
+            local lx, ly, lw, l_h = draw_rich_line(spans, center_x, y + y_off, F.cor, cfg.p_font, fsize, true, nil, available_w, content_offset_left, content_offset_right)
+            
+            if lx < c_x1 then c_x1 = lx end
+            if ly < c_y1 then c_y1 = ly end
+            if lx + lw > c_x2 then c_x2 = lx + lw end
+            if ly + l_h > c_y2 then c_y2 = ly + l_h end
+            
+            total_h = total_h + line_h
+        end
+
+        if is_mouse_clicked() and (not dict_modal.show) and (not UI_STATE.mouse_handled) then
+            if gfx.mouse_x >= c_x1 - 20 and gfx.mouse_x <= c_x2 + 20 and
+               gfx.mouse_y >= c_y1 - 10 and gfx.mouse_y <= c_y2 + 10 then
+                UI_STATE.mouse_handled = true
+                local now = reaper.time_precise()
+                if UI_STATE.last_click_row == -5 and (now - UI_STATE.last_click_time) < 0.5 then
+                    local mock_lines = {}
+                    local current_edit_idx = 1
+                    for idx, cm in ipairs(cor_markers) do
+                        table.insert(mock_lines, { text = cm.name:gsub("<пусто>", "") })
+                        if cm.markindex == m.markindex then current_edit_idx = idx end
+                    end
+
+                    local function marker_callback(new_text)
+                        push_undo("Редагування правки")
+                        local target_idx = -1
+                        local marker_count = reaper.CountProjectMarkers(0)
+                        for j = 0, marker_count - 1 do
+                            local _, isrgn, pos, _, _, markindex = reaper.EnumProjectMarkers3(0, j)
+                            if not isrgn then
+                                if markindex == m.markindex or math.abs(pos - m.pos) < 0.001 then
+                                    target_idx = j
+                                    m.pos = pos
+                                    break
+                                end
+                            end
+                        end
+                        if target_idx ~= -1 then reaper.SetProjectMarkerByIndex(0, target_idx, false, m.pos, 0, m.markindex, new_text, m.color or 0)
+                        else reaper.SetProjectMarker4(0, m.markindex, false, m.pos, 0, new_text, m.color or 0, 0) end
+                        ass_markers = capture_project_markers()
+                        prompter_drawer.marker_cache.count = -1
+                        table_data_cache.state_count = -1 
+                        last_layout_state.state_count = -1 
+                        update_marker_cache()
+                        rebuild_regions()
+                        reaper.UpdateTimeline()
+                        reaper.UpdateArrange()
+                    end
+                    open_text_editor(m.name:gsub("<пусто>", ""), marker_callback, current_edit_idx, mock_lines)
+                    UI_STATE.last_click_row = 0
+                else
+                    UI_STATE.last_click_time = now
+                    UI_STATE.last_click_row = -5
+                end
+            end
+        end
+    end
+end
+
+local function handle_info_overlay_interaction(content_offset_left, content_offset_right, active_regions)
+    if not cfg.p_info then return end
+    
+    local left_str = format_timestamp(reaper.GetCursorPosition() + 0.001)
+    local right_str = ""
+    
+    if active_regions and #active_regions > 0 then
+        local r = active_regions[1]
+        right_str = "#" .. tostring(r.idx)
+    end
+    
+    -- Interaction: Left Info
+    if left_str ~= "" then
+        gfx.setfont(F.std)
+        local tw, th = gfx.measurestr(left_str)
+        if gfx.mouse_x >= (content_offset_left + S(10)) and gfx.mouse_x <= (content_offset_left + S(10)) + tw and
+           gfx.mouse_y >= S(30) and gfx.mouse_y <= S(30) + th then
+             if is_mouse_clicked() and not UI_STATE.mouse_handled then
+                UI_STATE.mouse_handled = true
+                local now = reaper.time_precise()
+                if UI_STATE.last_click_row == -6 and (now - UI_STATE.last_click_time) < 0.3 then
+                    set_clipboard(left_str)
+                    show_snackbar("Скопійовано: " .. left_str, "info")
+                    UI_STATE.last_click_row = 0
+                else
+                    UI_STATE.last_click_time = now
+                    UI_STATE.last_click_row = -6
+                end
+            end
+        end
+    end
+    
+    -- Interaction: Right Info
+    if right_str ~= "" then
+        gfx.setfont(F.std)
+        local iw, ih = gfx.measurestr(right_str)
+        if gfx.mouse_x >= gfx.w - iw - S(10) - content_offset_right and gfx.mouse_x <= gfx.w - S(10) - content_offset_right and
+           gfx.mouse_y >= S(30) and gfx.mouse_y <= S(30) + ih then
+             if is_mouse_clicked() and not UI_STATE.mouse_handled then
+                UI_STATE.mouse_handled = true
+                local now = reaper.time_precise()
+                if UI_STATE.last_click_row == -7 and (now - UI_STATE.last_click_time) < 0.3 then
+                    set_clipboard(right_str)
+                    show_snackbar("Скопійовано: " .. right_str, "info")
+                    UI_STATE.last_click_row = 0
+                else
+                    UI_STATE.last_click_time = now
+                    UI_STATE.last_click_row = -7
+                end
+            end
+        end
+    end
+end
+
+local function draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions)
+    if not cfg.p_info then return end
+    
+    gfx.setfont(F.std)
+    gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.5)
+    
+    local left_str = format_timestamp(reaper.GetCursorPosition() + 0.001)
+    local right_str = ""
+    
+    if active_regions and #active_regions > 0 then
+        local r = active_regions[1]
+        right_str = "#" .. tostring(r.idx)
+    end
+    
+    if left_str ~= "" then
+        gfx.x = content_offset_left + S(10)
+        gfx.y = S(30)
+        gfx.drawstr(left_str)
+    end
+    
+    if right_str ~= "" then
+        local iw, ih = gfx.measurestr(right_str)
+        gfx.x = gfx.w - iw - S(10) - content_offset_right
+        gfx.y = S(30)
+        gfx.drawstr(right_str)
+    end
+    
+    gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 1)
+end
+
+local function draw_prompter_slider(input_queue)
+    local bg_r, bg_g, bg_b = cfg.bg_cr, cfg.bg_cg, cfg.bg_cb
+    set_color({bg_r, bg_g, bg_b})
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+    update_marker_cache()
+
+    -- === EARLY DRAWER BUTTON CLICK CHECK ===
+    if not prompter_drawer.open and prompter_drawer.has_markers_cache and prompter_drawer.has_markers_cache.result then
+        local drawer_top_y = S(25)
+        local btn_w = S(15)
+        
+        -- Calculate dynamic height (consistent with draw_prompter_drawer)
+        gfx.setfont(F.tip)
+        local btn_h = S(16)
+        for _, code in utf8.codes("ПРАВКИ") do
+            local _, ch = gfx.measurestr(utf8.char(code))
+            btn_h = btn_h + ch - 1
+        end
+
+        local btn_x = cfg.p_drawer_left and 0 or (gfx.w - btn_w)
+        local btn_y = drawer_top_y + (gfx.h - drawer_top_y - btn_h) / 2
+        
+        if gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and
+           gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h then
+             if is_mouse_clicked(1) and not UI_STATE.mouse_handled then
+                prompter_drawer.open = true
+                UI_STATE.mouse_handled = true
+                if not prompter_drawer.width or prompter_drawer.width < S(80) then
+                    prompter_drawer.width = S(300)
+                end
+             end
+        end
+    end
+
+    local content_offset_left, content_offset_right = 0, 0
+    local mouse_over_drawer = false
+    if prompter_drawer.open and prompter_drawer.width >= S(80) then
+        if cfg.p_drawer_left then content_offset_left = prompter_drawer.width else content_offset_right = prompter_drawer.width end
+        if cfg.p_drawer_left then
+            if gfx.mouse_x < content_offset_left then mouse_over_drawer = true end
+        else
+            if gfx.mouse_x > gfx.w - content_offset_right then mouse_over_drawer = true end
+        end
+    end
+    local available_w = gfx.w - content_offset_left - content_offset_right
+    local center_x = content_offset_left + (available_w / 2)
+    
+    -- Catch Info Overlay Interaction EARLY to prevent fall-through
+    local active_idx = -1
+    local play_pos = reaper.GetPlayState() & 1 == 1 and reaper.GetPlayPosition() or reaper.GetCursorPosition()
+    for i, rgn in ipairs(regions) do
+        if play_pos >= rgn.pos and play_pos < rgn.rgnend then active_idx = i; break end
+    end
+    
+    local current_active_regions = {}
+    if active_idx ~= -1 then table.insert(current_active_regions, regions[active_idx]) end
+    handle_info_overlay_interaction(content_offset_left, content_offset_right, current_active_regions)
+
+    local state_count = reaper.GetProjectStateChangeCount(0)
+    local marker_state = prompter_drawer.marker_cache.count
+    if prompter_slider_cache.state_count ~= state_count or prompter_slider_cache.marker_state ~= marker_state or prompter_slider_cache.w ~= available_w or 
+       prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
+       prompter_slider_cache.p_corr ~= cfg.p_corr then
+        
+        prompter_slider_cache.state_count, prompter_slider_cache.marker_state, prompter_slider_cache.w, prompter_slider_cache.fsize, prompter_slider_cache.font = state_count, marker_state, available_w, cfg.p_fsize, cfg.p_font
+        prompter_slider_cache.project_id = reaper.GetProjectName(0, "")
+        prompter_slider_cache.p_corr = cfg.p_corr
+        prompter_slider_cache.items, prompter_slider_cache.total_h = {}, 0
+        
+        local raw_items = {}
+        for idx, rgn in ipairs(regions) do
+            table.insert(raw_items, { type = "region", pos = rgn.pos, data = rgn, idx = idx })
+        end
+        if cfg.p_corr then
+            for idx, m in ipairs(prompter_drawer.marker_cache.markers) do
+                table.insert(raw_items, { type = "correction", pos = m.pos, data = m, idx = idx })
+            end
+        end
+        table.sort(raw_items, function(a, b) return a.pos < b.pos end)
+
+        local max_w = available_w - S(40)
+        
+        for _, raw in ipairs(raw_items) do
+            if raw.type == "region" then
+                local rgn = raw.data
+                local p_lines = parse_prompter_to_lines(rgn.name)
+                local flattened = {}
+                for _, pl in ipairs(p_lines) do
+                    for _, span in ipairs(pl) do table.insert(flattened, span) end
+                end
+                
+                local target_fsize = cfg.p_fsize
+                local min_fsize = 12
+                local lines, item_h, lh
+                
+                local actor_indent = 0
+                if cfg.show_actor_name_infront and rgn.actor and rgn.actor ~= "" then
+                    gfx.setfont(F.lrg, cfg.p_font, S(target_fsize - 2))
+                    actor_indent = gfx.measurestr("[" .. rgn.actor .. "] ")
+                end
+
+                repeat
+                    gfx.setfont(F.lrg, cfg.p_font, S(target_fsize))
+                    lh = math.floor(gfx.texth * cfg.p_lheight)
+                    
+                    local current_actor_indent = 0
+                    if actor_indent > 0 then
+                        gfx.setfont(F.lrg, cfg.p_font, S(target_fsize - 2))
+                        current_actor_indent = gfx.measurestr("[" .. rgn.actor .. "] ")
+                    end
+
+                    lines = wrap_rich_text(flattened, max_w, F.lrg, cfg.p_font, S(target_fsize), false, current_actor_indent)
+                    item_h = #lines * lh + S(40)
+                    if item_h < gfx.h * 0.7 or target_fsize <= min_fsize then break end
+                    target_fsize = target_fsize - 2
+                until false
+                
+                table.insert(prompter_slider_cache.items, {type = "region", h = item_h, lines = lines, y = prompter_slider_cache.total_h, fsize = S(target_fsize), lh = lh, region = rgn, region_idx = raw.idx})
+                prompter_slider_cache.total_h = prompter_slider_cache.total_h + item_h
+            else
+                -- Correction Item
+                local m = raw.data
+                local name = m.name or ""
+                if name == "" then name = "<пусто>" end
+                local p_lines = parse_prompter_to_lines(name)
+                local flattened = {}
+                for _, pl in ipairs(p_lines) do
+                    for _, span in ipairs(pl) do table.insert(flattened, span) end
+                end
+                
+                gfx.setfont(F.cor, cfg.p_font, S(cfg.c_fsize))
+                local lh = math.floor(gfx.texth * (cfg.c_lheight or 1.0))
+                local lines = wrap_rich_text(flattened, max_w, F.cor, cfg.p_font, S(cfg.c_fsize), false, 0)
+                local item_h = #lines * lh + S(20)
+                
+                table.insert(prompter_slider_cache.items, {type = "correction", h = item_h, lines = lines, y = prompter_slider_cache.total_h, fsize = S(cfg.c_fsize), lh = lh, marker = m})
+                prompter_slider_cache.total_h = prompter_slider_cache.total_h + item_h
+            end
+        end
+    end
+
+    local now = reaper.time_precise()
+    local is_playing = reaper.GetPlayState() & 1 == 1
+    local pos_jumped = math.abs(play_pos - (UI_STATE.last_tracked_pos or 0)) > 0.5
+
+    -- Auto-resume auto-scroll on significant jump or playback start
+    if pos_jumped or (is_playing and not UI_STATE.last_play_state) then
+        UI_STATE.skip_auto_scroll = false
+    end
+    UI_STATE.last_tracked_pos = play_pos
+    UI_STATE.last_play_state = is_playing
+
+    if gfx.mouse_wheel ~= 0 and not mouse_over_drawer then
+        UI_STATE.prompter_slider_target_y = UI_STATE.prompter_slider_target_y - (gfx.mouse_wheel * 0.5)
+        gfx.mouse_wheel = 0
+        UI_STATE.skip_auto_scroll = true
+    end
+    if is_mouse_clicked(1) then
+        if not UI_STATE.mouse_handled then
+            UI_STATE.skip_auto_scroll = false 
+        end
+    end
+
+    if active_idx ~= -1 and not UI_STATE.skip_auto_scroll then
+        for _, item in ipairs(prompter_slider_cache.items) do
+            if item.type == "region" and item.region_idx == active_idx then
+                UI_STATE.prompter_slider_target_y = item.y + item.h / 2
+                break
+            end
+        end
+    end
+
+    local diff = UI_STATE.prompter_slider_target_y - UI_STATE.prompter_slider_y
+    if math.abs(diff) > 0.1 then UI_STATE.prompter_slider_y = UI_STATE.prompter_slider_y + diff * 0.15 else UI_STATE.prompter_slider_y = UI_STATE.prompter_slider_target_y end
+
+    local screen_center_y = gfx.h / 2
+    local draw_y_offset = screen_center_y - UI_STATE.prompter_slider_y
+
+    for i, item in ipairs(prompter_slider_cache.items) do
+        local y_top = item.y + draw_y_offset
+        local y_bottom = y_top + item.h
+        if y_bottom > 0 and y_top < gfx.h then
+            -- Interaction detection
+            if is_mouse_clicked(1) and not UI_STATE.mouse_handled then
+                if gfx.mouse_x >= content_offset_left and gfx.mouse_x <= gfx.w - content_offset_right and
+                   gfx.mouse_y >= y_top and gfx.mouse_y <= y_bottom then
+                    
+                    if item.type == "region" then
+                        if UI_STATE.last_click_row == -100 - i and (now - UI_STATE.last_click_time) < 0.35 then
+                            -- DOUBLE CLICK: Open Editor
+                            local rgn = item.region
+                            for idx, line in ipairs(ass_lines) do
+                                if math.abs(line.t1 - rgn.pos) < 0.01 and 
+                                   math.abs(line.t2 - rgn.rgnend) < 0.01 and
+                                   compare_sub_text(line.text, rgn.name) then
+                                    local edit_line = line
+                                    open_text_editor(line.text, function(new_text)
+                                        push_undo("Редагування тексту")
+                                        edit_line.text = new_text
+                                        rebuild_regions()
+                                    end, idx, ass_lines)
+                                    break
+                                end
+                            end
+                            UI_STATE.last_click_row = 0
+                        else
+                            -- SINGLE CLICK: Scroll to
+                            reaper.SetEditCurPos(item.region.pos, true, false)
+                            UI_STATE.skip_auto_scroll = false
+                            UI_STATE.last_click_time = now
+                            UI_STATE.last_click_row = -100 - i
+                        end
+                    elseif item.type == "correction" then
+                         if UI_STATE.last_click_row == -100 - i and (now - UI_STATE.last_click_time) < 0.35 then
+                            -- DOUBLE CLICK: Open Editor for Correction
+                            local m = item.marker
+                            local function marker_callback(new_text)
+                                push_undo("Редагування правки")
+                                local target_idx = -1
+                                local marker_count = reaper.CountProjectMarkers(0)
+                                for j = 0, marker_count - 1 do
+                                    local _, isrgn, pos, _, _, markindex = reaper.EnumProjectMarkers3(0, j)
+                                    if not isrgn then
+                                        if markindex == m.markindex or math.abs(pos - m.pos) < 0.001 then
+                                            target_idx = j; m.pos = pos; break
+                                        end
+                                    end
+                                end
+
+                                if target_idx ~= -1 then
+                                    reaper.SetProjectMarkerByIndex(0, target_idx, false, m.pos, 0, m.markindex, new_text, m.color or 0)
+                                else
+                                    reaper.SetProjectMarker4(0, m.markindex, false, m.pos, 0, new_text, m.color or 0, 0)
+                                end
+                                ass_markers = capture_project_markers()
+                                prompter_drawer.marker_cache.count = -1
+                                table_data_cache.state_count = -1 
+                                last_layout_state.state_count = -1 
+                                update_marker_cache()
+                                rebuild_regions()
+                                reaper.UpdateTimeline()
+                                reaper.UpdateArrange()
+                            end
+                            open_text_editor(m.name:gsub("<пусто>", ""), marker_callback, 1, {{text = m.name:gsub("<пусто>", "")}})
+                            UI_STATE.last_click_row = 0
+                        else
+                            -- SINGLE CLICK: Scroll to
+                            reaper.SetEditCurPos(item.marker.pos, true, false)
+                            UI_STATE.skip_auto_scroll = false
+                            UI_STATE.last_click_time = now
+                            UI_STATE.last_click_row = -100 - i
+                        end
+                    end
+                    UI_STATE.mouse_handled = true
+                end
+            end
+
+            -- Drawing
+            local lines_to_draw = item.lines
+            local text_y = y_top + (item.type == "region" and S(20) or S(10))
+            
+            if item.type == "region" then
+                local is_active = (item.region_idx == active_idx)
+                local alpha = is_active and 1.0 or 0.4
+                set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, alpha})
+                
+                if cfg.karaoke_mode and is_active then
+                    local w_count = count_words_in_lines(item.lines)
+                    local k_idx = get_karaoke_word_index(item.region.pos, item.region.rgnend, play_pos, w_count)
+                    if k_idx then
+                        lines_to_draw = apply_karaoke_style(item.lines, k_idx)
+                    end
+                end
+
+                for idx, line in ipairs(lines_to_draw) do
+                    local act = (idx == 1) and item.region.actor or nil
+                    draw_rich_line(line, center_x, text_y, F.lrg, cfg.p_font, item.fsize, false, act, available_w, content_offset_left, content_offset_right)
+                    text_y = text_y + item.lh
+                end
+            else
+                -- Correction Rendering
+                local m = item.marker
+                local alpha = 1.0 -- Corrections are always visible if they are in view? 
+                -- Or maybe dim them if they are far? Let's keep them bright for now as they are "pravki".
+                set_color({cfg.c_cr, cfg.c_cg, cfg.c_cb, alpha})
+                
+                for idx, line in ipairs(lines_to_draw) do
+                    draw_rich_line(line, center_x, text_y, F.cor, cfg.p_font, item.fsize, true, nil, available_w, content_offset_left, content_offset_right)
+                    text_y = text_y + item.lh
+                end
+            end
+        end
+    end
+
+    -- Info Overlay graphics (at the end of content)
+    local current_active_regions = {}
+    if active_idx ~= -1 then table.insert(current_active_regions, regions[active_idx]) end
+    draw_info_overlay_graphics(content_offset_left, content_offset_right, current_active_regions)
+
+    if cfg.p_drawer then draw_prompter_drawer(input_queue) end
+
+
+    handle_prompter_context_menu()
+end
+
 local function draw_prompter(input_queue)
+    if cfg.prompter_slider_mode then
+        draw_prompter_slider(input_queue)
+        return
+    end
+
     -- Draw Custom Background
     set_color({cfg.bg_cr, cfg.bg_cg, cfg.bg_cb})
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
@@ -8860,9 +9793,9 @@ local function draw_prompter(input_queue)
         
         if gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and
            gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h then
-             if is_mouse_clicked(1) and not mouse_handled then
+             if is_mouse_clicked(1) and not UI_STATE.mouse_handled then
                 prompter_drawer.open = true
-                mouse_handled = true
+                UI_STATE.mouse_handled = true
                 if not prompter_drawer.width or prompter_drawer.width < S(80) then
                     prompter_drawer.width = S(300)
                 end
@@ -8884,8 +9817,6 @@ local function draw_prompter(input_queue)
     local center_x = content_offset_left + (available_w / 2)
     -- === END DRAWER OFFSET ===
 
-    update_marker_cache()
-
     -- Logic: Use Play Position if playing, otherwise Edit Cursor
     local play_state = reaper.GetPlayState()
     local cur_pos = 0
@@ -8894,6 +9825,17 @@ local function draw_prompter(input_queue)
     else
         cur_pos = reaper.GetCursorPosition()
     end
+
+    -- EARLY INTERACTION CHECK
+    local active_regions_for_info = {}
+    for _, rgn in ipairs(regions) do
+        if cur_pos >= rgn.pos and cur_pos < rgn.rgnend then
+            table.insert(active_regions_for_info, rgn)
+        end
+    end
+    handle_info_overlay_interaction(content_offset_left, content_offset_right, active_regions_for_info)
+
+    update_marker_cache()
 
     -- Find ALL regions that contain the current position
     local active_regions = {}
@@ -8949,451 +9891,6 @@ local function draw_prompter(input_queue)
         end
     end
     
-    -- --- HELPER: Draw Rich Line ---
-    -- returns x, y, w, h
-    -- line is { {text="foo", b=true, ...}, ... }
-    
-    local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name, base_size, no_assimilation, actor_name)
-    
-        -- ASSIMILATION LOGIC
-        if cfg.text_assimilations and not no_assimilation then
-            local rules = {
-                {"ться", "цця"},
-                {"зш", "шш"},
-                {"сш", "шш"},
-                {"зч", "чч"},
-                {"стч", "шч"},
-                {"сч", "чч"},
-                {"тч", "чч"},
-                {"дч", "чч"},
-                {"шся", "сся"},
-                {"чся", "цся"},
-                {"зж", "жж"},
-                {"чці", "цці"},
-                {"жці", "зці"},
-                {"стд", "зд"},
-                {"стці", "сці"},
-                {"нтст", "нст"},
-                {"стськ", "сськ"},
-                {"нтськ", "нськ"},
-                {"стс", "сс"},
-                {"тс", "ц"},
-            }
-             
-            local new_spans = {}
-             
-            local function process_text(text, style_span, orig_word)
-                if text == "" then return end
-                
-                local best_pos = nil
-                local best_rule = nil
-                
-                -- Case Insensitive Search
-                local l_text = utf8_lower(text)
-                
-                -- Find first occurring rule
-                for _, r in ipairs(rules) do
-                    local p = l_text:find(r[1], 1, true)
-                    if p then
-                        if not best_pos or p < best_pos then
-                            best_pos = p
-                            best_rule = r
-                        end
-                    end
-                end
-                
-                if best_pos then
-                    -- Split: Before, Replacement, After
-                    local before = text:sub(1, best_pos - 1)
-                    
-                    local match_len = #best_rule[1]
-                    local original_match = text:sub(best_pos, best_pos + match_len - 1)
-                    local remainder = text:sub(best_pos + match_len)
-                    
-                    -- Determine replacement case
-                    local replacement = best_rule[2]
-                    if original_match == utf8_upper(original_match) then
-                        replacement = utf8_upper(replacement)
-                    elseif original_match == utf8_capitalize(utf8_lower(original_match)) then
-                        replacement = utf8_capitalize(replacement)
-                    end
-                    
-                    -- Add Before
-                    if before ~= "" then
-                        table.insert(new_spans, {text=before, b=style_span.b, i=style_span.i, u=style_span.u, s=style_span.s, orig_word=orig_word, comment=style_span.comment})
-                    end
-                    
-                    -- Add Replacement (forcing Wavy Underline)
-                    table.insert(new_spans, {
-                        text = replacement, 
-                        b=style_span.b, 
-                        i=style_span.i, 
-                        u=false, -- standard underline OFF
-                        u_wave=true, -- Wavy underline ON
-                        s=style_span.s,
-                        orig_word=orig_word,
-                        comment=style_span.comment
-                    })
-                    
-                    -- Process Remainder
-                    process_text(remainder, style_span, orig_word)
-                else
-                    -- No matches, keep as is
-                    table.insert(new_spans, {text=text, b=style_span.b, i=style_span.i, u=style_span.u, s=style_span.s, orig_word=orig_word, comment=style_span.comment})
-                end
-            end
-
-            for _, span in ipairs(line_spans) do
-                -- Process word by word to keep original context
-                local segments = get_words_and_separators(span.text)
-                for _, seg in ipairs(segments) do
-                    if seg.is_word and (not dict_modal.show) then
-                        process_text(seg.text, span, seg.text:gsub(acute, ""))
-                    else
-                        table.insert(new_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, comment=span.comment})
-                    end
-                end
-            end
-             
-            line_spans = new_spans
-        end
-        
-        -- 1. Measure Total Width
-        local total_w = 0
-        local pending_karaoke_comp = 0
-        
-        for i, span in ipairs(line_spans) do
-            -- Build flags: 'b' is usually handled by font selection or separate font ID,
-            -- but 'i' implies italics. 
-            
-            local f_flags = 0
-            local effective_font = font_name
-            
-            -- Stable layout for Karaoke: measure ALL words as bold to prevent shifting
-            local measure_bold = span.b
-            if cfg.karaoke_mode and (font_slot == F.lrg or font_slot == F.nxt) then
-                measure_bold = true
-            end
-
-            -- Fix Flag Combination and Helvetica on Mac
-            if span.i then
-                if font_name == "Helvetica" then
-                    effective_font = "Helvetica Oblique"
-                else
-                    f_flags = string.byte('i')
-                end
-            end
-            
-            if measure_bold then
-                if effective_font == font_name then
-                    f_flags = string.byte('b')
-                end
-                
-                if span.i and font_name == "Helvetica" then
-                    effective_font = "Helvetica Bold Oblique"
-                end
-            end
-            
-            -- We must setup font to measure
-            gfx.setfont(font_slot, effective_font, base_size, f_flags)
-            
-            local measure_text = span.text:gsub(acute, "")
-            if cfg.all_caps then
-                measure_text = utf8_upper(measure_text)
-            end
-            
-            -- CURRENT WIDTH (Visual)
-            span.width = gfx.measurestr(measure_text)
-            span.height = gfx.texth
-            
-            -- KARAOKE COMP: If this is a split word, we don't want extra padding YET.
-            -- We want current spans to be tight, and the LAST span of the word to take the expansion.
-            if cfg.karaoke_mode and (font_slot == F.lrg or font_slot == F.nxt) then
-                -- Calculate "Bold" width (Target) vs "Normal" width (If it wasn't bold)
-                -- Actually measure_bold is ALREADY true here.
-                -- So span.width IS the bold width.
-                -- Wait, if the word IS NOT active, it is drawn NORMAL.
-                -- BUT we measure it BOLD to reserve space.
-                -- The issue: "wo" (bold width) + "rd" (bold width) > "word" (normal width) + gap?
-                -- No, the issue is:
-                -- Drawn: "wo" (normal) ... gap ... "rd" (normal)
-                -- because we assigned them BOLD widths.
-                
-                -- We want: Use NORMAL width for layout, but ensure TOTAL "word" width = BOLD width.
-                
-                -- 1. Measure NORMAL width (what will be drawn if inactive)
-                local normal_flags = f_flags
-                local normal_font = effective_font
-                if not span.b then -- strip bold if it was forced
-                    if normal_font == "Helvetica Bold Oblique" then normal_font = "Helvetica Oblique" end
-                    if normal_flags == string.byte('b') then normal_flags = 0 end
-                end
-                
-                gfx.setfont(font_slot, normal_font, base_size, normal_flags)
-                local normal_w = gfx.measurestr(measure_text)
-                
-                -- 2. Measure BOLD width (Target space reservation)
-                -- (Already setup above as 'effective_font' includes bold logic)
-                gfx.setfont(font_slot, effective_font, base_size, f_flags)
-                local target_w = gfx.measurestr(measure_text)
-                
-                -- Check if connected to next span (simple heuristic: neither ends with space?)
-                -- Actually simpler: Is the next span existing and does it NOT start with space?
-                -- And current span does NOT end with space.
-                local is_connected = false
-                if i < #line_spans then
-                    local next_s = line_spans[i+1]
-                    if not span.text:match("%s$") and not next_s.text:match("^%s") then
-                        is_connected = true
-                    end
-                end
-                
-                if is_connected then
-                    -- Use TIGHT width (Normal) for the actual text
-                    span.text_width = normal_w  -- Store actual text width for underlines
-                    
-                    -- FIX: Italic overlap prevention
-                    -- For italic text, we need to measure the ACTUAL italic width (not just add padding)
-                    -- because different fonts have different slant angles
-                    if span.i then
-                        -- Measure with italic flags to get real visual width
-                        local italic_flags = f_flags  -- Already has italic flag from earlier
-                        local italic_font = effective_font  -- Already adjusted for italic
-                        gfx.setfont(font_slot, italic_font, base_size, italic_flags)
-                        local italic_w = gfx.measurestr(measure_text)
-                        span.width = italic_w  -- Use actual italic width for cursor advance
-                    else
-                        span.width = normal_w
-                    end
-
-                    -- Accumulate the missing space reserved for bold
-                    pending_karaoke_comp = pending_karaoke_comp + (target_w - normal_w)
-                else
-                    -- End of word (or single word)
-                    -- Use Target Width + any pending from previous parts
-                    span.width = target_w + pending_karaoke_comp
-                    
-                    -- For text_width, we need the ACTUAL visual width (not the reserved space)
-                    -- This is important for underlines to match the actual text, not the bold reservation
-                    if span.i then
-                        -- Measure actual italic width
-                        local italic_flags = f_flags
-                        local italic_font = effective_font
-                        gfx.setfont(font_slot, italic_font, base_size, italic_flags)
-                        span.text_width = gfx.measurestr(measure_text)
-                    else
-                        span.text_width = normal_w
-                    end
-                    
-                    pending_karaoke_comp = 0
-                end
-
-            end
-            
-            total_w = total_w + span.width
-        end
-        
-        -- ACTOR WIDTH CALCULATION
-        local actor_w = 0
-        local full_actor_text = ""
-        if cfg.show_actor_name_infront and actor_name and actor_name ~= "" then
-            full_actor_text = "[" .. actor_name .. "] "
-            gfx.setfont(font_slot, font_name, math.max(10, base_size - 2))
-            actor_w = gfx.measurestr(full_actor_text)
-            total_w = total_w + actor_w
-        end
-    
-        -- 2. Draw
-        local start_x 
-        if cfg.p_align == "left" then start_x = content_offset_left + 20
-        elseif cfg.p_align == "right" then start_x = gfx.w - content_offset_right - total_w - 20
-        else start_x = center_x - (total_w / 2) end
-    
-        local cursor_x = start_x
-        
-        -- DRAW ACTOR NAME
-        if cfg.show_actor_name_infront and actor_name and actor_name ~= "" then
-            local r, g, b, a = gfx.r, gfx.g, gfx.b, gfx.a
-            gfx.set(r, g, b, a * 0.45) -- 65% more transparent
-            gfx.setfont(font_slot, font_name, math.max(10, base_size - 2))
-            
-            gfx.x = cursor_x
-            gfx.y = y_base + 1 -- Slight vertical adjustment
-            gfx.drawstr(full_actor_text)
-            
-            gfx.set(r, g, b, a) -- restore
-            cursor_x = cursor_x + actor_w
-        end
-
-        -- Helper for corrected drawing
-        local function draw_string_corrected(text)
-            draw_text_with_stress_marks(text, cfg.all_caps)
-        end
-
-        for _, span in ipairs(line_spans) do
-            local f_flags = 0
-            local effective_font = font_name
-            
-            if span.i then
-               if font_name == "Helvetica" then effective_font = "Helvetica Oblique"
-               else f_flags = string.byte('i') end
-            end
-            
-            if span.b then
-                if effective_font == font_name then f_flags = string.byte('b') end
-                if span.i and font_name == "Helvetica" then effective_font = "Helvetica Bold Oblique" end
-            end
-            
-            gfx.setfont(font_slot, effective_font, base_size, f_flags)
-            
-            -- set_color removed to respect caller's color (e.g. Next Replica)
-            
-            gfx.x = cursor_x
-            gfx.y = y_base
-            
-            -- WORD LONG-CLICK DETECTION (Dictionary Lookup)
-            local segments = get_words_and_separators(span.text)
-            local temp_x = cursor_x
-            for _, seg in ipairs(segments) do
-                local measure_text = seg.text:gsub(acute, "")
-                if cfg.all_caps then measure_text = utf8_upper(measure_text) end
-                local sw = gfx.measurestr(measure_text)
-                
-                if seg.is_word and (not dict_modal.show) then
-                    local h_pad = 2
-                    local v_pad = 5
-                    local is_over = gfx.mouse_x >= temp_x - h_pad and gfx.mouse_x <= temp_x + sw + h_pad and
-                                    gfx.mouse_y >= y_base - v_pad and gfx.mouse_y <= y_base + span.height + v_pad
-                    
-                    if is_over then
-                        if gfx.mouse_cap & 1 == 1 then
-                            if last_mouse_cap == 0 then
-                                -- Start tracking only if word has letters
-                                local clean = seg.text:gsub(acute, "")
-                                if clean:find("[%a\128-\255]") then
-                                    word_trigger.active = true
-                                    word_trigger.start_time = reaper.time_precise()
-                                    word_trigger.word = span.orig_word or clean
-                                    word_trigger.triggered = false
-                                    word_trigger.hit_x = temp_x
-                                    word_trigger.hit_y = y_base
-                                    word_trigger.hit_w = sw
-                                    word_trigger.hit_h = span.height
-                                end
-                            elseif word_trigger.active and not word_trigger.triggered then
-                                local hold_time = reaper.time_precise() - word_trigger.start_time
-                                if hold_time > 0.4 then
-                                    -- TRIGGER LOOKUP (Unified & Lazy)
-                                    word_trigger.triggered = true
-                                    trigger_dictionary_lookup(word_trigger.word)
-                                end
-                            end
-                        end
-                    elseif word_trigger.active and not word_trigger.triggered then
-                        -- Optional: Allow slight "drift" outside the word while holding
-                        local drift = 10
-                        local still_near = gfx.mouse_x >= word_trigger.hit_x - drift and gfx.mouse_x <= word_trigger.hit_x + word_trigger.hit_w + drift and
-                                          gfx.mouse_y >= word_trigger.hit_y - drift and gfx.mouse_y <= word_trigger.hit_y + word_trigger.hit_h + drift
-                        if not still_near then
-                            word_trigger.active = false
-                        end
-                    end
-                end
-                temp_x = temp_x + sw
-            end
-             
-            -- Cleanup trigger if mouse released
-            if word_trigger.active and gfx.mouse_cap & 1 == 0 then
-                word_trigger.active = false
-            end
-            
-            -- COMMENT TOOLTIP HOVER DETECTION
-            if span.comment and (not dict_modal.show) then
-                local is_over = gfx.mouse_x >= cursor_x and gfx.mouse_x <= cursor_x + span.width and
-                                gfx.mouse_y >= y_base and gfx.mouse_y <= y_base + span.height
-                
-                if is_over then
-                    local id = tostring(span)
-                    if tooltip_state.hover_id ~= id then
-                        tooltip_state.hover_id = id
-                        tooltip_state.start_time = reaper.time_precise()
-                    end
-                    tooltip_state.text = span.comment
-                    tooltip_state.immediate = true
-                end
-            end
-
-            -- USE CORRECTED DRAWING
-            draw_string_corrected(span.text)
-            
-            -- VISUAL INDICATOR FOR COMMENT (dashed semi-transparent line)
-            if span.comment then
-                local sr, sg, sb, sa = gfx.r, gfx.g, gfx.b, gfx.a
-                set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.15}) -- Lower alpha for more subtlety
-                local strip_h = 3
-                
-                -- DYNAMIC DASH LOGIC: More text = smaller/denser dashes
-                local comm_len = utf8.len(span.comment) or #span.comment
-                -- Map length (1-75+) to dash (8 down to 3)
-                local dash_w = S(8) - math.min(S(5), math.floor(comm_len / 15))
-                dash_w = math.max(S(3), dash_w)
-                local gap_w = math.max(S(3), dash_w - S(1))
-                
-                -- Use text_width for proper alignment
-                local comment_width = span.text_width or span.width
-                local cur_dash_x = cursor_x
-                while cur_dash_x < cursor_x + comment_width do
-                    local draw_w = math.min(dash_w, cursor_x + comment_width - cur_dash_x)
-                    gfx.rect(cur_dash_x, y_base + span.height - 2, draw_w, strip_h, 1)
-                    cur_dash_x = cur_dash_x + dash_w + gap_w
-                end
-                gfx.r, gfx.g, gfx.b, gfx.a = sr, sg, sb, sa
-            end
-            
-            -- Manual Rendering of Underline / Strikeout
-            if span.u then
-                local ly = y_base + span.height - 2
-                local underline_width = span.text_width or span.width
-                gfx.line(cursor_x, ly, cursor_x + underline_width, ly)
-            end
-            
-            -- Wavy Underline logic
-            if span.u_wave then
-                local wave_y = y_base + span.height - S(2)
-                local wave_h = S(2)
-                local step = S(3)
-                local x_pos = cursor_x
-                -- Use text_width if available (for proper alignment), otherwise fall back to width
-                local underline_width = span.text_width or span.width
-                local end_x = cursor_x + underline_width
-                
-                local up = true
-                while x_pos < end_x do
-                    local next_x = math.min(x_pos + step, end_x)
-                    local y1 = up and wave_y or (wave_y + wave_h)
-                    local y2 = up and (wave_y + wave_h) or wave_y
-                    
-                    gfx.line(x_pos, y1, next_x, y2)
-                    x_pos = next_x
-                    up = not up
-                end
-            end
-
-            if span.s then
-                local ly = y_base + span.height / 2
-                local strikeout_width = span.text_width or span.width
-                gfx.line(cursor_x, ly, cursor_x + strikeout_width, ly)
-            end
-            
-            cursor_x = cursor_x + span.width
-        end
-        
-        -- Return Bounding Rect for Click detection
-        local h = gfx.texth
-        if #line_spans > 0 then h = line_spans[1].height end -- assume uniform height
-        return start_x, y_base, total_w, h
-    end
-
     -- Use first active region for interactions (backward compatibility)
     local region_idx = -1
     if #active_regions > 0 then
@@ -9418,7 +9915,7 @@ local function draw_prompter(input_queue)
         local display_name = next_rgn.name
         if not display_name or display_name:gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
         if not draw_prompter_cache.next_cache[display_name] then
-            draw_prompter_cache.next_cache[display_name] = parse_rich_text(display_name)
+            draw_prompter_cache.next_cache[display_name] = parse_prompter_to_lines(display_name)
         end
         local n_lines = draw_prompter_cache.next_cache[display_name]
         
@@ -9486,7 +9983,7 @@ local function draw_prompter(input_queue)
             -- Assuming we only show actor on first line of multi-line? 
             if i > 1 then actor_arg = nil end
             
-            local lx, ly, lw, l_h = draw_rich_line(line, center_x, y + y_off, F.nxt, cfg.p_font, n_draw_size, false, actor_arg)
+            local lx, ly, lw, l_h = draw_rich_line(line, center_x, y + y_off, F.nxt, cfg.p_font, n_draw_size, false, actor_arg, available_w, content_offset_left, content_offset_right)
             
             if lx < n_x1 then n_x1 = lx end
             if ly < n_y1 then n_y1 = ly end
@@ -9495,12 +9992,12 @@ local function draw_prompter(input_queue)
         end
         
         -- Double-click on next text to edit
-        if is_mouse_clicked() and (not dict_modal.show) and (not mouse_handled) then
+        if is_mouse_clicked() and (not dict_modal.show) and (not UI_STATE.mouse_handled) then
             if gfx.mouse_x >= n_x1 - 20 and gfx.mouse_x <= n_x2 + 20 and
                gfx.mouse_y >= n_y1 - 10 and gfx.mouse_y <= n_y2 + 10 then
-                mouse_handled = true
+                UI_STATE.mouse_handled = true
                 local now = reaper.time_precise()
-                if last_click_row == -2 and (now - last_click_time) < 0.5 then
+                if UI_STATE.last_click_row == -2 and (now - UI_STATE.last_click_time) < 0.5 then
                     -- Find corresponding ass_line
                     for i, line in ipairs(ass_lines) do
                         if math.abs(line.t1 - next_rgn.pos) < 0.01 and math.abs(line.t2 - next_rgn.rgnend) < 0.01 then
@@ -9513,10 +10010,10 @@ local function draw_prompter(input_queue)
                             break
                         end
                     end
-                    last_click_row = 0
+                    UI_STATE.last_click_row = 0
                 else
-                    last_click_time = now
-                    last_click_row = -2 -- Use -2 as marker for next text
+                    UI_STATE.last_click_time = now
+                    UI_STATE.last_click_row = -2 -- Use -2 as marker for next text
                 end
             end
         end
@@ -9524,210 +10021,7 @@ local function draw_prompter(input_queue)
         return n_total_h, n_start_y
     end
 
-    --- Get corrections to display based on timing rules
-    --- @param cur_pos number
-    --- @param active_rgns table Current regions list
-    --- @return table markers, number total_h
-    local function get_corrections_to_draw(cur_pos, active_rgns, override_fsize)
-        if not cfg.p_corr then return {}, 0 end
-        
-        local seen = {}
-        local cor_markers = {}
-        
-        local function add(m)
-            if not seen[m.markindex] then
-                table.insert(cor_markers, m)
-                seen[m.markindex] = true
-            end
-        end
 
-        local m_list = prompter_drawer.marker_cache.markers
-        if #m_list == 0 then return {}, 0 end
-
-        -- RULE 1: Inside active region (Show all for full duration)
-        if active_rgns and #active_rgns > 0 then
-            for _, r in ipairs(active_rgns) do
-                for _, m in ipairs(m_list) do
-                    if m.pos >= r.pos and m.pos < r.rgnend then
-                        add(m)
-                    end
-                end
-            end
-        end
-
-        -- RULE 2: Outside regions (Show next upcoming marker regardless of time)
-        -- Optimization: O(M+R) pass instead of O(M*R)
-        local r_ptr = 1
-        for _, m in ipairs(m_list) do
-            local is_inside_any = false
-            -- Find first region that might contain this marker
-            while r_ptr <= #regions and regions[r_ptr].rgnend <= m.pos do
-                r_ptr = r_ptr + 1
-            end
-            
-            if r_ptr <= #regions and m.pos >= regions[r_ptr].pos then
-                is_inside_any = true
-            end
-            
-            if not is_inside_any then
-                -- Strict: only show if playhead reached the marker and it's within 10s
-                if cur_pos >= m.pos and cur_pos < m.pos + 10 then
-                    add(m)
-                end
-            end
-        end
-
-        if #cor_markers == 0 then return {}, 0 end
-        
-        table.sort(cor_markers, function(a, b) return a.pos < b.pos end)
-        
-        -- Filter out STALE markers (anything older than the latest PASSED marker in the project)
-        local project_last_passed_pos = -1
-        for _, m in ipairs(m_list) do
-            if m.pos <= cur_pos and m.pos > project_last_passed_pos then
-                project_last_passed_pos = m.pos
-            end
-        end
-        
-        local filtered_candidates = {}
-        for _, m in ipairs(cor_markers) do
-            if m.pos >= project_last_passed_pos then
-                table.insert(filtered_candidates, m)
-            end
-        end
-        
-        if #filtered_candidates == 0 then return {}, 0 end
-
-        -- Filter to only ONE marker (The Next one, or the current one if all passed)
-        local best_m = nil
-        for _, m in ipairs(filtered_candidates) do
-            if m.pos > cur_pos then
-                best_m = m -- Take the FIRST upcoming one
-                break
-            end
-        end
-        
-        -- If no upcoming ones, take the LATEST passed one among candidates
-        if not best_m then
-            best_m = filtered_candidates[#filtered_candidates]
-        end
-        
-        cor_markers = { best_m }
-        
-        gfx.setfont(F.cor, cfg.p_font, override_fsize or cfg.c_fsize)
-        local raw_lh = gfx.texth
-        local line_h = math.floor(raw_lh * (cfg.c_lheight or 1.0))
-        
-        local total_lines = 0
-        for _, m in ipairs(cor_markers) do
-            local lines = parse_rich_text(m.name or "")
-            total_lines = total_lines + #lines
-        end
-        
-        return cor_markers, total_lines * line_h
-    end
-
-    --- Render corrections (markers) 
-    --- @param cor_markers table
-    --- @param y_offset number
-    local function render_corrections(cor_markers, y_offset, font_size)
-        if #cor_markers == 0 then return end
-        
-        local fsize = font_size or cfg.c_fsize
-        set_color({cfg.c_cr, cfg.c_cg, cfg.c_cb})
-        gfx.setfont(F.cor, cfg.p_font, fsize)
-        
-        local raw_lh = gfx.texth
-        local line_h = math.floor(raw_lh * (cfg.c_lheight or 1.0))
-        local y_off = math.floor((line_h - raw_lh) / 2)
-        local total_h = 0
-        
-        for i, m in ipairs(cor_markers) do
-            local name = m.name or ""
-            if name == "" then name = "<пусто>" end
-            
-            local c_x1, c_y1, c_x2, c_y2 = gfx.w, gfx.h, 0, 0
-            local c_y = y_offset + total_h
-            local spans_lines = parse_rich_text(name)
-            
-            for i_line, spans in ipairs(spans_lines) do
-                local y = c_y + (i_line-1) * line_h
-                local lx, ly, lw, l_h = draw_rich_line(spans, center_x, y + y_off, F.cor, cfg.p_font, fsize, true, nil)
-                
-                -- Update bounds
-                if lx < c_x1 then c_x1 = lx end
-                if ly < c_y1 then c_y1 = ly end
-                if lx + lw > c_x2 then c_x2 = lx + lw end
-                if ly + l_h > c_y2 then c_y2 = ly + l_h end
-                
-                total_h = total_h + line_h
-            end
-
-            -- Double-click to edit correction
-            if is_mouse_clicked() and (not dict_modal.show) and (not mouse_handled) then
-                if gfx.mouse_x >= c_x1 - 20 and gfx.mouse_x <= c_x2 + 20 and
-                   gfx.mouse_y >= c_y1 - 10 and gfx.mouse_y <= c_y2 + 10 then
-                    mouse_handled = true
-                    local now = reaper.time_precise()
-                    -- Use -5 as marker for corrections
-                    if last_click_row == -5 and (now - last_click_time) < 0.5 then
-                        
-                        -- Define marker edit context
-                        local mock_lines = {}
-                        local current_edit_idx = 1
-                        for idx, cm in ipairs(cor_markers) do
-                            table.insert(mock_lines, { text = cm.name:gsub("<пусто>", "") })
-                            if cm.markindex == m.markindex then 
-                                current_edit_idx = idx 
-                            end
-                        end
-
-                        local function marker_callback(new_text)
-                            push_undo("Редагування правки")
-                            
-                            local target_idx = -1
-                            local marker_count = reaper.CountProjectMarkers(0)
-                            for j = 0, marker_count - 1 do
-                                local _, isrgn, pos, _, _, markindex = reaper.EnumProjectMarkers3(0, j)
-                                if not isrgn then
-                                    if markindex == m.markindex or math.abs(pos - m.pos) < 0.001 then
-                                        target_idx = j
-                                        m.pos = pos
-                                        break
-                                    end
-                                end
-                            end
-
-                            if target_idx ~= -1 then
-                                reaper.SetProjectMarkerByIndex(0, target_idx, false, m.pos, 0, m.markindex, new_text, m.color or 0)
-                            else
-                                reaper.SetProjectMarker4(0, m.markindex, false, m.pos, 0, new_text, m.color or 0, 0)
-                            end
-                            
-                            -- IMPORTANT: Sync script's internal markers state BEFORE rebuilding regions
-                            -- Otherwise rebuild_regions will overwrite our change with the old data captured by push_undo
-                            ass_markers = capture_project_markers()
-                            
-                            -- Invalidate cache for refresh
-                            prompter_drawer.marker_cache.count = -1
-                            table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
-                            last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
-                            update_marker_cache()
-                            rebuild_regions()
-                            reaper.UpdateTimeline()
-                            reaper.UpdateArrange()
-                        end
-
-                        open_text_editor(m.name:gsub("<пусто>", ""), marker_callback, current_edit_idx, mock_lines)
-                        last_click_row = 0
-                    else
-                        last_click_time = now
-                        last_click_row = -5
-                    end
-                end
-            end
-        end
-    end
     
     if region_idx >= 0 then
         local retval, isrgn, pos, rgnend, name, idx = reaper.EnumProjectMarkers(region_idx)
@@ -9739,79 +10033,7 @@ local function draw_prompter(input_queue)
             local all_text_blocks = {}
             local S_GAP = S(15)
             
-            -- Helper: Count words in lines
-            local function count_words_in_lines(lines_structure)
-                local count = 0
-                for _, line in ipairs(lines_structure) do
-                    for _, span in ipairs(line) do
-                        for _ in span.text:gmatch("[^%s]+") do
-                            count = count + 1
-                        end
-                    end
-                end
-                return count
-            end
-            
-            -- Helper: Apply Karaoke Styling
-            local function apply_karaoke_style(lines_structure, active_idx)
-                if not active_idx then return lines_structure end
-                
-                local new_lines = {}
-                local word_counter = 0
-                
-                for _, line in ipairs(lines_structure) do
-                    local new_line = {}
-                    for _, span in ipairs(line) do
-                        local text = span.text
-                        
-                        -- Manual tokenizer to preserve exact original text and spacing
-                        local current_idx = 1
-                        while current_idx <= #text do
-                            -- Find next non-space
-                            local s_start, s_end = text:find("[^%s]+", current_idx)
-                            
-                            if not s_start then
-                                -- Only whitespace remaining
-                                local remainder = text:sub(current_idx)
-                                if #remainder > 0 then
-                                    table.insert(new_line, {
-                                        text = remainder,
-                                        b = (word_counter < active_idx) or span.b,
-                                        i = span.i, u = span.u, s = span.s, u_wave = span.u_wave,
-                                        comment = span.comment
-                                    })
-                                end
-                                break
-                            end
-                            
-                            -- Space before word
-                            if s_start > current_idx then
-                                local space = text:sub(current_idx, s_start - 1)
-                                table.insert(new_line, {
-                                    text = space,
-                                    b = (word_counter < active_idx) or span.b,
-                                    i = span.i, u = span.u, s = span.s, u_wave = span.u_wave,
-                                    comment = span.comment
-                                })
-                            end
-                            
-                            -- The Word
-                            word_counter = word_counter + 1
-                            local word = text:sub(s_start, s_end)
-                             table.insert(new_line, {
-                                text = word,
-                                b = (word_counter <= active_idx) or span.b,
-                                i = span.i, u = span.u, s = span.s, u_wave = span.u_wave,
-                                comment = span.comment
-                            })
-                            
-                            current_idx = s_end + 1
-                        end
-                    end
-                    table.insert(new_lines, new_line)
-                end
-                return new_lines
-            end
+
 
             for region_num, rgn in ipairs(active_regions) do
                 local lines
@@ -9821,7 +10043,7 @@ local function draw_prompter(input_queue)
                     local display_name = rgn.name
                     if not display_name or display_name:gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
                     if display_name ~= draw_prompter_cache.last_text then
-                        draw_prompter_cache.lines = parse_rich_text(display_name)
+                        draw_prompter_cache.lines = parse_prompter_to_lines(display_name)
                         draw_prompter_cache.last_text = display_name
                     end
                     lines = draw_prompter_cache.lines
@@ -9840,7 +10062,7 @@ local function draw_prompter(input_queue)
                     -- Parse text for other regions
                     local display_name = rgn.name
                     if not display_name or display_name:gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
-                    lines = parse_rich_text(display_name)
+                    lines = parse_prompter_to_lines(display_name)
                     if cfg.karaoke_mode then
                         local w_count = count_words_in_lines(lines)
                         local k_idx = get_karaoke_word_index(rgn.pos, rgn.rgnend, cur_pos, w_count)
@@ -9916,11 +10138,11 @@ local function draw_prompter(input_queue)
             local unscaled_next_h = 0
             if cfg.p_next and next_r then
                 gfx.setfont(F.nxt, cfg.p_font, cfg.n_fsize)
-                local n_lines = parse_rich_text(next_r.name)
+                local n_lines = parse_prompter_to_lines(next_r.name)
                 unscaled_next_h = #n_lines * math.floor(gfx.texth * (cfg.n_lheight or 1.0))
                 
                 if cfg.show_next_two and next_r2 then
-                    local n_lines2 = parse_rich_text(next_r2.name)
+                    local n_lines2 = parse_prompter_to_lines(next_r2.name)
                     unscaled_next_h = unscaled_next_h + S(15) + #n_lines2 * math.floor(gfx.texth * (cfg.n_lheight or 1.0))
                 end
             end
@@ -9959,11 +10181,11 @@ local function draw_prompter(input_queue)
             local next_h = 0
             if cfg.p_next and next_r then
                 gfx.setfont(F.nxt, cfg.p_font, scaled_n_fsize)
-                local n_lines = parse_rich_text(next_r.name)
+                local n_lines = parse_prompter_to_lines(next_r.name)
                 next_h = #n_lines * math.floor(gfx.texth * (cfg.n_lheight or 1.0))
                 
                 if cfg.show_next_two and next_r2 then
-                    local n_lines2 = parse_rich_text(next_r2.name)
+                    local n_lines2 = parse_prompter_to_lines(next_r2.name)
                     next_h = next_h + S(15) + #n_lines2 * math.floor(gfx.texth * (cfg.n_lheight or 1.0))
                 end
             end
@@ -9972,7 +10194,7 @@ local function draw_prompter(input_queue)
             local max_c_raw_w = 0
             gfx.setfont(F.cor, cfg.p_font, cfg.c_fsize)
             for _, m in ipairs(cms) do
-                local c_lines = parse_rich_text(m.name or "")
+                local c_lines = parse_prompter_to_lines(m.name or "")
                 for _, line in ipairs(c_lines) do
                     local raw = ""
                     for _, span in ipairs(line) do raw = raw .. span.text:gsub(acute, "") end
@@ -10059,7 +10281,7 @@ local function draw_prompter(input_queue)
                     local y = current_y + (i-1) * block.lh
                     -- Show actor on first line of block only
                     local act = (i == 1) and block.actor or nil
-                    local lx, ly, lw, l_h = draw_rich_line(line, center_x, y + y_off, F.lrg, cfg.p_font, block.draw_size, false, act)
+                    local lx, ly, lw, l_h = draw_rich_line(line, center_x, y + y_off, F.lrg, cfg.p_font, block.draw_size, false, act, available_w, content_offset_left, content_offset_right)
                     
                     -- Update bounds for this block
                     if lx < block_x1 then block_x1 = lx end
@@ -10081,14 +10303,14 @@ local function draw_prompter(input_queue)
             end
             
             -- Double-click to edit (check all blocks)
-            if is_mouse_clicked() and (not dict_modal.show) and (not mouse_handled) then
+            if is_mouse_clicked() and (not dict_modal.show) and (not UI_STATE.mouse_handled) then
                 -- Check which block was clicked
                 for _, bounds in ipairs(block_bounds) do
                     if gfx.mouse_x >= bounds.x1 and gfx.mouse_x <= bounds.x2 and
                        gfx.mouse_y >= bounds.y1 and gfx.mouse_y <= bounds.y2 then
-                        mouse_handled = true
+                        UI_STATE.mouse_handled = true
                         local now = reaper.time_precise()
-                        if last_click_row == -1 and (now - last_click_time) < 0.5 then
+                        if UI_STATE.last_click_row == -1 and (now - UI_STATE.last_click_time) < 0.5 then
                             -- Find the corresponding ass_line for this region
                             for i, line in ipairs(ass_lines) do
                                 if math.abs(line.t1 - bounds.region.pos) < 0.01 and 
@@ -10103,10 +10325,10 @@ local function draw_prompter(input_queue)
                                     break
                                 end
                             end
-                            last_click_row = 0
+                            UI_STATE.last_click_row = 0
                         else
-                            last_click_time = now
-                            last_click_row = -1
+                            UI_STATE.last_click_time = now
+                            UI_STATE.last_click_row = -1
                         end
                         break -- Stop checking other blocks once we found a hit
                     end
@@ -10115,9 +10337,8 @@ local function draw_prompter(input_queue)
             
             -- Show Next Line & Corrections Drawing
             -- (next_r and current_k were already calculated above)
-            -- Draw corrections
             if corrections_h > 0 then
-                render_corrections(cms, current_y, scaled_c_fsize)
+                render_corrections(cms, current_y, scaled_c_fsize, center_x, available_w, content_offset_left, content_offset_right)
                 current_y = current_y + corrections_h + S_GAP
             end
             
@@ -10167,10 +10388,10 @@ local function draw_prompter(input_queue)
             if next_rgn then
                 -- Estimate height for wait mode
                 gfx.setfont(F.nxt, cfg.p_font, cfg.n_fsize)
-                local n_lines = parse_rich_text(next_rgn.name)
+                local n_lines = parse_prompter_to_lines(next_rgn.name)
                 local n_h_est = #n_lines * math.floor(gfx.texth * (cfg.n_lheight or 1.0)) + 30
                 if cfg.show_next_two and next_rgn2 then
-                    local n_lines2 = parse_rich_text(next_rgn2.name)
+                    local n_lines2 = parse_prompter_to_lines(next_rgn2.name)
                     n_h_est = n_h_est + #n_lines2 * math.floor(gfx.texth * (cfg.n_lheight or 1.0)) + 15
                 end
                 
@@ -10202,10 +10423,9 @@ local function draw_prompter(input_queue)
                     end
                 end
                 
-                -- Draw corrections with rule-based timing
                 if ch > 0 then
                     gfx.setfont(F.cor, cfg.p_font, wait_draw_c_fsize)
-                    render_corrections(cms, n_y - ch - 15, wait_draw_c_fsize)
+                    render_corrections(cms, n_y - ch - 15, wait_draw_c_fsize, center_x, available_w, content_offset_left, content_offset_right)
                 end
             else
                 -- Just corrections? (if playhead after all subtitles but markers are ahead)
@@ -10250,13 +10470,13 @@ local function draw_prompter(input_queue)
             gfx.line(ax - 15, ay - sz, ax + sz - 15, ay, 1)
             gfx.line(ax + sz - 15, ay, ax - 15, ay + sz, 1)
 
-            if hover and gfx.mouse_cap == 1 and last_mouse_cap == 0 and not mouse_handled then
+            if hover and gfx.mouse_cap == 1 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
                 reaper.SetEditCurPos(next_rgn.pos, true, true) -- true, true = move view AND seek play
                 
                 -- Robust focus return for macOS
                 return_focus_to_reaper()
                 
-                mouse_handled = true
+                UI_STATE.mouse_handled = true
             end
         end
 
@@ -10312,71 +10532,8 @@ local function draw_prompter(input_queue)
         gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb)
     end
 
-    -- Info Overlay (OVER EVERYTHING ELSE)
-    if cfg.p_info then
-        gfx.setfont(F.std)
-        gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.5)
-        
-        local left_str = format_timestamp(reaper.GetCursorPosition() + 0.001)
-        local right_str = ""
-        
-        if #active_regions > 0 then
-            local r = active_regions[1]
-            right_str = "#" .. tostring(r.idx)
-        end
-        
-        -- Draw Left Info (Time / Range)
-        if left_str ~= "" then
-            gfx.x = content_offset_left + S(10)
-            gfx.y = S(30)
-            gfx.drawstr(left_str)
-            
-            -- Interaction: Double Click to copy
-            if is_mouse_clicked() and not mouse_handled then
-                local tw, th = gfx.measurestr(left_str)
-                if gfx.mouse_x >= (content_offset_left + S(10)) and gfx.mouse_x <= (content_offset_left + S(10)) + tw and
-                   gfx.mouse_y >= S(30) and gfx.mouse_y <= S(30) + th then
-                    mouse_handled = true
-                    local now = reaper.time_precise()
-                    if last_click_row == -6 and (now - last_click_time) < 0.3 then
-                        set_clipboard(left_str)
-                        show_snackbar("Скопійовано: " .. left_str, "info")
-                        last_click_row = 0
-                    else
-                        last_click_time = now
-                        last_click_row = -6
-                    end
-                end
-            end
-        end
-        
-        -- Draw Right Info (#Index)
-        if right_str ~= "" then
-            local iw, ih = gfx.measurestr(right_str)
-            gfx.x = gfx.w - iw - S(10)
-            gfx.y = S(30)
-            gfx.drawstr(right_str)
-            
-            -- Interaction: Double Click to copy
-            if is_mouse_clicked() and not mouse_handled then
-                if gfx.mouse_x >= gfx.w - iw - S(10) and gfx.mouse_x <= gfx.w - S(10) and
-                   gfx.mouse_y >= S(30) and gfx.mouse_y <= S(30) + ih then
-                    mouse_handled = true
-                    local now = reaper.time_precise()
-                    if last_click_row == -7 and (now - last_click_time) < 0.3 then
-                        set_clipboard(right_str)
-                        show_snackbar("Скопійовано: " .. right_str, "info")
-                        last_click_row = 0
-                    else
-                        last_click_time = now
-                        last_click_row = -7
-                    end
-                end
-            end
-        end
-        
-        gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 1)
-    end
+    -- Info Overlay graphics (OVER EVERYTHING ELSE)
+    draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions)
 
     -- === DRAWER UI DRAWING (OVER EVERYTHING) ===
     if cfg.p_drawer then
@@ -10384,31 +10541,8 @@ local function draw_prompter(input_queue)
     end
     -- === END DRAWER UI ===
 
-    -- Handle Right-Click Context Menu for Overlay (Moved here to avoid drawer conflict)
-    if is_mouse_clicked(2) and not mouse_handled then
-        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-        local is_docked = gfx.dock(-1) > 0
-        local dock_check = is_docked and "!" or ""
-        local menu = "Відобразити SubOverlay від Lionzz|Відобразити Словник||" .. dock_check .. "Закріпити вікно (Dock)"
-        
-        local ret = gfx.showmenu(menu)
-        mouse_handled = true -- Tell framework we handled this click
-        
-        if ret == 1 then
-            run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею")
-        elseif ret == 2 then
-            run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника")
-        elseif ret == 3 then
-            -- Toggle Docking
-            if is_docked then
-                gfx.dock(0)
-                reaper.SetExtState(section_name, "dock", "0", true)
-            else
-                gfx.dock(1) -- Dock to last valid docker
-                reaper.SetExtState(section_name, "dock", tostring(gfx.dock(-1)), true)
-            end
-        end
-    end
+    -- Handle Right-Click Context Menu for Overlay
+    handle_prompter_context_menu()
 end
 
 local last_settings_h = 0 -- Persistent storage for Settings height
@@ -10473,33 +10607,33 @@ local function draw_settings()
     
     -- Accumulate target scroll
     if gfx.mouse_wheel ~= 0 then
-        target_scroll_y = target_scroll_y - (gfx.mouse_wheel * 0.25)
+        UI_STATE.target_scroll_y = UI_STATE.target_scroll_y - (gfx.mouse_wheel * 0.25)
         -- Immediate Clamp on input
-        if target_scroll_y < 0 then target_scroll_y = 0 end
-        if target_scroll_y > max_scroll then target_scroll_y = max_scroll end
+        if UI_STATE.target_scroll_y < 0 then UI_STATE.target_scroll_y = 0 end
+        if UI_STATE.target_scroll_y > max_scroll then UI_STATE.target_scroll_y = max_scroll end
         
         gfx.mouse_wheel = 0
     end
     
     -- Smoothly interpolate
-    local diff = target_scroll_y - scroll_y
+    local diff = UI_STATE.target_scroll_y - UI_STATE.scroll_y
     if math.abs(diff) > 0.5 then
-        scroll_y = scroll_y + (diff * 0.8)
+        UI_STATE.scroll_y = UI_STATE.scroll_y + (diff * 0.8)
     else
-        scroll_y = target_scroll_y
+        UI_STATE.scroll_y = UI_STATE.target_scroll_y
     end
     
-    -- HARD Clamp scroll_y before drawing to prevent "blinking"
-    if scroll_y < 0 then scroll_y = 0 end
-    if scroll_y > max_scroll then scroll_y = max_scroll end
+    -- HARD Clamp UI_STATE.scroll_y before drawing to prevent "blinking"
+    if UI_STATE.scroll_y < 0 then UI_STATE.scroll_y = 0 end
+    if UI_STATE.scroll_y > max_scroll then UI_STATE.scroll_y = max_scroll end
     
     -- Reset tooltip state at the start of settings drawing
-    tooltip_state.text = ""
+    UI_STATE.tooltip_state.text = ""
     gfx.setfont(F.std)
 
     -- Helper to offset Y and check boundaries (INTEGER ROUNDING)
     local function get_y(offset)
-        return start_y + offset - math.floor(scroll_y)
+        return start_y + offset - math.floor(UI_STATE.scroll_y)
     end
     
     -- Button Helper wrapper for scrolling
@@ -10521,11 +10655,11 @@ local function draw_settings()
 
         if hover and tooltip then
             local id = "btn_" .. text .. "_" .. y_rel
-            if tooltip_state.hover_id ~= id then
-                tooltip_state.hover_id = id
-                tooltip_state.start_time = reaper.time_precise()
+            if UI_STATE.tooltip_state.hover_id ~= id then
+                UI_STATE.tooltip_state.hover_id = id
+                UI_STATE.tooltip_state.start_time = reaper.time_precise()
             end
-            tooltip_state.text = tooltip
+            UI_STATE.tooltip_state.text = tooltip
         end
 
         if hover and is_mouse_clicked() then return true end
@@ -10562,11 +10696,11 @@ local function draw_settings()
         
         if hover and tooltip then
             local id = "chk_" .. text .. "_" .. y_rel
-            if tooltip_state.hover_id ~= id then
-                tooltip_state.hover_id = id
-                tooltip_state.start_time = reaper.time_precise()
+            if UI_STATE.tooltip_state.hover_id ~= id then
+                UI_STATE.tooltip_state.hover_id = id
+                UI_STATE.tooltip_state.start_time = reaper.time_precise()
             end
-            tooltip_state.text = tooltip
+            UI_STATE.tooltip_state.text = tooltip
         end
 
         return hover and is_mouse_clicked()
@@ -10585,11 +10719,11 @@ local function draw_settings()
             local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + tw and gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + th)
             if hover then
                 local id = "txt_" .. text .. "_" .. y_rel
-                if tooltip_state.hover_id ~= id then
-                    tooltip_state.hover_id = id
-                    tooltip_state.start_time = reaper.time_precise()
+                if UI_STATE.tooltip_state.hover_id ~= id then
+                    UI_STATE.tooltip_state.hover_id = id
+                    UI_STATE.tooltip_state.start_time = reaper.time_precise()
                 end
-                tooltip_state.text = tooltip
+                UI_STATE.tooltip_state.text = tooltip
             end
         end
     end
@@ -11131,7 +11265,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(40)
     
     last_settings_h = y_cursor
-    target_scroll_y = draw_scrollbar(gfx.w - S(10), start_y, S(10), avail_h, last_settings_h, avail_h, target_scroll_y)
+    UI_STATE.target_scroll_y = draw_scrollbar(gfx.w - S(10), start_y, S(10), avail_h, last_settings_h, avail_h, UI_STATE.target_scroll_y)
 end
 
 -- Helper to calculate sort value for a table row
@@ -11603,7 +11737,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                     end
                 end
                 
-                save_project_data(last_project_id)
+                save_project_data(UI_STATE.last_project_id)
                 show_snackbar("Імпортовано " .. count .. " акторів", "success")
             else
                 show_snackbar("Нових акторів не знайдено", "info")
@@ -11672,7 +11806,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             -- Right Click
             if hover and is_right_mouse_clicked() then
                 -- ... (Context Menu Logic) ...
-                mouse_handled = true
+                UI_STATE.mouse_handled = true
 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                 local menu_str2 = "Змінити ім'я|Видалити ім'я"
@@ -11690,7 +11824,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         if target_exists then
                             push_undo("Об'єднати актора '" .. actor .. "' з '" .. new_name.. "' (Режисер)")
                             table.remove(director_actors, i)
-                            save_project_data(last_project_id)
+                            save_project_data(UI_STATE.last_project_id)
                             local ops = rename_actor_globally(actor, new_name)
 
                             -- Force prompter drawer caches to refresh
@@ -11713,7 +11847,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         else
                             push_undo("Змінити ім'я актора " .. actor .. " -> " .. new_name)
                             director_actors[i] = new_name
-                            save_project_data(last_project_id)
+                            save_project_data(UI_STATE.last_project_id)
                             local ops = rename_actor_globally(actor, new_name)
 
                             -- Force prompter drawer caches to refresh
@@ -11741,7 +11875,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                     if ok == 6 then
                         push_undo("Видалити актора '" .. actor .. "' (Режисер)")
                         table.remove(director_actors, i)
-                        save_project_data(last_project_id)
+                        save_project_data(UI_STATE.last_project_id)
                         local ops = delete_actor_globally(actor)
 
                         -- Force prompter drawer caches to refresh
@@ -11794,7 +11928,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 if not exists then
                     push_undo("Додати актора '" .. name .. "' (Режисер)")
                     table.insert(director_actors, name)
-                    save_project_data(last_project_id)
+                    save_project_data(UI_STATE.last_project_id)
                 end
             end
         end
@@ -11862,7 +11996,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
 end
 
 local function draw_table(input_queue)
-    local show_actor = ass_file_loaded
+    local show_actor = UI_STATE.ass_file_loaded
     local start_y = S(65)
     col_vis_menu.handled = false -- Reset per frame
     
@@ -11991,7 +12125,7 @@ local function draw_table(input_queue)
     end
     
     if table_filter_state.text ~= prev_text then
-        scroll_y = 0
+        UI_STATE.scroll_y = 0
     end
     
     -- INLINE FIND/REPLACE UI
@@ -12154,7 +12288,7 @@ local function draw_table(input_queue)
             ass_lines = new_lines
             cleanup_actors()
             rebuild_regions()
-            save_project_data(last_project_id)
+            save_project_data(UI_STATE.last_project_id)
         end
         
         if total_deleted > 0 then
@@ -12227,10 +12361,10 @@ local function draw_table(input_queue)
                             local row_h_local = layout.h
                             local view_h = gfx.h - S(110) -- Approximate available height
                             
-                            if item_y < target_scroll_y then
-                                target_scroll_y = item_y
-                            elseif item_y + row_h_local > target_scroll_y + view_h then
-                                target_scroll_y = item_y + row_h_local - view_h
+                            if item_y < UI_STATE.target_scroll_y then
+                                UI_STATE.target_scroll_y = item_y
+                            elseif item_y + row_h_local > UI_STATE.target_scroll_y + view_h then
+                                UI_STATE.target_scroll_y = item_y + row_h_local - view_h
                             end
                         end
                     end
@@ -12241,7 +12375,7 @@ local function draw_table(input_queue)
 
     -- --- DATA SOURCE PREPARATION (CACHED) ---
     local current_state_count = reaper.GetProjectStateChangeCount(0)
-    local current_proj_id = last_project_id
+    local current_proj_id = UI_STATE.last_project_id
     local cache_invalid = (table_data_cache.state_count ~= current_state_count or
                            table_data_cache.project_id ~= current_proj_id or
                            table_data_cache.filter ~= table_filter_state.text or
@@ -12506,7 +12640,7 @@ local function draw_table(input_queue)
                 -- 2. Scroll
                 if table_layout_cache[i] then
                     local layout = table_layout_cache[i]
-                    target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
+                    UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
                 end
                 
                 director_state.pending_scroll_id = nil
@@ -12521,7 +12655,7 @@ local function draw_table(input_queue)
     local current_pos = reaper.GetPlayState() > 0 and play_pos or edit_pos
     
     -- Only auto-scroll if position changed significantly (user jumped) OR line changed
-    local pos_changed = math.abs(current_pos - last_tracked_pos) > 0.5
+    local pos_changed = math.abs(current_pos - UI_STATE.last_tracked_pos) > 0.5
     
     -- Find which line corresponds to current position
     local active_line_idx = nil
@@ -12538,7 +12672,7 @@ local function draw_table(input_queue)
     -- 3. AND not suppressed by manual interaction
     
     -- Suppress auto-scroll immediately if user just clicked in the table area
-    if (gfx.mouse_cap & 1 == 1) and (last_mouse_cap & 1 == 0) and gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h then
+    if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h then
         suppress_auto_scroll_frames = 5
     end
     
@@ -12547,31 +12681,31 @@ local function draw_table(input_queue)
     end
     
     local line_changed = (active_line_idx ~= last_auto_scroll_idx)
-    if (pos_changed or line_changed) and not skip_auto_scroll and suppress_auto_scroll_frames == 0 then
-        last_tracked_pos = current_pos
+    if (pos_changed or line_changed) and not UI_STATE.skip_auto_scroll and suppress_auto_scroll_frames == 0 then
+        UI_STATE.last_tracked_pos = current_pos
         last_auto_scroll_idx = active_line_idx
         
         if active_line_idx and table_layout_cache[active_line_idx] then
             local layout = table_layout_cache[active_line_idx]
             -- Center the line
-            target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
+            UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
         end
     end
     
     -- Smooth Scroll Logic
     local mouse_in_director = cfg.director_mode and gfx.mouse_y >= gfx.h - h_director
     if gfx.mouse_wheel ~= 0 and not mouse_in_director then
-        target_scroll_y = target_scroll_y - (gfx.mouse_wheel * 0.25)
-        if target_scroll_y < 0 then target_scroll_y = 0 end
-        if target_scroll_y > max_scroll then target_scroll_y = max_scroll end
+        UI_STATE.target_scroll_y = UI_STATE.target_scroll_y - (gfx.mouse_wheel * 0.25)
+        if UI_STATE.target_scroll_y < 0 then UI_STATE.target_scroll_y = 0 end
+        if UI_STATE.target_scroll_y > max_scroll then UI_STATE.target_scroll_y = max_scroll end
         gfx.mouse_wheel = 0
     end
 
-    local diff = target_scroll_y - scroll_y
+    local diff = UI_STATE.target_scroll_y - UI_STATE.scroll_y
     if math.abs(diff) > 0.5 then
-        scroll_y = scroll_y + (diff * 0.8)
+        UI_STATE.scroll_y = UI_STATE.scroll_y + (diff * 0.8)
     else
-        scroll_y = target_scroll_y
+        UI_STATE.scroll_y = UI_STATE.target_scroll_y
     end
 
     -- Prepare Buffer 98 for Rows (Clipping)
@@ -12581,10 +12715,10 @@ local function draw_table(input_queue)
     set_color(UI.C_BG)
     gfx.rect(0, 0, gfx.w, avail_h, 1)
     
-    -- Find starting index based on scroll_y and layout cache
+    -- Find starting index based on UI_STATE.scroll_y and layout cache
     local start_idx = 1
     for i, layout in ipairs(table_layout_cache) do
-        if layout.y + layout.h > scroll_y then
+        if layout.y + layout.h > UI_STATE.scroll_y then
             start_idx = i
             break
         end
@@ -12594,13 +12728,13 @@ local function draw_table(input_queue)
         local layout = table_layout_cache[i]
         if not layout then break end
         
-        local screen_y = content_y + (layout.y - scroll_y)
+        local screen_y = content_y + (layout.y - UI_STATE.scroll_y)
         local row_h_dynamic = layout.h
         
         -- Stop if we are below visible area
         if screen_y > content_y + avail_h then break end
         
-        local buf_y = layout.y - scroll_y
+        local buf_y = layout.y - UI_STATE.scroll_y
 
         -- ASS mode: show all lines with checkbox
         local line = data_source[i]
@@ -12776,7 +12910,7 @@ local function draw_table(input_queue)
             
             -- Click logic
             -- FIX: Check bit 1 (Left Mouse) regardless of other flags
-            if (gfx.mouse_cap & 1 == 1) and (last_mouse_cap & 1 == 0) and not mouse_in_menu and not col_vis_menu.handled then
+            if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and not mouse_in_menu and not col_vis_menu.handled then
                 -- Safety check: click must be within both the visible content area AND the row itself
                 -- Also check horizontal bounds to prevent clicks in Director Panel (when docked right)
                 if gfx.mouse_x < avail_w and
@@ -12840,7 +12974,7 @@ local function draw_table(input_queue)
                             table_selection = {}
                             table_selection[original_idx] = true
                             last_selected_row = i 
-                            last_tracked_pos = line.t1 -- Always sync position on click
+                            UI_STATE.last_tracked_pos = line.t1 -- Always sync position on click
                             last_auto_scroll_idx = i -- Sync to prevent auto-centering immediately after click
                             
                             -- Clear input focus on row click
@@ -12853,7 +12987,7 @@ local function draw_table(input_queue)
                             local replica_x_start = cfg.reader_mode and 0 or x_off[#x_off]
                             if gfx.mouse_x >= replica_x_start then
                                 local now = reaper.time_precise()
-                                if last_click_row == i and (now - last_click_time) < 0.5 then
+                                if UI_STATE.last_click_row == i and (now - UI_STATE.last_click_time) < 0.5 then
                                     -- Double-click on text
                                     if line.is_marker then
                                         -- Edit marker name
@@ -12890,10 +13024,10 @@ local function draw_table(input_queue)
                                             last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
                                         end, original_idx, ass_lines)
                                     end
-                                    last_click_row = 0
+                                    UI_STATE.last_click_row = 0
                                 else
-                                    last_click_time = now
-                                    last_click_row = i
+                                    UI_STATE.last_click_time = now
+                                    UI_STATE.last_click_row = i
                                     reaper.SetEditCurPos(line.t1, true, false)
                                 end
                             else
@@ -12905,12 +13039,12 @@ local function draw_table(input_queue)
                 end
             -- Fixed duplicate block logic
                     
-            elseif (gfx.mouse_cap & 2 == 2) and (last_mouse_cap & 2 == 0) and not mouse_in_menu then
+            elseif (gfx.mouse_cap & 2 == 2) and (UI_STATE.last_mouse_cap & 2 == 0) and not mouse_in_menu then
                 -- Right Click on Row (with safety check)
                 if gfx.mouse_x < avail_w and
                    gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h and
                    gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h_dynamic then
-                    mouse_handled = true -- Suppress global menu
+                    UI_STATE.mouse_handled = true -- Suppress global menu
                     
                     -- If right-clicked on non-selected row (marker or line), select it first
                     if not table_selection[original_idx] then
@@ -13060,7 +13194,7 @@ local function draw_table(input_queue)
     gfx.setfont(F.std) -- RESTORE standard font for menus and bars
     
     -- Scrollbar
-    target_scroll_y = draw_scrollbar(gfx.w - 10, content_y, 10, avail_h, total_h, avail_h, target_scroll_y)
+    UI_STATE.target_scroll_y = draw_scrollbar(gfx.w - 10, content_y, 10, avail_h, total_h, avail_h, UI_STATE.target_scroll_y)
     
     -- Draw Director Panel
     if cfg.director_mode then
@@ -13654,15 +13788,15 @@ local function main()
         text_editor_state.needs_focus_nudge = text_editor_state.needs_focus_nudge - 1
     end
 
-    tooltip_state.text = ""
-    tooltip_state.immediate = false
-    mouse_handled = false
+    UI_STATE.tooltip_state.text = ""
+    UI_STATE.tooltip_state.immediate = false
+    UI_STATE.mouse_handled = false
     -- Check if project changed (tab switch)
     local proj, filename = reaper.EnumProjects(-1)
     local current_project_id = proj and (tostring(proj) .. "_" .. (filename or "unsaved")) or "none"
-    if current_project_id ~= last_project_id then
-        save_session_state(last_project_id)
-        last_project_id = current_project_id
+    if current_project_id ~= UI_STATE.last_project_id then
+        save_session_state(UI_STATE.last_project_id)
+        UI_STATE.last_project_id = current_project_id
         
         -- Reset and load
         load_project_data()
@@ -13732,19 +13866,19 @@ local function main()
     else
         local inside_window = gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= 0 and gfx.mouse_y <= gfx.h
 
-        if current_tab == 1 then 
+        if UI_STATE.current_tab == 1 then 
             if inside_window then handle_drag_drop() end
             draw_file()
-        elseif current_tab == 2 then draw_table(input_queue)
-        elseif current_tab == 3 then draw_prompter(input_queue) 
-        elseif current_tab == 4 then draw_settings() end
+        elseif UI_STATE.current_tab == 2 then draw_table(input_queue)
+        elseif UI_STATE.current_tab == 3 then draw_prompter(input_queue) 
+        elseif UI_STATE.current_tab == 4 then draw_settings() end
         
         -- Draw Tabs LAST (Z-Index top)
         draw_tabs()
         
         -- Context Menu logic (Right-click on tab bar / empty space)
-        -- Must strictly check mouse_handled AND window bounds to avoid global capture.
-        if inside_window and gfx.mouse_cap == 2 and last_mouse_cap == 0 and not mouse_handled then
+        -- Must strictly check UI_STATE.mouse_handled AND window bounds to avoid global capture.
+        if inside_window and gfx.mouse_cap == 2 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local dock_state = gfx.dock(-1)
             local check = (dock_state > 0) and "!" or ""
@@ -13791,18 +13925,18 @@ local function main()
             if not ok then
                 reaper.ShowConsoleMsg("Coroutine Error: " .. tostring(err) .. "\n")
                 global_coroutine = nil
-                script_loading_state.active = false
+                UI_STATE.script_loading_state.active = false
             end
         elseif status == "dead" then
             global_coroutine = nil
             -- Only turn off loader if no other async tasks are pending
             if #global_async_pool == 0 then
-                script_loading_state.active = false
+                UI_STATE.script_loading_state.active = false
             end
         end
     end
 
-    last_mouse_cap = gfx.mouse_cap
+    UI_STATE.last_mouse_cap = gfx.mouse_cap
 
     reaper.defer(main)
 end
