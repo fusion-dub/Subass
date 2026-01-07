@@ -201,7 +201,7 @@ update_prompter_fonts()
 
 -- Grouped State (to fix Lua local variable limit)
 local UI_STATE = {
-    tabs = {"Нотатки", "Репліки", "Суфлер", "Налаштування"},
+    tabs = {"Файл", "Репліки", "Суфлер", "Налаштування"},
     current_tab = 3, -- Default to Prompter
     last_mouse_cap = 0,
     mouse_handled = false,
