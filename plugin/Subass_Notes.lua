@@ -61,7 +61,7 @@ local cfg = {
     gemini_api_key = get_set("gemini_api_key", ""),
     p_drawer = (get_set("p_drawer", "1") == "1" or get_set("p_drawer", 1) == 1),
     p_drawer_left = (get_set("p_drawer_left", "1") == "1" or get_set("p_drawer_left", 1) == 1),
-    p_corr = (get_set("p_corr", "0") == "1" or get_set("p_corr", 0) == 1),
+    p_corr = (get_set("p_corr", "1") == "1" or get_set("p_corr", 1) == 1),
     c_fsize = get_set("c_fsize", 18),
     c_cr = get_set("c_cr", 1.0),
     c_cg = get_set("c_cg", 0.3),
@@ -77,7 +77,7 @@ local cfg = {
     col_table_cps = (get_set("col_table_cps", "1") == "1" or get_set("col_table_cps", 1) == 1),
     col_table_actor = (get_set("col_table_actor", "1") == "1" or get_set("col_table_actor", 1) == 1),
     
-    show_markers_in_table = (get_set("show_markers_in_table", "0") == "1" or get_set("show_markers_in_table", 0) == 1),
+    show_markers_in_table = (get_set("show_markers_in_table", "1") == "1" or get_set("show_markers_in_table", 1) == 1),
 
     -- Column Widths
     col_w_enabled = get_set("col_w_enabled", 25),
