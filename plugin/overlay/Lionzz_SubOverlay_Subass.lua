@@ -1278,6 +1278,7 @@ local function sync_external_data()
                         t2 = tonumber(t2) or 0,
                         actor = act or "",
                         text = decoded_text,
+                        enabled = (en == "1"), -- Store enabled flag
                         rgn_idx = tonumber(r_idx)
                     })
                 end
@@ -1316,7 +1317,7 @@ local function extract_actor(name, t1, t2, rgn_id)
             if math.abs(l.t1 - t1) < 0.005 and math.abs(l.t2 - t2) < 0.015 then
                 -- Також перевіряємо текст (без урахування актора в дужках)
                 if l.text == name or l.text:gsub("\\n", "\n") == name then
-                    actor = l.actor
+                        actor = l.actor
                     -- Не перериваємо відразу, якщо ID не збігається, можливо є кращий збіг далі
                 end
             end
@@ -1426,25 +1427,45 @@ local function get_current_and_next_region_names()
     table.sort(regions, function(a,b) return a.start < b.start end)
 
     local current_list = {}
+    local main_region_ids = {} -- Set of active region IDs
     local start_pos, stop_pos = nil, nil
     local last_overlapping_idx = 0
     local found_overlap = false
 
+    -- Create lookup for enabled status from external data
+    local enabled_regions = {}
+    if #external_ass_lines > 0 then
+        for _, l in ipairs(external_ass_lines) do
+            if l.rgn_idx then
+                enabled_regions[l.rgn_idx] = l.enabled
+            end
+        end
+    end
+
     -- 1. Find ALL overlapping regions
     for i, r in ipairs(regions) do
         if pos >= r.start and pos < r.stop then
-            local r_name = r.name
-            if show_actor_name then
-                local act, cln = extract_actor(r_name, r.start, r.stop, r.rgn_id)
-                if act ~= "" then r_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
+            -- Check if region is enabled (default to true if not in external database yet)
+            local is_enabled = true
+            if enabled_regions[r.rgn_id] == false then
+                is_enabled = false
             end
-            -- Inject metadata tag with exact times and region index
-            local text_with_meta = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", r.start, r.stop, r.rgn_id, r_name)
-            table.insert(current_list, text_with_meta)
-            if not start_pos then start_pos = r.start end
-            stop_pos = r.stop
-            last_overlapping_idx = i
-            found_overlap = true
+
+            if is_enabled then
+                local r_name = r.name
+                if show_actor_name then
+                    local act, cln = extract_actor(r_name, r.start, r.stop, r.rgn_id)
+                    if act ~= "" then r_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
+                end
+                -- Inject metadata tag with exact times and region index
+                local text_with_meta = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", r.start, r.stop, r.rgn_id, r_name)
+                table.insert(current_list, text_with_meta)
+                main_region_ids[r.rgn_id] = true
+                if not start_pos then start_pos = r.start end
+                stop_pos = r.stop
+                last_overlapping_idx = i
+                found_overlap = true
+            end
         end
     end
 
@@ -1475,7 +1496,7 @@ local function get_current_and_next_region_names()
                 nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", next_r2.start, next_r2.stop, next_r2.rgn_id, nr2_name)
              end
         end
-        return current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end
+        return current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, nil, main_region_ids
     end
 
     -- 3. No overlap (Gap logic)
@@ -1517,7 +1538,7 @@ local function get_current_and_next_region_names()
                 nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[nearest_idx+2].start, regions[nearest_idx+2].stop, regions[nearest_idx+2].rgn_id, nr2_name)
             end
         end
-        return current, nextreg, regions[nearest_idx].start, regions[nearest_idx].stop, nextreg2, prev_rgn_end
+        return current, nextreg, regions[nearest_idx].start, regions[nearest_idx].stop, nextreg2, prev_rgn_end, nil, main_region_ids
     end
     
     -- always_show_next logic (when in gap and fill_gaps is OFF)
@@ -1544,12 +1565,12 @@ local function get_current_and_next_region_names()
                     nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[i+1].start, regions[i+1].stop, regions[i+1].rgn_id, nr2_name)
                 end
 
-                return "", nr_name, 0, 0, nextreg2, prev_rgn_end, r.start -- Return next_rgn_start as 7th arg for gap calc
+                return "", nr_name, 0, 0, nextreg2, prev_rgn_end, r.start, main_region_ids -- Return next_rgn_start as 7th arg for gap calc
             end
         end
     end
 
-    return "", "", 0, 0, ""
+    return "", "", 0, 0, "", 0, 0, main_region_ids
 end
 
 -- Отримання поточного та наступного текстового ітема на заданому треку
@@ -1565,6 +1586,7 @@ local function get_text_item_name(item)
     end
     return nil
 end
+
 -- Допоміжна функція для пошуку наступного текстового ітема
 local function find_next_text_item(track, start_idx)
     local items = reaper.CountTrackMediaItems(track)
@@ -1642,7 +1664,7 @@ local function get_current_and_next_items(track)
                 next_item2 = ni2_name
             end
         end
-        return current, next_item, start_pos, stop_pos, next_item2
+        return current, next_item, start_pos, stop_pos, next_item2, 0, 0, {}
     end
 
     -- Fallback / Gap logic
@@ -1685,7 +1707,7 @@ local function get_current_and_next_items(track)
                 next_item2 = ni2_name
             end
         end
-        return current, next_item, items_table[nearest_idx].start, items_table[nearest_idx].stop, next_item2
+        return current, next_item, items_table[nearest_idx].start, items_table[nearest_idx].stop, next_item2, 0, 0, {}
     end
 
     if always_show_next then
@@ -1706,12 +1728,12 @@ local function get_current_and_next_items(track)
                     next_item2 = ni2_name
                 end
                  
-                return "", ni_name, 0, 0, next_item2
+                return "", ni_name, 0, 0, next_item2, 0, 0, {}
             end
         end
     end
 
-    return "", "", 0, 0, ""
+    return "", "", 0, 0, "", 0, 0, {}
 end
 
 -- Функція для отримання координат відеовікна REAPER
@@ -1975,17 +1997,15 @@ local function loop()
             last_proj_change_count = cur_proj_change_count
             
             -- Keep track of next/prev regions for timer
-            local next_rgn_start = 0
-            local prev_rgn_end = 0
-
+            local current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start, main_region_ids
             if source_mode == 0 then
-                current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start = get_current_and_next_region_names()
+                current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start, main_region_ids = get_current_and_next_region_names()
             else
-                local tr = reaper.GetTrack(0, source_mode-1)
-                if tr then
-                    current, nextreg, start_pos, stop_pos, nextreg2 = get_current_and_next_items(tr) -- Consider updating this too if needed
+                local track = reaper.GetTrack(0, source_mode - 1)
+                if track then
+                    current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start, main_region_ids = get_current_and_next_items(track)
                 else
-                    current, nextreg, start_pos, stop_pos, nextreg2 = "", "", 0, 0, ""
+                    current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start, main_region_ids = "", "", 0, 0, "", 0, 0, nil
                 end
             end
             -- Зберігаємо в кеш
@@ -2028,9 +2048,15 @@ local function loop()
             for _, l in ipairs(external_ass_lines) do
                 -- Check overlap
                 if pos >= l.t1 and pos <= l.t2 then
-                    -- Filter out current main line (approximate time match)
+                    -- Filter out current main line
                     local is_main = false
-                    if start_pos and math.abs(l.t1 - start_pos) < 0.1 then 
+                    if l.rgn_idx then
+                        -- If we have an ID, use it for precise filtering
+                        if main_region_ids and main_region_ids[l.rgn_idx] then
+                            is_main = true
+                        end
+                    elseif start_pos and math.abs(l.t1 - start_pos) < 0.1 then 
+                        -- Fallback for items (tracks) or cases without IDs
                         is_main = true 
                     end
                     
