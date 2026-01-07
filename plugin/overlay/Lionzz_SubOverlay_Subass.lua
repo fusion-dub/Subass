@@ -14,7 +14,7 @@ local close_requested = false
 
 local cached_current, cached_next, cached_next2, cached_start, cached_stop = nil, nil, nil, nil, nil
 local external_ass_lines = {}           -- База даних реплік з Subass_Notes.lua
-local last_external_sync_time = 0      -- Час останньої синхронізації
+local last_external_sync_time = 0       -- Час останньої синхронізації
 
 -- Кеш координат відеовікна
 local video_cache_valid = false
@@ -1240,29 +1240,47 @@ local function sync_external_data()
     end
 
     local new_lines = {}
-    for line in l_dump:gmatch("([^\n]*)\n?") do
-        if line ~= "" then
-            -- Формат: t1|t2|actor|enabled|rgn_idx|index|text
-            local t1, t2, act, en, r_idx, idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
-            if not t1 then
-                -- Старий формат: t1|t2|actor|enabled|rgn_idx|text
-                t1, t2, act, en, r_idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
-            end
-            if not t1 then
-                -- Ще старіший: t1|t2|actor|enabled|text
-                t1, t2, act, en, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.*)$")
-            end
+    local l_dump = ""
+    local ok_c, count_str = reaper.GetProjExtState(0, "Subass_Notes", "ass_lines_count")
+    
+    if ok_c and count_str ~= "" then
+        local count = tonumber(count_str) or 0
+        for i = 1, count do
+            local ok_x, chunk = reaper.GetProjExtState(0, "Subass_Notes", "ass_lines_chunk_" .. i)
+            if ok_x then l_dump = l_dump .. chunk end
+        end
+    else
+        -- Fallback to legacy single-key format
+        local ok_l, legacy_dump = reaper.GetProjExtState(0, "Subass_Notes", "ass_lines")
+        if ok_l then l_dump = legacy_dump end
+    end
 
-            if t1 then
-                -- Unescape newlines from Subass_Notes format
-                local decoded_text = (txt or ""):gsub("\\n", "\n")
-                
-                table.insert(new_lines, {
-                    t1 = tonumber(t1) or 0,
-                    t2 = tonumber(t2) or 0,
-                    actor = act or "",
-                    text = decoded_text
-                })
+    if l_dump ~= "" then
+        for line in l_dump:gmatch("([^\n]*)\n?") do
+            if line ~= "" then
+                -- Формат: t1|t2|actor|enabled|rgn_idx|index|text
+                local t1, t2, act, en, r_idx, idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
+                if not t1 then
+                    -- Старий формат: t1|t2|actor|enabled|rgn_idx|text
+                    t1, t2, act, en, r_idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
+                end
+                if not t1 then
+                    -- Ще старіший: t1|t2|actor|enabled|text
+                    t1, t2, act, en, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.*)$")
+                end
+
+                if t1 then
+                    -- Unescape newlines from Subass_Notes format
+                    local decoded_text = (txt or ""):gsub("\\n", "\n")
+                    
+                    table.insert(new_lines, {
+                        t1 = tonumber(t1) or 0,
+                        t2 = tonumber(t2) or 0,
+                        actor = act or "",
+                        text = decoded_text,
+                        rgn_idx = tonumber(r_idx)
+                    })
+                end
             end
         end
     end
@@ -1270,7 +1288,7 @@ local function sync_external_data()
 end
 
 -- Helper to extract actor from name
-local function extract_actor(name, t1, t2)
+local function extract_actor(name, t1, t2, rgn_id)
     local actor = ""
     -- 1. Спроба витягти з тексту регіону
     local a_bra = name:match("^%s*%b[]")
@@ -1288,10 +1306,19 @@ local function extract_actor(name, t1, t2)
     -- 2. Спроба підтягнути з зовнішньої бази, якщо в тексті немає
     if actor == "" and t1 and t2 and #external_ass_lines > 0 then
         for _, l in ipairs(external_ass_lines) do
-            -- Шукаємо збіг за часом (з невеликим допуском 1мс)
-            if math.abs(l.t1 - t1) < 0.001 then
+            -- Пріоритет 1: Збіг за унікальним ID регіону
+            if rgn_id and l.rgn_idx == rgn_id then
                 actor = l.actor
                 break
+            end
+            
+            -- Пріоритет 2: Збіг за часом початку, кінця ТА текстом (для ітемів та старих даних)
+            if math.abs(l.t1 - t1) < 0.005 and math.abs(l.t2 - t2) < 0.015 then
+                -- Також перевіряємо текст (без урахування актора в дужках)
+                if l.text == name or l.text:gsub("\\n", "\n") == name then
+                    actor = l.actor
+                    -- Не перериваємо відразу, якщо ID не збігається, можливо є кращий збіг далі
+                end
             end
         end
     end
@@ -1408,7 +1435,7 @@ local function get_current_and_next_region_names()
         if pos >= r.start and pos < r.stop then
             local r_name = r.name
             if show_actor_name then
-                local act, cln = extract_actor(r_name, r.start, r.stop)
+                local act, cln = extract_actor(r_name, r.start, r.stop, r.rgn_id)
                 if act ~= "" then r_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
             -- Inject metadata tag with exact times and region index
@@ -1433,7 +1460,7 @@ local function get_current_and_next_region_names()
              local next_r = regions[last_overlapping_idx + 1]
              local nr_name = next_r.name
              if show_actor_name then
-                local act, cln = extract_actor(nr_name, next_r.start, next_r.stop)
+                local act, cln = extract_actor(nr_name, next_r.start, next_r.stop, next_r.rgn_id)
                 if act ~= "" then nr_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
              end
              nextreg = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", next_r.start, next_r.stop, next_r.rgn_id, nr_name)
@@ -1442,7 +1469,7 @@ local function get_current_and_next_region_names()
                 local next_r2 = regions[last_overlapping_idx + 2]
                  local nr2_name = next_r2.name
                  if show_actor_name then
-                    local act, cln = extract_actor(nr2_name, next_r2.start, next_r2.stop)
+                    local act, cln = extract_actor(nr2_name, next_r2.start, next_r2.stop, next_r2.rgn_id)
                     if act ~= "" then nr2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                  end
                 nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", next_r2.start, next_r2.stop, next_r2.rgn_id, nr2_name)
@@ -1468,7 +1495,7 @@ local function get_current_and_next_region_names()
     if fill_gaps and nearest_idx then
         local r_name = regions[nearest_idx].name
         if show_actor_name then
-            local act, cln = extract_actor(r_name, regions[nearest_idx].start, regions[nearest_idx].stop)
+            local act, cln = extract_actor(r_name, regions[nearest_idx].start, regions[nearest_idx].stop, regions[nearest_idx].rgn_id)
             if act ~= "" then r_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
         end
         current = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[nearest_idx].start, regions[nearest_idx].stop, regions[nearest_idx].rgn_id, r_name)
@@ -1476,7 +1503,7 @@ local function get_current_and_next_region_names()
         if regions[nearest_idx+1] then
             local nr_name = regions[nearest_idx+1].name
             if show_actor_name then
-                local act, cln = extract_actor(nr_name, regions[nearest_idx+1].start, regions[nearest_idx+1].stop)
+                local act, cln = extract_actor(nr_name, regions[nearest_idx+1].start, regions[nearest_idx+1].stop, regions[nearest_idx+1].rgn_id)
                 if act ~= "" then nr_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
             nextreg = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[nearest_idx+1].start, regions[nearest_idx+1].stop, regions[nearest_idx+1].rgn_id, nr_name)
@@ -1484,7 +1511,7 @@ local function get_current_and_next_region_names()
             if show_next_two and regions[nearest_idx+2] then
                 local nr2_name = regions[nearest_idx+2].name
                 if show_actor_name then
-                    local act, cln = extract_actor(nr2_name, regions[nearest_idx+2].start, regions[nearest_idx+2].stop)
+                    local act, cln = extract_actor(nr2_name, regions[nearest_idx+2].start, regions[nearest_idx+2].stop, regions[nearest_idx+2].rgn_id)
                     if act ~= "" then nr2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
                 nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[nearest_idx+2].start, regions[nearest_idx+2].stop, regions[nearest_idx+2].rgn_id, nr2_name)
@@ -1503,7 +1530,7 @@ local function get_current_and_next_region_names()
                 end
                 local nr_name = r.name
                 if show_actor_name then
-                    local act, cln = extract_actor(nr_name, r.start, r.stop)
+                    local act, cln = extract_actor(nr_name, r.start, r.stop, r.rgn_id)
                     if act ~= "" then nr_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
                 nr_name = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", r.start, r.stop, r.rgn_id, nr_name)
@@ -1511,7 +1538,7 @@ local function get_current_and_next_region_names()
                 if show_next_two and regions[i+1] then
                     local nr2_name = regions[i+1].name
                     if show_actor_name then
-                        local act, cln = extract_actor(nr2_name, regions[i+1].start, regions[i+1].stop)
+                        local act, cln = extract_actor(nr2_name, regions[i+1].start, regions[i+1].stop, regions[i+1].rgn_id)
                         if act ~= "" then nr2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                     end
                     nextreg2 = string.format("{\\meta_t1:%.3f \\meta_t2:%.3f \\meta_id:%d}%s", regions[i+1].start, regions[i+1].stop, regions[i+1].rgn_id, nr2_name)
@@ -1578,7 +1605,7 @@ local function get_current_and_next_items(track)
         if pos >= item.start and pos < item.stop then
             local i_name = item.name
             if show_actor_name then
-                local act, cln = extract_actor(i_name, item.start, item.stop)
+                local act, cln = extract_actor(i_name, item.start, item.stop, nil)
                 if act ~= "" then i_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
             table.insert(current_list, i_name)
@@ -1599,7 +1626,7 @@ local function get_current_and_next_items(track)
             if show_actor_name then
                 local ni_start = items_table[last_overlapping_idx + 1].start
                 local ni_stop = items_table[last_overlapping_idx + 1].stop
-                local act, cln = extract_actor(ni_name, ni_start, ni_stop)
+                local act, cln = extract_actor(ni_name, ni_start, ni_stop, nil)
                 if act ~= "" then ni_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
             next_item = ni_name
@@ -1609,7 +1636,7 @@ local function get_current_and_next_items(track)
                 if show_actor_name then
                     local ni2_start = items_table[last_overlapping_idx + 2].start
                     local ni2_stop = items_table[last_overlapping_idx + 2].stop
-                    local act, cln = extract_actor(ni2_name, ni2_start, ni2_stop)
+                    local act, cln = extract_actor(ni2_name, ni2_start, ni2_stop, nil)
                     if act ~= "" then ni2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
                 next_item2 = ni2_name
@@ -1632,7 +1659,7 @@ local function get_current_and_next_items(track)
     if fill_gaps and nearest_idx then
         local i_name = items_table[nearest_idx].name
         if show_actor_name then
-            local act, cln = extract_actor(i_name, items_table[nearest_idx].start, items_table[nearest_idx].stop)
+            local act, cln = extract_actor(i_name, items_table[nearest_idx].start, items_table[nearest_idx].stop, nil)
             if act ~= "" then i_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
         end
         current = i_name
@@ -1642,7 +1669,7 @@ local function get_current_and_next_items(track)
             if show_actor_name then
                 local ni_start = items_table[nearest_idx+1].start
                 local ni_stop = items_table[nearest_idx+1].stop
-                local act, cln = extract_actor(ni_name, ni_start, ni_stop)
+                local act, cln = extract_actor(ni_name, ni_start, ni_stop, nil)
                 if act ~= "" then ni_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
             end
             next_item = ni_name
@@ -1652,7 +1679,7 @@ local function get_current_and_next_items(track)
                 if show_actor_name then
                     local ni2_start = items_table[nearest_idx+2].start
                     local ni2_stop = items_table[nearest_idx+2].stop
-                    local act, cln = extract_actor(ni2_name, ni2_start, ni2_stop)
+                    local act, cln = extract_actor(ni2_name, ni2_start, ni2_stop, nil)
                     if act ~= "" then ni2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
                 next_item2 = ni2_name
@@ -1666,14 +1693,14 @@ local function get_current_and_next_items(track)
              if item.start > pos then
                 local ni_name = item.name
                 if show_actor_name then
-                    local act, cln = extract_actor(ni_name, item.start, item.stop)
+                    local act, cln = extract_actor(ni_name, item.start, item.stop, nil)
                     if act ~= "" then ni_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                 end
                  
                 if show_next_two and items_table[i+1] then
                     local ni2_name = items_table[i+1].name
                     if show_actor_name then
-                        local act, cln = extract_actor(ni2_name, items_table[i+1].start, items_table[i+1].stop)
+                        local act, cln = extract_actor(ni2_name, items_table[i+1].start, items_table[i+1].stop, nil)
                         if act ~= "" then ni2_name = "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln end
                     end
                     next_item2 = ni2_name
