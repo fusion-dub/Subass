@@ -99,6 +99,7 @@ local is_any_word_held = false
 
 -- New Countdown Timer Settings
 local count_timer = true                -- таймер зворотного відліку
+local count_timer_digit = true           -- показувати цифру зворотнього відліку
 local count_timer_bottom = false        -- прогрес-бар знизу (якщо false - по боках)
 local count_timer_scale = 25            -- масштаб шрифту таймера (в % від мінімального розміру вікна)
 
@@ -528,6 +529,7 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "invert_y_axis", tostring(invert_y_axis), true)
     reaper.SetExtState(SETTINGS_SECTION, "ignore_newlines", tostring(ignore_newlines), true)
     reaper.SetExtState(SETTINGS_SECTION, "count_timer", tostring(count_timer), true)
+    reaper.SetExtState(SETTINGS_SECTION, "count_timer_digit", tostring(count_timer_digit), true)
     reaper.SetExtState(SETTINGS_SECTION, "count_timer_bottom", tostring(count_timer_bottom), true)
     reaper.SetExtState(SETTINGS_SECTION, "count_timer_scale", tostring(count_timer_scale), true)
 
@@ -606,6 +608,7 @@ local function load_settings()
     invert_y_axis = (reaper.GetExtState(SETTINGS_SECTION, "invert_y_axis") == "true")
     ignore_newlines = (reaper.GetExtState(SETTINGS_SECTION, "ignore_newlines") == "true")
     count_timer = (reaper.GetExtState(SETTINGS_SECTION, "count_timer") ~= "false") -- Default ON
+    count_timer_digit = (reaper.GetExtState(SETTINGS_SECTION, "count_timer_digit") ~= "false") -- Default ON
     count_timer_bottom = (reaper.GetExtState(SETTINGS_SECTION, "count_timer_bottom") == "true")
     count_timer_scale = tonumber(reaper.GetExtState(SETTINGS_SECTION, "count_timer_scale")) or 25
 
@@ -839,6 +842,10 @@ local function draw_context_menu()
             reaper.ImGui_Indent(ctx)
             if reaper.ImGui_Checkbox(ctx, "Прогрес знизу", count_timer_bottom) then
                 count_timer_bottom = not count_timer_bottom
+                save_settings()
+            end
+            if reaper.ImGui_Checkbox(ctx, "Показувати цифру", count_timer_digit) then
+                count_timer_digit = not count_timer_digit
                 save_settings()
             end
             count_timer_scale = add_change(reaper.ImGui_SliderInt(ctx, "Розмір шрифту (%)", count_timer_scale, 10, 70))
@@ -1154,8 +1161,14 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
 
                 -- ITALIC (Wavy Underline) - Less intense wave
                 if tok.i then
-                    local wave_y = line_base_y + line_h - 2
-                    draw_wavy_line(draw_list, temp_x, wave_y, w, text_color, 8, 2.0)
+                    local wave_y = line_base_y + line_h + 1 -- 3px lower than previous -2
+                    local r = (text_color >> 24) & 0xFF
+                    local g = (text_color >> 16) & 0xFF
+                    local b = (text_color >> 8) & 0xFF
+                    local a = text_color & 0xFF
+                    local combined_alpha = math.floor(a * ((tok.alpha or 255) / 255) * 0.6 + 0.5)
+                    local wavy_color = (r << 24) | (g << 16) | (b << 8) | combined_alpha
+                    draw_wavy_line(draw_list, temp_x, wave_y, w, wavy_color, 8, 2.0)
                 end
 
                 -- UNDERLINE
@@ -2219,7 +2232,7 @@ local function loop()
             local text_rgb = text_color & 0xFFFFFF00
             
             -- Only show if total gap is significant to avoid flicker
-            if total_gap > 3.0 or gap_to_next > 3.0 then
+            if (total_gap > 3.0 or gap_to_next > 3.0) and count_timer_digit then
                 -- Draw Countdown Text
                 local countdown_str = ""
                 if gap_to_next > 60 then
