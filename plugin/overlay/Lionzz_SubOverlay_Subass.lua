@@ -2160,7 +2160,7 @@ local function loop()
             
             -- Use very faint alpha for long waits, brighter for < 3s (~50% opacity)
             local alpha = 0.1
-            if gap_to_next <= 3.0 then alpha = 0.5 end
+            if gap_to_next <= 3.0 then alpha = 0.15 end
             
             -- Extract RGB from text_color
             local text_rgb = text_color & 0xFFFFFF00
@@ -2187,18 +2187,24 @@ local function loop()
                 -- FORCE POSITION (User Request Fixes)
                 if layout_total_height > 0 then
                     if (align_vertical or align_bottom) then
-                        -- CENTER/BOTTOM ALIGN: Position strictly ABOVE the entire text block
-                        local required_y = layout_start_y - th - 20
+                        -- CENTER/BOTTOM ALIGN:
+                        -- User wants STABILITY (no jumping when OA appears).
+                        -- We define a "Stable Top" anchored to the window, not the text.
+                        -- e.g. 25% from top of screen.
+                        local stable_y = win_h * 0.25
                         
-                        -- Ensure we don't go off-screen top
-                        if required_y > 5 then
-                            cy = required_y
-                        else
-                            -- Fallback: If no room top, go below
-                            cy = layout_start_y + layout_total_height + 20
-                        end
+                        -- We also calculate the "Safety Top" (hugging the text).
+                        local safety_y = layout_start_y - th - 20
+                        
+                        -- We take the "Higher" (smaller Y) of the two to ensures we never overlap text,
+                        -- but default to the Stable position to avoid jumping with small text changes.
+                        cy = math.min(stable_y, safety_y)
+                        
+                        -- Absolute safety clamp (screen top)
+                        if cy < 5 then cy = 5 end
                     else
                         -- TOP ALIGN: Position strictly BELOW the entire text block
+                        -- Here jumping is natural as content grows down, so hugging is expected.
                         cy = layout_start_y + layout_total_height + 20
                     end
                 end
