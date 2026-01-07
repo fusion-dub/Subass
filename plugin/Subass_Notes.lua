@@ -3431,6 +3431,7 @@ local function update_regions_cache()
         
         -- 1. Sync existing tracked lines and check for deletions
         for i, line in ipairs(ass_lines) do
+            if line.enabled == false then goto skip_sync end
             if line.rgn_idx then
                 if tracked_rgn_idxs[line.rgn_idx] then
                     -- DUPLICATE ID: Another line already uses this region ID. 
@@ -3457,6 +3458,7 @@ local function update_regions_cache()
                     end
                 end
             end
+            ::skip_sync::
         end
         
         -- 1.5. Try to RE-BIND orphans to available regions match by Time AND TEXT
@@ -3531,6 +3533,13 @@ local function rebuild_regions()
     reaper.PreventUIRefresh(1)
     reaper.Undo_BeginBlock()
     
+    -- Clear all tracked region indices for ass_lines before rebuild
+    if ass_lines then
+        for _, line in ipairs(ass_lines) do
+            line.rgn_idx = nil
+        end
+    end
+    
     -- Fast Delete: Repeatedly delete the first marker until none remain.
     local safety_cnt = 0
     local max_markers = reaper.CountProjectMarkers(0) + 10 -- Add Buffer
@@ -3558,8 +3567,8 @@ local function rebuild_regions()
             
             -- Force uniqueness for REAPER by adding a 10ms epsilon to identical overlapping regions
             local t1, t2 = line.t1, line.t2
-            if math.abs(t1 - last_t1) < 0.01 and math.abs(t2 - last_t2) < 0.01 and line.text == last_text then
-                t2 = t2 + 0.01
+            if math.abs(t1 - last_t1) < 0.001 and math.abs(t2 - last_t2) < 0.001 and line.text == last_text then
+                t2 = t2 + 0.001
             end
             
             local rgn_idx = reaper.AddProjectMarker2(0, true, t1, t2, line.text, -1, col)
