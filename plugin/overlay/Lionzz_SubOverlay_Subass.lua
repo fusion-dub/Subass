@@ -716,8 +716,6 @@ local function draw_context_menu()
         tooltip("Увімкнує підкладку під кожним рядком. Кольором виступає колір фону")
         window_bg_color       = add_change(reaper.ImGui_ColorEdit4(ctx, "Колір фону вікна", window_bg_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         tooltip("Задає колір фону та підкладки")
-        align_center          = add_change(reaper.ImGui_Checkbox(ctx, "Центрування по горизонталі", align_center))
-        tooltip("Вирівнює рядки по центру вікна (горизонтально)")
 
         local assim_changed, new_assim = reaper.ImGui_Checkbox(ctx, "Показувати асиміляцію", show_assimilation)
         if assim_changed then
@@ -727,6 +725,9 @@ local function draw_context_menu()
         tooltip("Вмикає відображення асимільованого тексту в оверлеї (незалежно від Subass Notes)")
 
         reaper.ImGui_Separator(ctx)
+        align_center          = add_change(reaper.ImGui_Checkbox(ctx, "Центрування по горизонталі", align_center))
+        tooltip("Вирівнює рядки по центру вікна (горизонтально)")
+
         if reaper.ImGui_Checkbox(ctx, "Центрування по вертикалі", align_vertical) then
             align_vertical = not align_vertical
             if align_vertical then align_bottom = false end -- Mutual exclusion
@@ -740,6 +741,7 @@ local function draw_context_menu()
             changes = changes + 1
         end
         tooltip("Притискає рядки до низу вікна")
+        reaper.ImGui_Separator(ctx)
         enable_wrap           = add_change(reaper.ImGui_Checkbox(ctx, "Перенос рядків", enable_wrap))
         tooltip("Не дозволяє рядкам вилазити за межі вікна, розбиваючи їх на рівні відрізки")
         if enable_wrap then
@@ -758,6 +760,7 @@ local function draw_context_menu()
         end
         fill_gaps             = add_change(reaper.ImGui_Checkbox(ctx, "Заповнювати пробіли", fill_gaps))
         tooltip("Дозволяє відображати рядки і за межами регіонів/ітемів")
+        reaper.ImGui_Separator(ctx)
         flags.NoResize        = add_change(reaper.ImGui_Checkbox(ctx, "Не змінювати розміри", flags.NoResize))
         tooltip("Вимикає можливість змінювати розміри вікна")
         attach_to_video       = add_change(reaper.ImGui_Checkbox(ctx, "Прив'язати до відеовікна", attach_to_video))
@@ -780,11 +783,35 @@ local function draw_context_menu()
             invert_y_axis = add_change(reaper.ImGui_Checkbox(ctx, "Інвертувати рух (macOS Fix)", invert_y_axis))
             tooltip("Увімкніть, якщо при зміні розміру вікна оверлей рухається в протилежний бік.\nВиправляє різницю в системах координат Cocoa/ImGui.")
         end
+
+        reaper.ImGui_Separator(ctx)
+        show_actor_name = add_change(reaper.ImGui_Checkbox(ctx, "Відображати ім'я актора", show_actor_name))
+        tooltip("Показувати ім'я актора в дужках [Актор] перед текстом")
+        show_progress = add_change(reaper.ImGui_Checkbox(ctx, "Прогрес-бар", show_progress))
+        tooltip("Увімкнує анімацію тривалості поточного регіону/ітема")
+        if show_progress then
+            progress_width  = add_change(reaper.ImGui_SliderInt(ctx, "довжина", progress_width, 200, 2000))
+            progress_height = add_change(reaper.ImGui_SliderInt(ctx, "товщина", progress_height, 1, 10))
+            progress_offset = add_change(reaper.ImGui_SliderInt(ctx, "відступ", progress_offset, 0, 200))
+        end
+
+        if reaper.ImGui_Checkbox(ctx, "Таймер відліку", count_timer) then
+            count_timer = not count_timer
+            save_settings()
+        end
         
+        if count_timer then
+            reaper.ImGui_Indent(ctx)
+            if reaper.ImGui_Checkbox(ctx, "Прогрес знизу", count_timer_bottom) then
+                count_timer_bottom = not count_timer_bottom
+                save_settings()
+            end
+            reaper.ImGui_Unindent(ctx)
+        end
         
         -- Стиль першого рядка
         reaper.ImGui_Separator(ctx)
-        reaper.ImGui_Text(ctx, "Перший рядок")
+        reaper.ImGui_Text(ctx, "Перший рядок (Поточна репліка)")
         if reaper.ImGui_BeginCombo(ctx, "шрифт", available_fonts[current_font_index]) then
             for i, name in ipairs(available_fonts) do
                 if reaper.ImGui_Selectable(ctx, name, i == current_font_index) then
@@ -798,43 +825,10 @@ local function draw_context_menu()
         line_spacing_main = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Main)", line_spacing_main, -10, 50))
         text_color      = add_change(reaper.ImGui_ColorEdit4(ctx, "колір", text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         shadow_color    = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь", shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
-        show_actor_name = add_change(reaper.ImGui_Checkbox(ctx, "Відображати ім'я актора", show_actor_name))
-        tooltip("Показувати ім'я актора в дужках [Актор] перед текстом")
-
-        -- прогрес-бар
-        reaper.ImGui_Separator(ctx)
-        show_progress = add_change(reaper.ImGui_Checkbox(ctx, "Прогрес-бар", show_progress))
-        tooltip("Увімкнує анімацію тривалості поточного регіону/ітема")
-        if show_progress then
-            progress_width  = add_change(reaper.ImGui_SliderInt(ctx, "довжина", progress_width, 200, 2000))
-            progress_height = add_change(reaper.ImGui_SliderInt(ctx, "товщина", progress_height, 1, 10))
-            progress_offset = add_change(reaper.ImGui_SliderInt(ctx, "відступ", progress_offset, 0, 200))
-        end
-
-        -- Стиль правок (маркерів)
-        reaper.ImGui_Separator(ctx)
-        show_corrections = add_change(reaper.ImGui_Checkbox(ctx, "Правки (Маркери)", show_corrections))
-        tooltip("Відображати текст маркерів між репліками")
-        if show_corrections then
-            if reaper.ImGui_BeginCombo(ctx, "шрифт правок", available_fonts[corr_font_index]) then
-                for i, name in ipairs(available_fonts) do
-                    if reaper.ImGui_Selectable(ctx, name, i == corr_font_index) then
-                        corr_font_index = i
-                        changes = 1
-                    end
-                end
-                reaper.ImGui_EndCombo(ctx)
-            end
-            corr_font_scale   = add_change(reaper.ImGui_SliderInt(ctx, "масштаб правок", math.floor(corr_font_scale), 10, 100))
-            line_spacing_corr = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Corr)", line_spacing_corr, -10, 50))
-            corr_offset       = add_change(reaper.ImGui_SliderInt(ctx, "відступ правок", corr_offset, 0, 100))
-            corr_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір правок", corr_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
-            corr_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь правок", corr_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
-        end
         
         -- Стиль другого рядка
         reaper.ImGui_Separator(ctx)
-        enable_second_line = add_change(reaper.ImGui_Checkbox(ctx, "Другий рядок", enable_second_line))
+        enable_second_line = add_change(reaper.ImGui_Checkbox(ctx, "Другий рядок (Наступна репліка)", enable_second_line))
         tooltip("Увімкнує відображення рядка наступного регіону/ітема")
         if enable_second_line then
             if reaper.ImGui_BeginCombo(ctx, "шрифт 2", available_fonts[second_font_index]) then
@@ -855,12 +849,30 @@ local function draw_context_menu()
             tooltip("Показувати відразу дві наступні репліки")
         end
 
-        fill_gaps             = add_change(reaper.ImGui_Checkbox(ctx, "Заповнювати прогалини", fill_gaps))
-        tooltip("Показувати найближчий майбутній регіон, якщо курсор знаходиться між регіонами (у тиші)")
-
-        always_show_next = add_change(reaper.ImGui_Checkbox(ctx, "Завжди показувати наступну", always_show_next))
+        always_show_next = add_change(reaper.ImGui_Checkbox(ctx, "Завжди показувати наступну репліку між регіонами", always_show_next))
         tooltip("Показувати наступну репліку, навіть якщо курсор знаходиться між регіонами (ігноруючи 'Заповнювати прогалини')")
         
+        -- Стиль правок (маркерів)
+        reaper.ImGui_Separator(ctx)
+        show_corrections = add_change(reaper.ImGui_Checkbox(ctx, "Правки (Маркери)", show_corrections))
+        tooltip("Відображати текст маркерів між репліками")
+        if show_corrections then
+            if reaper.ImGui_BeginCombo(ctx, "шрифт правок", available_fonts[corr_font_index]) then
+                for i, name in ipairs(available_fonts) do
+                    if reaper.ImGui_Selectable(ctx, name, i == corr_font_index) then
+                        corr_font_index = i
+                        changes = 1
+                    end
+                end
+                reaper.ImGui_EndCombo(ctx)
+            end
+            corr_font_scale   = add_change(reaper.ImGui_SliderInt(ctx, "масштаб правок", math.floor(corr_font_scale), 10, 100))
+            line_spacing_corr = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Corr)", line_spacing_corr, -10, 50))
+            corr_offset       = add_change(reaper.ImGui_SliderInt(ctx, "відступ правок", corr_offset, 0, 100))
+            corr_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір правок", corr_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            corr_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь правок", corr_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+        end
+
         reaper.ImGui_Separator(ctx)
         flags.NoDocking = add_change(reaper.ImGui_Checkbox(ctx, "Не стикувати", flags.NoDocking))
         tooltip("Вимикає можливість вбудовування та прилипання вікна. Перетягувати необхідно за заголовок або верхню межу вікна")
@@ -870,27 +882,10 @@ local function draw_context_menu()
 
         -- Зберігаємо налаштування, якщо були зміни
         if changes > 0 then save_settings() end
-
-        -- Роздільник та кнопка закриття
-        reaper.ImGui_Separator(ctx)
-        
-        if reaper.ImGui_Checkbox(ctx, "Таймер відліку", count_timer) then
-            count_timer = not count_timer
-            save_settings()
-        end
-        
-        if count_timer then
-            reaper.ImGui_Indent(ctx)
-            if reaper.ImGui_Checkbox(ctx, "Прогрес знизу", count_timer_bottom) then
-                count_timer_bottom = not count_timer_bottom
-                save_settings()
-            end
-            reaper.ImGui_Unindent(ctx)
-        end
         
         reaper.ImGui_Separator(ctx)
         
-        if reaper.ImGui_Button(ctx, "Закрити вікно") then
+        if reaper.ImGui_Button(ctx, "Закрити ОВЕРЛЕЙ") then
             close_requested = true
             reaper.ImGui_CloseCurrentPopup(ctx)
         end
