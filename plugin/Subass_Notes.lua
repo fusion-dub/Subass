@@ -3023,8 +3023,29 @@ end
 
 --- Save subtitle data to project extended state
 local function save_project_data()
-    -- Using a very compact string format: t1|t2|actor|enabled|text\n
-    -- Optimized: Using tables and table.concat to avoid O(N^2) string fragmentation
+    -- Chunked saving to avoid 64KB limit
+    local CHUNK_SIZE = 60000 
+    
+    local function save_chunked(base_key, data_tbl)
+        local full_str = table.concat(data_tbl)
+        local len = #full_str
+        local chunks = math.ceil(len / CHUNK_SIZE)
+        
+        -- Store total chunk count
+        reaper.SetProjExtState(0, section_name, base_key .. "_count", tostring(chunks))
+        
+        for i = 1, chunks do
+            local start_p = (i - 1) * CHUNK_SIZE + 1
+            local end_p = math.min(i * CHUNK_SIZE, len)
+            local chunk = full_str:sub(start_p, end_p)
+            reaper.SetProjExtState(0, section_name, base_key .. "_chunk_" .. i, chunk)
+        end
+        
+        -- Legacy fallback (first chunk only)
+        reaper.SetProjExtState(0, section_name, base_key, full_str:sub(1, CHUNK_SIZE))
+    end
+
+    -- Prepare lines data
     local dump_tbl = {}
     for i, l in ipairs(ass_lines) do
         local en = (l.enabled == nil or l.enabled) and "1" or "0"
@@ -3032,7 +3053,7 @@ local function save_project_data()
         local index = l.index or i
         table.insert(dump_tbl, string.format("%.3f|%.3f|%s|%s|%d|%d|%s\n", l.t1, l.t2, l.actor, en, r_idx, index, l.text:gsub("\n","\\n")))
     end
-    reaper.SetProjExtState(0, section_name, "ass_lines", table.concat(dump_tbl))
+    save_chunked("ass_lines", dump_tbl)
     
     local act_tbl = {}
     for k,v in pairs(ass_actors) do
@@ -3057,7 +3078,7 @@ local function save_project_data()
     for _, m in ipairs(ass_markers) do
         table.insert(mark_tbl, string.format("%.3f|%s|%d|%d\n", m.pos, m.name:gsub("\n", "\\n"), m.markindex, m.color))
     end
-    reaper.SetProjExtState(0, section_name, "ass_markers", table.concat(mark_tbl))
+    save_chunked("ass_markers", mark_tbl)
 end
 
 --- Ensure all ass_lines have unique numeric indices
@@ -3151,8 +3172,22 @@ local function load_project_data()
         local okF, fname = reaper.GetProjExtState(0, section_name, "ass_fname")
         if okF then UI_STATE.current_file_name = fname end
         
-        local ok2, l_dump = reaper.GetProjExtState(0, section_name, "ass_lines")
-        if ok2 then
+        -- Load chunked lines
+        local l_dump = ""
+        local okC, count_str = reaper.GetProjExtState(0, section_name, "ass_lines_count")
+        if okC and count_str ~= "" then
+            local count = tonumber(count_str) or 0
+            for i = 1, count do
+                local okX, chunk = reaper.GetProjExtState(0, section_name, "ass_lines_chunk_" .. i)
+                if okX then l_dump = l_dump .. chunk end
+            end
+        else
+            -- Legacy fallback
+            local okL, legacy_dump = reaper.GetProjExtState(0, section_name, "ass_lines")
+            if okL then l_dump = legacy_dump end
+        end
+
+        if l_dump ~= "" then
             for line in l_dump:gmatch("([^\n]*)\n?") do
                 if line ~= "" then
                     -- Try new sync format: t1|t2|actor|enabled|rgn_idx|index|text
@@ -3180,7 +3215,7 @@ local function load_project_data()
                                 text = txt:gsub("\\n", "\n")
                             })
                         else
-                            -- Try older format: t1|t2|actor|enabled|text
+                            -- Older formats...
                             local t1, t2, act, en, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.*)$")
                             if t1 and en then
                                 table.insert(ass_lines, {
@@ -3208,25 +3243,7 @@ local function load_project_data()
                 end
             end
         end
-        
-        local okM, m_dump = reaper.GetProjExtState(0, section_name, "ass_markers")
-        if okM then
-            ass_markers = {}
-            for line in m_dump:gmatch("([^\n]*)\n?") do
-                if line ~= "" then
-                    local pos, name, midx, col = line:match("^(.-)|(.-)|(.-)|(.*)$")
-                    if pos and name then
-                        table.insert(ass_markers, {
-                            pos = tonumber(pos),
-                            name = name:gsub("\\n", "\n"),
-                            markindex = tonumber(midx),
-                            color = tonumber(col)
-                        })
-                    end
-                end
-            end
-        end
-        
+
         local ok3, a_dump = reaper.GetProjExtState(0, section_name, "ass_actors")
         if ok3 then
             for line in a_dump:gmatch("([^\n]*)\n?") do
@@ -3234,6 +3251,37 @@ local function load_project_data()
                     local act, val = line:match("^(.-)|(.*)$")
                     if act then
                         ass_actors[act] = (val == "1")
+                    end
+                end
+            end
+        end
+        
+        -- Load chunked markers
+        local m_dump = ""
+        local okMC, m_count_str = reaper.GetProjExtState(0, section_name, "ass_markers_count")
+        if okMC and m_count_str ~= "" then
+            local count = tonumber(m_count_str) or 0
+            for i = 1, count do
+                local okX, chunk = reaper.GetProjExtState(0, section_name, "ass_markers_chunk_" .. i)
+                if okX then m_dump = m_dump .. chunk end
+            end
+        else
+            local okML, m_legacy = reaper.GetProjExtState(0, section_name, "ass_markers")
+            if okML then m_dump = m_legacy end
+        end
+
+        if m_dump ~= "" then
+            ass_markers = {} -- Reset before populating
+            for line in m_dump:gmatch("([^\n]*)\n?") do
+                if line ~= "" then
+                    local pos, name, midx, col = line:match("^(.-)|(.-)|(.-)|(.*)$")
+                    if pos and name then
+                        table.insert(ass_markers, {
+                            pos = tonumber(pos),
+                            name = name:gsub("\\n", "\n"),
+                            markindex = tonumber(midx) or 0,
+                            color = tonumber(col) or 0
+                        })
                     end
                 end
             end
@@ -3384,32 +3432,52 @@ local function update_regions_cache()
         -- 1. Sync existing tracked lines and check for deletions
         for i, line in ipairs(ass_lines) do
             if line.rgn_idx then
-                local rgn = rgn_map[line.rgn_idx]
-                if rgn then
-                    rgn.actor = line.actor -- Sync actor name to region object
-                    -- Update times if changed in REAPER
-                    if math.abs(line.t1 - rgn.pos) > 0.0001 or math.abs(line.t2 - rgn.rgnend) > 0.0001 or line.text ~= rgn.name then
-                        line.t1 = rgn.pos
-                        line.t2 = rgn.rgnend
-                        line.text = rgn.name
-                        changed = true
-                    end
-                    tracked_rgn_idxs[line.rgn_idx] = true
+                if tracked_rgn_idxs[line.rgn_idx] then
+                    -- DUPLICATE ID: Another line already uses this region ID. 
+                    -- Unlink this one so it can find its own region in orphan pass.
+                    line.rgn_idx = nil
+                    changed = true
                 else
-                    -- Region was deleted in REAPER manually
-                    if line.enabled ~= false then
-                        -- If it was enabled but now gone, mark for removal or disable
-                        -- We remove it because the user explicitly deleted it from timeline
-                        table.insert(lines_to_remove, i)
+                    local rgn = rgn_map[line.rgn_idx]
+                    if rgn then
+                        rgn.actor = line.actor
+                        -- Update times if changed in REAPER
+                        if math.abs(line.t1 - rgn.pos) > 0.0001 or math.abs(line.t2 - rgn.rgnend) > 0.0001 or (line.text ~= rgn.name and rgn.name ~= "<пусто>") then
+                            line.t1 = rgn.pos
+                            line.t2 = rgn.rgnend
+                            line.text = rgn.name
+                            changed = true
+                        end
+                        tracked_rgn_idxs[line.rgn_idx] = true
+                    else
+                        -- Region ID is gone from project.
+                        -- UNLINK instead of DELETE to prevent data loss on transient ID issues.
+                        line.rgn_idx = nil
                         changed = true
                     end
                 end
             end
         end
         
-        -- Remove lines deleted in REAPER (reverse order to keep indices valid)
-        for i = #lines_to_remove, 1, -1 do
-            table.remove(ass_lines, lines_to_remove[i])
+        -- 1.5. Try to RE-BIND orphans to available regions match by Time AND TEXT
+        for i, line in ipairs(ass_lines) do
+            if not line.rgn_idx and line.enabled ~= false then
+                for idx, rgn in pairs(rgn_map) do
+                    if not tracked_rgn_idxs[idx] then
+                        -- Strict Time Match (approx 1ms tolerance)
+                        if math.abs(line.t1 - rgn.pos) < 0.001 and math.abs(line.t2 - rgn.rgnend) < 0.001 then
+                            -- Also check text to minimize wrong actor binding if times are identical
+                            if compare_sub_text(line.text, rgn.name) then 
+                                line.rgn_idx = idx
+                                rgn.actor = line.actor
+                                tracked_rgn_idxs[idx] = true
+                                changed = true
+                                break 
+                            end
+                        end
+                    end
+                end
+            end
         end
         
         -- 2. Adopt "foreign" regions (created manually in REAPER)
@@ -3480,24 +3548,29 @@ local function rebuild_regions()
     
     -- Add from ass_lines if line is enabled
     local count = 0
+    local last_t1, last_t2, last_text = -1, -1, ""
     for i, line in ipairs(ass_lines) do
         if line.enabled ~= false then -- Default true if nil
             local col = get_actor_color(line.actor)
-            -- If user picked manual color, 'col' should be consistent.
-            -- If 'col' is 0, explicitly set?
             if col == 0 and cfg.random_color_actors then
-                -- Should already be cached in actor_colors
                 col = get_actor_color(line.actor) 
             end
             
-            local target_idx = line.index or i
-            local rgn_idx = reaper.AddProjectMarker2(0, true, line.t1, line.t2, line.text, target_idx, col)
+            -- Force uniqueness for REAPER by adding a 10ms epsilon to identical overlapping regions
+            local t1, t2 = line.t1, line.t2
+            if math.abs(t1 - last_t1) < 0.01 and math.abs(t2 - last_t2) < 0.01 and line.text == last_text then
+                t2 = t2 + 0.01
+            end
+            
+            local rgn_idx = reaper.AddProjectMarker2(0, true, t1, t2, line.text, -1, col)
             line.rgn_idx = rgn_idx
+            
+            last_t1, last_t2, last_text = t1, t2, line.text
             count = count + 1
         end
     end
-
-    -- Add back markers (non-regions) from ass_markers
+    
+    -- Sync back markers (non-regions) from ass_markers
     for _, m in ipairs(ass_markers) do
         reaper.AddProjectMarker2(0, false, m.pos, 0, m.name, m.markindex, m.color)
     end
@@ -10358,13 +10431,18 @@ local function draw_prompter(input_queue)
             set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb})
             for block_idx, block in ipairs(all_text_blocks) do
                 local block_x1, block_y1, block_x2, block_y2 = gfx.w, gfx.h, 0, 0
-                local y_off = math.floor((block.lh - block.raw_lh) / 2)
+                
+                -- Apply vertical scaling to block dimensions
+                local scaled_draw_size = math.max(10, math.floor(block.draw_size * v_scale))
+                local scaled_lh = math.floor(block.lh * v_scale)
+                local scaled_raw_lh = math.floor(block.raw_lh * v_scale)
+                local y_off = math.floor((scaled_lh - scaled_raw_lh) / 2)
                 
                 for i, line in ipairs(block.lines) do
-                    local y = current_y + (i-1) * block.lh
+                    local y = current_y + (i-1) * scaled_lh
                     -- Show actor on first line of block only
                     local act = (i == 1) and block.actor or nil
-                    local lx, ly, lw, l_h = draw_rich_line(line, center_x, y + y_off, F.lrg, cfg.p_font, block.draw_size, false, act, available_w, content_offset_left, content_offset_right)
+                    local lx, ly, lw, l_h = draw_rich_line(line, center_x, y + y_off, F.lrg, cfg.p_font, scaled_draw_size, false, act, available_w, content_offset_left, content_offset_right)
                     
                     -- Update bounds for this block
                     if lx < block_x1 then block_x1 = lx end
@@ -10382,7 +10460,17 @@ local function draw_prompter(input_queue)
                     region = active_regions[block_idx]
                 })
                 
-                current_y = current_y + block.block_height + S_GAP
+                local actual_block_h = #block.lines * scaled_lh
+                current_y = current_y + actual_block_h + S_GAP
+                
+                -- Draw separator if not the last block
+                if block_idx < #all_text_blocks then
+                    local sep_w = S(40)
+                    local sep_y = current_y - S_GAP / 2
+                    set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.2})
+                    gfx.line(center_x - sep_w/2, sep_y, center_x + sep_w/2, sep_y)
+                    set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 1.0})
+                end
             end
             
             -- Double-click to edit (check all blocks)
