@@ -1650,13 +1650,13 @@ local function draw_acute_accent_primitive(base_x, base_y, char_width, char_heig
     local bottom_y = top_y + accent_height
     local top_y_pos = top_y
     
-    local orig_r, orig_g, orig_b = gfx.r, gfx.g, gfx.b
+    local orig_r, orig_g, orig_b, orig_a = gfx.r, gfx.g, gfx.b, gfx.a
     
     -- Left line (text color)
     local left_x_bottom = center_x - right_line_thickness
     local left_x_top = left_x_bottom + tilt_offset
     
-    gfx.set(orig_r, orig_g, orig_b, 1)
+    gfx.set(orig_r, orig_g, orig_b, orig_a)
     for t = 0, left_line_thickness - 1 do
         gfx.line(left_x_bottom + t, bottom_y, left_x_top + t, top_y_pos)
     end
@@ -1666,12 +1666,12 @@ local function draw_acute_accent_primitive(base_x, base_y, char_width, char_heig
     local right_x_top = right_x_bottom + tilt_offset
     local right_bottom_y = bottom_y - (accent_height / 2)
     
-    gfx.set(1.0, 0.0, 0.0, 1) -- red color for accent mark
+    gfx.set(1.0, 0.0, 0.0, orig_a) -- red color for accent mark (obeying alpha)
     for t = 0, right_line_thickness - 1 do
         gfx.line(right_x_bottom + t, right_bottom_y, right_x_top + t, top_y_pos)
     end
     
-    gfx.set(orig_r, orig_g, orig_b, 1)
+    gfx.set(orig_r, orig_g, orig_b, orig_a)
 end
 
 --- Draw text string, automatically rendering manual stress marks where the combining acute accent (U+0301) is found.
