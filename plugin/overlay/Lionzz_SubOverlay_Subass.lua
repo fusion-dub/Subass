@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.0.7
+-- @version 0.0.8
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -76,7 +76,7 @@ local enable_wrap = true                -- переносити текст по 
 local wrap_margin = 0                   -- відступ від краю вікна для автопереносу (пікселі)
 local enable_second_line = true         -- показувати другий рядок
 local show_next_two = false             -- показувати 2 наступні репліки
-local show_actor_name = false           -- показувати ім'я актора
+local show_actor_name = true            -- показувати ім'я актора
 local show_corrections = true           -- показувати правки (маркери)
 local align_center = true               -- вирівнювання по центру (горизонтально, за замовчуванням увімкн.)
 local align_vertical = false            -- вирівнювання по вертикалі (центрування контенту у вікні)
@@ -100,6 +100,16 @@ local is_any_word_held = false
 -- New Countdown Timer Settings
 local count_timer = true                -- таймер зворотного відліку
 local count_timer_bottom = false        -- прогрес-бар знизу (якщо false - по боках)
+local count_timer_scale = 25            -- масштаб шрифту таймера (в % від мінімального розміру вікна)
+
+-- Other Actors Settings
+local show_other_actors = true          -- показувати репліки інших акторів
+local oact_font_index = 1
+local oact_font_scale = 18              -- невеликий шрифт
+local oact_text_color = 0xCCCCCCFF      -- світло-сірий
+local oact_shadow_color = 0x000000FF    -- чорна тінь
+local oact_offset = 12                  -- відступ від інших реплік (або до основної)
+local line_spacing_oact = 6             -- міжрядковий інтервал
 
 reaper.gmem_attach("SubassSync") -- Shared memory for lightning-fast sync
 
@@ -519,6 +529,15 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "ignore_newlines", tostring(ignore_newlines), true)
     reaper.SetExtState(SETTINGS_SECTION, "count_timer", tostring(count_timer), true)
     reaper.SetExtState(SETTINGS_SECTION, "count_timer_bottom", tostring(count_timer_bottom), true)
+    reaper.SetExtState(SETTINGS_SECTION, "count_timer_scale", tostring(count_timer_scale), true)
+
+    reaper.SetExtState(SETTINGS_SECTION, "show_other_actors", tostring(show_other_actors), true)
+    reaper.SetExtState(SETTINGS_SECTION, "oact_font_index", tostring(oact_font_index), true)
+    reaper.SetExtState(SETTINGS_SECTION, "oact_font_scale", tostring(oact_font_scale), true)
+    reaper.SetExtState(SETTINGS_SECTION, "oact_text_color", string.format("%08X", oact_text_color), true)
+    reaper.SetExtState(SETTINGS_SECTION, "oact_shadow_color", string.format("%08X", oact_shadow_color), true)
+    reaper.SetExtState(SETTINGS_SECTION, "oact_offset", tostring(oact_offset), true)
+    reaper.SetExtState(SETTINGS_SECTION, "line_spacing_oact", tostring(line_spacing_oact), true)
     -- Зберігаємо висоту тільки якщо увімкнено прив'язку до відеовікна
     if attach_to_video then
         reaper.SetExtState(SETTINGS_SECTION, "win_h", tostring(win_h), true)
@@ -558,7 +577,7 @@ local function load_settings()
     progress_height = tonumber(reaper.GetExtState(SETTINGS_SECTION, "progress_height")) or 4
     progress_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "progress_offset")) or 20
     align_center = (reaper.GetExtState(SETTINGS_SECTION, "align_center") ~= "false")
-    show_actor_name = (reaper.GetExtState(SETTINGS_SECTION, "show_actor_name") == "true")
+    show_actor_name = (reaper.GetExtState(SETTINGS_SECTION, "show_actor_name") ~= "false")
     show_next_two = (reaper.GetExtState(SETTINGS_SECTION, "show_next_two") == "true")
     show_corrections = (reaper.GetExtState(SETTINGS_SECTION, "show_corrections") ~= "false") -- Default ON
     
@@ -588,6 +607,18 @@ local function load_settings()
     ignore_newlines = (reaper.GetExtState(SETTINGS_SECTION, "ignore_newlines") == "true")
     count_timer = (reaper.GetExtState(SETTINGS_SECTION, "count_timer") ~= "false") -- Default ON
     count_timer_bottom = (reaper.GetExtState(SETTINGS_SECTION, "count_timer_bottom") == "true")
+    count_timer_scale = tonumber(reaper.GetExtState(SETTINGS_SECTION, "count_timer_scale")) or 25
+
+    show_other_actors = (reaper.GetExtState(SETTINGS_SECTION, "show_other_actors") ~= "false") -- Default ON
+    oact_font_index = tonumber(reaper.GetExtState(SETTINGS_SECTION, "oact_font_index")) or 1
+    oact_font_scale = tonumber(reaper.GetExtState(SETTINGS_SECTION, "oact_font_scale")) or 18
+    if oact_font_scale < 5 then oact_font_scale = 18 end
+    local oact_txt_col = reaper.GetExtState(SETTINGS_SECTION, "oact_text_color")
+    if oact_txt_col ~= "" then oact_text_color = tonumber(oact_txt_col,16) or 0xCCCCCCFF end
+    local oact_shd_col = reaper.GetExtState(SETTINGS_SECTION, "oact_shadow_color")
+    if oact_shd_col ~= "" then oact_shadow_color = tonumber(oact_shd_col,16) or 0x000000FF end
+    oact_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "oact_offset")) or 12
+    line_spacing_oact = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_oact")) or 6
     -- Завантажуємо висоту тільки якщо увімкнено прив'язку до відеовікна
     if attach_to_video then
         win_h = tonumber(reaper.GetExtState(SETTINGS_SECTION, "win_h")) or 300
@@ -767,6 +798,7 @@ local function draw_context_menu()
         tooltip("Автоматично позиціонує вікно відносно відеовікна REAPER\nПотрібно js_ReaScriptAPI")
         -- Додаткові налаштування прив'язки (показуємо тільки якщо attach_to_video = true)
         if attach_to_video then
+            reaper.ImGui_Indent(ctx)
             -- Слайдер позиції (0% - зверху, 100% - знизу)
             attach_offset = add_change(reaper.ImGui_SliderInt(ctx, "Верт. позиція %", attach_offset, 0, 100))
             tooltip("Позиція оверлею відносно висоти відеовікна")
@@ -782,6 +814,7 @@ local function draw_context_menu()
             -- macOS Fix
             invert_y_axis = add_change(reaper.ImGui_Checkbox(ctx, "Інвертувати рух (macOS Fix)", invert_y_axis))
             tooltip("Увімкніть, якщо при зміні розміру вікна оверлей рухається в протилежний бік.\nВиправляє різницю в системах координат Cocoa/ImGui.")
+            reaper.ImGui_Unindent(ctx)
         end
 
         reaper.ImGui_Separator(ctx)
@@ -790,9 +823,11 @@ local function draw_context_menu()
         show_progress = add_change(reaper.ImGui_Checkbox(ctx, "Прогрес-бар", show_progress))
         tooltip("Увімкнує анімацію тривалості поточного регіону/ітема")
         if show_progress then
+            reaper.ImGui_Indent(ctx)
             progress_width  = add_change(reaper.ImGui_SliderInt(ctx, "довжина", progress_width, 200, 2000))
             progress_height = add_change(reaper.ImGui_SliderInt(ctx, "товщина", progress_height, 1, 10))
             progress_offset = add_change(reaper.ImGui_SliderInt(ctx, "відступ", progress_offset, 0, 200))
+            reaper.ImGui_Unindent(ctx)
         end
 
         if reaper.ImGui_Checkbox(ctx, "Таймер відліку", count_timer) then
@@ -806,6 +841,7 @@ local function draw_context_menu()
                 count_timer_bottom = not count_timer_bottom
                 save_settings()
             end
+            count_timer_scale = add_change(reaper.ImGui_SliderInt(ctx, "Розмір шрифту (%)", count_timer_scale, 10, 70))
             reaper.ImGui_Unindent(ctx)
         end
         
@@ -831,6 +867,7 @@ local function draw_context_menu()
         enable_second_line = add_change(reaper.ImGui_Checkbox(ctx, "Другий рядок (Наступна репліка)", enable_second_line))
         tooltip("Увімкнує відображення рядка наступного регіону/ітема")
         if enable_second_line then
+            reaper.ImGui_Indent(ctx)
             if reaper.ImGui_BeginCombo(ctx, "шрифт 2", available_fonts[second_font_index]) then
                 for i, name in ipairs(available_fonts) do
                 if reaper.ImGui_Selectable(ctx, name, i == second_font_index) then
@@ -847,16 +884,41 @@ local function draw_context_menu()
             second_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь 2", second_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             show_next_two       = add_change(reaper.ImGui_Checkbox(ctx, "2 наступні репліки", show_next_two))
             tooltip("Показувати відразу дві наступні репліки")
+            reaper.ImGui_Unindent(ctx)
         end
 
         always_show_next = add_change(reaper.ImGui_Checkbox(ctx, "Завжди показувати наступну репліку між регіонами", always_show_next))
         tooltip("Показувати наступну репліку, навіть якщо курсор знаходиться між регіонами (ігноруючи 'Заповнювати прогалини')")
         
+        -- Репліка інших акторів
+        reaper.ImGui_Separator(ctx)
+        show_other_actors = add_change(reaper.ImGui_Checkbox(ctx, "Репліка інших акторів", show_other_actors))
+        tooltip("Відображати репліки інших акторів для контексту (дані з Subass_Notes)")
+        if show_other_actors then
+            reaper.ImGui_Indent(ctx)
+            if reaper.ImGui_BeginCombo(ctx, "шрифт інших", available_fonts[oact_font_index]) then
+                for i, name in ipairs(available_fonts) do
+                    if reaper.ImGui_Selectable(ctx, name, i == oact_font_index) then
+                        oact_font_index = i
+                        changes = changes + 1
+                    end
+                end
+                reaper.ImGui_EndCombo(ctx)
+            end
+            oact_font_scale   = add_change(reaper.ImGui_SliderInt(ctx, "масштаб інших", math.floor(oact_font_scale), 10, 100))
+            line_spacing_oact = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Other)", line_spacing_oact, -10, 50))
+            oact_offset       = add_change(reaper.ImGui_SliderInt(ctx, "відступ інших", oact_offset, 0, 100))
+            oact_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір інших", oact_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            oact_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь інших", oact_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            reaper.ImGui_Unindent(ctx)
+        end
+
         -- Стиль правок (маркерів)
         reaper.ImGui_Separator(ctx)
         show_corrections = add_change(reaper.ImGui_Checkbox(ctx, "Правки (Маркери)", show_corrections))
         tooltip("Відображати текст маркерів між репліками")
         if show_corrections then
+            reaper.ImGui_Indent(ctx)
             if reaper.ImGui_BeginCombo(ctx, "шрифт правок", available_fonts[corr_font_index]) then
                 for i, name in ipairs(available_fonts) do
                     if reaper.ImGui_Selectable(ctx, name, i == corr_font_index) then
@@ -871,6 +933,7 @@ local function draw_context_menu()
             corr_offset       = add_change(reaper.ImGui_SliderInt(ctx, "відступ правок", corr_offset, 0, 100))
             corr_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір правок", corr_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             corr_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь правок", corr_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            reaper.ImGui_Unindent(ctx)
         end
 
         reaper.ImGui_Separator(ctx)
@@ -1190,11 +1253,15 @@ local function sync_external_data()
                 t1, t2, act, en, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.*)$")
             end
 
-            if t1 and act and act ~= "" then
+            if t1 then
+                -- Unescape newlines from Subass_Notes format
+                local decoded_text = (txt or ""):gsub("\\n", "\n")
+                
                 table.insert(new_lines, {
                     t1 = tonumber(t1) or 0,
                     t2 = tonumber(t2) or 0,
-                    actor = act
+                    actor = act or "",
+                    text = decoded_text
                 })
             end
         end
@@ -1927,6 +1994,40 @@ local function loop()
             next2_tokens = process_assimilation_tokens(next2_tokens)
         end
 
+        -- FETCH OTHER ACTORS (Context)
+        local other_actors_tokens = {}
+        if show_other_actors and #external_ass_lines > 0 then
+            local context_lines = {}
+            for _, l in ipairs(external_ass_lines) do
+                -- Check overlap
+                if pos >= l.t1 and pos <= l.t2 then
+                    -- Filter out current main line (approximate time match)
+                    local is_main = false
+                    if start_pos and math.abs(l.t1 - start_pos) < 0.1 then 
+                        is_main = true 
+                    end
+                    
+                    if not is_main and l.text and l.text ~= "" then
+                        local entry = ""
+                        if show_actor_name and l.actor ~= "" then
+                            entry = "{\\alpha:128}[" .. l.actor .. "]{\\alpha:255} " .. l.text
+                        else
+                            entry = l.text
+                        end
+                        table.insert(context_lines, entry)
+                    end
+                end
+            end
+            
+            if #context_lines > 0 then
+                local full_text = table.concat(context_lines, "\n")
+                other_actors_tokens = parse_to_tokens(full_text)
+                if show_assimilation then
+                    other_actors_tokens = process_assimilation_tokens(other_actors_tokens)
+                end
+            end
+        end
+
         local progress = 0.0
         if start_pos and stop_pos and stop_pos > start_pos then
             if pos >= start_pos and pos <= stop_pos then
@@ -1938,6 +2039,12 @@ local function loop()
         -- USE FIXED FONT SCALES (Auto-scaling removed)
         local actual_font_scale = font_scale
         local actual_second_font_scale = second_font_scale
+        
+        -- Layout state capture for Countdown Timer
+        local layout_start_y = 0
+        local layout_oa_height = 0
+        local layout_total_height = 0
+        local last_item_bottom_y = 0
 
         -- Вертикальне вирівнювання (центр або низ)
         if align_vertical or align_bottom then
@@ -1980,6 +2087,18 @@ local function loop()
                 local corr_line_count = calculate_line_count(corr_tokens, corr_font_index, corr_font_scale, win_w)
                 total_height = total_height + corr_offset + ((corr_line_h + line_spacing_corr) * corr_line_count)
             end
+            
+            -- Висота реплік інших акторів
+            if #other_actors_tokens > 0 then
+                reaper.ImGui_PushFont(ctx, font_objects[oact_font_index] or font_objects[1], oact_font_scale)
+                local oact_line_h = reaper.ImGui_GetTextLineHeight(ctx)
+                reaper.ImGui_PopFont(ctx)
+                local oact_line_count = calculate_line_count(other_actors_tokens, oact_font_index, oact_font_scale, win_w)
+                
+                local this_oa_h = oact_offset + ((oact_line_h + line_spacing_oact) * oact_line_count)
+                total_height = total_height + this_oa_h
+                layout_oa_height = this_oa_h
+            end
             -- Розрахунок позиції Y (округлюємо щоб уникнути "стрибання")
             local start_y = 0
             if align_vertical then
@@ -1988,8 +2107,21 @@ local function loop()
                 start_y = math.floor(win_h - total_height - padding_y * 12 + 0.5)
             end
             start_y = math.max(0, start_y)
+            layout_start_y = start_y
+            layout_total_height = total_height
             
             reaper.ImGui_SetCursorPosY(ctx, start_y)
+        end
+        
+        -- Відображення інших акторів (НАД основним рядком)
+        if #other_actors_tokens > 0 then
+            reaper.ImGui_PushID(ctx, "oact_line")
+            draw_tokens(ctx, other_actors_tokens, oact_font_index, oact_font_scale, oact_text_color, oact_shadow_color, win_w, false, line_spacing_oact)
+            reaper.ImGui_PopID(ctx)
+            
+            local cur_y = reaper.ImGui_GetCursorPosY(ctx)
+            last_item_bottom_y = cur_y -- Capture where OA text ends
+            reaper.ImGui_SetCursorPosY(ctx, cur_y + oact_offset)
         end
         
         -- відображення тексту (використовуємо auto-scaled значення)
@@ -2021,6 +2153,7 @@ local function loop()
         end
 
         -- COUNTDOWN TIMER LOGIC (only when in gap and no active text)
+        local cursor_restore_y = reaper.ImGui_GetCursorPosY(ctx)
         if count_timer and current == "" and next_rgn_start and next_rgn_start > pos then
             local gap_to_next = next_rgn_start - pos
             local total_gap = next_rgn_start - (prev_rgn_end or 0)
@@ -2044,10 +2177,31 @@ local function loop()
                     countdown_str = tostring(math.ceil(gap_to_next))
                 end
 
-                reaper.ImGui_PushFont(ctx, ui_font, math.min(win_h, win_w) * 0.4) -- Giant font
+                -- Calculate font size based on scale percentage (default 40%)
+                local font_sz_px = math.min(win_h, win_w) * (count_timer_scale / 100)
+                reaper.ImGui_PushFont(ctx, ui_font, font_sz_px) -- User scaled font
                 local tw, th = reaper.ImGui_CalcTextSize(ctx, countdown_str)
                 -- Center in window
                 local cx, cy = (win_w - tw)/2, (win_h - th)/2
+                
+                -- FORCE POSITION (User Request Fixes)
+                if layout_total_height > 0 then
+                    if (align_vertical or align_bottom) then
+                        -- CENTER/BOTTOM ALIGN: Position strictly ABOVE the entire text block
+                        local required_y = layout_start_y - th - 20
+                        
+                        -- Ensure we don't go off-screen top
+                        if required_y > 5 then
+                            cy = required_y
+                        else
+                            -- Fallback: If no room top, go below
+                            cy = layout_start_y + layout_total_height + 20
+                        end
+                    else
+                        -- TOP ALIGN: Position strictly BELOW the entire text block
+                        cy = layout_start_y + layout_total_height + 20
+                    end
+                end
                 
                 -- Simple Drop Shadow (like main text)
                 local shadow_off = 2
@@ -2132,6 +2286,8 @@ local function loop()
                end
             end
         end
+        -- Restore cursor position so subsequent elements (Next Line) draw correctly below OA/Current
+        reaper.ImGui_SetCursorPosY(ctx, cursor_restore_y)
 
         if enable_second_line then 
             local second_line_h = 0
