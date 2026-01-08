@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.0.8
+-- @version 0.0.9
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -33,12 +33,16 @@ local available_fonts = {
     "Consolas","Courier New", "Comic Sans MS"
 }
 local font_objects = {}
+local font_objects_italic = {}
 
 -- Load fonts
 for i, name in ipairs(available_fonts) do
-    local f = reaper.ImGui_CreateFont(name, 14)
+    local f = reaper.ImGui_CreateFont(name)
+    local fi = reaper.ImGui_CreateFont(name, reaper.ImGui_FontFlags_Italic())
     font_objects[i] = f
+    font_objects_italic[i] = fi
     reaper.ImGui_Attach(ctx, f)
+    reaper.ImGui_Attach(ctx, fi)
 end
 
 local ui_font = font_objects[1]         -- перший шрифт завжди для UI
@@ -1000,7 +1004,10 @@ local function calculate_line_count(tokens, font_index, font_scale, win_w)
             line_count = line_count + 1
             current_line_width = 0
         else
+            local f_italic = font_objects_italic[font_index] or font_objects_italic[1]
+            if tok.i then reaper.ImGui_PushFont(ctx, f_italic, font_scale) end
             local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
+            if tok.i then reaper.ImGui_PopFont(ctx) end
             
             if enable_wrap and current_line_width + w > max_width and current_line_width > 0 then
                 line_count = line_count + 1
@@ -1035,10 +1042,10 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
             current_line_width = 0
         else
             -- Measure with correct font
+            local f_italic = font_objects_italic[font_index] or font_objects_italic[1]
+            if tok.i then reaper.ImGui_PushFont(ctx, f_italic, font_scale) end
             local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
-            if tok.i then
-                w = w + (font_scale * 0.2)
-            end
+            if tok.i then reaper.ImGui_PopFont(ctx) end
 
             local space_w = space_w_main -- Simplify: use main font space width to avoid constant switching for spaces
             
@@ -1137,7 +1144,9 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                     end
                 end
 
-                -- 2. Draw Text (Shadow + Main + Bold)
+                local font_italic = font_objects_italic[font_index] or font_objects_italic[1]
+
+                -- 2. Draw Text (Shadow + Main + Bold + Italic)
                 local function draw_text_inner(x, y, color)
                     local draw_color = color
                     if tok.alpha and tok.alpha < 255 then
@@ -1148,7 +1157,14 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                         local new_a = math.floor(a * (tok.alpha / 255) + 0.5)
                         draw_color = (r << 24) | (g << 16) | (b << 8) | new_a
                     end
+                    
+                    if tok.i then
+                        reaper.ImGui_PushFont(ctx, font_italic, font_scale)
+                    end
                     reaper.ImGui_DrawList_AddText(draw_list, x, y, draw_color, tok.text)
+                    if tok.i then
+                        reaper.ImGui_PopFont(ctx)
+                    end
                 end
 
                 draw_text_inner(temp_x + shadow_offset, line_base_y + shadow_offset, shadow_color)
@@ -1157,18 +1173,6 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                 -- BOLD Simulation
                 if tok.b then
                     draw_text_inner(temp_x + 1, line_base_y, text_color)
-                end
-
-                -- ITALIC (Wavy Underline) - Less intense wave
-                if tok.i then
-                    local wave_y = line_base_y + line_h + 1 -- 3px lower than previous -2
-                    local r = (text_color >> 24) & 0xFF
-                    local g = (text_color >> 16) & 0xFF
-                    local b = (text_color >> 8) & 0xFF
-                    local a = text_color & 0xFF
-                    local combined_alpha = math.floor(a * ((tok.alpha or 255) / 255) * 0.6 + 0.5)
-                    local wavy_color = (r << 24) | (g << 16) | (b << 8) | combined_alpha
-                    draw_wavy_line(draw_list, temp_x, wave_y, w, wavy_color, 8, 2.0)
                 end
 
                 -- UNDERLINE
