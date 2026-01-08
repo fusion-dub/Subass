@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 3.1
+-- @version 3.2
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v3.1"
+local script_title = "Subass Notes v3.2"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -4143,10 +4143,12 @@ local function import_notes()
             local matched = false
             
             -- Check for actor line: ⭐ Name
-            local actor_name = line:match("^⭐%s*(.+)$")
+            local actor_name = line:match("^⭐(.*)$")
             if actor_name then
-                actor_name = actor_name:match("^%s*(.-)%s*$") -- Trim
-                if actor_name == "-- без актора --" then
+                -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
+                actor_name = actor_name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
+                
+                if actor_name == "" or actor_name == "-- без актора --" then
                     current_actor = nil -- Clear active actor
                 else
                     current_actor = actor_name -- Set new persistent actor
@@ -7892,6 +7894,9 @@ local function draw_file()
                         elseif ret == 2 then
                             local ok, new_name = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", act)
                             if ok then
+                                -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
+                                new_name = new_name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
+                                
                                 push_undo("Зміна імені актора")
                                 -- Update lines
                                 for _, l in ipairs(ass_lines) do
@@ -8909,8 +8914,11 @@ local function draw_prompter_drawer(input_queue)
             local grab_x = cfg.p_drawer_left and (drawer_x + prompter_drawer.width) or (drawer_x - grab_w)
             local grab_y = drawer_top_y + (gfx.h - drawer_top_y - grab_h) / 2
             
+            -- Helper: Check if mouse is strictly inside window
+            local inside_window = gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= 0 and gfx.mouse_y <= gfx.h
+
             -- Hover detection
-            local handle_hover = (gfx.mouse_x >= grab_x - S(4) and gfx.mouse_x <= grab_x + grab_w + S(4))
+            local handle_hover = inside_window and (gfx.mouse_x >= grab_x - S(4) and gfx.mouse_x <= grab_x + grab_w + S(4))
             
             -- Draw 2px vertical line
             set_color(handle_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
@@ -11742,7 +11750,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", {0.3, 0.35, 0.3}) then
         local dock_check = gfx.dock(-1) > 0 and "!" or ""
         local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
-        local menu_str = "Копіювати правки в буфер|Експортувати правки в CSV|Імпортувати імена акторів з субтитрів|" .. layout_label
+        local menu_str = "Копіювати правки в буфер|Експортувати правки в CSV|Імпортувати імена акторів з субтитрів|" .. layout_label .. "|Закрити вікно"
         
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local ret = gfx.showmenu(menu_str)
@@ -11795,7 +11803,9 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
 
                 local out_lines = {}
                 for _, act in ipairs(actors_list) do
-                    table.insert(out_lines,"⭐ " .. act)
+                    -- Clean actor name: remove VS16 and trim spaces
+                    local clean_act = act:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
+                    table.insert(out_lines, "⭐ " .. clean_act)
                     -- Sort markers by time
                     table.sort(groups[act], function(a, b) return a.time < b.time end)
                     
@@ -11931,6 +11941,9 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             end
             save_settings() -- Save state immediately
             last_layout_state.state_count = -1 -- Force redraw
+        elseif ret == 5 then
+            cfg.director_mode = not cfg.director_mode
+            save_settings()
         end
     end
 
@@ -11994,59 +12007,64 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 if ret2 == 1 then
                     -- RENAME
                     local ok, new_name = reaper.GetUserInputs("Змінити ім'я актора", 1, "Нове ім'я:", actor)
-                    if ok and new_name ~= "" and new_name ~= actor then
-                        -- Merge check
-                        local target_exists = false
-                        for _, act in ipairs(director_actors) do
-                            if act == new_name then target_exists = true break end
-                        end
+                    if ok then
+                        -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
+                        new_name = new_name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
                         
-                        if target_exists then
-                            push_undo("Об'єднати актора '" .. actor .. "' з '" .. new_name.. "' (Режисер)")
-                            table.remove(director_actors, i)
-                            save_project_data(UI_STATE.last_project_id)
-                            local ops = rename_actor_globally(actor, new_name)
-
-                            -- Force prompter drawer caches to refresh
-                            prompter_drawer.marker_cache.count = -1
-                            prompter_drawer.filtered_cache.state_count = -1
-                            prompter_drawer.has_markers_cache.count = -1
-                            
-                            -- Update Input if needed
-                            local list, set = get_actors_from_text(director_state.input.text)
-                            if set[actor] then
-                                local new_list = {}
-                                for _, a in ipairs(list) do
-                                    table.insert(new_list, (a == actor) and new_name or a)
-                                end
-                                local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
-                                director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
+                        if new_name ~= "" and new_name ~= actor then
+                            -- Merge check
+                            local target_exists = false
+                            for _, act in ipairs(director_actors) do
+                                if act == new_name then target_exists = true break end
                             end
-
-                            show_snackbar("Об'єднано з '" .. new_name .. "' (" .. ops .. " змін) (Режисер)", "success")
-                        else
-                            push_undo("Змінити ім'я актора " .. actor .. " -> " .. new_name)
-                            director_actors[i] = new_name
-                            save_project_data(UI_STATE.last_project_id)
-                            local ops = rename_actor_globally(actor, new_name)
-
-                            -- Force prompter drawer caches to refresh
-                            prompter_drawer.marker_cache.count = -1
-                            prompter_drawer.filtered_cache.state_count = -1
-                            prompter_drawer.has_markers_cache.count = -1
                             
-                            -- Update Input if needed
-                            local list, set = get_actors_from_text(director_state.input.text)
-                            if set[actor] then
-                                local new_list = {}
-                                for _, a in ipairs(list) do
-                                    table.insert(new_list, (a == actor) and new_name or a)
-                                end
-                                local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
-                                director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
-                            end
+                            if target_exists then
+                                push_undo("Об'єднати актора '" .. actor .. "' з '" .. new_name.. "' (Режисер)")
+                                table.remove(director_actors, i)
+                                save_project_data(UI_STATE.last_project_id)
+                                local ops = rename_actor_globally(actor, new_name)
 
-                            show_snackbar("Змінено ім'я у '" .. ops .. "' місцях (Режисер)", "success")
+                                -- Force prompter drawer caches to refresh
+                                prompter_drawer.marker_cache.count = -1
+                                prompter_drawer.filtered_cache.state_count = -1
+                                prompter_drawer.has_markers_cache.count = -1
+                                
+                                -- Update Input if needed
+                                local list, set = get_actors_from_text(director_state.input.text)
+                                if set[actor] then
+                                    local new_list = {}
+                                    for _, a in ipairs(list) do
+                                        table.insert(new_list, (a == actor) and new_name or a)
+                                    end
+                                    local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
+                                    director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
+                                end
+
+                                show_snackbar("Об'єднано з '" .. new_name .. "' (" .. ops .. " змін) (Режисер)", "success")
+                            else
+                                push_undo("Змінити ім'я актора " .. actor .. " -> " .. new_name)
+                                director_actors[i] = new_name
+                                save_project_data(UI_STATE.last_project_id)
+                                local ops = rename_actor_globally(actor, new_name)
+
+                                -- Force prompter drawer caches to refresh
+                                prompter_drawer.marker_cache.count = -1
+                                prompter_drawer.filtered_cache.state_count = -1
+                                prompter_drawer.has_markers_cache.count = -1
+                                
+                                -- Update Input if needed
+                                local list, set = get_actors_from_text(director_state.input.text)
+                                if set[actor] then
+                                    local new_list = {}
+                                    for _, a in ipairs(list) do
+                                        table.insert(new_list, (a == actor) and new_name or a)
+                                    end
+                                    local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
+                                    director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
+                                end
+
+                                show_snackbar("Змінено ім'я у '" .. ops .. "' місцях (Режисер)", "success")
+                            end
                         end
                     end
                 elseif ret2 == 2 then
@@ -12098,17 +12116,22 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     if not calc_only then
         if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "+", {0.3, 0.35, 0.3}) then
             local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
-            if ok and name ~= "" then
-                -- Check duplication
-                local exists = false
-                for _, act in ipairs(director_actors) do
-                    if act == name then exists = true break end
-                end
+            if ok then
+                -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
+                name = name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
                 
-                if not exists then
-                    push_undo("Додати актора '" .. name .. "' (Режисер)")
-                    table.insert(director_actors, name)
-                    save_project_data(UI_STATE.last_project_id)
+                if name ~= "" then
+                    -- Check duplication
+                    local exists = false
+                    for _, act in ipairs(director_actors) do
+                        if act == name then exists = true break end
+                    end
+                    
+                    if not exists then
+                        push_undo("Додати актора '" .. name .. "' (Режисер)")
+                        table.insert(director_actors, name)
+                        save_project_data(UI_STATE.last_project_id)
+                    end
                 end
             end
         end
@@ -13304,6 +13327,9 @@ local function draw_table(input_queue)
                                 local first_actor = selected_entries[1].actor or ""
                                 local ok, new_actor = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", first_actor)
                                 if ok then
+                                    -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
+                                    new_actor = new_actor:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
+                                    
                                     push_undo("Зміна імені актора")
                                     if ass_actors[new_actor] == nil then ass_actors[new_actor] = true end
                                     for _, l in ipairs(selected_entries) do
