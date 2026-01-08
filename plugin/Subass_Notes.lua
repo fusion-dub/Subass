@@ -5113,11 +5113,16 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
             
             if is_italic then
                 if font_name == "Helvetica" then effective_font = "Helvetica Oblique"
-                else f_flags = string.byte('i') end
+                else f_flags = f_flags + string.byte('i') end
             end
             if is_bold then
-                if effective_font == font_name then f_flags = string.byte('b') end
-                if is_italic and font_name == "Helvetica" then effective_font = "Helvetica Bold Oblique" end
+                if effective_font == font_name then 
+                    if is_italic then f_flags = string.byte('b') | (string.byte('i') << 8)
+                    else f_flags = string.byte('b') end
+                elseif is_italic and font_name == "Helvetica" then 
+                    effective_font = "Helvetica Bold Oblique"
+                    f_flags = 0
+                end
             end
             gfx.setfont(font_slot, effective_font, base_size, f_flags)
             
@@ -9021,11 +9026,16 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
         if cfg.karaoke_mode and (font_slot == F.lrg or font_slot == F.nxt) then measure_bold = true end
         if span.i then
             if font_name == "Helvetica" then effective_font = "Helvetica Oblique"
-            else f_flags = string.byte('i') end
+            else f_flags = f_flags + string.byte('i') end
         end
         if measure_bold then
-            if effective_font == font_name then f_flags = string.byte('b') end
-            if span.i and font_name == "Helvetica" then effective_font = "Helvetica Bold Oblique" end
+            if effective_font == font_name then 
+                if span.i then f_flags = string.byte('b') | (string.byte('i') << 8)
+                else f_flags = string.byte('b') end
+            elseif span.i and font_name == "Helvetica" then 
+                effective_font = "Helvetica Bold Oblique"
+                f_flags = 0
+            end
         end
         gfx.setfont(font_slot, effective_font, base_size, f_flags)
         local measure_text = span.text:gsub(acute, "")
@@ -9108,11 +9118,16 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
         local f_flags, effective_font = 0, font_name
         if span.i then
            if font_name == "Helvetica" then effective_font = "Helvetica Oblique"
-           else f_flags = string.byte('i') end
+           else f_flags = f_flags + string.byte('i') end
         end
         if span.b then
-            if effective_font == font_name then f_flags = string.byte('b') end
-            if span.i and font_name == "Helvetica" then effective_font = "Helvetica Bold Oblique" end
+            if effective_font == font_name then 
+                if span.i then f_flags = string.byte('b') | (string.byte('i') << 8)
+                else f_flags = string.byte('b') end
+            elseif span.i and font_name == "Helvetica" then 
+                effective_font = "Helvetica Bold Oblique"
+                f_flags = 0
+            end
         end
         gfx.setfont(font_slot, effective_font, base_size, f_flags)
         gfx.x, gfx.y = cursor_x, y_base
