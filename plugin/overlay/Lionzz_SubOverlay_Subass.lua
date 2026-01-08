@@ -1068,7 +1068,10 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
         -- Measure line total width for centering
         local line_total_w = 0
         for i, tok in ipairs(line) do
+            local f_italic = font_objects_italic[font_index] or font_objects_italic[1]
+            if tok.i then reaper.ImGui_PushFont(ctx, f_italic, font_scale) end
             local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
+            if tok.i then reaper.ImGui_PopFont(ctx) end
             
             line_total_w = line_total_w + w
             if i < #line then line_total_w = line_total_w + space_w_main end
@@ -1100,7 +1103,10 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
 
             for i, tok in ipairs(line) do
                 -- Measure (again, needed for positioning)
+                local f_italic = font_objects_italic[font_index] or font_objects_italic[1]
+                if tok.i then reaper.ImGui_PushFont(ctx, f_italic, font_scale) end
                 local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
+                if tok.i then reaper.ImGui_PopFont(ctx) end
 
                 -- 1. Interaction (Invisible Button)
                 -- Use line index + token index for unique ID
@@ -1192,8 +1198,11 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                     for _, rg in ipairs(tok.assimilation_ranges) do
                         local before_text = tok.text:sub(1, rg.start_idx - 1)
                         local match_text = tok.text:sub(rg.start_idx, rg.stop_idx)
+                        local f_italic = font_objects_italic[font_index] or font_objects_italic[1]
+                        if tok.i then reaper.ImGui_PushFont(ctx, f_italic, font_scale) end
                         local offset_w, _ = reaper.ImGui_CalcTextSize(ctx, before_text)
                         local match_w, _ = reaper.ImGui_CalcTextSize(ctx, match_text)
+                        if tok.i then reaper.ImGui_PopFont(ctx) end
                         
                         -- No additional slant offset needed for waves now
                         local wave_y = line_base_y + line_h - 2
