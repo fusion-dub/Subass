@@ -6503,9 +6503,9 @@ local function draw_dictionary_modal(input_queue)
     end
     set_color(close_hover and {1, 0.5, 0.5} or UI.C_TXT)
     gfx.setfont(F.std)
-    gfx.x = close_x + (close_sz - gfx.measurestr("✕")) / 2
+    gfx.x = close_x + (close_sz - gfx.measurestr("X")) / 2
     gfx.y = close_y + (close_sz - gfx.texth) / 2
-    gfx.drawstr("✕")
+    gfx.drawstr("X")
     
     if close_hover and gfx.mouse_cap == 1 and UI_STATE.last_mouse_cap == 0 then
         dict_modal.show = false
@@ -8504,9 +8504,9 @@ local function draw_prompter_drawer(input_queue)
             end
             set_color(close_hover and {1, 0.5, 0.5} or UI.C_TXT)
             gfx.setfont(F.std)
-            gfx.x = close_x + (close_sz - gfx.measurestr("✕")) / 2
+            gfx.x = close_x + (close_sz - gfx.measurestr("X")) / 2
             gfx.y = close_y + (close_sz - gfx.texth) / 2
-            gfx.drawstr("✕")
+            gfx.drawstr("X")
             
             if close_hover and gfx.mouse_cap == 1 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
                 prompter_drawer.open = false
