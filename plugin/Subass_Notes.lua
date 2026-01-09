@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 3.2
+-- @version 3.3
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v3.2"
+local script_title = "Subass Notes v3.3"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -91,6 +91,9 @@ local cfg = {
     director_mode = (get_set("director_mode", "0") == "1" or get_set("director_mode", 0) == 1),
     director_layout = get_set("director_layout", "bottom"),
     prompter_slider_mode = (get_set("prompter_slider_mode", "0") == "1" or get_set("prompter_slider_mode", 0) == 1),
+    auto_trim = (get_set("auto_trim", "0") == "1" or get_set("auto_trim", 0) == 1),
+    trim_start = get_set("trim_start", 40),
+    trim_end = get_set("trim_end", 80),
 }
 
 local col_resize = {
@@ -240,7 +243,8 @@ local UI_STATE = {
         show_time = 0,
         duration = 3.0,
         type = "info"
-    }
+    },
+    last_is_recording = false
 }
 
 local regions = {}
@@ -638,6 +642,10 @@ local function save_settings()
     reaper.SetExtState(section_name, "director_layout", cfg.director_layout, true)
     reaper.SetExtState(section_name, "w_director", tostring(cfg.w_director), true)
     reaper.SetExtState(section_name, "h_director", tostring(cfg.h_director), true)
+
+    reaper.SetExtState(section_name, "auto_trim", cfg.auto_trim and "1" or "0", true)
+    reaper.SetExtState(section_name, "trim_start", tostring(cfg.trim_start), true)
+    reaper.SetExtState(section_name, "trim_end", tostring(cfg.trim_end), true)
 
     update_prompter_fonts()
 end
@@ -11432,7 +11440,6 @@ local function draw_settings()
         end
         y_cursor = y_cursor + S(45)
         
-        -- Corrections Line Height
         s_text(x_start + S(30), y_cursor, string.format("Висота рядка: %.1f", cfg.c_lheight))
         if s_btn(x_start + S(175), y_cursor - S(10), S(30), S(30), "－") then
             cfg.c_lheight = math.max(0.2, cfg.c_lheight - 0.1)
@@ -11448,6 +11455,43 @@ local function draw_settings()
             save_settings()
         end, 0.7)
     end
+    y_cursor = y_cursor + S(40)
+
+    -- RECORDING SECTION
+    s_section(y_cursor, "Запис та авто-підрізання")
+    y_cursor = y_cursor + S(35)
+    
+    if checkbox(x_start, y_cursor, "Авто-підрізання щойно записаних реплік", cfg.auto_trim, "Автоматично підрізає початок та кінець щойно записаної репліки (аби прибрати кліки клавіатури)") then
+        cfg.auto_trim = not cfg.auto_trim
+        save_settings()
+    end
+    y_cursor = y_cursor + S(45)
+    
+    if cfg.auto_trim then
+        s_text(x_start + S(25), y_cursor, "Підрізати початок (мс): " .. cfg.trim_start, F.std)
+        if s_btn(x_start + S(250), y_cursor - S(10), S(30), S(30), "－") then
+            cfg.trim_start = math.max(0, cfg.trim_start - 10)
+            save_settings()
+        end
+        if s_btn(x_start + S(285), y_cursor - S(10), S(30), S(30), "＋") then
+            cfg.trim_start = math.min(2000, cfg.trim_start + 10)
+            save_settings()
+        end
+        y_cursor = y_cursor + S(45)
+        
+        s_text(x_start + S(25), y_cursor, "Підрізати кінець (мс): " .. cfg.trim_end, F.std)
+        if s_btn(x_start + S(250), y_cursor - S(10), S(30), S(30), "－") then
+            cfg.trim_end = math.max(0, cfg.trim_end - 10)
+            save_settings()
+        end
+        if s_btn(x_start + S(285), y_cursor - S(10), S(30), S(30), "＋") then
+            cfg.trim_end = math.min(2000, cfg.trim_end + 10)
+            save_settings()
+        end
+        y_cursor = y_cursor + S(40)
+    end
+    
+    -- DICTIONARY SECTION
     y_cursor = y_cursor + S(40)
 
     -- Footer
@@ -13998,6 +14042,56 @@ local function handle_remote_commands()
     end
 end
 
+--- Automatically trim start/end of newly recorded items to remove keyboard clicks
+local function process_auto_trim()
+    if not cfg.auto_trim then return end
+    
+    local play_state = reaper.GetPlayState()
+    local is_recording = (play_state & 4) == 4
+    
+    if UI_STATE.last_is_recording and not is_recording then
+        -- Recording just stopped
+        local item_count = reaper.CountSelectedMediaItems(0)
+        if item_count > 0 then
+            reaper.Undo_BeginBlock()
+            local trimmed_count = 0
+            for i = 0, item_count - 1 do
+                local item = reaper.GetSelectedMediaItem(0, i)
+                if item then
+                    local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                    local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                    
+                    local trim_start_sec = cfg.trim_start / 1000
+                    local trim_end_sec = cfg.trim_end / 1000
+                    
+                    if item_len > (trim_start_sec + trim_end_sec) then
+                        -- Trim start
+                        local take = reaper.GetActiveTake(item)
+                        if take then
+                            -- Adjust source offset to keep content aligned
+                            local offset = reaper.GetMediaItemTakeInfo_Value(take, "D_STARTOFFS")
+                            reaper.SetMediaItemTakeInfo_Value(take, "D_STARTOFFS", offset + trim_start_sec)
+                        end
+                        reaper.SetMediaItemInfo_Value(item, "D_POSITION", item_pos + trim_start_sec)
+                        -- Adjust length (minus both start and end trims)
+                        reaper.SetMediaItemInfo_Value(item, "D_LENGTH", item_len - trim_start_sec - trim_end_sec)
+                        trimmed_count = trimmed_count + 1
+                    end
+                end
+            end
+            
+            if trimmed_count > 0 then
+                reaper.UpdateArrange()
+                reaper.Undo_EndBlock("Авто-підрізання запису", -1)
+                show_snackbar("Запис автоматично підрізано (" .. trimmed_count .. " шт.)", "info")
+            else
+                reaper.Undo_EndBlock("Авто-підрізання запису", -1)
+            end
+        end
+    end
+    UI_STATE.last_is_recording = is_recording
+end
+
 local function main()
     -- Heartbeat for Lionzz
     reaper.gmem_write(100, reaper.time_precise())
@@ -14135,6 +14229,8 @@ local function main()
     -- Async handling and Loader must be drawn BEFORE gfx.update
     check_async_pool()
     draw_loader()
+    
+    process_auto_trim()
 
     gfx.update()
 
