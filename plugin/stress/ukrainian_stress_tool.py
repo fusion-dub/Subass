@@ -39,6 +39,13 @@ if sys.version_info < (3, 9):
     sys.exit(1)
 
 
+# Set stanza resources directory to local plugin folder BEFORE any imports
+stanza_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stanza_resources")
+if not os.path.exists(stanza_dir):
+    os.makedirs(stanza_dir, exist_ok=True)
+os.environ["STANZA_RESOURCES_DIR"] = stanza_dir
+
+
 def bootstrap():
     """Automatically installs dependencies if they are missing."""
     try:
@@ -125,7 +132,33 @@ _stressifier = None
 def get_stressifier():
     global _stressifier
     if _stressifier is None:
-        _stressifier = Stressifier(stress_symbol=StressSymbol.CombiningAcuteAccent)
+        try:
+            _stressifier = Stressifier(stress_symbol=StressSymbol.CombiningAcuteAccent)
+        except PermissionError as e:
+            print("--- ERROR: STANZA_PERMISSION_DENIED ---")
+            print(f"Permission error accessing stanza resources: {e}")
+            print(f"\nThe AI models folder has incorrect permissions.")
+            print(f"Location: {os.environ.get('STANZA_RESOURCES_DIR', 'unknown')}")
+            print("\nTo fix this:")
+            print("1. Close REAPER completely")
+            print("2. Delete the 'stanza_resources' folder manually:")
+            print(f"   {os.environ.get('STANZA_RESOURCES_DIR', 'unknown')}")
+            print("3. Restart REAPER and try again")
+            print("\nThe tool will attempt to delete it automatically now...")
+            
+            # Try to delete the corrupted folder
+            stanza_dir = os.environ.get('STANZA_RESOURCES_DIR')
+            if stanza_dir and os.path.exists(stanza_dir):
+                import shutil
+                try:
+                    shutil.rmtree(stanza_dir)
+                    print(f"✓ Successfully deleted {stanza_dir}")
+                    print("Please restart REAPER and try again.")
+                except Exception as cleanup_err:
+                    print(f"✗ Could not delete automatically: {cleanup_err}")
+                    print("Please delete the folder manually as described above.")
+            
+            sys.exit(1)
     return _stressifier
 
 
