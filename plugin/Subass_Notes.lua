@@ -112,7 +112,7 @@ local requirements_state = {
     reapack = false,
     js_api = false,
     reaimgui = false,
-    python = { ok = false, version = "N/A" },
+    python = { ok = false, version = "N/A", executable = "python" },
     all_ok = false,
     scroll_y = 0,
     target_scroll_y = 0
@@ -4865,7 +4865,8 @@ apply_stress_marks_async = function()
                         in_p = in_p:gsub("/", "\\")
                         out_p = out_p:gsub("/", "\\")
                         log_file = log_file:gsub("/", "\\")
-                        cmd_to_run = string.format('python "%s" "%s" -o "%s" > "%s" 2>&1', tool_p, in_p, out_p, log_file)
+                        local py_exe = requirements_state.python.executable or "python"
+                        cmd_to_run = string.format('%s "%s" "%s" -o "%s" > "%s" 2>&1', py_exe, tool_p, in_p, out_p, log_file)
                     else
                         -- Mac/Linux: Assume python3
                         cmd_to_run = string.format('python3 "%s" "%s" -o "%s" > "%s" 2>&1', tool_p, in_p, out_p, log_file)
@@ -6922,7 +6923,11 @@ local function get_py_ver()
     local os_name = reaper.GetOS()
     if os_name:match("Win") then
         -- Async check for Windows to avoid terminal popup
-        local cmds = {"python --version", "python3 --version"}
+        local cmds = {
+            { cmd = "python --version", exe = "python" },
+            { cmd = "python3 --version", exe = "python3" },
+            { cmd = "py -3 --version", exe = "py -3" }
+        }
         
         local function try_next_cmd(idx)
             if idx > #cmds then
@@ -6932,11 +6937,12 @@ local function get_py_ver()
                 return
             end
             
-            run_async_command(cmds[idx], function(output)
+            run_async_command(cmds[idx].cmd, function(output)
                 local success, version = extract_ver(output)
                 if success ~= nil then
                     requirements_state.python.ok = success
                     requirements_state.python.version = version
+                    requirements_state.python.executable = cmds[idx].exe
                     -- Updates state if success
                     if requirements_state.python.ok then
                         requirements_state.all_ok = (requirements_state.sws and requirements_state.reapack and 
