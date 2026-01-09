@@ -50,16 +50,24 @@ if (-not (Test-Path $scriptsPath)) { New-Item -ItemType Directory $scriptsPath |
 Write-Host-Color "Checking Python 3..." "Cyan"
 
 function Get-Python-Command {
-    foreach ($cmd in "python", "python3") {
+    Write-Host-Color "Searching for Python..." "Gray"
+    foreach ($cmd in "python", "python3", "py") {
         $cmdInfo = Get-Command $cmd -ErrorAction SilentlyContinue
         if ($cmdInfo) {
             try {
-                $versionInfo = & $cmd --version 2>&1 | Out-String
-                if ($versionInfo -match "Python 3\.") {
-                    return $cmd
+                $testArgs = if ($cmd -eq "py") { @("-3", "--version") } else { @("--version") }
+                $versionInfo = & $cmd $testArgs 2>&1 | Out-String
+                
+                if ($versionInfo -match "Python 3") {
+                    Write-Host-Color "Found Python via '$cmd': $($versionInfo.Trim())" "Gray"
+                    if ($cmd -eq "py") {
+                        return @{ exe = "py"; args = @("-3") }
+                    } else {
+                        return @{ exe = $cmd; args = @() }
+                    }
                 }
             } catch {
-                # Ignore failures of specific commands
+                # Ignore failures
             }
         }
     }
@@ -86,16 +94,16 @@ if (-not $pythonCmd) {
         Pause
         exit
     } else {
-        $vStr = & $pythonCmd --version
+        $vStr = & $pythonCmd.exe $pythonCmd.args --version
         Write-Host-Color "Python 3 installed successfully: $vStr" "Green"
     }
 } else {
-    $vStr = & $pythonCmd --version
+    $vStr = & $pythonCmd.exe $pythonCmd.args --version
     Write-Host-Color "Detected Python: $vStr" "Green"
 }
 
-# Store the detected python command
-$env:SUBASS_PYTHON = $pythonCmd
+# Store the detected python command as a string
+$env:SUBASS_PYTHON = if ($pythonCmd.args.Count -gt 0) { "$($pythonCmd.exe) $($pythonCmd.args -join ' ')" } else { $pythonCmd.exe }
 
 # 3.5 Check FFmpeg via Winget
 Write-Host-Color "Checking FFmpeg..." "Cyan"
@@ -206,10 +214,15 @@ $stressTool = Join-Path $scriptsPath "stress\ukrainian_stress_tool.py"
 if (Test-Path $stressTool) {
     Write-Host "Running stress tool self-check..."
     try {
-        $pyCmd = "python"
-        if ($env:SUBASS_PYTHON) { $pyCmd = $env:SUBASS_PYTHON }
+        $pyCmdRaw = "python"
+        if ($env:SUBASS_PYTHON) { $pyCmdRaw = $env:SUBASS_PYTHON }
+        $pyCmdArray = $pyCmdRaw -split " "
+        $exe = $pyCmdArray[0]
+        $extraArgs = @()
+        if ($pyCmdArray.Count -gt 1) { $extraArgs = $pyCmdArray[1..($pyCmdArray.Count-1)] }
         
-        $process = Start-Process $pyCmd -ArgumentList "`"$stressTool`"", "`"Привіт`"" -PassThru -NoNewWindow -Wait
+        $argList = $extraArgs + "`"$stressTool`"" + "`"Привіт`""
+        $process = Start-Process $exe -ArgumentList $argList -PassThru -NoNewWindow -Wait
         if ($process.ExitCode -eq 0) {
             Write-Host-Color "Stress tool verification successful." "Green"
         } else {
