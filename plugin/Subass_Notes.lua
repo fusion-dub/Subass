@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 3.3
+-- @version 3.4
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v3.3"
+local script_title = "Subass Notes v3.4"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -8049,7 +8049,7 @@ local function draw_file()
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "Видалити ВСІ регіони||" .. dock_check .. "Закріпити вікно (Dock)"
+        local menu = "Видалити ВСІ регіони|Відкрити WEB-менеджер наголосів||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -8057,6 +8057,26 @@ local function draw_file()
         if ret == 1 then
             delete_all_regions()
         elseif ret == 2 then
+            -- Open web-based stress manager
+            local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
+            local py_script = script_path .. "stress/ukrainian_stress_tool.py"
+            local os_name = reaper.GetOS()
+            
+            if os_name:match("Win") then
+                -- Windows: Use detected Python executable (python, python3, or py -3)
+                local py_exe = requirements_state.python.executable or "python"
+                py_script = py_script:gsub("/", "\\")
+                local cmd = 'cmd.exe /C start "" ' .. py_exe .. ' "' .. py_script .. '"'
+                reaper.ExecProcess(cmd, 0)
+            elseif os_name:match("OSX") or os_name:match("macOS") then
+                -- macOS: Use python3 in Terminal
+                local cmd = 'open -a Terminal.app "' .. py_script .. '"'
+                os.execute(cmd)
+            else
+                -- Linux: Use python3 in background
+                os.execute('python3 "' .. py_script .. '" &')
+            end
+        elseif ret == 3 then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
