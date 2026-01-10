@@ -193,7 +193,19 @@ $dictionarySource = Join-Path $projectRoot "plugin\dictionary"
 if (Test-Path $scriptSource) {
     Copy-Item $scriptSource $scriptsPath -Force
     if (Test-Path $stressSource) {
-        Copy-Item $stressSource $scriptsPath -Recurse -Force
+        $stressTarget = Join-Path $scriptsPath "stress"
+        # Preserve stanza_resources folder during update
+        if (Test-Path $stressTarget) {
+            # Update existing stress folder, excluding stanza_resources
+            Get-ChildItem $stressSource | Where-Object { 
+                $_.Name -ne "stanza_resources" -and $_.Name -ne "stress_debug.log" 
+            } | ForEach-Object {
+                Copy-Item $_.FullName $stressTarget -Recurse -Force
+            }
+        } else {
+            # First install - copy everything
+            Copy-Item $stressSource $scriptsPath -Recurse -Force
+        }
     }
     if (Test-Path $overlaySource) {
         $overlayTargetDir = Join-Path $scriptsPath "overlay"
