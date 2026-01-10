@@ -244,7 +244,9 @@ local UI_STATE = {
         duration = 3.0,
         type = "info"
     },
-    last_is_recording = false
+    last_is_recording = false,
+    window_focused = true, -- Track if window is focused
+    inside_window = false -- Track if mouse is within window bounds
 }
 
 local regions = {}
@@ -772,7 +774,7 @@ local function draw_scrollbar(x, y, w, h, total_h, visible_h, scroll_y)
     local handle_y = y + (local_scroll / max_scroll) * (h - handle_h)
     
     -- Draw Handle
-    local is_hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= handle_y and gfx.mouse_y <= handle_y + handle_h)
+    local is_hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= handle_y and gfx.mouse_y <= handle_y + handle_h)
     if is_hover then
         set_color({0.7, 0.7, 0.7, 0.9})
     else
@@ -1189,30 +1191,6 @@ local function is_any_text_input_focused()
     return false
 end
 
---- Return focus to REAPER's Arrange View with internal safeguards and aggressive triggers
-local function is_window_focused()
-    if not reaper.JS_Window_GetForeground then return true end
-    local fg_hwnd = reaper.JS_Window_GetForeground()
-    if not fg_hwnd then return false end
-    
-    -- Option A: Check by Title (Robust on macOS)
-    if reaper.JS_Window_GetTitle then
-        local title = reaper.JS_Window_GetTitle(fg_hwnd)
-        if title and title:find("Subass Notes") then return true end
-    end
-    
-    -- Option B: Check if it belongs to REAPER's hierarchy
-    local main_hwnd = reaper.GetMainHwnd()
-    local current = fg_hwnd
-    while current do
-        if current == main_hwnd then return true end
-        if not reaper.JS_Window_GetParent then break end
-        current = reaper.JS_Window_GetParent(current)
-    end
-    
-    return false
-end
-
 local function return_focus_to_reaper(force)
     -- Safeguards: don't steal focus if user is actively typing or manipulating UI
     if not force then
@@ -1240,7 +1218,7 @@ end
 --- @param bg_col RGB color array
 --- @return boolean True if clicked
 local function btn(x, y, w, h, text, bg_col)
-    local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x+w and gfx.mouse_y >= y and gfx.mouse_y <= y+h)
+    local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x+w and gfx.mouse_y >= y and gfx.mouse_y <= y+h)
     set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
     gfx.rect(x, y, w, h, 1)
     set_color(UI.C_TXT)
@@ -5412,7 +5390,7 @@ local function draw_ai_modal(skip_draw)
     end
 
     -- Draw Pass starts here
-    local mouse_in_menu = (gfx.mouse_x >= x and gfx.mouse_x <= x + menu_w and
+    local mouse_in_menu = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + menu_w and
                            gfx.mouse_y >= y and gfx.mouse_y <= y + menu_h)
 
     -- Draw Menu Shadow
@@ -5958,7 +5936,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     end
 
     -- --- INTERACTION ---
-    local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
+    local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
     
     local function get_cursor_from_xy(mx, my)
         if not is_multiline then
@@ -6059,7 +6037,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             end
             
             -- Also check if we just clicked the AI button itself to prevent focus flickers
-            local ai_btn_hover = (gfx.mouse_x >= ai_modal.anchor_x - 40 and gfx.mouse_x <= ai_modal.anchor_x and 
+            local ai_btn_hover = UI_STATE.window_focused and (gfx.mouse_x >= ai_modal.anchor_x - 40 and gfx.mouse_x <= ai_modal.anchor_x and 
                                   gfx.mouse_y >= ai_modal.anchor_y - 24 and gfx.mouse_y <= ai_modal.anchor_y)
 
             if not in_ai and not ai_btn_hover then
@@ -6495,7 +6473,7 @@ local function draw_dictionary_modal(input_queue)
     local close_sz = S(30)
     local close_x = box_x + box_w - close_sz - S(10)
     local close_y = box_y + S(10)
-    local close_hover = (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
+    local close_hover = UI_STATE.window_focused and (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
                         gfx.mouse_y >= close_y and gfx.mouse_y <= close_y + close_sz)
     
     if close_hover then
@@ -7999,7 +7977,11 @@ local function draw_file()
         -- Apply Stress Marks Button
         local s_y = get_y(y_cursor)
         if s_y + S(25) > start_y and s_y < gfx.h then
-            if btn(S(20), s_y, gfx.w - S(40), S(40), ">  Застосувати наголоси  <", UI.C_TAB_ACT) then
+            local is_running = UI_STATE.script_loading_state.active
+            local btn_text = is_running and "AI обробка..." or ">  Застосувати наголоси  <"
+            local btn_col = is_running and UI.C_BTN_H or UI.C_TAB_ACT
+            
+            if btn(S(20), s_y, gfx.w - S(40), S(40), btn_text, btn_col) and not is_running then
                 push_undo("Застосування наголосів")
                 apply_stress_marks_async()
             end
@@ -8463,7 +8445,7 @@ local function draw_prompter_drawer(input_queue)
         local btn_x = cfg.p_drawer_left and 0 or (gfx.w - btn_w)
         local btn_y = drawer_top_y + (gfx.h - drawer_top_y - btn_h) / 2
         
-        local hover = (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and
+        local hover = UI_STATE.window_focused and (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and
                        gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h)
         
         set_color(hover and UI.C_BTN_H or UI.C_BTN)
@@ -8521,7 +8503,7 @@ local function draw_prompter_drawer(input_queue)
             -- Close Button next to filter
             local close_x = drawer_x + padding + filter_w + padding
             local close_y = drawer_top_y + padding
-            local close_hover = (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
+            local close_hover = UI_STATE.window_focused and (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
                                  gfx.mouse_y >= close_y and gfx.mouse_y <= close_y + close_sz)
             
             if close_hover then
@@ -8739,7 +8721,7 @@ local function draw_prompter_drawer(input_queue)
                 
                 -- Check visibility
                 if row_y + m.h > table_y and row_y < gfx.h then
-                    local row_hover = (gfx.mouse_x >= drawer_x and gfx.mouse_x <= drawer_x + prompter_drawer.width and
+                    local row_hover = UI_STATE.window_focused and (gfx.mouse_x >= drawer_x and gfx.mouse_x <= drawer_x + prompter_drawer.width and
                                        gfx.mouse_y >= row_y and gfx.mouse_y <= row_y + m.h and
                                        gfx.mouse_y >= table_y)
                     
@@ -8954,10 +8936,8 @@ local function draw_prompter_drawer(input_queue)
             local grab_y = drawer_top_y + (gfx.h - drawer_top_y - grab_h) / 2
             
             -- Helper: Check if mouse is strictly inside window
-            local inside_window = gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= 0 and gfx.mouse_y <= gfx.h
-
             -- Hover detection
-            local handle_hover = inside_window and (gfx.mouse_x >= grab_x - S(4) and gfx.mouse_x <= grab_x + grab_w + S(4))
+            local handle_hover = UI_STATE.window_focused and UI_STATE.inside_window and (gfx.mouse_x >= grab_x - S(4) and gfx.mouse_x <= grab_x + grab_w + S(4))
             
             -- Draw 2px vertical line
             set_color(handle_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
@@ -10693,7 +10673,7 @@ local function draw_prompter(input_queue)
             local btn_x = gfx.w - content_offset_right - btn_w - 20
             local btn_y = (gfx.h - btn_h) / 2
             
-            local hover = (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and
+            local hover = UI_STATE.window_focused and (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and
                            gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h)
                    
             -- Draw arrow (vector)
@@ -10880,7 +10860,7 @@ local function draw_settings()
         local screen_y = get_y(y_rel)
         if screen_y + h < start_y or screen_y > gfx.h then return false end -- Cull
         
-        local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x+w and gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y+h)
+        local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x+w and gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y+h)
         set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
         gfx.rect(x, screen_y, w, h, 1)
         set_color(UI.C_TXT)
@@ -10928,7 +10908,7 @@ local function draw_settings()
         gfx.drawstr(text)
         set_color(UI.C_TXT)
         
-        local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + chk_sz + gfx.measurestr(text) + S(10) and
+        local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + chk_sz + gfx.measurestr(text) + S(10) and
                        gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + chk_sz)
         
         if hover and tooltip then
@@ -10953,7 +10933,7 @@ local function draw_settings()
 
         if tooltip then
             local tw, th = gfx.measurestr(text)
-            local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + tw and gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + th)
+            local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + tw and gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + th)
             if hover then
                 local id = "txt_" .. text .. "_" .. y_rel
                 if UI_STATE.tooltip_state.hover_id ~= id then
@@ -11622,7 +11602,7 @@ local suppress_auto_scroll_frames = 0
 
 -- Helper for inline buttons
 local function draw_btn_inline(x, y, w, h, text, bg_col)
-    local hover = (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
+    local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
     set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
     gfx.rect(x, y, w, h, 1)
     set_color(UI.C_TXT)
@@ -12053,7 +12033,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             
             -- Hover Check for Right Click
             -- Adjust hit test to relative coords
-            local hover = (gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + btn_w and gfx.mouse_y >= draw_y and gfx.mouse_y <= draw_y + btn_h)
+            local hover = UI_STATE.window_focused and (gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + btn_w and gfx.mouse_y >= draw_y and gfx.mouse_y <= draw_y + btn_h)
             
             if draw_btn_inline(draw_x, draw_y, btn_w, btn_h, label, bg_col) then
                 -- Toggle Logic
@@ -13521,8 +13501,6 @@ local function draw_table(input_queue)
         local is_hover = false
         
         -- Helper: Check if mouse is strictly inside window
-        local inside_window = gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= 0 and gfx.mouse_y <= gfx.h
-
         if is_dir_right then
             local border_x = avail_w
             handle_w = grab_thick
@@ -13531,7 +13509,7 @@ local function draw_table(input_queue)
             handle_y = content_y + (avail_h + h_director - handle_h) / 2
             
             -- Draw Separator
-            is_hover = inside_window and math.abs(gfx.mouse_x - border_x) <= resize_zone and (gfx.mouse_y >= content_y)
+            is_hover = UI_STATE.inside_window and UI_STATE.window_focused and math.abs(gfx.mouse_x - border_x) <= resize_zone and (gfx.mouse_y >= content_y)
             set_color(is_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
             gfx.rect(border_x, content_y, strip_sz, avail_h + h_director, 1)
 
@@ -13562,11 +13540,11 @@ local function draw_table(input_queue)
             handle_x = (gfx.w - handle_w) / 2
             handle_y = border_y - (handle_h / 2)
 
-            is_hover = inside_window and math.abs(gfx.mouse_y - border_y) <= resize_zone
+            is_hover = UI_STATE.inside_window and UI_STATE.window_focused and math.abs(gfx.mouse_y - border_y) <= resize_zone
             set_color(is_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
             gfx.rect(0, border_y, gfx.w, strip_sz, 1)
 
-            if (is_hover or director_resize_drag) and is_window_focused() then
+            if is_hover or director_resize_drag then
                 reaper.SetCursorContext(1, 0)
                 if is_hover and gfx.mouse_cap == 1 and not col_resize.dragging then
                     director_resize_drag = true
@@ -13628,7 +13606,7 @@ local function draw_table(input_queue)
         local is_hover = false
         local is_resize_hover = false
         
-        if gfx.mouse_y >= y and gfx.mouse_y < y + h_header then
+        if UI_STATE.window_focused and gfx.mouse_y >= y and gfx.mouse_y < y + h_header then
             if gfx.mouse_x >= x and gfx.mouse_x < next_x then
                 is_hover = true
             end
@@ -13752,7 +13730,7 @@ local function draw_table(input_queue)
                 gfx.line(m_x + S(5), m_y + S(5) + (idx-1) * item_h + item_h/2, m_x + m_w - S(5), m_y + S(5) + (idx-1) * item_h + item_h/2)
             else
                 local iy = m_y + S(5) + (idx-1) * item_h
-                local hover = (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= iy and gfx.mouse_y < iy + item_h)
+                local hover = UI_STATE.window_focused and (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= iy and gfx.mouse_y < iy + item_h)
                 
                 if hover then
                     set_color({1, 1, 1, 0.1})
@@ -13828,7 +13806,7 @@ local function draw_table(input_queue)
         local iy = m_y + S(10)
         local chk_sz = S(14)
         local chk_x = m_x + S(10)
-        local hover_chk = (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= iy and gfx.mouse_y < iy + S(24))
+        local hover_chk = UI_STATE.window_focused and (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= iy and gfx.mouse_y < iy + S(24))
         
         if hover_chk then
             set_color({1, 1, 1, 0.05})
@@ -14155,6 +14133,33 @@ local function main()
         proj_change_count = curs_state
     end
 
+    -- --- WINDOW FOCUS & INTERACTION DETECTION ---
+    UI_STATE.inside_window = (gfx.mouse_x >= 0 and gfx.mouse_x < gfx.w and 
+                              gfx.mouse_y >= 0 and gfx.mouse_y < gfx.h)
+    
+    local has_focus = UI_STATE.inside_window
+
+    -- If JS_API is available, we can check if REAPER or our window is actually in foreground
+    if reaper.JS_Window_GetForeground then
+        local fg_hwnd = reaper.JS_Window_GetForeground()
+        local my_hwnd = reaper.JS_Window_Find(script_title, true)
+        local main_hwnd = reaper.GetMainHwnd()
+        
+        if fg_hwnd then
+            -- We are focused if foreground is our window OR the main REAPER window
+            if fg_hwnd ~= my_hwnd and fg_hwnd ~= main_hwnd then
+                -- One extra check: is it another REAPER window (like MIDI editor)?
+                local title = reaper.JS_Window_GetTitle(fg_hwnd) or ""
+                if not title:match("REAPER") and not title:match(script_title) then
+                    has_focus = false
+                end
+            end
+        else
+            has_focus = false
+        end
+    end
+    UI_STATE.window_focused = has_focus
+
     -- --- INPUT GATHERING ---
     local input_queue = {}
     local char = gfx.getchar()
@@ -14205,10 +14210,8 @@ local function main()
     elseif dict_modal.show then
         draw_dictionary_modal(input_queue)
     else
-        local inside_window = gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= 0 and gfx.mouse_y <= gfx.h
-
         if UI_STATE.current_tab == 1 then 
-            if inside_window then handle_drag_drop() end
+            if UI_STATE.inside_window then handle_drag_drop() end
             draw_file()
         elseif UI_STATE.current_tab == 2 then draw_table(input_queue)
         elseif UI_STATE.current_tab == 3 then draw_prompter(input_queue) 
@@ -14219,7 +14222,7 @@ local function main()
         
         -- Context Menu logic (Right-click on tab bar / empty space)
         -- Must strictly check UI_STATE.mouse_handled AND window bounds to avoid global capture.
-        if inside_window and gfx.mouse_cap == 2 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
+        if UI_STATE.inside_window and gfx.mouse_cap == 2 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local dock_state = gfx.dock(-1)
             local check = (dock_state > 0) and "!" or ""
