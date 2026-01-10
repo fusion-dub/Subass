@@ -7487,10 +7487,11 @@ local function draw_tabs()
         
         set_color(UI.C_TXT)
         gfx.setfont(F.std)
-        local str_w, str_h = gfx.measurestr(name)
+        local display_name = fit_text_width(name, tab_w - S(10))
+        local str_w, str_h = gfx.measurestr(display_name)
         gfx.x = x + (tab_w - str_w) / 2
         gfx.y = (h - str_h) / 2
-        gfx.drawstr(name)
+        gfx.drawstr(display_name)
         
         -- Click
         if is_mouse_clicked() and not dict_modal.show then
@@ -8019,7 +8020,7 @@ local function draw_file()
         -- Text
         set_color({0.5, 0.5, 0.5, 0.6})
         gfx.setfont(F.std)
-        local str = "Перетягніть .SRT, .ASS, .VTT або .CSV (правки) файл сюди для імпорту"
+        local str = fit_text_width("Перетягніть .SRT, .ASS, .VTT або .CSV (правки) файл сюди для імпорту", dw - S(20))
         local sw, sh = gfx.measurestr(str)
         gfx.x, gfx.y = dx + (dw - sw) / 2, drop_y + (dh - sh) / 2
         gfx.drawstr(str)
