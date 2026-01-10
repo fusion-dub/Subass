@@ -8138,6 +8138,7 @@ local function draw_file()
         end
         y_cursor = y_cursor + S(50)
     else
+        y_cursor = y_cursor + (is_narrow and S(30) or 0)
         -- Default text
         local t_y = get_y(y_cursor)
         if t_y + S(20) > start_y and t_y < gfx.h then
