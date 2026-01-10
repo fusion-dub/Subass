@@ -7578,22 +7578,72 @@ end
 
 
 --- Tabs Views ---
-local last_file_h = 0
 --- Draw the detailed file view with import buttons and actor stats
 local function draw_file()
+    -- PRE-CALCULATE CONTENT HEIGHT FOR SCROLLING
+    local is_narrow = gfx.w < S(420)
+    local content_h = 0
+    
+    -- 1. First row (Buttons)
+    if is_narrow then 
+        content_h = content_h + S(50) 
+    end
+    
+    -- 2. Filename display row
+    if UI_STATE.ass_file_loaded and UI_STATE.current_file_name then
+        if is_narrow then 
+            content_h = content_h + S(45) + S(15) 
+        end
+    end
+    
+    -- 3. Spacer before filter
+    content_h = content_h + (is_narrow and S(30) or S(80))
+    
+    -- 4. Actor Filter Section
+    if UI_STATE.ass_file_loaded then
+        -- Header rows
+        if is_narrow then 
+            content_h = content_h + S(25) + S(25) + S(45)
+        else 
+            content_h = content_h + S(35) 
+        end
+        
+        -- Actors grid
+        local actor_count = 0
+        for _ in pairs(ass_actors) do actor_count = actor_count + 1 end
+        local cols = math.floor((gfx.w - S(40)) / S(150))
+        if cols < 1 then cols = 1 end
+        local row_count = math.ceil(actor_count / cols)
+        
+        content_h = content_h + (row_count * S(30)) + S(20)
+        
+        -- Statistics row
+        content_h = content_h + S(45)
+        
+        -- Stress marks button
+        content_h = content_h + S(50)
+    else
+        -- Help text
+        content_h = content_h + S(30)
+    end
+    
+    -- 5. Drop zone area
+    content_h = content_h + S(80)
+
     local start_y = S(50)
     local avail_h = gfx.h - start_y
-    local max_scroll = math.max(0, last_file_h - avail_h)
+    local max_scroll = math.max(0, content_h - avail_h)
     
     -- Smooth Scroll Logic
     if gfx.mouse_wheel ~= 0 then
         UI_STATE.target_scroll_y = UI_STATE.target_scroll_y - (gfx.mouse_wheel * 0.25)
-        if UI_STATE.target_scroll_y < 0 then UI_STATE.target_scroll_y = 0 end
-        if UI_STATE.target_scroll_y > max_scroll then UI_STATE.target_scroll_y = max_scroll end
         gfx.mouse_wheel = 0
     end
     
-     local diff = UI_STATE.target_scroll_y - UI_STATE.scroll_y
+    if UI_STATE.target_scroll_y < 0 then UI_STATE.target_scroll_y = 0 end
+    if UI_STATE.target_scroll_y > max_scroll then UI_STATE.target_scroll_y = max_scroll end
+
+    local diff = UI_STATE.target_scroll_y - UI_STATE.scroll_y
     if math.abs(diff) > 0.5 then
         UI_STATE.scroll_y = UI_STATE.scroll_y + (diff * 0.8)
     else
@@ -7612,8 +7662,10 @@ local function draw_file()
     
     -- Import Button (unified for .srt, .ass, and .vtt)
     local b_y = get_y(y_cursor)
+    local sub_btn_w = is_narrow and (gfx.w - S(40)) or S(230)
+    
     if b_y + S(40) > start_y and b_y < gfx.h then
-        if btn(S(20), b_y, S(230), S(40), "Імпорт субтитрів (.srt/.ass/.vtt)") then
+        if btn(S(20), b_y, sub_btn_w, S(40), fit_text_width("Імпорт субтитрів (.srt/.ass/.vtt)", sub_btn_w - S(10))) then
             local retval, file_list
             if reaper.JS_Dialog_BrowseForOpenFiles then
                 retval, file_list = reaper.JS_Dialog_BrowseForOpenFiles("Імпорт субтитрів", "", "", "Subtitle files (*.srt;*.ass;*.vtt)\0*.srt;*.ass;*.vtt\0All files\0*\0", true)
@@ -7674,11 +7726,19 @@ local function draw_file()
                 end
             end
         end
-        
-        -- Import Notes Button (Top-right corner)
-        local notes_btn_w = S(80)
-        local notes_btn_x = gfx.w - notes_btn_w - S(20)
-        if btn(notes_btn_x, b_y, notes_btn_w, S(40), "Правки") then
+    end
+    
+    if is_narrow then
+        y_cursor = y_cursor + S(50)
+        b_y = get_y(y_cursor)
+    end
+    
+    -- Import Notes Button (Top-right corner OR stacked)
+    local notes_btn_w = is_narrow and (gfx.w - S(40)) or S(80)
+    local notes_btn_x = is_narrow and S(20) or (gfx.w - notes_btn_w - S(20))
+    
+    if b_y + S(40) > start_y and b_y < gfx.h then
+        if btn(notes_btn_x, b_y, notes_btn_w, S(40), fit_text_width("Правки", notes_btn_w - S(10))) then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu("Імпорт з тексту|Імпорт з файлу (CSV)")
             if ret == 1 then
@@ -7687,96 +7747,180 @@ local function draw_file()
                 import_notes_from_csv()
             end
         end
-        
-        -- Filename Display (Next to import button)
-        if UI_STATE.ass_file_loaded and UI_STATE.current_file_name then
+    end
+    
+    -- Filename Display
+    if UI_STATE.ass_file_loaded and UI_STATE.current_file_name then
+        if is_narrow then
+            y_cursor = y_cursor + S(45)
+            local fn_y = get_y(y_cursor)
+            if fn_y + S(20) > start_y and fn_y < gfx.h then
+                gfx.setfont(F.std)
+                set_color({0.5, 0.5, 0.5, 0.8})
+                local str = "Обрано: " .. UI_STATE.current_file_name
+                str = fit_text_width(str, gfx.w - S(40))
+                gfx.x = S(20)
+                gfx.y = fn_y
+                gfx.drawstr(str)
+            end
+            y_cursor = y_cursor + S(15)
+        else
             gfx.setfont(F.std)
             set_color(UI.C_TXT)
             -- Vertical center relative to button
             local str = "Обрано: " .. UI_STATE.current_file_name
-            local max_width = notes_btn_x - S(265) - S(10) -- Space between subtitle button and notes button
+            local max_width = notes_btn_x - S(265) - S(10)
             str = fit_text_width(str, max_width)
             gfx.x = S(265)
             gfx.y = b_y + (S(40) - gfx.texth) / 2
             gfx.drawstr(str)
         end
     end
-    y_cursor = y_cursor + S(80)
+    
+    y_cursor = y_cursor + (is_narrow and S(30) or S(80))
     
     -- Actor Filter (if loaded)
     if UI_STATE.ass_file_loaded then
         local t_y = get_y(y_cursor)
-        if t_y + S(20) > start_y and t_y < gfx.h then
-            set_color(UI.C_TXT)
-            gfx.setfont(F.std)
-            gfx.x, gfx.y = S(20), t_y
-            gfx.drawstr("Фільтр акторів:")
+        local actor_header_y = t_y
+        
+        -- Statistics calculation (needed for both layouts)
+        local selected_count = 0
+        local total_count = 0
+        for _, v in pairs(ass_actors) do
+            total_count = total_count + 1
+            if v then selected_count = selected_count + 1 end
+        end
+        local count_text = selected_count .. "/" .. total_count
+
+        if is_narrow then
+            -- NARROW LAYOUT
+            if t_y + S(60) > start_y and t_y < gfx.h then
+                -- Row 1: Title + Count
+                set_color(UI.C_TXT)
+                gfx.setfont(F.std)
+                gfx.x, gfx.y = S(20), t_y
+                gfx.drawstr(fit_text_width("Фільтр акторів:", gfx.w - S(100)))
+                
+                local tw, th = gfx.measurestr(count_text)
+                gfx.x = gfx.w - S(20) - tw
+                gfx.drawstr(count_text)
+            end
+
+            y_cursor = y_cursor + S(25)
+            t_y = get_y(y_cursor)
             
-            -- Batch Select (left side)
-            if btn(S(130), t_y - S(2), S(120), S(20), "Швидкий вибір", UI.C_ROW) then
-                local ret, csv = reaper.GetUserInputs("Швидкий вибір акторів", 1, "Список акторів (через кому):,extrawidth=200", "")
-                if ret then
-                    push_undo("Швидкий вибір акторів")
-                    -- Deselect all first
+            if t_y + S(20) > start_y and t_y < gfx.h then
+                -- Row 2: Quick Select
+                if btn(S(20), t_y, gfx.w - S(40), S(20), fit_text_width("Швидкий вибір", gfx.w - S(50)), UI.C_ROW) then
+                    local ret, csv = reaper.GetUserInputs("Швидкий вибір акторів", 1, "Список акторів (через кому):,extrawidth=200", "")
+                    if ret then
+                        push_undo("Швидкий вибір акторів")
+                        for k in pairs(ass_actors) do ass_actors[k] = false end
+                        for _, l in ipairs(ass_lines) do l.enabled = false end
+                        local selected = {}
+                        for act_name in csv:gmatch("([^,]+)") do
+                            act_name = act_name:match("^%s*(.-)%s*$")
+                            if ass_actors[act_name] ~= nil then
+                                ass_actors[act_name] = true
+                                selected[act_name] = true
+                            end
+                        end
+                        for _, l in ipairs(ass_lines) do
+                            if selected[l.actor] then l.enabled = true end
+                        end
+                        rebuild_regions()
+                    end
+                end
+            end
+
+            y_cursor = y_cursor + S(25)
+            t_y = get_y(y_cursor)
+            
+            if t_y + S(20) > start_y and t_y < gfx.h then
+                -- Row 3: None / All
+                local half_w = (gfx.w - S(50)) / 2
+                if btn(S(20), t_y, half_w, S(20), fit_text_width("НІКОГО", half_w - S(10)), UI.C_ROW) then
+                    push_undo("Приховати всіх")
                     for k in pairs(ass_actors) do ass_actors[k] = false end
                     for _, l in ipairs(ass_lines) do l.enabled = false end
-                    -- Parse CSV and enable matching
-                    local selected = {}
-                    for act_name in csv:gmatch("([^,]+)") do
-                        act_name = act_name:match("^%s*(.-)%s*$") -- trim
-                        if ass_actors[act_name] ~= nil then
-                            ass_actors[act_name] = true
-                            selected[act_name] = true
-                        end
-                    end
-                    for _, l in ipairs(ass_lines) do
-                        if selected[l.actor] then l.enabled = true end
-                    end
+                    rebuild_regions()
+                end
+                if btn(S(20) + half_w + S(10), t_y, half_w, S(20), fit_text_width("ВСІ", half_w - S(10)), UI.C_ROW) then
+                    push_undo("Показати всіх")
+                    for k in pairs(ass_actors) do ass_actors[k] = true end
+                    for _, l in ipairs(ass_lines) do l.enabled = true end
                     rebuild_regions()
                 end
             end
             
-            -- Right side layout: [count text] [None] [All]
-            local selected_count = 0
-            local total_count = 0
-            for _, v in pairs(ass_actors) do
-                total_count = total_count + 1
-                if v then selected_count = selected_count + 1 end
+            y_cursor = y_cursor + S(45)
+        else
+            -- WIDE LAYOUT
+            if t_y + S(20) > start_y and t_y < gfx.h then
+                set_color(UI.C_TXT)
+                gfx.setfont(F.std)
+                gfx.x, gfx.y = S(20), t_y
+                gfx.drawstr(fit_text_width("Фільтр:", S(60)))
+                
+                -- Batch Select
+                local quick_btn_w = S(110)
+                if btn(S(80), t_y - S(2), quick_btn_w, S(20), fit_text_width("Швидкий вибір", quick_btn_w - S(5)), UI.C_ROW) then
+                    local ret, csv = reaper.GetUserInputs("Швидкий вибір акторів", 1, "Список акторів (через кому):,extrawidth=200", "")
+                    if ret then
+                        push_undo("Швидкий вибір акторів")
+                        for k in pairs(ass_actors) do ass_actors[k] = false end
+                        for _, l in ipairs(ass_lines) do l.enabled = false end
+                        local selected = {}
+                        for act_name in csv:gmatch("([^,]+)") do
+                            act_name = act_name:match("^%s*(.-)%s*$")
+                            if ass_actors[act_name] ~= nil then
+                                ass_actors[act_name] = true
+                                selected[act_name] = true
+                            end
+                        end
+                        for _, l in ipairs(ass_lines) do
+                            if selected[l.actor] then l.enabled = true end
+                        end
+                        rebuild_regions()
+                    end
+                end
+                
+                -- Right side layout: [count text] [None] [All]
+                local right_edge = gfx.w - S(30)
+                local all_btn_w = S(50)
+                local none_btn_w = S(75)
+                
+                local all_btn_x = right_edge - all_btn_w
+                local none_btn_x = all_btn_x - none_btn_w - S(5)
+                
+                local tw, th = gfx.measurestr(count_text)
+                local count_x = none_btn_x - tw - S(10)
+                
+                -- Check for overlap between Quick Select and Count
+                if count_x < S(80) + quick_btn_w + S(10) then
+                    count_x = S(80) + quick_btn_w + S(10)
+                end
+                
+                gfx.x, gfx.y = count_x, t_y
+                gfx.drawstr(count_text)
+                
+                if btn(none_btn_x, t_y - S(2), none_btn_w, S(20), fit_text_width("НІКОГО", none_btn_w - S(5)), UI.C_ROW) then
+                    push_undo("Приховати всіх")
+                    for k in pairs(ass_actors) do ass_actors[k] = false end
+                    for _, l in ipairs(ass_lines) do l.enabled = false end
+                    rebuild_regions()
+                end
+                
+                if btn(all_btn_x, t_y - S(2), all_btn_w, S(20), fit_text_width("ВСІ", all_btn_w - S(5)), UI.C_ROW) then
+                    push_undo("Показати всіх")
+                    for k in pairs(ass_actors) do ass_actors[k] = true end
+                    for _, l in ipairs(ass_lines) do l.enabled = true end
+                    rebuild_regions()
+                end
             end
-            local count_text = selected_count .. "/" .. total_count
-            set_color(UI.C_TXT)
-            gfx.setfont(F.std)
-            
-            -- Calculate positions from right edge
-            local right_edge = gfx.w - S(30)
-            local all_btn_x = right_edge - S(40)
-            local none_btn_x = all_btn_x - S(75)
-            local tw = gfx.measurestr(count_text)
-            local count_x = none_btn_x - tw - S(15)
-            
-            -- Draw count text
-            gfx.x = count_x
-            gfx.y = t_y
-            gfx.drawstr(count_text)
-            
-            -- None button
-            if btn(none_btn_x, t_y - S(2), S(70), S(20), "НІКОГО", UI.C_ROW) then
-                push_undo("Приховати всіх")
-                for k in pairs(ass_actors) do ass_actors[k] = false end
-                for _, l in ipairs(ass_lines) do l.enabled = false end
-                rebuild_regions()
-            end
-            
-            -- All button
-            if btn(all_btn_x, t_y - S(2), S(50), S(20), "ВСІ", UI.C_ROW) then
-                push_undo("Показати всіх")
-                for k in pairs(ass_actors) do ass_actors[k] = true end
-                for _, l in ipairs(ass_lines) do l.enabled = true end
-                rebuild_regions()
-            end
+            y_cursor = y_cursor + S(35)
         end
-
-        y_cursor = y_cursor + S(35)
         
         -- Sort actors for consistent display
         local sorted_actors = {}
@@ -7903,7 +8047,11 @@ local function draw_file()
                                 -- Update actors state
                                 local state = ass_actors[act]
                                 ass_actors[act] = nil
-                                ass_actors[new_name] = (state ~= nil) and state or true
+                                if state ~= nil then
+                                    ass_actors[new_name] = state
+                                else
+                                    ass_actors[new_name] = true
+                                end
                                 -- Update color
                                 if actor_colors[act] then
                                     actor_colors[new_name] = actor_colors[act]
@@ -7971,7 +8119,8 @@ local function draw_file()
             gfx.x = S(20)
             gfx.y = stats_y
             local time_str = format_time_hms(stats_time)
-            gfx.drawstr("Обрано: " .. stats_replicas .. " реплік, " .. stats_words .. " слів, час: " .. time_str)
+            local str = "Обрано: " .. stats_replicas .. " реплік, " .. stats_words .. " слів, час: " .. time_str
+            gfx.drawstr(fit_text_width(str, gfx.w - S(40)))
         end
         y_cursor = y_cursor + S(45)
 
@@ -7982,7 +8131,7 @@ local function draw_file()
             local btn_text = is_running and "AI обробка..." or ">  Застосувати наголоси  <"
             local btn_col = is_running and UI.C_BTN_H or UI.C_TAB_ACT
             
-            if btn(S(20), s_y, gfx.w - S(40), S(40), btn_text, btn_col) and not is_running then
+            if btn(S(20), s_y, gfx.w - S(40), S(40), fit_text_width(btn_text, gfx.w - S(60)), btn_col) and not is_running then
                 push_undo("Застосування наголосів")
                 apply_stress_marks_async()
             end
