@@ -18,28 +18,111 @@ Write-Host ""
 
 # 1. Check if REAPER is running
 $reaperProc = Get-Process "reaper" -ErrorAction SilentlyContinue
+$runningPath = $null
+
 if ($reaperProc) {
+    # Check if we can get the path (some users might have multi-install)
+    try {
+        $exePath = $reaperProc.Path
+        $exeDir = Split-Path $exePath
+        if (Test-Path (Join-Path $exeDir "reaper.ini")) {
+            $runningPath = $exeDir
+        } else {
+            # Likely standard install, path would be AppData
+            if (Test-Path "$env:APPDATA\REAPER\reaper.ini") {
+                $runningPath = "$env:APPDATA\REAPER"
+            }
+        }
+    } catch {}
+
     Write-Host-Color "ERROR: REAPER is currently running." "Red"
+    if ($runningPath) {
+        Write-Host-Color "Detected REAPER at: $runningPath" "Gray"
+    }
     Write-Host-Color "Please close REAPER and run this installer again." "Yellow"
     Pause
     exit
 }
 
-# 2. Paths
-$reaperPath = "$env:APPDATA\REAPER"
-$currentDir = Get-Location
+# 2. Path Detection Logic
+function Get-ReaperPath {
+    param($DefaultPath)
+    
+    # 1. Check current directory (portable)
+    $scriptDir = $PSScriptRoot
+    if (-not $scriptDir) { $scriptDir = Get-Location }
+    if (Test-Path (Join-Path $scriptDir "reaper.ini")) {
+        Write-Host-Color "Portable REAPER detected in installer directory." "Yellow"
+        return $scriptDir
+    }
 
-# Detect portable installation
-if (Test-Path (Join-Path $currentDir "reaper.ini")) {
-    $reaperPath = $currentDir
-    Write-Host-Color "Portable REAPER detected in installer directory." "Yellow"
+    # 2. Check registry for InstallDir (Portable check)
+    $regPaths = @(
+        "HKCU:\Software\REAPER",
+        "HKLM:\SOFTWARE\REAPER",
+        "HKLM:\SOFTWARE\WOW6432Node\REAPER"
+    )
+    foreach ($regPath in $regPaths) {
+        if (Test-Path $regPath) {
+            $installDir = Get-ItemProperty -Path $regPath -Name "InstallDir" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty InstallDir -ErrorAction SilentlyContinue
+            if ($installDir -and (Test-Path (Join-Path $installDir "reaper.ini"))) {
+                Write-Host-Color "Portable REAPER detected via registry: $installDir" "Yellow"
+                return $installDir
+            }
+        }
+    }
+
+    # 3. Check C:\REAPER (Common non-standard path)
+    if (Test-Path "C:\REAPER\reaper.ini") {
+        Write-Host-Color "REAPER detected in C:\REAPER" "Yellow"
+        return "C:\REAPER"
+    }
+
+    # 4. Check default AppData (Strictly verify reaper.ini)
+    if (Test-Path (Join-Path $DefaultPath "reaper.ini")) {
+        return $DefaultPath
+    }
+
+    # 5. Manual Fallback
+    Write-Host-Color "REAPER resource folder not found or reaper.ini missing." "Yellow"
+    Write-Host ""
+    Write-Host "Please specify the REAPER resource folder manually."
+    Write-Host "(This folder MUST contain 'reaper.ini')"
+    
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $browser = New-Object System.Windows.Forms.FolderBrowserDialog
+        $browser.Description = "Select REAPER Resource Folder (containing reaper.ini)"
+        $browser.ShowNewFolderButton = $false
+        
+        if ($browser.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $selected = $browser.SelectedPath
+            if (Test-Path (Join-Path $selected "reaper.ini")) {
+                return $selected
+            } else {
+                Write-Host-Color "WARNING: reaper.ini not found in selected folder." "Red"
+            }
+        }
+    } catch {}
+
+    Write-Host "Enter path: " -NoNewline
+    $manualPath = Read-Host
+    if ($manualPath -and (Test-Path (Join-Path $manualPath "reaper.ini"))) {
+        return $manualPath
+    }
+
+    return $null
 }
 
-if (-not (Test-Path $reaperPath)) {
-    Write-Host-Color "ERROR: Could not find REAPER folder at $reaperPath" "Red"
+$reaperPath = Get-ReaperPath -DefaultPath "$env:APPDATA\REAPER"
+
+if (-not $reaperPath -or -not (Test-Path $reaperPath)) {
+    Write-Host-Color "ERROR: Could not find or access REAPER folder." "Red"
     Pause
     exit
 }
+
+Write-Host-Color "Using REAPER path: $reaperPath" "Gray"
 
 $userPluginsPath = Join-Path $reaperPath "UserPlugins"
 $scriptsPath = Join-Path $reaperPath "Scripts\Subass"
