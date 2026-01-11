@@ -5876,7 +5876,7 @@ local function record_field_history(state)
     end
 end
 
-local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_multiline)
+local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_multiline, is_director_mode)
     gfx.setfont(F.std)
     local padding = S(5)
     local line_h = gfx.texth
@@ -6130,6 +6130,12 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     else
         local sel_min, sel_max = math.min(state.cursor, state.anchor), math.max(state.cursor, state.anchor)
         local has_sel = (sel_min ~= sel_max)
+        
+        -- Director mode highlight detection ([Actor])
+        local bracket_end = -1
+        if is_director_mode and state.text and state.text:sub(1,1) == "[" then
+            bracket_end = state.text:find("]") or -1
+        end
 
         if not is_multiline then
             -- Single line logic
@@ -6141,6 +6147,15 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             if not state.focus then state.target_scroll = 0 end
 
             local ty = (h - line_h) / 2
+            
+            -- Director mode highlight for single line
+            if is_director_mode and bracket_end > 0 then
+                local b_end = math.min(#state.text, bracket_end)
+                local bw = gfx.measurestr(state.text:sub(1, b_end))
+                set_color({0.5, 0.8, 0.3, 0.2}) -- Subtle green highlight
+                gfx.rect(padding - state.scroll - S(2), ty - S(1), bw + S(4), line_h + S(2), 1)
+            end
+
             if has_sel then
                 local w_before = gfx.measurestr(state.text:sub(1, sel_min))
                 local w_sel = gfx.measurestr(state.text:sub(sel_min + 1, sel_max))
@@ -6184,6 +6199,18 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
                             gfx.rect(padding + gfx.measurestr(v_line.text), ly, S(5), line_h, 1)
                         end
                     end
+                    -- Director mode syntax highlighting ([Actor])
+                    if is_director_mode and bracket_end > 0 then
+                        local l_start, l_end = v_line.start_idx, v_line.start_idx + #v_line.text
+                        local b_start, b_end = math.max(l_start, 0), math.min(l_end, bracket_end)
+                        if b_start < b_end then
+                            local x1 = padding + gfx.measurestr(v_line.text:sub(1, b_start - l_start))
+                            local x2 = padding + gfx.measurestr(v_line.text:sub(1, b_end - l_start))
+                            set_color({0.5, 0.8, 0.3, 0.2}) -- Subtle green highlight
+                            gfx.rect(x1 - S(2), ly - S(1), (x2 - x1) + S(4), line_h + S(2), 1)
+                        end
+                    end
+
                     set_color(UI.C_TXT)
                     gfx.x, gfx.y = padding, ly
                     gfx.drawstr(v_line.text)
@@ -6361,7 +6388,7 @@ local function draw_text_editor(input_queue)
     local text_w, text_h = box_w - S(20), box_h - S(80)
 
     -- Main editor interaction
-    ui_text_input(text_x, text_y, text_w, text_h, text_editor_state, "Введіть текст...", input_queue, true)
+    ui_text_input(text_x, text_y, text_w, text_h, text_editor_state, "Введіть текст...", input_queue, true, text_editor_state.is_director_mode)
 
     local btn_y = box_y + box_h - S(40)
     if btn(box_x + S(10), btn_y, S(90), S(30), "Скасування") then 
@@ -7443,13 +7470,14 @@ end
 --- @param callback function Function to call on save(new_text)
 --- @param line_idx number|nil Optional context line index
 --- @param all_lines table|nil Optional context all lines
-local function open_text_editor(initial_text, callback, line_idx, all_lines)
+local function open_text_editor(initial_text, callback, line_idx, all_lines, is_director_mode)
     text_editor_state.active = true
     text_editor_state.focus = true -- Auto-focus the input field
     text_editor_state.needs_focus_nudge = 10 -- Nudge focus for several frames to overcome OS delays
     text_editor_state.text = initial_text or ""
     text_editor_state.cursor = #text_editor_state.text
     text_editor_state.anchor = text_editor_state.cursor
+    text_editor_state.is_director_mode = is_director_mode
     text_editor_state.callback = callback
     text_editor_state.context_line_idx = line_idx
     text_editor_state.context_all_lines = all_lines
@@ -8981,7 +9009,7 @@ local function draw_prompter_drawer(input_queue)
                                                 reaper.UpdateArrange()
                                              end
 
-                                            open_text_editor(m.name == "<пусто>" and "" or m.name, drawer_marker_callback, current_edit_idx, mock_lines)
+                                            open_text_editor(m.name == "<пусто>" and "" or m.name, drawer_marker_callback, current_edit_idx, mock_lines, true)
                                         end
                                         prompter_drawer.last_click_idx = -1
                                     else
@@ -9638,7 +9666,7 @@ local function render_corrections(cor_markers, y_offset, font_size, center_x, av
                         reaper.UpdateTimeline()
                         reaper.UpdateArrange()
                     end
-                    open_text_editor(m.name:gsub("<пусто>", ""), marker_callback, current_edit_idx, mock_lines)
+                    open_text_editor(m.name:gsub("<пусто>", ""), marker_callback, current_edit_idx, mock_lines, true)
                     UI_STATE.last_click_row = 0
                 else
                     UI_STATE.last_click_time = now
@@ -10026,7 +10054,7 @@ local function draw_prompter_slider(input_queue)
                                 reaper.UpdateTimeline()
                                 reaper.UpdateArrange()
                             end
-                            open_text_editor(m.name:gsub("<пусто>", ""), marker_callback, 1, {{text = m.name:gsub("<пусто>", "")}})
+                            open_text_editor(m.name:gsub("<пусто>", ""), marker_callback, 1, {{text = m.name:gsub("<пусто>", "")}}, true)
                             UI_STATE.last_click_row = 0
                         else
                             -- SINGLE CLICK: Scroll to
@@ -11880,20 +11908,29 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     -- Only update if time jump or first run
     -- But first: Validate that the currently held marker ID still exists (it might have been deleted externally)
     if director_state.last_marker_id then
-        local exists = false
+        local found_sync = nil
         for _, m in ipairs(ass_markers) do
             if m.markindex == director_state.last_marker_id then
-                exists = true
-                -- Update text just in case it changed externally? 
-                -- Ideally yes, but maybe user is typing. 
-                -- Let's just check existence for now to fix the "stuck Update button" issue.
+                found_sync = m
                 break
             end
         end
-        if not exists then
+        if not found_sync then
             director_state.last_marker_id = nil
             director_state.input.text = ""
             director_state.input.cursor = 0
+        else
+            -- Sync with external changes (e.g. from modal text editor)
+            if found_sync.name ~= (director_state.original_text or "") then
+                -- Only update input if it hasn't been significantly modified by the user here, 
+                -- or if it was exactly matching the previous state.
+                if director_state.input.text == director_state.original_text then
+                    director_state.input.text = found_sync.name
+                    director_state.input.cursor = #found_sync.name
+                    director_state.input.anchor = director_state.input.cursor
+                end
+                director_state.original_text = found_sync.name
+            end
         end
     end
 
@@ -12376,7 +12413,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     end
     
     if not calc_only then
-        ui_text_input(draw_x, draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true)
+        ui_text_input(draw_x, draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true)
     
         -- Check for changes to highlight button
         local has_changes = false
@@ -13451,7 +13488,7 @@ local function draw_table(input_queue)
                                             table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
                                             last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
                                             prompter_drawer.marker_cache.count = -1 -- FORCE UPDATE MARKERS
-                                        end, original_idx, nil)
+                                        end, original_idx, nil, true)
                                     else
                                         -- Edit ASS line
                                         local edit_line = line
@@ -14209,7 +14246,7 @@ local function handle_remote_commands()
                         prompter_drawer.filtered_cache.state_count = -1
                         
                         rebuild_regions() -- Оновлення решти
-                    end)
+                    end, nil, nil, true)
                     return
                 end
             end
