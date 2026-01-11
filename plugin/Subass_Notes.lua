@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 3.5
+-- @version 3.6
 -- @author Fusion (Fusion Dub)
--- @about Zero-dependency subtitle manager using native Reaper GFX.
+-- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
-local script_title = "Subass Notes v3.5"
+local script_title = "Subass Notes v3.6"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -3810,9 +3810,6 @@ local function import_srt(file_path, dont_rebuild)
     table_selection = {}
     last_selected_row = nil
     
-    -- Register Actor
-    ass_actors[actor_name] = true
-    
     -- We will rebuild ALL regions at the end, so we don't need to add markers manually here.
     -- Just populate ass_lines.
     local line_idx_counter = get_next_line_index()
@@ -3886,6 +3883,9 @@ local function import_srt(file_path, dont_rebuild)
                 -- Push segments with duplicate check
                 for _, seg in ipairs(segments) do
                     if not is_duplicate_replica(seg.actor, t1, t2, seg.text) then
+                        -- Lazy register actor
+                        ass_actors[seg.actor] = true
+                        
                         table.insert(ass_lines, {
                             t1 = t1,
                             t2 = t2,
@@ -3916,6 +3916,7 @@ local function import_srt(file_path, dont_rebuild)
                 local step = dur / #lines_list
                 for i, l in ipairs(lines_list) do
                     if not is_duplicate_replica(actor_name, t1 + (i-1) * step, t1 + i * step, l) then
+                        ass_actors[actor_name] = true
                         table.insert(ass_lines, {
                             t1 = t1 + (i-1) * step,
                             t2 = t1 + i * step,
@@ -3935,6 +3936,7 @@ local function import_srt(file_path, dont_rebuild)
         if not lines_processed then
             local clean_text = text:gsub("\r", "")
             if not is_duplicate_replica(actor_name, t1, t2, clean_text) then
+                ass_actors[actor_name] = true
                 table.insert(ass_lines, {
                     t1 = t1,
                     t2 = t2,
@@ -4093,6 +4095,120 @@ local function parse_notes_timestamp(str)
     end
     
     return nil
+end
+
+--- Export selected subtitles to SRT format
+local function export_as_srt()
+    if not reaper.JS_Dialog_BrowseForSaveFile then
+        local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
+        if not has_reapack then
+            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
+        else
+            msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
+        end
+        reaper.MB(msg, "Відсутні компоненти", 0)
+        return
+    end
+
+    -- Filter enabled lines
+    local out_lines = {}
+    local selected_actors = {}
+    
+    for _, l in ipairs(ass_lines) do
+        if l.enabled then
+            table.insert(out_lines, l)
+            if l.actor and l.actor ~= "" then
+                selected_actors[l.actor] = true
+            end
+        end
+    end
+
+    if #out_lines == 0 then
+        show_snackbar("Немає активних реплік для експорту", "info")
+        return
+    end
+
+    -- Construct filename
+    local _, proj_path = reaper.EnumProjects(-1)
+    local proj_name = "Project"
+    if proj_path and proj_path ~= "" then
+        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
+    end
+
+    local actors_list = {}
+    for act in pairs(selected_actors) do
+        table.insert(actors_list, act)
+    end
+    table.sort(actors_list)
+    
+    local suffix = ""
+    if #actors_list > 0 then
+        -- Limit to first 100 actors to avoid super long filenames
+        local limit = 100
+        local parts = {}
+        for i = 1, math.min(#actors_list, limit) do
+            table.insert(parts, actors_list[i])
+        end
+        suffix = "_" .. table.concat(parts, "_")
+        if #actors_list > limit then
+            suffix = suffix .. "_etc"
+        end
+    else
+        suffix = "_All"
+    end
+    
+    -- Clean filename chars
+    suffix = suffix:gsub("[^%w%s%-_]", "")
+    
+    local default_filename = proj_name .. suffix .. ".srt"
+
+    -- Save Dialog
+    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Експорт в SRT", "", default_filename, "SRT files (.srt)\0*.srt\0All Files (*.*)\0*.*\0")
+    
+    if retval == 1 and filename ~= "" then
+        if not filename:match("%.srt$") then
+            filename = filename .. ".srt"
+        end
+        
+        local file = io.open(filename, "w")
+        if not file then
+            reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
+            return
+        end
+
+        local fmt_time = function(secs)
+            local h = math.floor(secs / 3600)
+            local m = math.floor((secs % 3600) / 60)
+            local s = math.floor(secs % 60)
+            local ms = math.floor((secs % 1) * 1000)
+            return string.format("%02d:%02d:%02d,%03d", h, m, s, ms)
+        end
+
+        for i, l in ipairs(out_lines) do
+            -- SRT Index
+            file:write(tostring(i) .. "\n")
+            
+            -- Timecode
+            file:write(fmt_time(l.t1) .. " --> " .. fmt_time(l.t2) .. "\n")
+            
+            -- Text with optional Actor name
+            local text = l.text
+            if cfg.auto_srt_split == "():" then
+                if l.actor and l.actor ~= "" then
+                    text = "(" .. l.actor .. "): " .. text
+                end
+            elseif cfg.auto_srt_split == "[]:" then
+                if l.actor and l.actor ~= "" then
+                    text = "[" .. l.actor .. "]: " .. text
+                end
+            end
+            
+            file:write(text .. "\n\n")
+        end
+        
+        file:close()
+        show_snackbar("Експортовано " .. #out_lines .. " реплік", "success")
+    end
 end
 
 --- Import director notes from text format and create markers
@@ -8211,7 +8327,7 @@ local function draw_file()
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "Видалити ВСІ регіони|Відкрити WEB-менеджер наголосів||" .. dock_check .. "Закріпити вікно (Dock)"
+        local menu = "Видалити ВСІ регіони|Відкрити WEB-менеджер наголосів|Експортувати як SRT||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -8239,6 +8355,9 @@ local function draw_file()
                 os.execute('python3 "' .. py_script .. '" &')
             end
         elseif ret == 3 then
+            -- Export as SRT
+            export_as_srt()
+        elseif ret == 4 then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
