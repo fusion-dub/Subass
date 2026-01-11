@@ -14175,10 +14175,66 @@ local function handle_remote_commands()
         local t1 = reaper.gmem_read(1)
         local t2 = reaper.gmem_read(2)
         local target_id = reaper.gmem_read(3)
+        local is_marker_cmd = reaper.gmem_read(4) == 1
         
+        -- NEW: Prioritize Marker lookup if it's explicitly a marker or smells like one
+        local looks_like_marker = is_marker_cmd or (math.abs(t1 - t2) < 0.001)
+        
+        if looks_like_marker then
+            local m_count = reaper.CountProjectMarkers(0)
+            local found_match = false
+            for i = 0, m_count - 1 do
+                local retval, isrgn, m_pos, _, m_name, markindex = reaper.EnumProjectMarkers3(0, i)
+                local matches = false
+                if not isrgn then
+                    if target_id and target_id ~= -1 then
+                        matches = (markindex == target_id)
+                    else
+                        matches = (math.abs(m_pos - t1) < 0.005) -- Slightly higher tolerance for rounded T1
+                    end
+                end
+
+                if matches then
+                    found_match = true
+                    focus_plugin_window()
+                    open_text_editor(m_name, function(new_text)
+                        push_undo("Редагування правки (Remote Overlay)")
+                        -- Знаходимо індекс знову (бо він міг змінитись)
+                        local find_idx = -1
+                        for j = 0, reaper.CountProjectMarkers(0) - 1 do
+                            local _, cur_isrgn, _, _, _, cur_idx = reaper.EnumProjectMarkers3(0, j)
+                            if not cur_isrgn and cur_idx == markindex then find_idx = j break end
+                        end
+                        
+                        if find_idx ~= -1 then
+                            local _, _, _, _, _, _, m_col = reaper.EnumProjectMarkers3(0, find_idx)
+                            reaper.SetProjectMarkerByIndex(0, find_idx, false, m_pos, 0, markindex, new_text, m_col)
+                        else
+                            -- Fallback за позицією
+                            reaper.SetProjectMarker(markindex, false, m_pos, 0, new_text)
+                        end
+                        
+                        -- ПОВНЕ ОНОВЛЕННЯ ВСІХ КЕШІВ
+                        ass_markers = capture_project_markers()
+                        update_regions_cache()
+                        table_data_cache.state_count = -1
+                        last_layout_state.state_count = -1
+                        prompter_drawer.marker_cache.count = -1
+                        prompter_drawer.filtered_cache.state_count = -1
+                        
+                        rebuild_regions() -- Оновлення решти
+                    end, nil, nil, true)
+                    return
+                end
+            end
+            if not found_match then
+                show_snackbar(string.format("Marker with ID %d not found at %.3f", target_id, t1), "error")
+            end
+        end
+
         -- 1. Спроба знайти збіг серед реплік (ass_lines)
-        -- Prioritize target_id matching if available
-        if target_id and target_id ~= -1 then
+        -- Prioritize target_id matching ONLY IF NOT A MARKER to avoid collisions
+        if not looks_like_marker and target_id and target_id ~= -1 then
             for i, line in ipairs(ass_lines) do
                 if line.rgn_idx == target_id then
                     focus_plugin_window()
@@ -14192,9 +14248,9 @@ local function handle_remote_commands()
             end
         end
         
-        -- Fallback to time-based matching
+        -- Fallback to time-based matching (safe because t1==t2 vs t1<t2)
         for i, line in ipairs(ass_lines) do
-            if math.abs(line.t1 - t1) < 0.01 and math.abs(line.t2 - t2) < 0.01 then
+            if not looks_like_marker and math.abs(line.t1 - t1) < 0.01 and math.abs(line.t2 - t2) < 0.01 then
                 focus_plugin_window()
                 open_text_editor(line.text, function(new_text)
                     push_undo("Редагування тексту (Remote Specific)")
@@ -14205,15 +14261,15 @@ local function handle_remote_commands()
             end
         end
 
-        -- 2. Якщо не знайдено серед реплік — шукаємо серед маркерів
-        if math.abs(t1 - t2) < 0.001 or (target_id and target_id ~= -1) then 
+        -- 2. Якщо не знайдено серед реплік — шукаємо серед маркерів (якщо не знайшли раніше)
+        if not looks_like_marker then
             local m_count = reaper.CountProjectMarkers(0)
             for i = 0, m_count - 1 do
                 local retval, isrgn, m_pos, _, m_name, markindex = reaper.EnumProjectMarkers3(0, i)
                 
                 local matches = false
                 if target_id and target_id ~= -1 then
-                    matches = (markindex == target_id)
+                    matches = (not isrgn and markindex == target_id)
                 else
                     matches = (not isrgn and math.abs(m_pos - t1) < 0.001)
                 end
