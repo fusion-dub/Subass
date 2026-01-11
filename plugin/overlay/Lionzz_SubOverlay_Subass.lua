@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.0.9
+-- @version 0.1.0
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -104,6 +104,7 @@ local is_any_word_held = false
 -- New Countdown Timer Settings
 local count_timer = true                -- таймер зворотного відліку
 local count_timer_digit = true           -- показувати цифру зворотнього відліку
+local item_double_clicked = false        -- прапорець для відстеження кліку на елементі
 local count_timer_bottom = false        -- прогрес-бар знизу (якщо false - по боках)
 local count_timer_scale = 25            -- масштаб шрифту таймера (в % від мінімального розміру вікна)
 
@@ -372,15 +373,16 @@ local function parse_to_tokens(text)
                 local is_formatting = false
                 
                 -- Check for metadata tags first
-                local meta_t1_match = content:match("\\meta_t1:([%d%.]+)")
-                local meta_t2_match = content:match("\\meta_t2:([%d%.]+)")
+                local meta_t1_match = content:match("\\meta_t1:([%d%.,]+)")
+                local meta_t2_match = content:match("\\meta_t2:([%d%.,]+)")
                 if meta_t1_match and meta_t2_match then
-                    state.meta_t1 = tonumber(meta_t1_match)
-                    state.meta_t2 = tonumber(meta_t2_match)
+                    -- Normalize locale-dependent decimals (comma to dot)
+                    state.meta_t1 = tonumber((meta_t1_match:gsub(",", ".")))
+                    state.meta_t2 = tonumber((meta_t2_match:gsub(",", ".")))
                     is_formatting = true
                 end
-
-                local meta_id_match = content:match("\\meta_id:(%d+)")
+                
+                local meta_id_match = content:match("\\meta_id:([%-]?%d+)")
                 if meta_id_match then
                     state.meta_id = tonumber(meta_id_match)
                     is_formatting = true
@@ -1023,7 +1025,7 @@ local function calculate_line_count(tokens, font_index, font_scale, win_w)
 end
 
 -- Функція відображення токенів
-local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shadow_color, win_w, is_next_line, line_spacing)
+local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shadow_color, win_w, is_next_line, line_spacing, id_prefix)
     local font_main = font_objects[font_index] or font_objects[1]
 
     -- We push Main font as default
@@ -1111,8 +1113,10 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                 -- 1. Interaction (Invisible Button)
                 -- Use line index + token index for unique ID
                 reaper.ImGui_SetCursorPos(ctx, temp_x - win_x - 2, line_base_y - win_y - 2)
-                local stable_id = string.format("##tok_L%d_T%d_%s", line_idx, i, tok.orig_text)
-                reaper.ImGui_InvisibleButton(ctx, stable_id, w + 4, line_h + 4)
+                local stable_id = string.format("##tok_%s_L%d_T%d_%s", id_prefix or "def", line_idx, i, tok.orig_text)
+                -- Add space_w_main to width if not the last token in line to cover gaps
+                local extra_w = (i < #line) and space_w_main or 0
+                reaper.ImGui_InvisibleButton(ctx, stable_id, w + 4 + extra_w, line_h + 4)
                 
                 -- Comment Tooltip
                 if tok.comment and reaper.ImGui_IsItemHovered(ctx) then
@@ -1138,11 +1142,13 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                 end
 
                 if reaper.ImGui_IsItemHovered(ctx) and reaper.ImGui_IsMouseDoubleClicked(ctx, 0) then
+                    item_double_clicked = true
                     -- Use metadata if available for exact sync
                     if tok.meta_t1 and tok.meta_t2 then
                         reaper.gmem_write(1, tok.meta_t1)
                         reaper.gmem_write(2, tok.meta_t2)
                         reaper.gmem_write(3, tok.meta_id or -1)
+                        reaper.gmem_write(4, math.abs(tok.meta_t1 - tok.meta_t2) < 0.001 and 1 or 0) -- Type: 1=Marker, 0=Region
                         reaper.gmem_write(0, 4) -- CMD_EDIT_SPECIFIC
                     else
                         -- Fallback to old behavior
@@ -2011,6 +2017,7 @@ local function loop()
         local play_state = reaper.GetPlayState()
         local pos = (play_state & 1) == 1 and reaper.GetPlayPosition() or reaper.GetCursorPosition()
         is_any_word_held = false
+        item_double_clicked = false
         
         -- Перевіряємо, чи потрібно оновлювати дані
         local current, nextreg, start_pos, stop_pos, nextreg2
@@ -2088,10 +2095,14 @@ local function loop()
                     
                     if not is_main and l.text and l.text ~= "" then
                         local entry = ""
+                        -- Inject metadata for remote editing
+                        -- Use -1 for ID if not available
+                        local meta = string.format("{\\meta_t1:%.3f\\meta_t2:%.3f\\meta_id:%d}", l.t1, l.t2, l.rgn_idx or -1)
+                        
                         if show_actor_name and l.actor ~= "" then
-                            entry = "{\\alpha:128}[" .. l.actor .. "]{\\alpha:255} " .. l.text
+                            entry = meta .. "{\\alpha:128}[" .. l.actor .. "]{\\alpha:255} " .. l.text
                         else
-                            entry = l.text
+                            entry = meta .. l.text
                         end
                         table.insert(context_lines, entry)
                     end
@@ -2195,7 +2206,7 @@ local function loop()
         -- Відображення інших акторів (НАД основним рядком)
         if #other_actors_tokens > 0 then
             reaper.ImGui_PushID(ctx, "oact_line")
-            draw_tokens(ctx, other_actors_tokens, oact_font_index, oact_font_scale, oact_text_color, oact_shadow_color, win_w, false, line_spacing_oact)
+            draw_tokens(ctx, other_actors_tokens, oact_font_index, oact_font_scale, oact_text_color, oact_shadow_color, win_w, false, line_spacing_oact, "oact")
             reaper.ImGui_PopID(ctx)
             
             local cur_y = reaper.ImGui_GetCursorPosY(ctx)
@@ -2205,7 +2216,7 @@ local function loop()
         
         -- відображення тексту (використовуємо auto-scaled значення)
         reaper.ImGui_PushID(ctx, "current_line")
-        draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, text_color, shadow_color, win_w, false, line_spacing_main) -- перший рядок
+        draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, text_color, shadow_color, win_w, false, line_spacing_main, "cur") -- перший рядок
         reaper.ImGui_PopID(ctx)
 
         -- Відображення правок (між основним рядком та другим)
@@ -2213,7 +2224,7 @@ local function loop()
             local cur_y = reaper.ImGui_GetCursorPosY(ctx)
             reaper.ImGui_SetCursorPosY(ctx, cur_y + corr_offset)
             reaper.ImGui_PushID(ctx, "corr_line")
-            draw_tokens(ctx, corr_tokens, corr_font_index, corr_font_scale, corr_text_color, corr_shadow_color, win_w, true, line_spacing_corr)
+            draw_tokens(ctx, corr_tokens, corr_font_index, corr_font_scale, corr_text_color, corr_shadow_color, win_w, true, line_spacing_corr, "corr")
             reaper.ImGui_PopID(ctx)
         end
 
@@ -2403,13 +2414,13 @@ local function loop()
             end
             
             reaper.ImGui_PushID(ctx, "next_line_1")
-            draw_tokens(ctx, next_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true, line_spacing_next)
+            draw_tokens(ctx, next_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true, line_spacing_next, "next1")
             reaper.ImGui_PopID(ctx)
             
             if show_next_two and #next2_tokens > 0 then
                 reaper.ImGui_SetCursorPosY(ctx, start_y_next + next_total_h + next_region_offset)
                 reaper.ImGui_PushID(ctx, "next_line_2")
-                draw_tokens(ctx, next2_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true, line_spacing_next)
+                draw_tokens(ctx, next2_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true, line_spacing_next, "next2")
                 reaper.ImGui_PopID(ctx)
             end
         end
@@ -2442,7 +2453,7 @@ local function loop()
             if reaper.ImGui_IsMouseClicked(ctx, 1, false) then
                 reaper.ImGui_SetNextWindowSize(ctx, 200, 0, reaper.ImGui_Cond_Appearing())
                 reaper.ImGui_OpenPopup(ctx, "context_menu")
-            elseif reaper.ImGui_IsMouseDoubleClicked(ctx, 0) then
+            elseif reaper.ImGui_IsMouseDoubleClicked(ctx, 0) and not item_double_clicked then
                 reaper.gmem_write(0, 1) -- Signal EDIT
             end
         end
