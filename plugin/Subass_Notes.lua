@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 3.4
+-- @version 3.5
 -- @author Fusion (Fusion Dub)
 -- @about Zero-dependency subtitle manager using native Reaper GFX.
 
-local script_title = "Subass Notes v3.4"
+local script_title = "Subass Notes v3.5"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -312,6 +312,7 @@ local director_state = {
     input = { text = "", cursor = 0, anchor = 0, focus = false },
     last_marker_id = nil,
     last_time = -1,
+    original_text = "",
     pending_scroll_id = nil
 }
 
@@ -11911,6 +11912,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             if found_m.markindex ~= director_state.last_marker_id then
                 director_state.last_marker_id = found_m.markindex
                 director_state.input.text = found_m.name
+                director_state.original_text = found_m.name
                 director_state.input.cursor = #found_m.name
                 director_state.input.anchor = director_state.input.cursor -- Reset selection
             end
@@ -11918,6 +11920,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             if director_state.last_marker_id ~= nil then
                 director_state.last_marker_id = nil
                 director_state.input.text = ""
+                director_state.original_text = ""
                 director_state.input.cursor = 0
                 director_state.input.anchor = 0 -- Reset selection
             end
@@ -12375,14 +12378,28 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     if not calc_only then
         ui_text_input(draw_x, draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true)
     
-        local save_col = director_state.last_marker_id and {0.2, 0.4, 0.6} or {0.2, 0.5, 0.2}
+        -- Check for changes to highlight button
+        local has_changes = false
+        if director_state.last_marker_id then
+            if director_state.input.text ~= director_state.original_text then 
+                has_changes = true 
+            end
+        elseif director_state.input.text ~= "" then
+            has_changes = true
+        end
+
+        local save_col = has_changes and (director_state.last_marker_id and {0.2, 0.4, 0.6} or {0.2, 0.5, 0.2}) or UI.C_BTN
         local save_label = director_state.last_marker_id and "Оновити" or "Зберегти"
         
         -- Position save button: vertical stack for Right mode, horizontal for Bottom mode
         local is_right_layout = (cfg.director_layout == "right")
         local save_x = is_right_layout and draw_x or (draw_x + input_w + S(10))
         local save_y = is_right_layout and (draw_y + input_h + S(10)) or draw_y
-        local save_h = S(30)
+        local save_h = is_right_layout and S(30) or input_h
+
+        if is_right_layout then
+            save_btn_w = input_w
+        end
         
         if draw_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
             local txt = director_state.input.text
@@ -12406,6 +12423,9 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 director_state.last_marker_id = nil
                 director_state.input.text = ""
                 show_snackbar("Збережено", "success")
+
+                -- Adjust playhead/cursor position +150ms
+                reaper.SetEditCurPos(cur_time + 0.15, true, false)
             end
         end
     end
