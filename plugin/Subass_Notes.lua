@@ -4157,8 +4157,8 @@ local function export_as_srt()
         suffix = "_All"
     end
     
-    -- Clean filename chars
-    suffix = suffix:gsub("[^%w%s%-_]", "")
+    -- Clean filename chars (Sanitize illegal chars, allow unicode)
+    suffix = suffix:gsub("[<>:\"/\\|?*]", "_")
     
     local default_filename = proj_name .. suffix .. ".srt"
 
