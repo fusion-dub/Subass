@@ -8032,7 +8032,7 @@ local function draw_file()
                 end
                 
                 -- Right side layout: [count text] [None] [All]
-                local right_edge = gfx.w - S(30)
+                local right_edge = gfx.w - S(20)
                 local all_btn_w = S(50)
                 local none_btn_w = S(75)
                 
@@ -8092,6 +8092,14 @@ local function draw_file()
             
             if chk_y + S(20) > start_y and chk_y < gfx.h then
                 local enabled = ass_actors[act]
+                
+                -- HOVER CHECK
+                if UI_STATE.window_focused and
+                   gfx.mouse_x >= x_pos - S(2) and gfx.mouse_x <= x_pos + item_w - S(5) and
+                   gfx.mouse_y >= chk_y - S(2) and gfx.mouse_y <= chk_y + S(22) then
+                    set_color({1, 1, 1, 0.1}) -- Slight white highlight
+                    gfx.rect(x_pos - S(2), chk_y - S(2), item_w - S(3), S(24), 1)
+                end
                 
                 -- Checkbox
                 -- Use actor color for visual feedback
@@ -11209,6 +11217,12 @@ local function draw_settings()
         
         local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + chk_sz + gfx.measurestr(text) + S(10) and
                        gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + chk_sz)
+
+        if hover then
+            set_color({1, 1, 1, 0.1}) -- Slight white highlight
+            gfx.rect(x - S(2), screen_y - S(2), chk_sz + gfx.measurestr(text) + S(18), chk_sz + S(4), 1)
+            set_color(UI.C_TXT)
+        end
         
         if hover and tooltip then
             local id = "chk_" .. text .. "_" .. y_rel
