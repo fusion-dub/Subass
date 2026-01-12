@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 3.7
+-- @version 3.8
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
-local script_title = "Subass Notes v3.7"
+local script_title = "Subass Notes v3.8"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -304,7 +304,10 @@ local dict_modal = {
     scroll_y = 0,
     target_scroll_y = 0,
     max_scroll = 0,
-    history = {} -- History stack for back navigation
+    history = {}, -- History stack for back navigation
+    tts_loading = false, -- TTS loading state
+    tts_preview = nil, -- Active audio preview handle
+    tts_current_word = "" -- Word currently being processed for TTS
 }
 
 -- Director Mode State
@@ -1842,7 +1845,7 @@ local function parse_html_to_spans(html, inherited)
                 next_inherited.word = word
             elseif chosen_tag == "span" then
                 local attr_lower = chosen_attr:lower()
-                local is_plain_class = attr_lower:find('short.interpret') or attr_lower:find('interpret') or 
+                local is_plain_class = attr_lower:find('short%-interpret') or attr_lower:find('interpret') or 
                     attr_lower:find('remark') or attr_lower:find('gram') or 
                     attr_lower:find('info') or attr_lower:find('description') or
                     attr_lower:find('term') or attr_lower:find('note') or
@@ -2042,8 +2045,8 @@ local function parse_dictionary_definition(html, category)
             end
         elseif category == "Словозміна" then
             -- 1. Header (Word + short interpret)
-            local header_html = block:match('<div [^>]-class="page__sub%-header"[^>]->([^\0]-)</div>')
-           if header_html then
+            local header_html = block:match('<h2 [^>]-class="page__sub%-header"[^>]->([^\0]-)</h2>')
+            if header_html then
                 -- Add " - " prefix to short-interpret span
                 header_html = header_html:gsub('(<span[^>]-class="short%-interpret"[^>]->)', '%1 — ')
                 local rich = parse_html_to_spans(header_html)
@@ -5283,6 +5286,7 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
                 new_seg.i = seg.i or seg.is_italic
                 new_seg.is_bold = new_seg.b
                 new_seg.is_italic = new_seg.i
+                new_seg.is_plain = seg.is_plain or false  -- Explicitly preserve is_plain
                 
                 table.insert(current_line, new_seg)
             end
@@ -6570,6 +6574,112 @@ local function draw_text_editor(input_queue)
     return true
 end
 
+--- Play text-to-speech audio for Ukrainian word using goroh_tts.py
+--- @param text string Text to synthesize
+local function play_tts_audio(text)
+    if dict_modal.tts_loading then return end
+    
+    -- Set loading state immediately to prevent concurrent calls
+    dict_modal.tts_loading = true
+    dict_modal.tts_current_word = text
+    UI_STATE.script_loading_state.active = true
+    UI_STATE.script_loading_state.text = "Озвучую..."
+    
+    -- Stop any existing preview
+    if dict_modal.tts_preview and reaper.CF_Preview_Stop then
+        reaper.CF_Preview_Stop(dict_modal.tts_preview)
+        dict_modal.tts_preview = nil
+    end
+    
+
+    -- Path to python script
+    local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])")
+    local tts_script = script_path .. "tts/goroh_tts.py"
+    
+    -- Check if TTS script exists
+    local f = io.open(tts_script, "r")
+    if not f then
+        show_snackbar("TTS скрипт не знайдено", "error")
+        dict_modal.tts_loading = false
+        UI_STATE.script_loading_state.active = false
+        return
+    end
+    f:close()
+    
+    -- Build command
+    local is_windows = reaper.GetOS():match("Win")
+    local cmd
+    if is_windows then
+        local escaped_text = text:gsub('"', '""')
+        cmd = string.format('python "%s" "%s"', tts_script, escaped_text)
+    else
+        -- Use single quotes to avoid escaping issues with Ukrainian text
+        cmd = string.format("python3 '%s' '%s'", tts_script, text)
+    end
+    
+    -- Run command asynchronously using defer to prevent UI blocking
+    reaper.defer(function()
+        local handle = io.popen(cmd .. " 2>&1")
+        if not handle then
+            show_snackbar("Не вдалося запустити TTS", "error")
+            dict_modal.tts_loading = false
+            UI_STATE.script_loading_state.active = false
+            return
+        end
+        
+        local output = handle:read("*a")
+        handle:close()
+        
+        dict_modal.tts_loading = false
+        UI_STATE.script_loading_state.active = false
+        
+        -- Extract MP3 path (last non-empty line of output)
+        local mp3_path = nil
+        for line in output:gmatch("[^\r\n]+") do
+            if line and line ~= "" and not line:match("^Using cached") and not line:match("^Generating") and not line:match("^Successfully") then
+                mp3_path = line
+            end
+        end
+        
+        if mp3_path then
+            mp3_path = mp3_path:match("^%s*(.-)%s*$") -- Trim whitespace
+        end
+        
+        if mp3_path and mp3_path ~= "" and not mp3_path:match("Error") and not mp3_path:match("Traceback") then
+            -- Check if file exists
+            local test_f = io.open(mp3_path, "r")
+            if test_f then
+                test_f:close()
+                
+                -- Create PCM source from file
+                local pcm_source = reaper.PCM_Source_CreateFromFile(mp3_path)
+                if not pcm_source then
+                    show_snackbar("Не вдалося завантажити аудіо", "error")
+                    return
+                end
+                
+                -- Create and play preview using SWS CF_Preview API
+                if reaper.CF_CreatePreview and reaper.CF_Preview_Play then
+                    local preview = reaper.CF_CreatePreview(pcm_source)
+                    if preview then
+                        reaper.CF_Preview_Play(preview)
+                        dict_modal.tts_preview = preview
+                        show_snackbar("▶ Відтворення аудіо", "success")
+                    else
+                        show_snackbar("Не вдалося створити preview", "error")
+                    end
+                else
+                    show_snackbar("SWS Extension не встановлено", "error")
+                end
+            else
+                show_snackbar("Аудіо файл не знайдено", "error")
+            end
+        else
+            show_snackbar("Помилка генерації TTS", "error")
+        end
+    end)
+end
+
 --- Draw dictionary modal with definitions and synonyms, ГОРОХ
 --- @param input_queue table List of key inputs
 local function draw_dictionary_modal(input_queue)
@@ -6608,12 +6718,34 @@ local function draw_dictionary_modal(input_queue)
     set_color(UI.C_TAB_INA)
     gfx.rect(box_x, box_y, box_w, box_h, 1)
     
-    -- Title
-    set_color(UI.C_SEL)
+    -- Title (Clickable for TTS)
     gfx.setfont(F.lrg, "Comic Sans MS", S(35), string.byte('b'))
-    gfx.x = box_x + S(15)
-    gfx.y = box_y
+    local title_x = box_x + S(15)
+    local title_y = box_y
+    local title_w = gfx.measurestr(dict_modal.word)
+    local title_h = gfx.texth
+    
+    -- Hover detection
+    local title_hover = UI_STATE.window_focused and 
+                        gfx.mouse_x >= title_x and gfx.mouse_x <= title_x + title_w and
+                        gfx.mouse_y >= title_y and gfx.mouse_y <= title_y + title_h
+    
+    -- Draw hover background
+    if title_hover and not dict_modal.tts_loading then
+        set_color({0.3, 0.6, 1.0, 0.15})
+        gfx.rect(title_x - S(5), title_y - S(2), title_w + S(10), title_h + S(4), 1)
+    end
+    
+    -- Draw title text
+    set_color(title_hover and {0.5, 0.8, 1.0} or UI.C_SEL)
+    gfx.x = title_x
+    gfx.y = title_y
     gfx.drawstr(dict_modal.word)
+    
+    -- Click detection
+    if title_hover and is_mouse_clicked() and not dict_modal.tts_loading then
+        play_tts_audio(dict_modal.word)
+    end
     
     -- Close Button (Top Right)
     local close_sz = S(30)
@@ -6876,20 +7008,71 @@ local function draw_dictionary_modal(input_queue)
                                                 gfx.setfont(F.dict_std)
                                             end
                                             
-                                            -- Set Color
+                                            local sw = gfx.measurestr((seg.text:gsub(acute, "")))
+                                            
                                             if seg.is_link then
                                                 set_color(UI.C_SEL)
-                                            elseif seg.color then
-                                                set_color(seg.color)
+                                                -- Underline
+                                                gfx.line(current_x, ly + gfx.texth, current_x + sw, ly + gfx.texth)
+                                                
+                                                if is_mouse_clicked() then
+                                                    if gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and
+                                                       gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h then
+                                                        trigger_dictionary_lookup(seg.word)
+                                                    end
+                                                end
                                             else
-                                                set_color(UI.C_TXT)
+                                                -- Text in table (headers or regular cells) -> TTS
+                                                -- Filter out headers, empty cells, and specific grammar terms/symbols
+                                                local clean_txt = seg.text:gsub(acute, ""):lower():match("^%s*(.-)%s*$")
+                                                local is_excluded = clean_txt == "—" or 
+                                                                  clean_txt == "називний" or 
+                                                                  clean_txt == "родовий" or 
+                                                                  clean_txt == "давальний" or 
+                                                                  clean_txt == "знахідний" or 
+                                                                  clean_txt == "орудний" or 
+                                                                  clean_txt == "місцевий" or 
+                                                                  clean_txt == "кличний" or 
+                                                                  clean_txt == "1 особа" or 
+                                                                  clean_txt == "2 особа" or 
+                                                                  clean_txt == "3 особа" or 
+                                                                  clean_txt == "Інфінітив" or 
+                                                                  clean_txt == "чол. р." or 
+                                                                  clean_txt == "жін. р." or 
+                                                                  clean_txt == "сер. р."
+                                                
+                                                if seg.text:match("%S") and not cell.is_header and not is_excluded then
+                                                    local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
+                                                    local is_hovering = is_inflection_tab and UI_STATE.window_focused and
+                                                        gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and
+                                                        gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h
+                                                    
+                                                    if is_hovering then
+                                                        set_color({0.3, 0.6, 1.0, 0.15})
+                                                        gfx.rect(current_x - 2, ly - 1, sw + 4, line_h + 2, 1)
+                                                        set_color(UI.C_ACCENT or UI.C_SEL)
+                                                        
+                                                        if is_mouse_clicked() and not dict_modal.tts_loading then
+                                                            -- Use segment word if available, otherwise text
+                                                            local tts_text = seg.word
+                                                            if not tts_text or tts_text == "" then tts_text = seg.text end
+                                                            -- Remove stress marks for TTS just in case
+                                                            tts_text = tts_text:gsub(acute, "")
+                                                            play_tts_audio(tts_text)
+                                                        end
+                                                    else
+                                                        if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
+                                                    end
+                                                else
+                                                    if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
+                                                end
                                             end
 
                                             gfx.x = current_x
                                             draw_text_with_stress_marks(seg.text)
                                             
                                             -- Advance X
-                                            current_x = current_x + gfx.measurestr((seg.text:gsub(acute, "")))
+                                            current_x = current_x + sw
                                         end
                                     end
                                 end
@@ -6958,17 +7141,44 @@ local function draw_dictionary_modal(input_queue)
                            
                             if seg.is_link then
                                 set_color(UI.C_SEL) -- Cyan/Blue for links
-                                local sw = gfx.measurestr(seg.text)
+                                local sw = gfx.measurestr((seg.text:gsub(acute, "")))
                                 -- Underline
                                 gfx.line(gfx.x, gfx.y + gfx.texth, gfx.x + sw, gfx.y + gfx.texth)
                                 
-                                -- Click detection
+                                -- Click detection: Open Dictionary
                                 if is_mouse_clicked() then
                                     if gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and
                                        gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h then
-                                        -- Trigger new lookup (Lazy)
                                         trigger_dictionary_lookup(seg.word)
                                     end
+                                end
+                            elseif is_header and not seg.is_plain and seg.text:match("%S") then
+                                -- Header Word: TTS Trigger
+                                local clean_txt = seg.text:gsub(acute, ""):match("^%s*(.-)%s*$")
+                                local is_symbol = clean_txt:match("^[%p%s]+$") -- pure punctuation/spaces
+                                
+                                local sw = gfx.measurestr((seg.text:gsub(acute, "")))
+                                -- Only allow TTS in "Словозміна" tab
+                                local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
+                                local is_hovering = is_inflection_tab and not is_symbol and UI_STATE.window_focused and 
+                                    gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and
+                                    gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h
+                                
+                                if is_hovering then
+                                    set_color({0.3, 0.6, 1.0, 0.15}) -- Hover bg
+                                    gfx.rect(gfx.x - 2, gfx.y - 1, sw + 4, line_h + 2, 1)
+                                    set_color(UI.C_ACCENT or UI.C_SEL) -- Highlight text
+                                    
+                                    if is_mouse_clicked() and not dict_modal.tts_loading then
+                                        -- Use the specific header text, not the main word
+                                        local tts_text = seg.word
+                                        if not tts_text or tts_text == "" then tts_text = seg.text end
+                                        tts_text = tts_text:gsub(acute, "")
+                                        play_tts_audio(tts_text) 
+                                    end
+                                else
+                                    -- Normal header color (usually bold/white)
+                                    if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
                                 end
                             elseif seg.color then
                                 -- Apply custom color from HTML style
