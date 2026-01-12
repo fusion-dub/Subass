@@ -7089,7 +7089,7 @@ local function draw_dictionary_modal(input_queue)
                                                             if is_mouse_clicked() and not dict_modal.tts_loading then
                                                                 local tts_text = seg.word
                                                                 if not tts_text or tts_text == "" then tts_text = seg.text end
-                                                                play_tts_audio(tts_text:gsub(acute, ""))
+                                                                play_tts_audio(tts_text)
                                                             end
                                                         else
                                                             if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
@@ -7155,7 +7155,7 @@ local function draw_dictionary_modal(input_queue)
                                           if is_mouse_clicked() and not dict_modal.tts_loading then
                                               local tts_text = seg.word
                                               if not tts_text or tts_text == "" then tts_text = seg.text end
-                                              play_tts_audio(tts_text:gsub(acute, ""))
+                                              play_tts_audio(tts_text)
                                           end
                                       else
                                           if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
