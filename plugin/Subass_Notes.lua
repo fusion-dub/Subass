@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 3.6
+-- @version 3.7
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
-local script_title = "Subass Notes v3.6"
+local script_title = "Subass Notes v3.7"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -94,6 +94,7 @@ local cfg = {
     auto_trim = (get_set("auto_trim", "0") == "1" or get_set("auto_trim", 0) == 1),
     trim_start = get_set("trim_start", 40),
     trim_end = get_set("trim_end", 80),
+    check_clipping = (get_set("check_clipping", "1") == "1" or get_set("check_clipping", 1) == 1),
 }
 
 local col_resize = {
@@ -649,6 +650,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "auto_trim", cfg.auto_trim and "1" or "0", true)
     reaper.SetExtState(section_name, "trim_start", tostring(cfg.trim_start), true)
     reaper.SetExtState(section_name, "trim_end", tostring(cfg.trim_end), true)
+    reaper.SetExtState(section_name, "check_clipping", cfg.check_clipping and "1" or "0", true)
 
     update_prompter_fonts()
 end
@@ -11809,6 +11811,12 @@ local function draw_settings()
         end
         y_cursor = y_cursor + S(40)
     end
+
+    if checkbox(x_start, y_cursor, "Перевіряти на перегруз (Clipping)", cfg.check_clipping, "Показувати попередження, якщо запис має піки 0dB або вище.") then
+        cfg.check_clipping = not cfg.check_clipping
+        save_settings()
+    end
+    y_cursor = y_cursor + S(35)
     
     -- DICTIONARY SECTION
     y_cursor = y_cursor + S(40)
@@ -14443,9 +14451,9 @@ local function handle_remote_commands()
     end
 end
 
---- Automatically trim start/end of newly recorded items to remove keyboard clicks
-local function process_auto_trim()
-    if not cfg.auto_trim then return end
+--- Automatically trim start/end and check for clipping of newly recorded items
+local function process_post_recording()
+    if not cfg.auto_trim and not cfg.check_clipping then return end
     
     local play_state = reaper.GetPlayState()
     local is_recording = (play_state & 4) == 4
@@ -14454,39 +14462,133 @@ local function process_auto_trim()
         -- Recording just stopped
         local item_count = reaper.CountSelectedMediaItems(0)
         if item_count > 0 then
-            reaper.Undo_BeginBlock()
-            local trimmed_count = 0
-            for i = 0, item_count - 1 do
-                local item = reaper.GetSelectedMediaItem(0, i)
-                if item then
-                    local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
-                    local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
-                    
-                    local trim_start_sec = cfg.trim_start / 1000
-                    local trim_end_sec = cfg.trim_end / 1000
-                    
-                    if item_len > (trim_start_sec + trim_end_sec) then
-                        -- Trim start
-                        local take = reaper.GetActiveTake(item)
-                        if take then
-                            -- Adjust source offset to keep content aligned
-                            local offset = reaper.GetMediaItemTakeInfo_Value(take, "D_STARTOFFS")
-                            reaper.SetMediaItemTakeInfo_Value(take, "D_STARTOFFS", offset + trim_start_sec)
+            
+            -- 1. Auto Trim
+            if cfg.auto_trim then
+                reaper.Undo_BeginBlock()
+                local trimmed_count = 0
+                for i = 0, item_count - 1 do
+                    local item = reaper.GetSelectedMediaItem(0, i)
+                    if item then
+                        local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                        local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                        
+                        local trim_start_sec = cfg.trim_start / 1000
+                        local trim_end_sec = cfg.trim_end / 1000
+                        
+                        if item_len > (trim_start_sec + trim_end_sec) then
+                            -- Trim start
+                            local take = reaper.GetActiveTake(item)
+                            if take then
+                                -- Adjust source offset to keep content aligned
+                                local offset = reaper.GetMediaItemTakeInfo_Value(take, "D_STARTOFFS")
+                                reaper.SetMediaItemTakeInfo_Value(take, "D_STARTOFFS", offset + trim_start_sec)
+                            end
+                            reaper.SetMediaItemInfo_Value(item, "D_POSITION", item_pos + trim_start_sec)
+                            -- Adjust length (minus both start and end trims)
+                            reaper.SetMediaItemInfo_Value(item, "D_LENGTH", item_len - trim_start_sec - trim_end_sec)
+                            trimmed_count = trimmed_count + 1
                         end
-                        reaper.SetMediaItemInfo_Value(item, "D_POSITION", item_pos + trim_start_sec)
-                        -- Adjust length (minus both start and end trims)
-                        reaper.SetMediaItemInfo_Value(item, "D_LENGTH", item_len - trim_start_sec - trim_end_sec)
-                        trimmed_count = trimmed_count + 1
                     end
                 end
+                
+                if trimmed_count > 0 then
+                    reaper.UpdateArrange()
+                    reaper.Undo_EndBlock("Авто-підрізання запису", -1)
+                    show_snackbar("Запис підрізано (" .. trimmed_count .. " шт.)", "info")
+                else
+                    reaper.Undo_EndBlock("Авто-підрізання запису", -1)
+                end
             end
-            
-            if trimmed_count > 0 then
-                reaper.UpdateArrange()
-                reaper.Undo_EndBlock("Авто-підрізання запису", -1)
-                show_snackbar("Запис автоматично підрізано (" .. trimmed_count .. " шт.)", "info")
-            else
-                reaper.Undo_EndBlock("Авто-підрізання запису", -1)
+
+            -- 2. Clipping Check
+            if cfg.check_clipping then
+                local clipped_count = 0
+                local max_peak_warning = 0.85
+                -- Small defer to let audio buffer/files finalize? usually fine immediately after stop
+                for i = 0, item_count - 1 do
+                    local item = reaper.GetSelectedMediaItem(0, i)
+                    if item then
+                        local take = reaper.GetActiveTake(item)
+                        if take and not reaper.TakeIsMIDI(take) then
+                            local accessor = reaper.CreateTakeAudioAccessor(take)
+                            local src = reaper.GetMediaItemTake_Source(take)
+                            local start_offs = reaper.GetMediaItemTakeInfo_Value(take, "D_STARTOFFS")
+                            local len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                            
+                            -- Get source properties
+                            local samplerate = 44100
+                            if src then samplerate = reaper.GetMediaSourceSampleRate(src) end
+                             if samplerate == 0 then samplerate = 44100 end -- Safety
+
+                            local channels = reaper.GetMediaItemTakeInfo_Value(take, "I_CHANMODE")
+                            if channels <= 0 then 
+                                if src then channels = reaper.GetMediaSourceNumChannels(src) else channels = 1 end
+                            end
+                            if channels < 1 then channels = 1 end
+                            
+                            -- Volume Compensation logic
+                            local item_vol = reaper.GetMediaItemInfo_Value(item, "D_VOL")
+                            local take_vol = reaper.GetMediaItemTakeInfo_Value(take, "D_VOL")
+                            local total_gain = item_vol * take_vol
+                            
+                            local block_size = 4096 -- Smaller chunks for UI responsiveness
+                            local buffer = reaper.new_array(block_size * channels)
+                            local max_peak = 0
+                            
+                            local pos = 0
+                            while pos < len do
+                                local chunk_len = math.min(len - pos, block_size / samplerate)
+                                local retval = reaper.GetAudioAccessorSamples(accessor, samplerate, channels, start_offs + pos, math.ceil(chunk_len * samplerate), buffer)
+                                
+                                if retval > 0 then
+                                    local size = retval * channels
+                                    for j = 1, size do
+                                        -- Compensate for gain
+                                        local val = math.abs(buffer[j]) / total_gain
+                                        
+                                        if val > max_peak then max_peak = val end
+                                        
+                                        -- Optimization: If we found a peak that triggers RED, we can stop early 
+                                        -- unless we wanted to count HOW MANY samples clipped (not needed now)
+                                        if max_peak >= 0.99 then 
+                                            break -- Exit inner loop
+                                        end
+                                    end
+                                end
+                                
+                                if max_peak >= 0.99 then break end -- Exit outer loop
+                                
+                                pos = pos + chunk_len
+                            end
+                            
+                            reaper.DestroyAudioAccessor(accessor)
+                            
+                            if max_peak >= max_peak_warning then
+                                local r, g, b
+                                
+                                if max_peak >= 0.99 then
+                                    -- Pure RED
+                                    r, g, b = 255, 0, 0
+                                    clipped_count = clipped_count + 1
+                                else
+                                    -- Gradient from Yellow (255,255,0) at max_peak_warning to Red (255,0,0) at 0.99
+                                    local t = (max_peak - max_peak_warning) / (0.99 - max_peak_warning) -- 0.0 at max_peak_warning, 1.0 at 0.99
+                                    r = 255
+                                    g = math.floor(255 * (1 - t)) -- 255 at max_peak_warning, 0 at 0.99
+                                    b = 0
+                                end
+                                
+                                reaper.SetMediaItemInfo_Value(item, "I_CUSTOMCOLOR", reaper.ColorToNative(r, g, b)|0x1000000)
+                            end
+                        end
+                    end
+                end
+
+                if clipped_count > 0 then
+                    reaper.UpdateArrange()
+                    show_snackbar("⚠️ УВАГА: ЗАПИС КЛІПУЄ! (" .. clipped_count .. " шт.)", "error")
+                end
             end
         end
     end
@@ -14656,7 +14758,7 @@ local function main()
     check_async_pool()
     draw_loader()
     
-    process_auto_trim()
+    process_post_recording()
 
     gfx.update()
 
