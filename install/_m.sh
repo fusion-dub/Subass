@@ -143,6 +143,7 @@ SCRIPT_SOURCE="$PROJECT_ROOT/plugin/Subass_Notes.lua"
 STRESS_SOURCE="$PROJECT_ROOT/plugin/stress"
 OVERLAY_SOURCE="$PROJECT_ROOT/plugin/overlay/Lionzz_SubOverlay_Subass.lua"
 DICTIONARY_SOURCE="$PROJECT_ROOT/plugin/dictionary"
+TTS_SOURCE="$PROJECT_ROOT/plugin/tts"
 
 if [ -f "$SCRIPT_SOURCE" ]; then
     cp "$SCRIPT_SOURCE" "$SCRIPTS_PATH/"
@@ -162,6 +163,16 @@ if [ -f "$SCRIPT_SOURCE" ]; then
     fi
     if [ -d "$DICTIONARY_SOURCE" ]; then
         cp -R "$DICTIONARY_SOURCE" "$SCRIPTS_PATH/"
+    fi
+    if [ -d "$TTS_SOURCE" ]; then
+        # Preserve history folder during update
+        if [ -d "$SCRIPTS_PATH/tts" ]; then
+            # Update existing tts folder, excluding history
+            rsync -av --exclude='history' "$TTS_SOURCE/" "$SCRIPTS_PATH/tts/"
+        else
+            # First install - copy everything
+            cp -R "$TTS_SOURCE" "$SCRIPTS_PATH/"
+        fi
     fi
     echo "\033[1;32mScripts copied to $SCRIPTS_PATH\033[0m"
 else
