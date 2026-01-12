@@ -2135,9 +2135,6 @@ local function parse_dictionary_definition(html, category)
                 end
             end
         elseif category == "Слововживання" then
-            -- Add separator BEFORE every block
-            table.insert(lines, { is_separator = true })
-            
             -- 1. Header (Word + short interpret)
             local header_html = block:match('<h2 [^>]-class="page__sub%-header"[^>]->([^\0]-)</h2>')
             if header_html then
@@ -2199,7 +2196,11 @@ local function parse_dictionary_definition(html, category)
                 end
             end
 
-            table.insert(lines, { segments = "" })
+            if _ < #blocks then
+                table.insert(lines, { is_separator = true })
+            else
+                table.insert(lines, { segments = "" })
+            end
         end
     end
     
