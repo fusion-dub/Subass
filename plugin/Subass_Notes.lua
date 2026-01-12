@@ -2539,8 +2539,9 @@ end
 
 --- Unified trigger for dictionary lookup
 local function trigger_dictionary_lookup(word)
-    -- Clean word from extra symbols
-    word = word:gsub('^["\'«»]+', ''):gsub('["\'«»]+$', '')    
+    -- Clean word from extra symbols (quotes, ellipses, dots, etc)
+    -- Include both standard dots and the single-char ellipsis '…'
+    word = word:gsub('^["\'«»%.…]+', ''):gsub('["\'«»%.…]+$', '')
     local first_tab = "Словозміна"
     
     -- Manage history: If already showing, push current state
