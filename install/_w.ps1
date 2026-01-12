@@ -272,6 +272,7 @@ $scriptSource = Join-Path $projectRoot "plugin\Subass_Notes.lua"
 $stressSource = Join-Path $projectRoot "plugin\stress"
 $overlaySource = Join-Path $projectRoot "plugin\overlay\Lionzz_SubOverlay_Subass.lua"
 $dictionarySource = Join-Path $projectRoot "plugin\dictionary"
+$ttsSource = Join-Path $projectRoot "plugin\tts"
 
 if (Test-Path $scriptSource) {
     Copy-Item $scriptSource $scriptsPath -Force
@@ -297,6 +298,21 @@ if (Test-Path $scriptSource) {
     }
     if (Test-Path $dictionarySource) {
         Copy-Item $dictionarySource $scriptsPath -Recurse -Force
+    }
+    if (Test-Path $ttsSource) {
+        $ttsTarget = Join-Path $scriptsPath "tts"
+        # Preserve history folder during update
+        if (Test-Path $ttsTarget) {
+            # Update existing tts folder, excluding history
+            Get-ChildItem $ttsSource | Where-Object { 
+                $_.Name -ne "history" 
+            } | ForEach-Object {
+                Copy-Item $_.FullName $ttsTarget -Recurse -Force
+            }
+        } else {
+            # First install - copy everything
+            Copy-Item $ttsSource $scriptsPath -Recurse -Force
+        }
     }
     Write-Host-Color "Scripts copied to REAPER/Scripts/Subass" "Green"
 } else {
