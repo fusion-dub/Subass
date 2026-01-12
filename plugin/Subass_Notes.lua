@@ -6607,32 +6607,36 @@ local function play_tts_audio(text)
     end
     f:close()
     
-    -- Build command
+    -- Build command using standardized python executable if available
     local is_windows = reaper.GetOS():match("Win")
     local cmd
+    
     if is_windows then
+        -- Normalize paths for Windows to avoid issues
+        tts_script = tts_script:gsub("/", "\\")
         local escaped_text = text:gsub('"', '""')
-        cmd = string.format('python "%s" "%s"', tts_script, escaped_text)
+        
+        -- Use configured python executable from requirements state if available
+        local py_exe = requirements_state.python.executable or "python"
+        
+        -- Use list format for run_async_command on Windows? 
+        -- Actually run_async_command expects a shell string, but handles wrapping.
+        cmd = string.format('%s "%s" "%s"', py_exe, tts_script, escaped_text)
     else
         -- Use single quotes to avoid escaping issues with Ukrainian text
+        -- Mac/Linux: Assume python3
         cmd = string.format("python3 '%s' '%s'", tts_script, text)
     end
     
-    -- Run command asynchronously using defer to prevent UI blocking
-    reaper.defer(function()
-        local handle = io.popen(cmd .. " 2>&1")
-        if not handle then
-            show_snackbar("Не вдалося запустити TTS", "error")
-            dict_modal.tts_loading = false
-            UI_STATE.script_loading_state.active = false
-            return
-        end
-        
-        local output = handle:read("*a")
-        handle:close()
-        
+    -- Run command asynchronously using the standardized function
+    run_async_command(cmd, function(output)
         dict_modal.tts_loading = false
         UI_STATE.script_loading_state.active = false
+        
+        if not output then
+            show_snackbar("Помилка виконання TTS", "error")
+            return
+        end
         
         -- Extract MP3 path (last non-empty line of output)
         local mp3_path = nil
@@ -6868,6 +6872,22 @@ local function draw_dictionary_modal(input_queue)
     local cur_y = content_y + dict_modal.scroll_y
     local total_h = 0
     
+    -- Pre-calculate button hover states to prevent click-through
+    local btn_close_x, btn_close_y = box_x + box_w - S(100), box_y + box_h - S(35)
+    local btn_w, btn_h = S(85), S(25)
+    local is_hover_close_btn = gfx.mouse_x >= btn_close_x and gfx.mouse_x <= btn_close_x + btn_w and
+                               gfx.mouse_y >= btn_close_y and gfx.mouse_y <= btn_close_y + btn_h
+                               
+    local is_hover_back_btn = false
+    if #dict_modal.history > 0 then
+        local btn_back_x = box_x + box_w - S(200)
+        local is_hover_back = gfx.mouse_x >= btn_back_x and gfx.mouse_x <= btn_back_x + btn_w and
+                              gfx.mouse_y >= btn_close_y and gfx.mouse_y <= btn_close_y + btn_h
+        is_hover_back_btn = is_hover_back
+    end
+    
+    local is_obstructed = is_hover_close_btn or is_hover_back_btn or close_hover
+
     local active_content = dict_modal.content[dict_modal.selected_tab]
     
     if active_content and #active_content == 0 then
@@ -6882,325 +6902,280 @@ local function draw_dictionary_modal(input_queue)
         gfx.drawstr("Немає даних для цієї категорії (або ГОРОХ знову впав).")
     else
         for _, item in ipairs(active_content) do
-            if type(item) == "table" and item.is_table then
-                -- Render Table with robust Colspan/Rowspan support (Two-Pass)
-                local col_w = content_w / item.cols
-                local occupancy = {} -- [r][c] = cell_info (shared object)
-                local is_start = {} -- [r][c] = bool (true if this r,c is the top-left of the span)
-                local row_heights = {}
+            
+            -- LAYOUT PHASE (Cache results)
+            local needs_layout = not item.layout or item.layout.width ~= content_w
+            
+            if needs_layout then
+                item.layout = { width = content_w }
                 
-                -- Pass 1: Measurement & Occupancy Map
-                for r_idx, grid_row in ipairs(item.rows) do
-                    occupancy[r_idx] = occupancy[r_idx] or {}
-                    is_start[r_idx] = is_start[r_idx] or {}
-                    local l_col = 1
-                    local max_row_h = line_h -- Minimum height
+                if type(item) == "table" and item.is_table then
+                    -- Table Layout (Pass 1)
+                    local col_w = content_w / item.cols
+                    local occupancy = {} 
+                    local is_start = {}
+                    local row_heights = {}
+                    local row_y_pos = {}
+                    local running_y = 0
                     
-                    for _, cell in ipairs(grid_row.cells) do
-                        -- Skip occupied logical columns
-                        while occupancy[r_idx][l_col] do l_col = l_col + 1 end
-                        
-                        local cell_w = col_w * cell.colspan
-                        
-                        -- Use rich text wrapping
-                        local wrapped = wrap_rich_text(cell.segments, cell_w - 8, F.dict_std, "Arial", S(17), cell.is_header or grid_row.is_header)
-                        local needed_h = #wrapped * line_h
-                        
-                        -- Store cell info
-                        local cell_info = {
-                            text = cell.text, -- Plain text fallback
-                            wrapped = wrapped, -- Now contains rich lines
-                            colspan = cell.colspan,
-                            rowspan = cell.rowspan,
-                            is_header = cell.is_header or grid_row.is_header
-                        }
-                        
-                        is_start[r_idx][l_col] = true
-                        for rr = 0, cell.rowspan - 1 do
-                            local target_r = r_idx + rr
-                            occupancy[target_r] = occupancy[target_r] or {}
-                            is_start[target_r] = is_start[target_r] or {}
-                            for cc = 0, cell.colspan - 1 do
-                                occupancy[target_r][l_col + cc] = cell_info
-                            end
-                        end
-                        
-                        -- Single-row cells define the base row height
-                        if cell.rowspan == 1 then
-                            if needed_h > max_row_h then max_row_h = needed_h end
-                        end
-                        
-                        l_col = l_col + cell.colspan
-                    end
-                    row_heights[r_idx] = max_row_h + 20 -- Add extra padding
-                end
-                
-                -- Pass 2: Drawing
-                local table_start_y = cur_y
-                local row_y_pos = {} -- Stores absolute Y for each row start
-                local running_y = table_start_y
-                for i, h in ipairs(row_heights) do
-                    row_y_pos[i] = running_y
-                    running_y = running_y + h
-                end
-                
-                -- Final table height for scroll calc
-                local table_total_h = running_y - table_start_y
-                
-                for r_idx=1, #row_heights do
-                    local row_y = row_y_pos[r_idx]
-                    local row_h = row_heights[r_idx]
+                    item.layout.col_w = col_w
+                    item.layout.occupancy = occupancy
+                    item.layout.is_start = is_start
+                    item.layout.row_heights = row_heights
                     
-                    -- For each logical column, check if a cell starts here
-                    for l_col = 1, item.cols do
-                        if is_start[r_idx] and is_start[r_idx][l_col] then
-                            local cell = occupancy[r_idx][l_col]
-                            local cell_x = content_x + (l_col - 1) * col_w
+                    for r_idx, grid_row in ipairs(item.rows) do
+                        occupancy[r_idx] = occupancy[r_idx] or {}
+                        is_start[r_idx] = is_start[r_idx] or {}
+                        local l_col = 1
+                        local max_row_h = line_h 
+                        
+                        for _, cell in ipairs(grid_row.cells) do
+                            while occupancy[r_idx][l_col] do l_col = l_col + 1 end
+                            
                             local cell_w = col_w * cell.colspan
                             
-                            -- Calculate total height of this spanned cell
-                            local total_cell_h = 0
+                            -- Wrapping
+                            local wrapped = wrap_rich_text(cell.segments, cell_w - 8, F.dict_std, "Arial", S(17), cell.is_header or grid_row.is_header)
+                            local needed_h = #wrapped * line_h
+                            
+                            local cell_info = {
+                                text = cell.text, 
+                                wrapped = wrapped,
+                                colspan = cell.colspan,
+                                rowspan = cell.rowspan,
+                                is_header = cell.is_header or grid_row.is_header,
+                                w = cell_w,
+                                x = (l_col - 1) * col_w
+                            }
+                            
+                            is_start[r_idx][l_col] = true
                             for rr = 0, cell.rowspan - 1 do
-                                total_cell_h = total_cell_h + (row_heights[r_idx + rr] or 0)
+                                local target_r = r_idx + rr
+                                occupancy[target_r] = occupancy[target_r] or {}
+                                is_start[target_r] = is_start[target_r] or {}
+                                for cc = 0, cell.colspan - 1 do
+                                    occupancy[target_r][l_col + cc] = cell_info
+                                end
                             end
                             
-                            -- Draw ONLY if some part of the spanning cell is visible
-                            if row_y + total_cell_h > content_y and row_y < content_y + content_h then
-                                -- Background for headers (based on CSS class or full width)
-                                local is_span_header = (cell.colspan == item.cols)
-                                if cell.is_header or is_span_header then
-                                    set_color({1, 1, 1, 0.08}) -- Subtle but visible transparent white
-                                    local bg_y = math.max(row_y, content_y)
-                                    local bg_h = math.min(row_y + total_cell_h, content_y + content_h) - bg_y
-                                    if bg_h > 0 then
-                                        gfx.rect(cell_x, bg_y, cell_w, bg_h, 1)
+                            if cell.rowspan == 1 then
+                                if needed_h > max_row_h then max_row_h = needed_h end
+                            end
+                            l_col = l_col + cell.colspan
+                        end
+                        row_heights[r_idx] = max_row_h + 20
+                        row_y_pos[r_idx] = running_y
+                        running_y = running_y + row_heights[r_idx]
+                    end
+                    item.layout.row_y_pos = row_y_pos
+                    item.layout.total_h = running_y + 48 -- + margin
+                    
+                else
+                    -- Paragraph Layout
+                    local para_data = item
+                     -- Support legacy string
+                    if type(item) == "string" then para_data = {segments = {{text = item}}, indent = 0} end
+                    
+                    local segments = para_data.segments or {}
+                    local indent = para_data.indent or 0
+                    -- Fix for phantom header issue: ensure is_header is respected from data
+                    local is_header = para_data.is_header or false
+                    
+                    local indent_x = indent * 24
+                    local effective_w = content_w - indent_x - 100
+                    
+                    local lines_to_draw = wrap_rich_text(segments, effective_w, F.dict_std, "Arial", S(17), is_header)
+                    
+                    item.layout.wrapped = lines_to_draw
+                    item.layout.indent_x = indent_x
+                    item.layout.is_header = is_header
+                    item.layout.total_h = #lines_to_draw * line_h + S(10) -- slight margin
+                    
+                    -- Headers have tighter spacing
+                    if is_header then item.layout.total_h = item.layout.total_h + 4 else item.layout.total_h = item.layout.total_h + 12 end
+                end
+            end
+            
+            -- RENDER PHASE (Clipping)
+            local item_h = item.layout.total_h
+            local item_y = cur_y
+            
+            -- Check visibility
+            if item_y + item_h > content_y and item_y < content_y + content_h then
+                if type(item) == "table" and item.is_table then
+                    -- Render Table from Cached Layout
+                    local table_start_y = item_y
+                    local L = item.layout
+                    
+                    -- Background for top line
+                    set_color({1, 1, 1, 0.1})
+                    if table_start_y > content_y and table_start_y < content_y + content_h then
+                        gfx.line(content_x, table_start_y, content_x + content_w, table_start_y)
+                    end
+                    
+                    for r_idx=1, #L.row_heights do
+                        local row_rel_y = L.row_y_pos[r_idx]
+                        local row_y = table_start_y + row_rel_y
+                        local row_h = L.row_heights[r_idx]
+                        
+                        -- Row clipping optimization
+                        if row_y + row_h > content_y and row_y < content_y + content_h then
+                            for l_col = 1, item.cols do
+                                if L.is_start[r_idx] and L.is_start[r_idx][l_col] then
+                                    local cell = L.occupancy[r_idx][l_col]
+                                    local cell_x = content_x + cell.x
+                                    local cell_w = cell.w
+                                    
+                                    -- Calculate total height of this spanned cell
+                                    local total_cell_h = 0
+                                    for rr = 0, cell.rowspan - 1 do
+                                        total_cell_h = total_cell_h + (L.row_heights[r_idx + rr] or 0)
                                     end
-                                end
-
-                                -- Draw text with vertical centering within total_cell_h
-                                local text_h = #cell.wrapped * line_h
-                                local text_y = row_y + (total_cell_h - text_h) / 2
-                                
-                                -- Draw rich text lines
-                                for l_idx, rich_line in ipairs(cell.wrapped) do
-                                    local ly = text_y + (l_idx - 1) * line_h
-                                    -- Clip individual lines
-                                    if ly + line_h > content_y and ly < content_y + content_h then
-                                        local current_x
-                                        if is_span_header then
-                                            -- Measure full line width for centering (approximate)
-                                            local tw = 0
-                                            for _, seg in ipairs(rich_line) do
-                                                gfx.setfont(seg.is_bold and F.dict_bld or F.dict_std)
-                                                tw = tw + gfx.measurestr((seg.text:gsub(acute, "")))
-                                            end
-                                            current_x = cell_x + (cell_w - tw) / 2
-                                        else
-                                            current_x = cell_x + 4
-                                        end
-                                        
-                                        gfx.y = ly
-                                        
-                                        for _, seg in ipairs(rich_line) do
-                                            -- Set font
-                                            if seg.is_bold or (cell.is_header and not seg.is_plain) then
-                                                gfx.setfont(F.dict_bld)
-                                            else
-                                                gfx.setfont(F.dict_std)
-                                            end
-                                            
-                                            local sw = gfx.measurestr((seg.text:gsub(acute, "")))
-                                            
-                                            if seg.is_link then
-                                                set_color(UI.C_SEL)
-                                                -- Underline
-                                                gfx.line(current_x, ly + gfx.texth, current_x + sw, ly + gfx.texth)
-                                                
-                                                if is_mouse_clicked() then
-                                                    if gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and
-                                                       gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h then
-                                                        trigger_dictionary_lookup(seg.word)
-                                                    end
+                                    
+                                    -- Background
+                                    local is_span_header = (cell.colspan == item.cols)
+                                    if cell.is_header or is_span_header then
+                                        set_color({1, 1, 1, 0.08})
+                                        local bg_y = math.max(row_y, content_y)
+                                        local bg_h = math.min(row_y + total_cell_h, content_y + content_h) - bg_y
+                                        if bg_h > 0 then gfx.rect(cell_x, bg_y, cell_w, bg_h, 1) end
+                                    end
+                                    
+                                    -- Text
+                                    local text_h = #cell.wrapped * line_h
+                                    local text_y = row_y + (total_cell_h - text_h) / 2
+                                    
+                                    for l_idx, rich_line in ipairs(cell.wrapped) do
+                                        local ly = text_y + (l_idx - 1) * line_h
+                                        -- Clip individual lines
+                                        if ly + line_h > content_y and ly < content_y + content_h then
+                                            local current_x = cell_x + 4
+                                            if is_span_header then
+                                                local tw = 0
+                                                for _, seg in ipairs(rich_line) do
+                                                    gfx.setfont(seg.is_bold and F.dict_bld or F.dict_std)
+                                                    tw = tw + gfx.measurestr((seg.text:gsub(acute, "")))
                                                 end
-                                            else
-                                                -- Text in table (headers or regular cells) -> TTS
-                                                -- Filter out headers, empty cells, and specific grammar terms/symbols
-                                                local clean_txt = seg.text:gsub(acute, ""):lower():match("^%s*(.-)%s*$")
-                                                local is_excluded = clean_txt == "—" or 
-                                                                  clean_txt == "називний" or 
-                                                                  clean_txt == "родовий" or 
-                                                                  clean_txt == "давальний" or 
-                                                                  clean_txt == "знахідний" or 
-                                                                  clean_txt == "орудний" or 
-                                                                  clean_txt == "місцевий" or 
-                                                                  clean_txt == "кличний" or 
-                                                                  clean_txt == "1 особа" or 
-                                                                  clean_txt == "2 особа" or 
-                                                                  clean_txt == "3 особа" or 
-                                                                  clean_txt == "Інфінітив" or 
-                                                                  clean_txt == "чол. р." or 
-                                                                  clean_txt == "жін. р." or 
-                                                                  clean_txt == "сер. р."
+                                                current_x = cell_x + (cell_w - tw) / 2
+                                            end
+                                            
+                                            gfx.y = ly
+                                            
+                                            for _, seg in ipairs(rich_line) do
+                                                if seg.is_bold or (cell.is_header and not seg.is_plain) then gfx.setfont(F.dict_bld) else gfx.setfont(F.dict_std) end
+                                                local sw = gfx.measurestr((seg.text:gsub(acute, "")))
                                                 
-                                                if seg.text:match("%S") and not cell.is_header and not is_excluded then
-                                                    local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
-                                                    local is_hovering = is_inflection_tab and UI_STATE.window_focused and
-                                                        gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and
-                                                        gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h
-                                                    
-                                                    if is_hovering then
-                                                        set_color({0.3, 0.6, 1.0, 0.15})
-                                                        gfx.rect(current_x - 2, ly - 1, sw + 4, line_h + 2, 1)
-                                                        set_color(UI.C_ACCENT or UI.C_SEL)
-                                                        
-                                                        if is_mouse_clicked() and not dict_modal.tts_loading then
-                                                            -- Use segment word if available, otherwise text
-                                                            local tts_text = seg.word
-                                                            if not tts_text or tts_text == "" then tts_text = seg.text end
-                                                            -- Remove stress marks for TTS just in case
-                                                            tts_text = tts_text:gsub(acute, "")
-                                                            play_tts_audio(tts_text)
+                                                if seg.is_link then
+                                                    set_color(UI.C_SEL)
+                                                    gfx.line(current_x, ly + gfx.texth, current_x + sw, ly + gfx.texth)
+                                                    if is_mouse_clicked() then
+                                                        if not is_obstructed and gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h then
+                                                            trigger_dictionary_lookup(seg.word)
                                                         end
-                                                    else
-                                                        if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
                                                     end
                                                 else
-                                                    if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
+                                                    -- TTS Logic
+                                                     local clean_txt = seg.text:gsub(acute, ""):lower():match("^%s*(.-)%s*$")
+                                                     local is_excluded = clean_txt == "—" or clean_txt == "називний" or clean_txt == "родовий" or clean_txt == "давальний" or clean_txt == "знахідний" or clean_txt == "орудний" or clean_txt == "місцевий" or clean_txt == "кличний" or clean_txt == "1 особа" or clean_txt == "2 особа" or clean_txt == "3 особа" or clean_txt == "інфінітив" or clean_txt == "чол. р." or clean_txt == "жін. р." or clean_txt == "сер. р." or clean_txt:match("^%s*$")
+                                                     
+                                                     if not cell.is_header and not is_excluded then
+                                                        local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
+                                                        local is_hovering = is_inflection_tab and UI_STATE.window_focused and gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h
+                                                        
+                                                        if is_hovering and not is_obstructed then
+                                                            set_color({0.3, 0.6, 1.0, 0.15})
+                                                            gfx.rect(current_x - 2, ly - 1, sw + 4, line_h + 2, 1)
+                                                            set_color(UI.C_ACCENT or UI.C_SEL)
+                                                            if is_mouse_clicked() and not dict_modal.tts_loading then
+                                                                local tts_text = seg.word
+                                                                if not tts_text or tts_text == "" then tts_text = seg.text end
+                                                                play_tts_audio(tts_text:gsub(acute, ""))
+                                                            end
+                                                        else
+                                                            if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
+                                                        end
+                                                     else
+                                                         if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
+                                                     end
                                                 end
+                                                
+                                                gfx.x = current_x
+                                                draw_text_with_stress_marks(seg.text)
+                                                current_x = current_x + sw
                                             end
-
-                                            gfx.x = current_x
-                                            draw_text_with_stress_marks(seg.text)
-                                            
-                                            -- Advance X
-                                            current_x = current_x + sw
                                         end
                                     end
-                                end
-                               
-                                -- Draw cell borders (bottom and right separators)
-                                set_color({1, 1, 1, 0.1})
-                                -- Horizontal line at the bottom of the SPANNED area
-                                local line_y = row_y + total_cell_h
-                                if line_y > content_y and line_y < content_y + content_h then
-                                    gfx.line(cell_x, line_y, cell_x + cell_w, line_y)
-                                end
-                                -- Vertical line on the right
-                                if l_col + cell.colspan - 1 < item.cols then
-                                    local vline_x = cell_x + cell_w
-                                    local vline_start = math.max(row_y, content_y)
-                                    local vline_end = math.min(row_y + total_cell_h, content_y + content_h)
-                                    if vline_start < vline_end then
-                                        gfx.line(vline_x, vline_start, vline_x, vline_end)
+                                    
+                                    -- Borders
+                                    set_color({1, 1, 1, 0.1})
+                                    local line_y = row_y + total_cell_h
+                                    if line_y > content_y and line_y < content_y + content_h then gfx.line(cell_x, line_y, cell_x + cell_w, line_y) end
+                                    if l_col + cell.colspan - 1 < item.cols then
+                                        local vline_x = cell_x + cell_w
+                                        local vline_start = math.max(row_y, content_y)
+                                        local vline_end = math.min(row_y + total_cell_h, content_y + content_h)
+                                        if vline_start < vline_end then gfx.line(vline_x, vline_start, vline_x, vline_end) end
                                     end
                                 end
                             end
                         end
                     end
-                end
-                
-                -- Top boundary of the whole table
-                set_color({1, 1, 1, 0.1})
-                if table_start_y > content_y and table_start_y < content_y + content_h then
-                    gfx.line(content_x, table_start_y, content_x + content_w, table_start_y)
-                end
-                
-                cur_y = table_start_y + table_total_h + 48
-                total_h = total_h + table_total_h + 48
-            else
-                -- Render Hierarchical Paragraph (rich segments with indent/header metadata)
-                local para_data = item
-                local segments = para_data.segments or {}
-                local indent = para_data.indent or 0
-                local is_header = para_data.is_header or false
-                
-                -- Indentation offset (24px per level)
-                local indent_x = indent * 24
-                local effective_w = content_w - indent_x - 100
-                
-                -- Support legacy string items just in case
-                if type(item) == "string" then
-                    segments = {{text = item}}
-                    indent_x = 0
-                end
-
-                local lines_to_draw = wrap_rich_text(segments, effective_w, F.dict_std, "Arial", S(17), is_header)
-
-                for _, rich_line in ipairs(lines_to_draw) do
-                    if cur_y + line_h > content_y and cur_y < content_y + content_h then
-                        local segment_x = content_x + indent_x
-                        for _, seg in ipairs(rich_line) do
-                            -- Set font per segment
-                            if seg.is_bold or (is_header and not seg.is_plain) then
-                                gfx.setfont(F.dict_bld)
-                            else
-                                gfx.setfont(F.dict_std)
-                            end
-                            
-                            gfx.x = segment_x
-                            gfx.y = cur_y
-                           
-                            if seg.is_link then
-                                set_color(UI.C_SEL) -- Cyan/Blue for links
-                                local sw = gfx.measurestr((seg.text:gsub(acute, "")))
-                                -- Underline
-                                gfx.line(gfx.x, gfx.y + gfx.texth, gfx.x + sw, gfx.y + gfx.texth)
-                                
-                                -- Click detection: Open Dictionary
-                                if is_mouse_clicked() then
-                                    if gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and
-                                       gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h then
-                                        trigger_dictionary_lookup(seg.word)
+                else
+                     -- Render Paragraph
+                    local L = item.layout
+                    local current_line_y = cur_y
+                    
+                    for _, rich_line in ipairs(L.wrapped) do
+                        if current_line_y + line_h > content_y and current_line_y < content_y + content_h then
+                             local segment_x = content_x + L.indent_x
+                             for _, seg in ipairs(rich_line) do
+                                 if seg.is_bold or (L.is_header and not seg.is_plain) then gfx.setfont(F.dict_bld) else gfx.setfont(F.dict_std) end
+                                 gfx.x = segment_x; gfx.y = current_line_y
+                                 
+                                 local sw = gfx.measurestr((seg.text:gsub(acute, "")))
+                                 
+                                 if seg.is_link then
+                                    set_color(UI.C_SEL)
+                                    gfx.line(gfx.x, gfx.y + gfx.texth, gfx.x + sw, gfx.y + gfx.texth)
+                                    if is_mouse_clicked() then
+                                        if not is_obstructed and gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h then
+                                            trigger_dictionary_lookup(seg.word)
+                                        end
                                     end
-                                end
-                            elseif is_header and not seg.is_plain and seg.text:match("%S") then
-                                -- Header Word: TTS Trigger
-                                local clean_txt = seg.text:gsub(acute, ""):match("^%s*(.-)%s*$")
-                                local is_symbol = clean_txt:match("^[%p%s]+$") -- pure punctuation/spaces
-                                
-                                local sw = gfx.measurestr((seg.text:gsub(acute, "")))
-                                -- Only allow TTS in "Словозміна" tab
-                                local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
-                                local is_hovering = is_inflection_tab and not is_symbol and UI_STATE.window_focused and 
-                                    gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and
-                                    gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h
-                                
-                                if is_hovering then
-                                    set_color({0.3, 0.6, 1.0, 0.15}) -- Hover bg
-                                    gfx.rect(gfx.x - 2, gfx.y - 1, sw + 4, line_h + 2, 1)
-                                    set_color(UI.C_ACCENT or UI.C_SEL) -- Highlight text
-                                    
-                                    if is_mouse_clicked() and not dict_modal.tts_loading then
-                                        -- Use the specific header text, not the main word
-                                        local tts_text = seg.word
-                                        if not tts_text or tts_text == "" then tts_text = seg.text end
-                                        tts_text = tts_text:gsub(acute, "")
-                                        play_tts_audio(tts_text) 
-                                    end
-                                else
-                                    -- Normal header color (usually bold/white)
-                                    if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
-                                end
-                            elseif seg.color then
-                                -- Apply custom color from HTML style
-                                set_color(seg.color)
-                            else
-                                set_color(UI.C_TXT)
-                            end
-                            
-                            draw_text_with_stress_marks(seg.text)
-                            -- Important: increment must match the measurement logic in wrap_rich_text
-                            segment_x = segment_x + gfx.measurestr((seg.text:gsub(acute, "")))
+                                 elseif L.is_header and not seg.is_plain and seg.text:match("%S") then
+                                      local clean_txt = seg.text:gsub(acute, ""):match("^%s*(.-)%s*$")
+                                      local is_symbol = clean_txt:match("^[%p%s]+$")
+                                      local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
+                                      local is_hovering = is_inflection_tab and not is_symbol and UI_STATE.window_focused and gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h
+                                      
+                                      if is_hovering and not is_obstructed then
+                                          set_color({0.3, 0.6, 1.0, 0.15})
+                                          gfx.rect(gfx.x - 2, gfx.y - 1, sw + 4, line_h + 2, 1)
+                                          set_color(UI.C_ACCENT or UI.C_SEL)
+                                          if is_mouse_clicked() and not dict_modal.tts_loading then
+                                              local tts_text = seg.word
+                                              if not tts_text or tts_text == "" then tts_text = seg.text end
+                                              play_tts_audio(tts_text:gsub(acute, ""))
+                                          end
+                                      else
+                                          if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
+                                      end
+                                 else
+                                     if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
+                                 end
+                                 
+                                 draw_text_with_stress_marks(seg.text)
+                                 segment_x = segment_x + sw
+                             end
                         end
-                   end
-                    cur_y = cur_y + line_h
-                    total_h = total_h + line_h
+                        current_line_y = current_line_y + line_h
+                    end
                 end
-                -- Spacing: headers have tighter spacing to their lists
-                local spacing = is_header and 4 or 12
-                cur_y = cur_y + spacing
-                total_h = total_h + spacing
             end
+            
+            -- Advance cursor by total height regardless of visibility
+            cur_y = item_y + item.layout.total_h
+            total_h = total_h + item.layout.total_h
         end
     end
     
