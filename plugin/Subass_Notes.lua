@@ -538,7 +538,8 @@ local UI = {
     C_ROW_ALT = {0.23, 0.23, 0.23},
     C_SEL = {0.6, 0.7, 0.9},
     C_TAB_ACT = {0.25, 0.25, 0.25},
-    C_TAB_INA = {0.2, 0.2, 0.2}
+    C_TAB_INA = {0.2, 0.2, 0.2},
+    C_SEL_BG = {0.3, 0.6, 1.0, 0.15}
 }
 local bg_palette = {
     UI.C_BG, -- Default Dark
@@ -725,6 +726,7 @@ end
 --- Set GFX color from RGB array
 --- @param c table RGB color array {r, g, b}
 local function set_color(c)
+    if not c or type(c) ~= "table" then return end
     gfx.r, gfx.g, gfx.b = c[1], c[2], c[3]
     gfx.a = c[4] or 1.0
 end
@@ -1990,6 +1992,10 @@ local function parse_dictionary_definition(html, category)
        html:find("відсутнє%s+для%s+цього%s+словника") then
         return {}
     end
+    -- Clean up raw HTML from sidebar and ads globally
+    html = html:gsub('<aside[^>]-class="column_sidebar"[^>]->.-</aside>', "")
+    html = html:gsub('<div[^>]-class="ad%-wrapper.-"[^>]->.-</div>%s-</div>', "")
+    html = html:gsub('<div[^>]-class="ad%-wrapper.-"[^>]->.-</div>', "")
 
     local lines = {}
 
@@ -2017,30 +2023,62 @@ local function parse_dictionary_definition(html, category)
         -- Fallback: use whole HTML as one block if no article-block found (might happen for some pages)
         blocks = { html }
     end
-
     for _, block in ipairs(blocks) do
         if category == "Тлумачення" then
+            -- Add separator BEFORE subsequent blocks
+            if _ > 1 and #lines > 0 then table.insert(lines, { is_separator = true }) end
+            
+            -- 1. Header (Word + remarks)
+            local header_html = block:match('<h2 [^>]-class="page__sub%-header"[^>]->([^\0]-)</h2>')
+            if header_html then
+                local rich = parse_html_to_spans(header_html)
+                if #rich > 0 then
+                   table.insert(lines, { segments = rich, indent = 0, is_header = true })
+                end
+            end
+
             -- Interpretation body: extract the entire article-block__body content
-            -- Instead of a non-greedy gmatch on div, let's find the content after the header
             local body = block:match('<div class="article%-block__body">([^\0]-)<footer') 
                       or block:match('<div class="article%-block__body">([^\0]-)</div>%s-</div>') -- More robust for nested divs
                       or block:match('<div class="article%-block__body">([^\0]-)$')
                       or block
             
-            for item in body:gmatch('class="interpret.-"[^>]->([^\0]-)</div>') do
+            -- Remove "Приклади" button text which clutters the view
+            body = body:gsub('<span[^>]-class="show%-examples_btn"[^>]->.-</span>', "")
+
+            -- Aggressive Cleanup: Remove source info and additional blocks from body 
+            -- to prevent them from leaking into the definitions as messy text.
+            body = body:gsub("<div[^>]*class=['\"][^'\"]*source%-info[^'\"]*['\"][^>]*>[^\0]-</div>", "")
+            body = body:gsub("<span[^>]*class=['\"][^'\"]*source%-info[^'\"]*['\"][^>]*>[^\0]-</span>", "")
+            body = body:gsub("<a[^>]*class=['\"][^'\"]*source%-info[^'\"]*['\"][^>]*>[^\0]-</a>", "")
+            body = body:gsub('<div[^>]-class="page__additional%-block"[^>]->.-</div>%s-</div>', "")
+            body = body:gsub('<div[^>]-class="[^"]*section_watch%-also[^"]*"[^>]->.-</div>', "")
+
+            -- SPLIT BODY BY INTERPRET BLOCKS robustly (to handle nested divs like examples)
+            local items = {}
+            local last_search_pos = 1
+            while true do
+                local s, e = body:find('<div [^>]-class="interpret.-"[^>]->', last_search_pos)
+                if not s then break end
+                
+                local next_s = body:find('<div [^>]-class="interpret.-"[^>]->', e + 1)
+                local content
+                if next_s then
+                    content = body:sub(e + 1, next_s - 1)
+                    last_search_pos = next_s
+                else
+                    content = body:sub(e + 1)
+                    table.insert(items, content)
+                    break
+                end
+                table.insert(items, content)
+            end
+
+            for _, item in ipairs(items) do
                local rich = parse_html_to_spans(item)
                 if #rich > 0 then
                     rich[1].text = "• " .. rich[1].text
-                    table.insert(lines, { segments = rich, indent = 0, is_header = false }) 
-                end
-            end
-            
-            -- Fallback items
-            for item in body:gmatch('<div class="list%-item.-">([^\0]-)</div>') do
-                local rich = parse_html_to_spans(item)
-                if #rich > 0 then
-                    rich[1].text = "• " .. rich[1].text
-                    table.insert(lines, { segments = rich, indent = 0, is_header = false })
+                    table.insert(lines, { segments = rich, indent = 1, is_header = false }) 
                 end
             end
         elseif category == "Словозміна" then
@@ -2064,6 +2102,11 @@ local function parse_dictionary_definition(html, category)
                 end
             end
         elseif category == "Синонімія" or category == "Фразеологія" then
+            -- Add separator BEFORE subsequent blocks (if any lines were added in previous blocks)
+            if _ > 1 and #lines > 0 then
+                table.insert(lines, { is_separator = true })
+            end
+            
             -- 1. Header (Word + short interpret)
             local header_html = block:match('<h2 [^>]-class="page__sub%-header"[^>]->([^\0]-)</h2>')
             if header_html then
@@ -2072,11 +2115,11 @@ local function parse_dictionary_definition(html, category)
                 local rich = parse_html_to_spans(header_html)
 
                 if #rich > 0 then
-                    table.insert(lines, { segments = rich, indent = 0, is_header = true })
+                    table.insert(lines, { segments = rich, indent = 0, is_header = true, block_idx = _ })
                 end
             end
             -- 2. Indented items (synonyms or phrase interprets)
-            for item in block:gmatch('class="interpret.-"[^>]->([^\0]-)</div>') do
+            for item in block:gmatch('<div [^>]-class="interpret.-"[^>]->([^\0]-)</div>') do
                 local rich = parse_html_to_spans(item)
                 if #rich > 0 then
                     rich[1].text = "• " .. rich[1].text
@@ -2084,16 +2127,17 @@ local function parse_dictionary_definition(html, category)
                 end
             end
             
-            for item in block:gmatch('class="list%-item.-">([^\0]-)</div>') do
+            for item in block:gmatch('<div [^>]-class="list%-item.-">([^\0]-)</div>') do
                 local rich = parse_html_to_spans(item)
                 if #rich > 0 then
                     rich[1].text = "• " .. rich[1].text
                     table.insert(lines, { segments = rich, indent = 1, is_header = false })
                 end
             end
-
-            table.insert(lines, { segments = "" })
         elseif category == "Слововживання" then
+            -- Add separator BEFORE every block
+            table.insert(lines, { is_separator = true })
+            
             -- 1. Header (Word + short interpret)
             local header_html = block:match('<h2 [^>]-class="page__sub%-header"[^>]->([^\0]-)</h2>')
             if header_html then
@@ -2111,7 +2155,7 @@ local function parse_dictionary_definition(html, category)
             -- Remove links with source-info (including source-info__link)
             block = block:gsub("<a[^>]*class=['\"][^'\"]*source%-info[^'\"]*['\"][^>]*>[^\0]-</a>", "")
             
-                    -- 2. Body (Content with colored spans)
+            -- 2. Body (Content with colored spans)
             -- Use match to extract the body content
             local body = block:match('<div class="article%-block__body">([^\0]-)</div>%s-</div>') 
                       or block:match('<div class="article%-block__body">([^\0]-)</div>')
@@ -2159,8 +2203,97 @@ local function parse_dictionary_definition(html, category)
         end
     end
     
-    if #lines == 0 then return {} end
-    return lines
+    -- Cleanup: Limit consecutive empty lines to max 2
+    local cleaned_lines = {}
+    local empty_count = 0
+    
+    local function is_item_empty(item)
+        if type(item) ~= "table" then return false end
+        if item.is_table then return false end -- Tables are content
+        
+        local segs = item.segments
+        if not segs then return true end
+        
+        if type(segs) == "string" then 
+            -- Remove NBSP (\194\160) and standard whitespace
+            local s = segs:gsub("\194\160", ""):gsub("%s+", "")
+            return s == ""
+        end
+        
+        if type(segs) == "table" then
+            if #segs == 0 then return true end
+            for _, s in ipairs(segs) do
+                if s.text then
+                     -- Check for content after removing NBSP
+                    local txt = s.text:gsub("\194\160", " ")
+                    if txt:match("%S") then return false end
+                end
+            end
+            return true
+        end
+        
+        return false
+    end
+    
+    -- Cleanup Phase
+    for _, line in ipairs(lines) do
+        -- Trim segments if it's a paragraph
+        if type(line) == "table" and not line.is_table then
+            if type(line.segments) == "string" then
+                line.segments = line.segments:gsub("^%s+", ""):gsub("%s+$", "")
+            elseif type(line.segments) == "table" then
+                -- Trim start of first segment and end of last segment
+                if #line.segments > 0 then
+                    line.segments[1].text = line.segments[1].text:gsub("^%s+", "")
+                    line.segments[#line.segments].text = line.segments[#line.segments].text:gsub("%s+$", "")
+                end
+            end
+        end
+
+        if is_item_empty(line) then
+            if empty_count < 1 then -- Reduced to max 1 empty line
+                table.insert(cleaned_lines, line)
+                empty_count = empty_count + 1
+            end
+        else
+            table.insert(cleaned_lines, line)
+            empty_count = 0
+        end
+    end
+    
+    -- Remove trailing/leading empty lines
+    while #cleaned_lines > 0 and is_item_empty(cleaned_lines[1]) do
+        table.remove(cleaned_lines, 1)
+    end
+    while #cleaned_lines > 0 and is_item_empty(cleaned_lines[#cleaned_lines]) do
+        table.remove(cleaned_lines)
+    end
+    
+    -- 2. Handle "Watch Also" section (usually at the bottom of the page)
+    -- This section is only relevant for Interpretation
+    if category == "Тлумачення" then
+        local watch_also = html:match('<div[^>]-class="[^"]*section_watch%-also[^"]*"[^>]->(.-)</div>%s-</div>')
+                        or html:match('<div[^>]-class="[^"]*section_watch%-also[^"]*"[^>]->(.-)</div>%s-</div>%s-</div>') -- Handle potential wrapper depth
+        if watch_also then
+            -- Add separator if we already have content
+            if #cleaned_lines > 0 then table.insert(cleaned_lines, { is_separator = true }) end
+            
+            -- Extract title (e.g. "Усталені словосполучення")
+            local title = watch_also:match('<div[^>]-class="section%-header__title"[^>]->%s*(.-)%s*</div>') or "Дивіться також:"
+            table.insert(cleaned_lines, { segments = parse_html_to_spans("<b>" .. title .. "</b>"), indent = 0, is_header = true })
+            
+            -- Extract list items from <li> tags
+            for item in watch_also:gmatch('<li[^>]->(.-)</li>') do
+                local rich = parse_html_to_spans(item)
+                if #rich > 0 then
+                    rich[1].text = "• " .. rich[1].text
+                    table.insert(cleaned_lines, { segments = rich, indent = 1, is_header = false })
+                end
+            end
+        end
+    end
+    
+    return cleaned_lines
 end
 
 --- Fetch combined dictionary data
@@ -6690,6 +6823,9 @@ end
 local function draw_dictionary_modal(input_queue)
     if not dict_modal.show then return end
 
+    -- 1. Navigation & History (Handle FIRST to ensure state is clean for layout)
+    local navigated = false
+    
     -- Keyboard shortcuts handling
     if input_queue then
         for i, key in ipairs(input_queue) do
@@ -6704,34 +6840,68 @@ local function draw_dictionary_modal(input_queue)
                     dict_modal.selected_tab = prev_state.selected_tab
                     dict_modal.scroll_y = prev_state.scroll_y
                     dict_modal.target_scroll_y = prev_state.target_scroll_y
+                    navigated = true
                 end
             end
         end
     end
+
+    -- Back Button Detection (Early)
+    local pad = 0
+    local box_x, box_y = pad, pad
+    local box_w, box_h = gfx.w - pad * 2, gfx.h - pad * 2
+    local btn_w, btn_h = S(85), S(25)
+    local btn_back_x = box_x + box_w - S(200)
+    local btn_back_y = box_y + box_h - S(35)
+    
+    local close_sz = S(30)
+    local close_x = box_x + box_w - close_sz - S(10)
+    local close_y = box_y + S(10)
+    local close_hover = UI_STATE.window_focused and (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
+                        gfx.mouse_y >= close_y and gfx.mouse_y <= close_y + close_sz)
+
+    local is_hover_back_btn = false
+    if #dict_modal.history > 0 then
+        is_hover_back_btn = UI_STATE.window_focused and not close_hover and 
+                            gfx.mouse_x >= btn_back_x and gfx.mouse_x <= btn_back_x + btn_w and
+                            gfx.mouse_y >= btn_back_y and gfx.mouse_y <= btn_back_y + btn_h
+        
+        if is_hover_back_btn and is_mouse_clicked() then
+            local last = table.remove(dict_modal.history)
+            dict_modal.word = last.word
+            dict_modal.content = last.content
+            dict_modal.selected_tab = last.selected_tab
+            dict_modal.scroll_y = last.scroll_y
+            dict_modal.target_scroll_y = last.target_scroll_y
+            navigated = true
+        end
+    end
+
+    if navigated then return end -- Skip one frame to re-trigger with new state
+
     
     -- Darken background
     gfx.set(0, 0, 0, 0.85)
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
     
     -- Modal box
-    local pad = 0
-    local box_x = pad
-    local box_y = pad
-    local box_w = gfx.w - pad * 2
-    local box_h = gfx.h - pad * 2
-    
     set_color(UI.C_TAB_INA)
     gfx.rect(box_x, box_y, box_w, box_h, 1)
-    
+
     -- Title (Clickable for TTS)
     gfx.setfont(F.lrg, "Comic Sans MS", S(35), string.byte('b'))
     local title_x = box_x + S(15)
     local title_y = box_y
-    local title_w = gfx.measurestr(dict_modal.word)
+    
+    -- Calculate available width for title before it hits the close button
+    local max_title_w = (close_x - title_x) - S(10)
+    local display_word = fit_text_width(dict_modal.word, max_title_w)
+    
+    local title_w = gfx.measurestr(display_word)
     local title_h = gfx.texth
     
-    -- Hover detection
-    local title_hover = UI_STATE.window_focused and 
+    -- Hover detection (Blocked by close button)
+    local title_hover = UI_STATE.window_focused and not close_hover and 
                         gfx.mouse_x >= title_x and gfx.mouse_x <= title_x + title_w and
                         gfx.mouse_y >= title_y and gfx.mouse_y <= title_y + title_h
     
@@ -6745,20 +6915,14 @@ local function draw_dictionary_modal(input_queue)
     set_color(title_hover and {0.5, 0.8, 1.0} or UI.C_SEL)
     gfx.x = title_x
     gfx.y = title_y
-    gfx.drawstr(dict_modal.word)
+    gfx.drawstr(display_word)
     
     -- Click detection
     if title_hover and is_mouse_clicked() and not dict_modal.tts_loading then
         play_tts_audio(dict_modal.word)
     end
     
-    -- Close Button (Top Right)
-    local close_sz = S(30)
-    local close_x = box_x + box_w - close_sz - S(10)
-    local close_y = box_y + S(10)
-    local close_hover = UI_STATE.window_focused and (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
-                        gfx.mouse_y >= close_y and gfx.mouse_y <= close_y + close_sz)
-    
+    -- Render Close Button
     if close_hover then
         set_color({1, 0.3, 0.3, 0.2})
         gfx.rect(close_x, close_y, close_sz, close_sz, 1)
@@ -6858,9 +7022,8 @@ local function draw_dictionary_modal(input_queue)
         gfx.mouse_wheel = 0
     end
     
-    -- Clamp scroll
+    -- Clamp scroll (Upper bound only, lower bound clamped after total_h is known)
     if dict_modal.target_scroll_y > 0 then dict_modal.target_scroll_y = 0 end
-    if dict_modal.target_scroll_y < -dict_modal.max_scroll then dict_modal.target_scroll_y = -dict_modal.max_scroll end
     
     -- Smooth scroll
     dict_modal.scroll_y = dict_modal.scroll_y + (dict_modal.target_scroll_y - dict_modal.scroll_y) * 0.8
@@ -6872,19 +7035,9 @@ local function draw_dictionary_modal(input_queue)
     local cur_y = content_y + dict_modal.scroll_y
     local total_h = 0
     
-    -- Pre-calculate button hover states to prevent click-through
-    local btn_close_x, btn_close_y = box_x + box_w - S(100), box_y + box_h - S(35)
-    local btn_w, btn_h = S(85), S(25)
-    local is_hover_close_btn = gfx.mouse_x >= btn_close_x and gfx.mouse_x <= btn_close_x + btn_w and
-                               gfx.mouse_y >= btn_close_y and gfx.mouse_y <= btn_close_y + btn_h
-                               
-    local is_hover_back_btn = false
-    if #dict_modal.history > 0 then
-        local btn_back_x = box_x + box_w - S(200)
-        local is_hover_back = gfx.mouse_x >= btn_back_x and gfx.mouse_x <= btn_back_x + btn_w and
-                              gfx.mouse_y >= btn_close_y and gfx.mouse_y <= btn_close_y + btn_h
-        is_hover_back_btn = is_hover_back
-    end
+    local is_hover_close_btn = UI_STATE.window_focused and 
+                               gfx.mouse_x >= (box_x + box_w - S(100)) and gfx.mouse_x <= (box_x + box_w - S(100) + btn_w) and
+                               gfx.mouse_y >= (box_y + box_h - S(35)) and gfx.mouse_y <= (box_y + box_h - S(35) + btn_h)
     
     local is_obstructed = is_hover_close_btn or is_hover_back_btn or close_hover
 
@@ -6909,7 +7062,10 @@ local function draw_dictionary_modal(input_queue)
             if needs_layout then
                 item.layout = { width = content_w }
                 
-                if type(item) == "table" and item.is_table then
+                if item.is_separator then
+                    -- Separator Layout
+                    item.layout = { width = content_w, is_separator = true, total_h = S(30) }
+                elseif type(item) == "table" and item.is_table then
                     -- Table Layout (Pass 1)
                     local col_w = content_w / item.cols
                     local occupancy = {} 
@@ -7002,7 +7158,12 @@ local function draw_dictionary_modal(input_queue)
             
             -- Check visibility
             if item_y + item_h > content_y and item_y < content_y + content_h then
-                if type(item) == "table" and item.is_table then
+                if item.is_separator then
+                    -- Render Horizontal Rule
+                    local line_y = item_y + item_h / 2
+                    set_color({1, 1, 1, 0.2}) -- Subtle white
+                    gfx.line(content_x, line_y, content_x + content_w, line_y)
+                elseif type(item) == "table" and item.is_table then
                     -- Render Table from Cached Layout
                     local table_start_y = item_y
                     local L = item.layout
@@ -7181,24 +7342,24 @@ local function draw_dictionary_modal(input_queue)
     
     dict_modal.max_scroll = math.max(0, total_h - content_h)
     
+    -- Clamp scroll AFTER layout is calculated
+    if dict_modal.target_scroll_y > 0 then dict_modal.target_scroll_y = 0 end
+    if dict_modal.target_scroll_y < -dict_modal.max_scroll then dict_modal.target_scroll_y = -dict_modal.max_scroll end
+
     -- Scrollbar
     local abs_scroll = draw_scrollbar(box_x + box_w - S(10), content_y, S(10), content_h, total_h, content_h, -dict_modal.target_scroll_y)
     dict_modal.target_scroll_y = -abs_scroll
     
-    -- Close button
+    -- Bottom Buttons
     if btn(box_x + box_w - S(100), box_y + box_h - S(35), S(85), S(25), "Закрити") then
         dict_modal.show = false
     end
     
-    -- Back button (if history available)
     if #dict_modal.history > 0 then
-        if btn(box_x + box_w - S(200), box_y + box_h - S(35), S(85), S(25), "Назад") then
-            local last = table.remove(dict_modal.history)
-            dict_modal.word = last.word
-            dict_modal.content = last.content
-            dict_modal.selected_tab = last.selected_tab
-            dict_modal.scroll_y = last.scroll_y
-            dict_modal.target_scroll_y = last.target_scroll_y
+        local back_label = "Назад"
+        if is_hover_back_btn then set_color(UI.C_SEL_BG) end
+        if btn(btn_back_x, btn_back_y, S(85), S(25), back_label) then
+            -- Logic handled at top
         end
     end
     
