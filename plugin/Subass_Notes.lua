@@ -97,7 +97,20 @@ local cfg = {
     trim_start = get_set("trim_start", 40),
     trim_end = get_set("trim_end", 80),
     check_clipping = (get_set("check_clipping", "1") == "1" or get_set("check_clipping", 1) == 1),
+
     tts_voice = get_set("tts_voice", "Горох: Оксана (Wavenet)"),
+    tts_voice_map = {
+        ["Горох: Оксана (Wavenet)"] = { engine = "goroh", voice = "uk-UA-Wavenet-A" },
+        ["ElevenLabs: Ярослава (Yaroslava)"] = { engine = "eleven", voice = "Yaroslava" },
+        ["ElevenLabs: Антон (Anton)"] = { engine = "eleven", voice = "Anton" },
+        ["Системний"]  = { engine = "", voice = "System" }
+    },
+    tts_voices_order = {
+        "Горох: Оксана (Wavenet)",
+        "ElevenLabs: Ярослава (Yaroslava)",
+        "ElevenLabs: Антон (Anton)",
+        "Системний"
+    }
 }
 
 local col_resize = {
@@ -5893,14 +5906,15 @@ end
 
 --- Play text-to-speech audio for Ukrainian word using ukrainian_tts.py
 --- @param text string Text to synthesize
-local function play_tts_audio(text)
+--- @param save_to_timeline boolean|nil If true, insert audio into active track at cursor
+local function play_tts_audio(text, save_to_timeline)
     if dict_modal.tts_loading then return end
     
     -- Set loading state immediately to prevent concurrent calls
     dict_modal.tts_loading = true
     dict_modal.tts_current_word = text
     UI_STATE.script_loading_state.active = true
-    UI_STATE.script_loading_state.text = "Озвучую..."
+    UI_STATE.script_loading_state.text = save_to_timeline and "Генерую та зберігаю..." or "Озвучую..."
     
     -- Stop any existing preview
     if dict_modal.tts_preview and reaper.CF_Preview_Stop then
@@ -5925,16 +5939,8 @@ local function play_tts_audio(text)
     -- Determine voice and key based on configuration
     local voice_arg = ""
     local key_arg = ""
-    
-    -- Local mapping of display names to internal voice codes
-    local voice_map = {
-        ["Горох: Оксана (Wavenet)"] = { engine = "goroh", voice = "uk-UA-Wavenet-A" },
-        ["ElevenLabs: Ярослава (Yaroslava)"] = { engine = "eleven", voice = "Yaroslava" },
-        ["ElevenLabs: Антон (Anton)"] = { engine = "eleven", voice = "Anton" },
-        ["Системний"]  = { engine = "", voice = "System" }
-    }
 
-    local v_cfg = voice_map[cfg.tts_voice] or voice_map["Горох: Оксана (Wavenet)"]
+    local v_cfg = cfg.tts_voice_map[cfg.tts_voice] or cfg.tts_voice_map["Горох: Оксана (Wavenet)"]
     voice_arg = string.format('--voice "%s"', v_cfg.voice)
 
     if v_cfg.engine == "eleven" then
@@ -5997,38 +6003,38 @@ local function play_tts_audio(text)
             if test_f then
                 test_f:close()
                 
-                -- Create PCM source from file
-                local pcm_source = reaper.PCM_Source_CreateFromFile(mp3_path)
-                if not pcm_source then
-                    show_snackbar("Не вдалося завантажити аудіо", "error")
-                    return
-                end
-                
-                -- Create and play preview using SWS CF_Preview API
-                if reaper.CF_CreatePreview and reaper.CF_Preview_Play then
-                    local preview = reaper.CF_CreatePreview(pcm_source)
-                    if preview then
-                        reaper.CF_Preview_Play(preview)
-                        dict_modal.tts_preview = preview
-                        show_snackbar("▶ Відтворення аудіо", "success")
-                    else
-                        show_snackbar("Не вдалося створити preview", "error")
+                -- 1. Preview (Always for "Speak", or as requested)
+                if not save_to_timeline then
+                    local pcm_source = reaper.PCM_Source_CreateFromFile(mp3_path)
+                    if pcm_source then
+                        if reaper.CF_CreatePreview and reaper.CF_Preview_Play then
+                            local preview = reaper.CF_CreatePreview(pcm_source)
+                            if preview then
+                                reaper.CF_Preview_Play(preview)
+                                dict_modal.tts_preview = preview
+                                show_snackbar("▶ Відтворення аудіо", "success")
+                            end
+                        end
                     end
-                else
-                    show_snackbar("SWS Extension не встановлено", "error")
+                end
+
+                -- 2. Save to Timeline
+                if save_to_timeline then
+                    local track = reaper.GetSelectedTrack(0, 0)
+                    if not track then
+                        show_snackbar("Виберіть трек для вставки", "error")
+                    else
+                        -- mode 0 = insert at edit cursor, move cursor? 
+                        -- actually, mode 0 is standard. mode 1 = new track. 
+                        reaper.InsertMedia(mp3_path, 0)
+                        show_snackbar("Аудіо додано на трек", "success")
+                    end
                 end
             else
                 show_snackbar("Аудіо файл не знайдено", "error")
-                if output and output ~= "" then
-                    reaper.ShowConsoleMsg("--- TTS DEBUG (Missing File) ---\n" .. output .. "\n------------------------\n")
-                end
             end
         else
             show_snackbar("Помилка генерації TTS", "error")
-            -- Debug: show command output in console if failed
-            if output and output ~= "" then
-                reaper.ShowConsoleMsg("--- TTS DEBUG (Script Error) ---\n" .. output .. "\n------------------------\n")
-            end
         end
     end)
 end
@@ -6523,7 +6529,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local sel_min, sel_max = math.min(state.cursor, state.anchor), math.max(state.cursor, state.anchor)
         local has_sel = sel_min ~= sel_max
-        local ret = gfx.showmenu("Вирізати|Копіювати|Вставити|Виділити все|Озвучити")
+        local ret = gfx.showmenu("Вирізати|Копіювати|Вставити|Виділити все||Озвучити|Озвучити та зберегти")
         
         -- Force update UI_STATE.last_mouse_cap to current state to prevent immediate re-trigger loop 
         -- if the user is somehow still holding the button (though showmenu blocks).
@@ -6557,11 +6563,20 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             -- Select All
             state.anchor = 0
             state.cursor = #state.text
-        elseif ret == 5 and has_sel then
-            -- Speak (Озвучити)
-            local selected_text = state.text:sub(sel_min + 1, sel_max)
-            if selected_text ~= "" then
-                play_tts_audio(selected_text)
+        elseif ret == 5 or ret == 6 then
+            -- Speak (Озвучити) / Speak & Save
+            local text_to_speak = ""
+            if not has_sel then
+                -- Select All first
+                state.anchor = 0
+                state.cursor = #state.text
+                text_to_speak = state.text
+            else
+                text_to_speak = state.text:sub(sel_min + 1, sel_max)
+            end
+
+            if text_to_speak ~= "" then
+                play_tts_audio(text_to_speak, ret == 6)
             end
         end
     end
@@ -12331,26 +12346,20 @@ local function draw_settings()
     
     s_text(x_start, y_cursor, "Двигун та голос для озвучення:", F.std, "Провайдер і голос для озвучення")
     y_cursor = y_cursor + S(25)
-    
-    local tts_options = {
-        "Горох: Оксана (Wavenet)",
-        "ElevenLabs: Ярослава (Yaroslava)",
-        "ElevenLabs: Антон (Anton)",
-        "Системний",
-    }
+
     local tts_btn_w = S(240)
     local cur_voice = cfg.tts_voice or "Горох: Оксана (Wavenet)"
     
-    if s_btn(x_start, y_cursor, tts_btn_w, S(30), cur_voice .. "  ▿") then
+    if s_btn(x_start, y_cursor, tts_btn_w, S(30), cur_voice .. "  ▿") then        
         local menu_parts = {}
-        for i, opt in ipairs(tts_options) do
+        for i, opt in ipairs(cfg.tts_voices_order) do
             local mark = (opt == cur_voice) and "!" or ""
             table.insert(menu_parts, mark .. opt)
         end
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local ret = gfx.showmenu(table.concat(menu_parts, "|"))
         if ret > 0 then
-            cfg.tts_voice = tts_options[ret]
+            cfg.tts_voice = cfg.tts_voices_order[ret]
             save_settings()
             
             -- Auto-preview on choice
