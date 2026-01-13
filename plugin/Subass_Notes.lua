@@ -6709,7 +6709,7 @@ local function draw_text_editor(input_queue)
     return true
 end
 
---- Play text-to-speech audio for Ukrainian word using goroh_tts.py
+--- Play text-to-speech audio for Ukrainian word using ukrainian_tts.py
 --- @param text string Text to synthesize
 local function play_tts_audio(text)
     if dict_modal.tts_loading then return end
@@ -6729,7 +6729,7 @@ local function play_tts_audio(text)
 
     -- Path to python script
     local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])")
-    local tts_script = script_path .. "tts/goroh_tts.py"
+    local tts_script = script_path .. "tts/ukrainian_tts.py"
     
     -- Check if TTS script exists
     local f = io.open(tts_script, "r")
