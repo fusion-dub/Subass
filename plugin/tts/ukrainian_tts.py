@@ -319,6 +319,21 @@ def system_tts(text, voice_name=None):
         raise Exception(f"System TTS failed: {e}")
 
 
+def get_eleven_voices(api_key):
+    """
+    Fetch and return all available voices from ElevenLabs.
+    """
+    url = "https://api.elevenlabs.io/v1/voices"
+    headers = {"xi-api-key": api_key}
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            return response.json().get('voices', [])
+    except:
+        pass
+    return []
+
+
 def elevenlabs_tts(text, api_key, voice_id, voice_name=None):
     """
     Convert text to speech using ElevenLabs API.
@@ -349,11 +364,30 @@ def elevenlabs_tts(text, api_key, voice_id, voice_name=None):
         }
     }
     
+    response = None
     try:
         print(f"Generating ElevenLabs ({display_name}) speech for: {text[:50]}...")
         response = requests.post(url, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
         
+        if response.status_code != 200:
+            error_data = response.text
+            try:
+                error_data = response.json()
+            except:
+                pass
+            
+            # If voice not found, helpful to list available ones
+            detail = ""
+            if response.status_code == 404:
+                voices = get_eleven_voices(api_key)
+                if voices:
+                    voice_list = "\n".join([f"  - {v['name']}: {v['voice_id']}" for v in voices if 'name' in v and 'voice_id' in v])
+                    detail = f"\nAvailable voices for your key:\n{voice_list}"
+                else:
+                    detail = "\nCould not fetch voice list (check API key)."
+            
+            raise Exception(f"ElevenLabs API returned {response.status_code}: {error_data}{detail}")
+            
         with open(output_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=1024):
                 if chunk:
@@ -373,37 +407,34 @@ def text_to_speech(text, voice_name=None, gemini_api_key=None, eleven_api_key=No
 
     # ElevenLabs IDs mapping
     eleven_voices = {
-        "Yaroslava": "0ZQZuw8Sn4cU0rN1Tm2K",
+        "Yaroslava": "0ZQZuw8Sn4cU0rN1Tm2K", 
         "Anton": "GVRiwBELe0czFUAJj0nX",
-        "Vira": "nCqaTnIbLdME87OuQaZY"
     }
     
-    # 1. Try ElevenLabs if it's an ElevenLabs voice and key is present
+    # 1. Try ElevenLabs if it's an ElevenLabs voice
     if voice_name in eleven_voices:
         if eleven_api_key:
-            try:
-                return elevenlabs_tts(text, eleven_api_key, eleven_voices[voice_name], voice_name)
-            except Exception as e:
-                print(f"Warning: ElevenLabs TTS failed, falling back to Goroh: {e}")
+            return elevenlabs_tts(text, eleven_api_key, eleven_voices[voice_name], voice_name)
         else:
-            print(f"Warning: ElevenLabs voice '{voice_name}' requested but ElevenLabs API key is missing. Falling back to Goroh.")
+            raise Exception(f"ElevenLabs voice '{voice_name}' requested but ElevenLabs API key is missing.")
 
-    # Strategy: Gemini -> Goroh -> System TTS
+    # 1. Try Gemini if it's a Gemini voice
     gemini_voices = ["Alnilam", "Charon", "Aoede"]
+    if voice_name in gemini_voices:
+        if gemini_api_key:
+            return gemini_tts(text, gemini_api_key, voice_name)
+        else:
+            raise Exception(f"Gemini voice '{voice_name}' requested but Gemini API key is missing.")
     
-    # 1. Try Gemini if key is present
+    # 2. Try Gemini if key is present (even if generic voice)
     if gemini_api_key:
         try:
-            # If the requested voice is not a Gemini voice, use Alnilam as default for this backend
-            gem_voice = voice_name if voice_name in gemini_voices else "Alnilam"
-            return gemini_tts(text, gemini_api_key, gem_voice)
+            return gemini_tts(text, gemini_api_key, "Alnilam")
         except Exception as e:
-            print(f"Warning: Gemini TTS failed, falling back to Goroh: {e}")
-    elif voice_name in gemini_voices:
-        print(f"Warning: Gemini voice '{voice_name}' requested but Gemini API key is missing. Falling back to Goroh.")
+            print(f"Warning: Gemini TTS fallback failed: {e}")
 
-    # 2. Try Goroh (Internet-dependent, no key)
-    # Ensure we use a valid Goroh voice (if the current one is Gemini or ElevenLabs, use Wavenet-A)
+    # 3. Try Goroh (Internet-dependent, no key)
+    # Ensure we use a valid Goroh voice
     goroh_voice = voice_name
     if goroh_voice in gemini_voices or goroh_voice in eleven_voices or goroh_voice == "System":
         goroh_voice = "uk-UA-Wavenet-A"
@@ -411,16 +442,10 @@ def text_to_speech(text, voice_name=None, gemini_api_key=None, eleven_api_key=No
     try:
         return goroh_tts(text, goroh_voice or "uk-UA-Wavenet-A")
     except Exception as e:
-        print(f"Warning: Goroh TTS failed, falling back to System TTS: {e}")
+        print(f"Warning: Goroh TTS failed: {e}")
     
-    # 3. Last resort: System TTS (Offline, OS-dependent)
-    # Use a descriptive voice name for fallback if possible
-    sys_voice = voice_name
-    if sys_voice in gemini_voices or sys_voice == "uk-UA-Wavenet-A" or sys_voice in eleven_voices:
-        # We append _System to the name so we know it's a system voice representing that character
-        sys_voice = f"{voice_name}_System"
-        
-    return system_tts(text, sys_voice)
+    # 4. Last resort: System TTS
+    return system_tts(text)
 
 
 def main():
