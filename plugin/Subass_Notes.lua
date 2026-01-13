@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 3.8
+-- @version 3.9
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
-local script_title = "Subass Notes v3.8"
+local script_title = "Subass Notes v3.9"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -95,6 +95,7 @@ local cfg = {
     trim_start = get_set("trim_start", 40),
     trim_end = get_set("trim_end", 80),
     check_clipping = (get_set("check_clipping", "1") == "1" or get_set("check_clipping", 1) == 1),
+    tts_voice = get_set("tts_voice", "Горох: Оксана (Wavenet)"),
 }
 
 local col_resize = {
@@ -581,6 +582,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "p_valign", cfg.p_valign, true)
     reaper.SetExtState(section_name, "auto_srt_split", cfg.auto_srt_split, true)
     reaper.SetExtState(section_name, "prmt_theme", cfg.prmt_theme, true)
+    reaper.SetExtState(section_name, "tts_voice", cfg.tts_voice, true)
 
     -- Invalidate prompter cache when settings change (like wrap length)
     if draw_prompter_cache then
@@ -1028,7 +1030,15 @@ local function run_async_command(shell_cmd, callback)
         -- Use ';' to ensure done file created even on error
         -- IMPORTANT: Wrap in parentheses (cmd ; touch) & to ensure the WHOLE sequence is backgrounded.
         -- Otherwise 'cmd ; touch &' executes cmd in foreground!
-        local full_cmd = '( ' .. shell_cmd .. ' > "' .. out_file .. '" ; touch "' .. done_file .. '" ) &'
+        -- NOTE: We don't add > out_file here if shell_cmd already has it (like on Mac tts call potentially?)
+        -- Actually play_tts_audio cmd doesn't have it, so we add it here.
+        local full_cmd
+        if shell_cmd:find(" > ") then
+            full_cmd = '( ' .. shell_cmd .. ' ; touch "' .. done_file .. '" ) &'
+        else
+            -- Capture both stdout and stderr
+            full_cmd = '( ' .. shell_cmd .. ' > "' .. out_file .. '" 2>&1 ; touch "' .. done_file .. '" ) &'
+        end
         os.execute(full_cmd)
     end
     
@@ -4565,6 +4575,7 @@ local function import_notes()
     prompter_drawer.has_markers_cache.count = -1
 
     show_snackbar("Створено маркерів: " .. #notes, "success")
+    UI_STATE.ass_file_loaded = true -- Enable Actor view
 end
 
 --- Import director notes from CSV file and create markers
@@ -6725,7 +6736,6 @@ local function play_tts_audio(text)
         reaper.CF_Preview_Stop(dict_modal.tts_preview)
         dict_modal.tts_preview = nil
     end
-    
 
     -- Path to python script
     local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])")
@@ -6741,6 +6751,27 @@ local function play_tts_audio(text)
     end
     f:close()
     
+    -- Determine voice and key based on configuration
+    local voice_arg = ""
+    local key_arg = ""
+    
+    -- Local mapping of display names to internal voice codes
+    local voice_map = {
+        ["Горох: Оксана (Wavenet)"] = { engine = "goroh", voice = "uk-UA-Wavenet-A" },
+        ["Gemini: Альнілам (Alnilam)"] = { engine = "gemini", voice = "Alnilam" },
+        ["Gemini: Харон (Charon)"]  = { engine = "gemini", voice = "Charon" },
+        ["Gemini: Аврора (Aoede)"]  = { engine = "gemini", voice = "Aoede" }
+    }
+
+    local v_cfg = voice_map[cfg.tts_voice] or voice_map["Горох: Оксана (Wavenet)"]
+    voice_arg = string.format('--voice "%s"', v_cfg.voice)
+    
+    if v_cfg.engine == "gemini" then
+        if cfg.gemini_api_key ~= "" then 
+            key_arg = string.format('--gemini-key "%s"', cfg.gemini_api_key) 
+        end
+    end
+    
     -- Build command using standardized python executable if available
     local is_windows = reaper.GetOS():match("Win")
     local cmd
@@ -6755,11 +6786,16 @@ local function play_tts_audio(text)
         
         -- Use list format for run_async_command on Windows? 
         -- Actually run_async_command expects a shell string, but handles wrapping.
-        cmd = string.format('%s "%s" "%s"', py_exe, tts_script, escaped_text)
+        cmd = string.format('%s "%s" "%s" %s %s', py_exe, tts_script, escaped_text, voice_arg, key_arg)
     else
         -- Use single quotes to avoid escaping issues with Ukrainian text
-        -- Mac/Linux: Assume python3
-        cmd = string.format("python3 '%s' '%s'", tts_script, text)
+        -- Mac/Linux: Need to escape single quotes inside the text for the shell
+        local escaped_text = text:gsub("'", "'\"'\"'")
+        -- Use detected python or fallback
+        local py_exe = requirements_state.python.executable or "python3"
+        -- Capture both stdout and stderr ( > out 2>&1 )
+        -- We don't add the redirection here, but in run_async_command.
+        cmd = string.format("'%s' '%s' '%s' %s %s", py_exe, tts_script, escaped_text, voice_arg, key_arg)
     end
     
     -- Run command asynchronously using the standardized function
@@ -6812,9 +6848,16 @@ local function play_tts_audio(text)
                 end
             else
                 show_snackbar("Аудіо файл не знайдено", "error")
+                if output and output ~= "" then
+                    reaper.ShowConsoleMsg("--- TTS DEBUG (Missing File) ---\n" .. output .. "\n------------------------\n")
+                end
             end
         else
             show_snackbar("Помилка генерації TTS", "error")
+            -- Debug: show command output in console if failed
+            if output and output ~= "" then
+                reaper.ShowConsoleMsg("--- TTS DEBUG (Script Error) ---\n" .. output .. "\n------------------------\n")
+            end
         end
     end)
 end
@@ -7454,7 +7497,16 @@ local function get_py_ver()
         for _, cmd in ipairs(cmds) do
             local _, output = reaper.ExecProcess(cmd, 2000)
             local success, version = extract_ver(output)
-            if success ~= nil then return success, version end
+            if success ~= nil then 
+                -- Extract executable name from command (first word)
+                local exe = cmd:match("^%S+")
+                -- Special handling for /bin/sh -c commands
+                if cmd:find("/bin/sh -c") then
+                    exe = "python3" -- Fallback for the complex shell command
+                end
+                requirements_state.python.executable = exe
+                return success, version 
+            end
         end
     
         -- 2. Try io.popen
@@ -7464,7 +7516,14 @@ local function get_py_ver()
                 local output = f:read("*a")
                 f:close()
                 local success, version = extract_ver(output)
-                if success ~= nil then return success, version end
+                if success ~= nil then 
+                    -- Extract executable name
+                    local exe = cmd:match("^/bin/sh %-c \".-([%w%d/._-]+) %-%-version")
+                    if not exe then exe = cmd:match("^%S+") end
+                    if cmd:find("/bin/sh -c") and not exe then exe = "python3" end
+                    requirements_state.python.executable = exe
+                    return success, version 
+                end
             end
         end
     
@@ -7474,7 +7533,8 @@ local function get_py_ver()
             local file = io.open(path, "rb")
             if file then
                 file:close()
-                local _, output = reaper.ExecProcess(path .. " --version", 2000)
+                requirements_state.python.executable = path
+                local _, output = reaper.ExecProcess(path .. " --version 2>&1", 2000)
                 local success, version = extract_ver(output)
                 if success ~= nil then return success, version end
             end
@@ -11236,7 +11296,7 @@ local function draw_prompter(input_queue)
                 end
             end
         else
-            set_color(UI.C_TXT)
+            set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.3})
             gfx.setfont(F.std)
             local txt = "Нічого немає (Суфлер не активний)"
             local tw, th = gfx.measurestr(txt)
@@ -11248,7 +11308,8 @@ local function draw_prompter(input_queue)
         end
     else
         -- Not in any region, but show next upcoming region if enabled
-        if cfg.p_next and cfg.always_next and #regions > 0 then
+        -- Minimal Fix: Allow entering this block if markers exist, even if regions are empty
+        if (cfg.p_next and cfg.always_next and #regions > 0) or (#prompter_drawer.marker_cache.markers > 0) then
             -- Find the next region after current position
             local next_rgn = nil
             local next_rgn2 = nil
@@ -11302,12 +11363,22 @@ local function draw_prompter(input_queue)
                     render_corrections(cms, n_y - ch - 15, wait_draw_c_fsize, center_x, available_w, content_offset_left, content_offset_right)
                 end
             else
-                -- Just corrections? (if playhead after all subtitles but markers are ahead)
+                -- Just corrections? (if playhead after all subtitles but markers are ahead, or no regions at all)
                 local cms, ch = get_corrections_to_draw(cur_pos, nil)
                 prompter_drawer.active_markindex = (ch > 0) and cms[1].markindex or nil
 
                 if ch > 0 then
-                    local txt = "Нічого немає" -- Context from missing regions
+                    -- Minimal Fix: Render the actual corrections instead of just a placeholder text
+                    local cor_fsize = cfg.c_fsize
+                    gfx.setfont(F.cor, cfg.p_font, cor_fsize)
+                    local cor_y = (gfx.h - ch) / 2
+                    if cfg.p_valign == "top" then cor_y = S(70)
+                    elseif cfg.p_valign == "bottom" then cor_y = gfx.h - ch - S(50) end
+                    render_corrections(cms, cor_y, cor_fsize, center_x, available_w, content_offset_left, content_offset_right)
+                else
+                    set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.3})
+                    gfx.setfont(F.std)
+                    local txt = "Нічого немає (Суфлер не активний)"
                     local tw, th = gfx.measurestr(txt)
                     gfx.x = content_offset_left + (available_w - tw) / 2
                     gfx.y = (gfx.h - th) / 2
@@ -12127,7 +12198,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(40)
 
     -- RECORDING SECTION
-    s_section(y_cursor, "Запис та авто-підрізання")
+    s_section(y_cursor, "ЗАПИС ТА АВТО-ПІДРІЗАННЯ")
     y_cursor = y_cursor + S(35)
     
     if checkbox(x_start, y_cursor, "Авто-підрізання щойно записаних реплік", cfg.auto_trim, "Автоматично підрізає початок та кінець щойно записаної репліки (аби прибрати кліки клавіатури)") then
@@ -12164,10 +12235,43 @@ local function draw_settings()
         cfg.check_clipping = not cfg.check_clipping
         save_settings()
     end
+    y_cursor = y_cursor + S(65)
+    
+    -- ═══════════════════════════════════════════
+    -- 10. ТЕКСТ У МОВУ (Text-to-Speech)
+    -- ═══════════════════════════════════════════
+    s_section(y_cursor, "ТЕКСТ У МОВУ")
     y_cursor = y_cursor + S(35)
     
-    -- DICTIONARY SECTION
-    y_cursor = y_cursor + S(40)
+    s_text(x_start, y_cursor, "Двигун та голос для озвучення:", F.std, "Провайдер і голос для озвучення\n(для Gemini бажано мати платну підписку)")
+    y_cursor = y_cursor + S(25)
+    
+    local tts_options = {
+        "Горох: Оксана (Wavenet)",
+        "Gemini: Альнілам (Alnilam)",
+        "Gemini: Харон (Charon)",
+        "Gemini: Аврора (Aoede)"
+    }
+    local tts_btn_w = S(220)
+    local cur_voice = cfg.tts_voice or "Горох: Оксана (Wavenet)"
+    
+    if s_btn(x_start, y_cursor, tts_btn_w, S(30), cur_voice .. "  ▿") then
+        local menu_parts = {}
+        for i, opt in ipairs(tts_options) do
+            local mark = (opt == cur_voice) and "!" or ""
+            table.insert(menu_parts, mark .. opt)
+        end
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local ret = gfx.showmenu(table.concat(menu_parts, "|"))
+        if ret > 0 then
+            cfg.tts_voice = tts_options[ret]
+            save_settings()
+            
+            -- Auto-preview on choice
+            play_tts_audio("Широка доро́га, дорога́ як пам'ять")
+        end
+    end
+    y_cursor = y_cursor + S(80)
 
     -- Footer
     set_color(UI.C_TXT)
@@ -12193,30 +12297,25 @@ end
 -- Helper to calculate sort value for a table row
 local function get_sort_value(item, col, is_ass)
     if col == "#" or col == "index" then return item.index or 0 end
-    if is_ass then
-        if col == "Ак." or col == "enabled" then return (item.enabled ~= false and 1 or 0) end
-        if col == "Початок" or col == "start" then return item.t1 or 0 end
-        if col == "Кінець" or col == "end" then return item.t2 or 0 end
-        if col == "CPS" or col == "cps" then
-            local dur = item.t2 - item.t1
-            local clean = (item.text or ""):gsub(acute, ""):gsub("%s+", "")
-            local chars = utf8.len(clean) or #clean
-            return dur > 0 and (chars / dur) or 0
-        end
-        if col == "Актор" or col == "actor" then return utf8_lower(item.actor or "") end
-        if col == "Репліка" or col == "text" then return utf8_lower(item.text or "") end
-    else
-        -- Regions mode
-        if col == "Початок" or col == "start" then return item.pos or 0 end
-        if col == "Кінець" or col == "end" then return item.rgnend or 0 end
-        if col == "CPS" or col == "cps" then
-            local dur = item.rgnend - item.pos
-            local clean = (item.name or ""):gsub(acute, ""):gsub("%s+", "")
-            local chars = utf8.len(clean) or #clean
-            return dur > 0 and (chars / dur) or 0
-        end
-        if col == "Репліка" or col == "text" then return utf8_lower(item.name or "") end
+    
+    -- Robust fallback mapping
+    local t1 = item.t1 or item.pos or 0
+    local t2 = item.t2 or item.rgnend or 0
+    local txt = item.text or item.name or ""
+    local actor = item.actor or ""
+    
+    if col == "Ак." or col == "enabled" then return (item.enabled ~= false and 1 or 0) end
+    if col == "Початок" or col == "start" then return t1 end
+    if col == "Кінець" or col == "end" then return t2 end
+    if col == "CPS" or col == "cps" then
+        local dur = t2 - t1
+        local clean = txt:gsub(acute, ""):gsub("%s+", "")
+        local chars = utf8.len(clean) or #clean
+        return dur > 0 and (chars / dur) or 0
     end
+    if col == "Актор" or col == "actor" then return utf8_lower(actor) end
+    if col == "Репліка" or col == "text" then return utf8_lower(txt) end
+    
     return 0
 end
 
@@ -13361,6 +13460,8 @@ local function draw_table(input_queue)
             for _, m in ipairs(prompter_drawer.marker_cache.markers) do
                 table.insert(raw_data, {
                     t1 = m.pos, t2 = m.pos, text = m.name, actor = ":ПРАВКА:",
+                    -- Add redundant fields for robust filtering/sorting in Regions mode
+                    pos = m.pos, rgnend = m.pos, name = m.name,
                     is_marker = true, marker_color = m.color, markindex = m.markindex,
                     index = "M" .. m.markindex
                 })
@@ -13374,7 +13475,7 @@ local function draw_table(input_queue)
         local use_case = find_replace_state.case_sensitive
 
         for _, line in ipairs(raw_data) do
-            local target_text = show_actor and (line.text or "") or (line.name or "")
+            local target_text = line.text or line.name or "" -- Robust text selection
             local text_match, actor_match, index_match = false, false, false
             local h_text, h_actor
 
