@@ -5890,6 +5890,149 @@ local function draw_ai_modal(skip_draw)
     return changed
 end
 
+
+--- Play text-to-speech audio for Ukrainian word using ukrainian_tts.py
+--- @param text string Text to synthesize
+local function play_tts_audio(text)
+    if dict_modal.tts_loading then return end
+    
+    -- Set loading state immediately to prevent concurrent calls
+    dict_modal.tts_loading = true
+    dict_modal.tts_current_word = text
+    UI_STATE.script_loading_state.active = true
+    UI_STATE.script_loading_state.text = "Озвучую..."
+    
+    -- Stop any existing preview
+    if dict_modal.tts_preview and reaper.CF_Preview_Stop then
+        reaper.CF_Preview_Stop(dict_modal.tts_preview)
+        dict_modal.tts_preview = nil
+    end
+
+    -- Path to python script
+    local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])")
+    local tts_script = script_path .. "tts/ukrainian_tts.py"
+    
+    -- Check if TTS script exists
+    local f = io.open(tts_script, "r")
+    if not f then
+        show_snackbar("TTS скрипт не знайдено", "error")
+        dict_modal.tts_loading = false
+        UI_STATE.script_loading_state.active = false
+        return
+    end
+    f:close()
+    
+    -- Determine voice and key based on configuration
+    local voice_arg = ""
+    local key_arg = ""
+    
+    -- Local mapping of display names to internal voice codes
+    local voice_map = {
+        ["Горох: Оксана (Wavenet)"] = { engine = "goroh", voice = "uk-UA-Wavenet-A" },
+        ["ElevenLabs: Ярослава (Yaroslava)"] = { engine = "eleven", voice = "Yaroslava" },
+        ["ElevenLabs: Антон (Anton)"] = { engine = "eleven", voice = "Anton" },
+        ["Системний"]  = { engine = "", voice = "System" }
+    }
+
+    local v_cfg = voice_map[cfg.tts_voice] or voice_map["Горох: Оксана (Wavenet)"]
+    voice_arg = string.format('--voice "%s"', v_cfg.voice)
+
+    if v_cfg.engine == "eleven" then
+        if cfg.eleven_api_key ~= "" then 
+            key_arg = string.format('--eleven-key "%s"', cfg.eleven_api_key) 
+        end
+    end
+    
+    -- Build command using standardized python executable if available
+    local is_windows = reaper.GetOS():match("Win")
+    local cmd
+    
+    if is_windows then
+        -- Normalize paths for Windows to avoid issues
+        tts_script = tts_script:gsub("/", "\\")
+        local escaped_text = text:gsub('"', '""')
+        
+        -- Use configured python executable from requirements state if available
+        local py_exe = requirements_state.python.executable or "python"
+        
+        -- Use list format for run_async_command on Windows? 
+        -- Actually run_async_command expects a shell string, but handles wrapping.
+        cmd = string.format('%s "%s" "%s" %s %s', py_exe, tts_script, escaped_text, voice_arg, key_arg)
+    else
+        -- Use single quotes to avoid escaping issues with Ukrainian text
+        -- Mac/Linux: Need to escape single quotes inside the text for the shell
+        local escaped_text = text:gsub("'", "'\"'\"'")
+        -- Use detected python or fallback
+        local py_exe = requirements_state.python.executable or "python3"
+        -- Capture both stdout and stderr ( > out 2>&1 )
+        -- We don't add the redirection here, but in run_async_command.
+        cmd = string.format("'%s' '%s' '%s' %s %s", py_exe, tts_script, escaped_text, voice_arg, key_arg)
+    end
+    
+    -- Run command asynchronously using the standardized function
+    run_async_command(cmd, function(output)
+        dict_modal.tts_loading = false
+        UI_STATE.script_loading_state.active = false
+        
+        if not output then
+            show_snackbar("Помилка виконання TTS", "error")
+            return
+        end
+        
+        -- Extract MP3 path (last non-empty line of output)
+        local mp3_path = nil
+        for line in output:gmatch("[^\r\n]+") do
+            if line and line ~= "" and not line:match("^Using cached") and not line:match("^Generating") and not line:match("^Successfully") then
+                mp3_path = line
+            end
+        end
+        
+        if mp3_path then
+            mp3_path = mp3_path:match("^%s*(.-)%s*$") -- Trim whitespace
+        end
+        
+        if mp3_path and mp3_path ~= "" and not mp3_path:match("Error") and not mp3_path:match("Traceback") then
+            -- Check if file exists
+            local test_f = io.open(mp3_path, "r")
+            if test_f then
+                test_f:close()
+                
+                -- Create PCM source from file
+                local pcm_source = reaper.PCM_Source_CreateFromFile(mp3_path)
+                if not pcm_source then
+                    show_snackbar("Не вдалося завантажити аудіо", "error")
+                    return
+                end
+                
+                -- Create and play preview using SWS CF_Preview API
+                if reaper.CF_CreatePreview and reaper.CF_Preview_Play then
+                    local preview = reaper.CF_CreatePreview(pcm_source)
+                    if preview then
+                        reaper.CF_Preview_Play(preview)
+                        dict_modal.tts_preview = preview
+                        show_snackbar("▶ Відтворення аудіо", "success")
+                    else
+                        show_snackbar("Не вдалося створити preview", "error")
+                    end
+                else
+                    show_snackbar("SWS Extension не встановлено", "error")
+                end
+            else
+                show_snackbar("Аудіо файл не знайдено", "error")
+                if output and output ~= "" then
+                    reaper.ShowConsoleMsg("--- TTS DEBUG (Missing File) ---\n" .. output .. "\n------------------------\n")
+                end
+            end
+        else
+            show_snackbar("Помилка генерації TTS", "error")
+            -- Debug: show command output in console if failed
+            if output and output ~= "" then
+                reaper.ShowConsoleMsg("--- TTS DEBUG (Script Error) ---\n" .. output .. "\n------------------------\n")
+            end
+        end
+    end)
+end
+
 --- Handle keyboard input for a text field state
 --- @param input_queue table Key inputs
 --- @param state table Input state {text, cursor, anchor}
@@ -6380,7 +6523,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local sel_min, sel_max = math.min(state.cursor, state.anchor), math.max(state.cursor, state.anchor)
         local has_sel = sel_min ~= sel_max
-        local ret = gfx.showmenu("Вирізати|Копіювати|Вставити|Виділити все")
+        local ret = gfx.showmenu("Вирізати|Копіювати|Вставити|Виділити все|Озвучити")
         
         -- Force update UI_STATE.last_mouse_cap to current state to prevent immediate re-trigger loop 
         -- if the user is somehow still holding the button (though showmenu blocks).
@@ -6414,6 +6557,12 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             -- Select All
             state.anchor = 0
             state.cursor = #state.text
+        elseif ret == 5 and has_sel then
+            -- Speak (Озвучити)
+            local selected_text = state.text:sub(sel_min + 1, sel_max)
+            if selected_text ~= "" then
+                play_tts_audio(selected_text)
+            end
         end
     end
     
@@ -6778,148 +6927,6 @@ local function draw_text_editor(input_queue)
     draw_ai_modal(false)
     
     return true
-end
-
---- Play text-to-speech audio for Ukrainian word using ukrainian_tts.py
---- @param text string Text to synthesize
-local function play_tts_audio(text)
-    if dict_modal.tts_loading then return end
-    
-    -- Set loading state immediately to prevent concurrent calls
-    dict_modal.tts_loading = true
-    dict_modal.tts_current_word = text
-    UI_STATE.script_loading_state.active = true
-    UI_STATE.script_loading_state.text = "Озвучую..."
-    
-    -- Stop any existing preview
-    if dict_modal.tts_preview and reaper.CF_Preview_Stop then
-        reaper.CF_Preview_Stop(dict_modal.tts_preview)
-        dict_modal.tts_preview = nil
-    end
-
-    -- Path to python script
-    local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])")
-    local tts_script = script_path .. "tts/ukrainian_tts.py"
-    
-    -- Check if TTS script exists
-    local f = io.open(tts_script, "r")
-    if not f then
-        show_snackbar("TTS скрипт не знайдено", "error")
-        dict_modal.tts_loading = false
-        UI_STATE.script_loading_state.active = false
-        return
-    end
-    f:close()
-    
-    -- Determine voice and key based on configuration
-    local voice_arg = ""
-    local key_arg = ""
-    
-    -- Local mapping of display names to internal voice codes
-    local voice_map = {
-        ["Горох: Оксана (Wavenet)"] = { engine = "goroh", voice = "uk-UA-Wavenet-A" },
-        ["ElevenLabs: Ярослава (Yaroslava)"] = { engine = "eleven", voice = "Yaroslava" },
-        ["ElevenLabs: Антон (Anton)"] = { engine = "eleven", voice = "Anton" },
-        ["Системний"]  = { engine = "", voice = "System" }
-    }
-
-    local v_cfg = voice_map[cfg.tts_voice] or voice_map["Горох: Оксана (Wavenet)"]
-    voice_arg = string.format('--voice "%s"', v_cfg.voice)
-
-    if v_cfg.engine == "eleven" then
-        if cfg.eleven_api_key ~= "" then 
-            key_arg = string.format('--eleven-key "%s"', cfg.eleven_api_key) 
-        end
-    end
-    
-    -- Build command using standardized python executable if available
-    local is_windows = reaper.GetOS():match("Win")
-    local cmd
-    
-    if is_windows then
-        -- Normalize paths for Windows to avoid issues
-        tts_script = tts_script:gsub("/", "\\")
-        local escaped_text = text:gsub('"', '""')
-        
-        -- Use configured python executable from requirements state if available
-        local py_exe = requirements_state.python.executable or "python"
-        
-        -- Use list format for run_async_command on Windows? 
-        -- Actually run_async_command expects a shell string, but handles wrapping.
-        cmd = string.format('%s "%s" "%s" %s %s', py_exe, tts_script, escaped_text, voice_arg, key_arg)
-    else
-        -- Use single quotes to avoid escaping issues with Ukrainian text
-        -- Mac/Linux: Need to escape single quotes inside the text for the shell
-        local escaped_text = text:gsub("'", "'\"'\"'")
-        -- Use detected python or fallback
-        local py_exe = requirements_state.python.executable or "python3"
-        -- Capture both stdout and stderr ( > out 2>&1 )
-        -- We don't add the redirection here, but in run_async_command.
-        cmd = string.format("'%s' '%s' '%s' %s %s", py_exe, tts_script, escaped_text, voice_arg, key_arg)
-    end
-    
-    -- Run command asynchronously using the standardized function
-    run_async_command(cmd, function(output)
-        dict_modal.tts_loading = false
-        UI_STATE.script_loading_state.active = false
-        
-        if not output then
-            show_snackbar("Помилка виконання TTS", "error")
-            return
-        end
-        
-        -- Extract MP3 path (last non-empty line of output)
-        local mp3_path = nil
-        for line in output:gmatch("[^\r\n]+") do
-            if line and line ~= "" and not line:match("^Using cached") and not line:match("^Generating") and not line:match("^Successfully") then
-                mp3_path = line
-            end
-        end
-        
-        if mp3_path then
-            mp3_path = mp3_path:match("^%s*(.-)%s*$") -- Trim whitespace
-        end
-        
-        if mp3_path and mp3_path ~= "" and not mp3_path:match("Error") and not mp3_path:match("Traceback") then
-            -- Check if file exists
-            local test_f = io.open(mp3_path, "r")
-            if test_f then
-                test_f:close()
-                
-                -- Create PCM source from file
-                local pcm_source = reaper.PCM_Source_CreateFromFile(mp3_path)
-                if not pcm_source then
-                    show_snackbar("Не вдалося завантажити аудіо", "error")
-                    return
-                end
-                
-                -- Create and play preview using SWS CF_Preview API
-                if reaper.CF_CreatePreview and reaper.CF_Preview_Play then
-                    local preview = reaper.CF_CreatePreview(pcm_source)
-                    if preview then
-                        reaper.CF_Preview_Play(preview)
-                        dict_modal.tts_preview = preview
-                        show_snackbar("▶ Відтворення аудіо", "success")
-                    else
-                        show_snackbar("Не вдалося створити preview", "error")
-                    end
-                else
-                    show_snackbar("SWS Extension не встановлено", "error")
-                end
-            else
-                show_snackbar("Аудіо файл не знайдено", "error")
-                if output and output ~= "" then
-                    reaper.ShowConsoleMsg("--- TTS DEBUG (Missing File) ---\n" .. output .. "\n------------------------\n")
-                end
-            end
-        else
-            show_snackbar("Помилка генерації TTS", "error")
-            -- Debug: show command output in console if failed
-            if output and output ~= "" then
-                reaper.ShowConsoleMsg("--- TTS DEBUG (Script Error) ---\n" .. output .. "\n------------------------\n")
-            end
-        end
-    end)
 end
 
 --- Draw dictionary modal with definitions and synonyms, ГОРОХ
