@@ -59,6 +59,7 @@ local cfg = {
     auto_srt_split = get_set("auto_srt_split", "():"),
     prmt_theme = get_set("prmt_theme", "Бетон"),
     gemini_api_key = get_set("gemini_api_key", ""),
+    eleven_api_key = get_set("eleven_api_key", ""),
     p_drawer = (get_set("p_drawer", "1") == "1" or get_set("p_drawer", 1) == 1),
     p_drawer_left = (get_set("p_drawer_left", "1") == "1" or get_set("p_drawer_left", 1) == 1),
     p_corr = (get_set("p_corr", "1") == "1" or get_set("p_corr", 1) == 1),
@@ -70,6 +71,7 @@ local cfg = {
     reader_mode = (get_set("reader_mode", "0") == "1" or get_set("reader_mode", 0) == 1),
     auto_startup = (get_set("auto_startup", "0") == "1" or get_set("auto_startup", 0) == 1),
     gemini_key_status = tonumber(reaper.GetExtState(section_name, "gemini_key_status")) or 0,
+    eleven_key_status = tonumber(reaper.GetExtState(section_name, "eleven_key_status")) or 0,
 
     col_table_index = (get_set("col_table_index", "1") == "1" or get_set("col_table_index", 1) == 1),
     col_table_start = (get_set("col_table_start", "1") == "1" or get_set("col_table_start", 1) == 1),
@@ -636,6 +638,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "cps_warning", cfg.cps_warning and "1" or "0", true)
     reaper.SetExtState(section_name, "prompter_slider_mode", cfg.prompter_slider_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "gemini_api_key", cfg.gemini_api_key, true)
+    reaper.SetExtState(section_name, "eleven_api_key", cfg.eleven_api_key, true)
     reaper.SetExtState(section_name, "p_drawer", cfg.p_drawer and "1" or "0", true)
     reaper.SetExtState(section_name, "p_drawer_left", cfg.p_drawer_left and "1" or "0", true)
     reaper.SetExtState(section_name, "prompter_drawer_width", tostring(prompter_drawer.width), true)
@@ -2446,6 +2449,37 @@ local function gemini_api_call_async(key, prompt, final_callback, use_json_schem
     try_model(1)
 end
 
+--- Asynchronous call to ElevenLabs API to check key validity
+--- @param key string API Key
+--- @param callback function Callback function(status, body)
+local function eleven_api_call_async(key, callback)
+    if not key or key == "" then 
+        callback(0, "No API Key")
+        return 
+    end
+
+    local url = "https://api.elevenlabs.io/v1/user"
+    local cmd
+    if reaper.GetOS():match("Win") then
+        cmd = 'curl -s -k --ssl-no-revoke -w "\\n%{http_code}" -X GET "' .. url .. '" -H "xi-api-key: ' .. key .. '"'
+    else
+        cmd = "curl -s -w '\\n%{http_code}' -X GET '" .. url .. "' -H 'xi-api-key: " .. key .. "'"
+    end
+    
+    run_async_command(cmd, function(output)
+        if output and output ~= "" then
+            local lines = {}
+            for line in output:gmatch("[^\r\n]+") do table.insert(lines, line) end
+            local status = tonumber(lines[#lines]) or 0
+            local body = ""
+            for i = 1, #lines - 1 do body = body .. lines[i] .. "\n" end
+            callback(status, body)
+        else
+            callback(0, "No output")
+        end
+    end)
+end
+
 --- Extract text from Gemini JSON response using patterns (Robust)
 --- @param json string JSON response body
 --- @return string|nil Parsed text content
@@ -2574,6 +2608,32 @@ local function validate_gemini_key(key)
             show_snackbar("Ліміти вичерпані (429)", "error")
         else
             show_snackbar("Помилка API ключа (код: " .. tostring(status) .. ")", "error")
+        end
+    end)
+end
+
+--- Validate ElevenLabs API Key
+--- @param key string API Key
+local function validate_eleven_key(key)
+    local trimmed_key = key:gsub("^%s*(.-)%s*$", "%1")
+    show_snackbar("Перевірка ElevenLabs ключа...", "info")
+    eleven_api_call_async(trimmed_key, function(status, body)
+        local is_valid = (status == 200)
+        
+        -- Special case: some keys are restricted (e.g. synthesis only)
+        -- but they return 401 with "missing_permissions" instead of "invalid_api_key"
+        if status == 401 and body:match("missing_permissions") then
+            is_valid = true
+            status = 200 -- Treat as valid for UI purposes
+        end
+
+        cfg.eleven_key_status = status
+        reaper.SetExtState(section_name, "eleven_key_status", tostring(status), true)
+        
+        if is_valid then
+            show_snackbar("ElevenLabs ключ валідний", "success")
+        else
+            show_snackbar("Помилка ElevenLabs ключа (код: " .. tostring(status) .. ")", "error")
         end
     end)
 end
@@ -6758,17 +6818,17 @@ local function play_tts_audio(text)
     -- Local mapping of display names to internal voice codes
     local voice_map = {
         ["Горох: Оксана (Wavenet)"] = { engine = "goroh", voice = "uk-UA-Wavenet-A" },
-        ["Gemini: Альнілам (Alnilam)"] = { engine = "gemini", voice = "Alnilam" },
-        ["Gemini: Харон (Charon)"]  = { engine = "gemini", voice = "Charon" },
-        ["Gemini: Аврора (Aoede)"]  = { engine = "gemini", voice = "Aoede" }
+        ["ElevenLabs: Ярослава (Yaroslava)"] = { engine = "eleven", voice = "Yaroslava" },
+        ["ElevenLabs: Антон (Anton)"] = { engine = "eleven", voice = "Anton" },
+        ["Системний"]  = { engine = "", voice = "System" }
     }
 
     local v_cfg = voice_map[cfg.tts_voice] or voice_map["Горох: Оксана (Wavenet)"]
     voice_arg = string.format('--voice "%s"', v_cfg.voice)
-    
-    if v_cfg.engine == "gemini" then
-        if cfg.gemini_api_key ~= "" then 
-            key_arg = string.format('--gemini-key "%s"', cfg.gemini_api_key) 
+
+    if v_cfg.engine == "eleven" then
+        if cfg.eleven_api_key ~= "" then 
+            key_arg = string.format('--eleven-key "%s"', cfg.eleven_api_key) 
         end
     end
     
@@ -11773,8 +11833,27 @@ local function draw_settings()
         end
     end
 
+    -- ElevenLabs API Key
+    local eleven_btn_col = UI.C_BTN
+    if cfg.eleven_key_status == 200 then
+        eleven_btn_col = {0.2, 0.4, 0.2} -- Greenish
+    elseif cfg.eleven_api_key ~= "" and cfg.eleven_key_status ~= 0 then
+        eleven_btn_col = {0.5, 0.2, 0.2} -- Reddish
+    end
+
+    if s_btn(x_start + S(220), y_cursor, S(200), S(30), "ElevenLabs API ключ", "Ключ доступу до ElevenLabs для озвучування преміальними голосами.", eleven_btn_col) then
+        local retval, key = reaper.GetUserInputs("ElevenLabs API Key", 1, "Ключ API:,extrawidth=300", cfg.eleven_api_key)
+        if retval then
+            cfg.eleven_api_key = key
+            save_settings()
+            validate_eleven_key(cfg.eleven_api_key)
+        end
+    end
+
+    y_cursor = y_cursor + S(40)
+
     -- Delete regions (Danger Zone)
-    if s_btn(x_start + S(220), y_cursor, S(180), S(30), "Видалити ВСІ регіони", "Видаляє всі регіони з проекту REAPER.\nДія незворотна!", {0.4, 0.2, 0.2}) then
+    if s_btn(x_start, y_cursor, S(200), S(30), "Видалити ВСІ регіони", "Видаляє всі регіони з проекту REAPER.\nДія незворотна!", {0.4, 0.2, 0.2}) then
         delete_all_regions()
     end
     y_cursor = y_cursor + S(60)
@@ -12243,16 +12322,16 @@ local function draw_settings()
     s_section(y_cursor, "ТЕКСТ У МОВУ")
     y_cursor = y_cursor + S(35)
     
-    s_text(x_start, y_cursor, "Двигун та голос для озвучення:", F.std, "Провайдер і голос для озвучення\n(для Gemini бажано мати платну підписку)")
+    s_text(x_start, y_cursor, "Двигун та голос для озвучення:", F.std, "Провайдер і голос для озвучення")
     y_cursor = y_cursor + S(25)
     
     local tts_options = {
         "Горох: Оксана (Wavenet)",
-        "Gemini: Альнілам (Alnilam)",
-        "Gemini: Харон (Charon)",
-        "Gemini: Аврора (Aoede)"
+        "ElevenLabs: Ярослава (Yaroslava)",
+        "ElevenLabs: Антон (Anton)",
+        "Системний",
     }
-    local tts_btn_w = S(220)
+    local tts_btn_w = S(240)
     local cur_voice = cfg.tts_voice or "Горох: Оксана (Wavenet)"
     
     if s_btn(x_start, y_cursor, tts_btn_w, S(30), cur_voice .. "  ▿") then
