@@ -14291,22 +14291,38 @@ local function draw_table(input_queue)
 
                     -- Only ASS lines selected
                     else
-                        menu_str = "Змінити ім'я актора"
+                        local sorted_actors = {}
+                        for a in pairs(ass_actors) do
+                            table.insert(sorted_actors, a)
+                        end
+                        table.sort(sorted_actors)
+                        
+                        local menu_items = { ">Змінити ім'я актора", "-  Нове ім'я -" }
+                        for _, a in ipairs(sorted_actors) do
+                            table.insert(menu_items, (a:gsub("|", "||")))
+                        end
+                        table.insert(menu_items, "<")
+                        
                         local has_merge = #sel_indices > 1 and #sel_indices <= 5
                         if has_merge then
-                            menu_str = menu_str .. "|Об'єднати репліки в одну"
+                            table.insert(menu_items, "Об'єднати репліки в одну")
                         end
                         
                         if #sel_indices == 1 then
-                            menu_str = menu_str .. "|Видалити репліку"
+                            table.insert(menu_items, "Видалити репліку")
                         else
-                            menu_str = menu_str .. "|Видалити вибрані репліки"
+                            table.insert(menu_items, "Видалити вибрані репліки")
                         end
+                        
+                        local menu_str = table.concat(menu_items, "|")
                         
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                         local ret = gfx.showmenu(menu_str)
                         
-                        if ret == 1 then
+                        local actor_count = #sorted_actors
+                        local rename_end_idx = 1 + actor_count
+                        
+                        if ret >= 1 and ret <= rename_end_idx then
                             -- Change Actor Name
                             local selected_entries = {}
                             for p, l in ipairs(ass_lines) do
@@ -14316,9 +14332,16 @@ local function draw_table(input_queue)
                             end
                             
                             if #selected_entries > 0 then
-                                local first_actor = selected_entries[1].actor or ""
-                                local ok, new_actor = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", first_actor)
-                                if ok then
+                                local ok, new_actor
+                                if ret == 1 then
+                                    local first_actor = selected_entries[1].actor or ""
+                                    ok, new_actor = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", first_actor)
+                                else
+                                    new_actor = sorted_actors[ret - 1]
+                                    ok = true
+                                end
+                                
+                                if ok and new_actor then
                                     -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
                                     new_actor = new_actor:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
                                     
@@ -14332,7 +14355,7 @@ local function draw_table(input_queue)
                                     show_snackbar("Ім'я актора змінено (" .. #selected_entries .. ")", "success")
                                 end
                             end
-                        elseif has_merge and ret == 2 then
+                        elseif has_merge and ret == rename_end_idx + 1 then
                             -- Merge Replicas
                             local selected_entries = {}
                             for p, l in ipairs(ass_lines) do
@@ -14373,7 +14396,7 @@ local function draw_table(input_queue)
                                 last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
                                 show_snackbar("Репліки об'єднано (" .. #selected_entries .. ")", "success")
                             end
-                        elseif (has_merge and ret == 3) or (not has_merge and ret == 2) then
+                        elseif (has_merge and ret == rename_end_idx + 2) or (not has_merge and ret == rename_end_idx + 1) then
                             -- Delete Selected Replicas
                             delete_logic()
                         end
