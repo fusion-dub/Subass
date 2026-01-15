@@ -7137,6 +7137,7 @@ local function draw_dictionary_modal(input_queue)
     -- Selection and Context Menu Globals (PRE-CALCULATE)
     local mouse_x, mouse_y = gfx.mouse_x, gfx.mouse_y
     local is_lmb_down = gfx.mouse_cap & 1 == 1
+    local is_lmb_released = (gfx.mouse_cap & 1 == 0) and (UI_STATE.last_mouse_cap & 1 == 1)
     local is_rmb_clicked = (gfx.mouse_cap & 2 == 2) and (UI_STATE.last_mouse_cap & 2 == 0)
     
     
@@ -7222,7 +7223,7 @@ local function draw_dictionary_modal(input_queue)
         
         -- Normalize for logic: sy1 is always the top one
         local iy1, ix1, iy2, ix2
-        if y1 < y2 or (math.abs(y1 - y2) < line_h * 0.5 and x1 < x2) then
+        if (y2 - y1) > line_h * 0.5 or (math.abs(y1 - y2) < line_h * 0.5 and x1 < x2) then
             iy1, ix1, iy2, ix2 = y1, x1, y2, x2
         else
             iy1, ix1, iy2, ix2 = y2, x2, y1, x1
@@ -7262,7 +7263,7 @@ local function draw_dictionary_modal(input_queue)
             if iy1_in and iy2_in then
                 -- Single line selection match
                 local char_x2 = cur_x + sw
-                if math.max(cur_x, ix1) < math.min(char_x2, ix2) then is_selected = true end
+                if cur_x < ix2 and ix1 < char_x2 then is_selected = true end
             elseif iy1_in then
                 -- Starts on this line
                 if cur_x + sw > ix1 then is_selected = true end 
@@ -7313,7 +7314,7 @@ local function draw_dictionary_modal(input_queue)
         if y1 == y2 then y2 = y2 + 0.001 end
         
         -- Normalize
-        if y1 < y2 or (math.abs(y1 - y2) < line_h * 0.5 and x1 < x2) then
+        if (y2 - y1) > line_h * 0.5 or (math.abs(y1 - y2) < line_h * 0.5 and x1 < x2) then
             iy1, ix1, iy2, ix2 = y1, x1, y2, x2
         else
             iy1, ix1, iy2, ix2 = y2, x2, y1, x1
@@ -7840,9 +7841,8 @@ local function draw_dictionary_modal(input_queue)
     end
 
     -- Reset selection if clicking elsewhere
-    if is_mouse_clicked(1) and not in_content_area and not is_obstructed then
-        dict_modal.selection.segments = {}
-        dict_modal.selection.text = ""
+    if is_mouse_clicked(1) and (not in_content_area or is_obstructed) then
+        dict_modal.selection = { active = false, start_x = 0, start_y = 0, end_x = 0, end_y = 0, text = "" }
     end
     
     -- Draw text within clip
@@ -7868,31 +7868,7 @@ local function draw_dictionary_modal(input_queue)
         gfx.y = content_y + 20
         gfx.drawstr("Немає даних для цієї категорії (або ГОРОХ знову впав).")
     else
-        local hovered_segment = nil -- Reset each frame
-        -- Trigger context menu if needed (Bridge to External Consumer)
-        if is_rmb_clicked and not is_obstructed then
-            -- reaper.ShowConsoleMsg("DEBUG RMB Clicked. Active="..tostring(dict_modal.selection.active).."\n")
-            local target_text = ""
-            
-            -- On-Demand Reconstruction for Context Menu
-            local s = dict_modal.selection
-            if (s.start_x ~= s.end_x or s.start_y ~= s.end_y) then
-                local txt = reconstruct_selection_text()
-                if txt and txt ~= "" then
-                    dict_modal.selection.text = txt -- Populate for external consumer!
-                    target_text = txt
-                end
-            end
-            
-            if target_text == "" and hovered_segment then
-                target_text = hovered_segment.text
-            end
-    
-            if target_text ~= "" then
-                -- Defer menu to next frame to allow selection to draw
-                dict_modal.pending_menu = target_text
-            end
-        end
+        local hovered_segment = nil
         for _, item in ipairs(active_content) do
             
             -- LAYOUT PHASE (Cache results)
@@ -7971,23 +7947,7 @@ local function draw_dictionary_modal(input_queue)
                                             for _, seg in ipairs(rich_line) do
                                                 if seg.is_bold or (cell.is_header and not seg.is_plain) then gfx.setfont(F.dict_bld) else gfx.setfont(F.dict_std) end
                                                 local sw = gfx.measurestr((seg.text:gsub(acute, "")))
-                                                
-                                                if seg.is_link then
-                                                    set_color({0.4, 0.7, 1.0, 1})
-                                                    gfx.line(current_x, ly + gfx.texth, current_x + sw, ly + gfx.texth)
-                                                    if is_mouse_clicked() then
-                                                        if not is_obstructed and gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h then
-                                                            -- Reset selection on navigation
-                                                            dict_modal.selection = { active = false, start_x=0, start_y=0, end_x=0, end_y=0, text="" }
-                                                            trigger_dictionary_lookup(seg.word)
-                                                        end
-                                                    end
-                                                else
-                                                    -- TTS Logic / Selection
-                                                    local clean_txt = seg.text:gsub(acute, ""):lower():match("^%s*(.-)%s*$")
-                                                    local is_excluded = clean_txt == "—" or clean_txt == "називний" or clean_txt == "родовий" or clean_txt == "давальний" or clean_txt == "знахідний" or clean_txt == "орудний" or clean_txt == "місцевий" or clean_txt == "кличний" or clean_txt == "1 особа" or clean_txt == "2 особа" or clean_txt == "3 особа" or clean_txt == "інфінітив" or clean_txt == "чол. р." or clean_txt == "жін. р." or clean_txt == "сер. р." or clean_txt:match("^%s*$")
-                                                    
-                                                    local seg_hover = UI_STATE.window_focused and gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h
+                                                local seg_hover = UI_STATE.window_focused and gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h
                                                     
                                                     if seg_hover and is_rmb_clicked and not is_obstructed and not is_mouse_in_selection(line_h, ly) then
                                                         local rel_x = gfx.mouse_x - current_x
@@ -8000,24 +7960,34 @@ local function draw_dictionary_modal(input_queue)
                                                             active = true,
                                                             start_x = current_x + wx, start_y = ly - (dict_modal.scroll_y or 0),
                                                             end_x = current_x + wx + ww, end_y = ly - (dict_modal.scroll_y or 0),
-                                                            text = "" -- Let draw_dict_text_with_selection populate this to avoid duplication
+                                                            text = "" 
                                                         }
                                                     end
 
-                                                    if not cell.is_header and not is_excluded then
+                                                    if seg.is_link then
+                                                        set_color({0.4, 0.7, 1.0, 1})
+                                                        gfx.line(current_x, ly + gfx.texth, current_x + sw, ly + gfx.texth)
+                                                        if is_lmb_released and not is_obstructed and seg_hover then
+                                                            local s = dict_modal.selection
+                                                            local dist = math.abs(s.start_x - s.end_x) + math.abs(s.start_y - s.end_y)
+                                                            if dist < 3 then
+                                                                dict_modal.selection = { active = false, start_x=0, start_y=0, end_x=0, end_y=0, text="" }
+                                                                trigger_dictionary_lookup(seg.word)
+                                                            end
+                                                        end
+                                                    elseif not cell.is_header and not is_excluded then
                                                         local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
                                                         if is_inflection_tab and seg_hover and not is_obstructed then
                                                             set_color({1.0, 0.3, 0.3, 0.15})
                                                             gfx.rect(current_x - 2, ly - 1, sw + 4, line_h + 2, 1)
                                                             set_color(UI.C_ACCENT or UI.C_SEL)
-                                                            if is_mouse_clicked() and not dict_modal.tts_loading then
+                                                            if is_mouse_clicked(1) and (gfx.mouse_cap & 2 == 0) and not dict_modal.tts_loading then
                                                                 local tts_text = seg.word
                                                                 if not tts_text or tts_text == "" then tts_text = seg.text end
                                                                 play_tts_audio(tts_text)
                                                             end
                                                         end
                                                     end
-                                                end
                                                 
                                                 gfx.x = current_x; gfx.y = ly
                                                 local eff_color = seg.is_link and {0.4, 0.7, 1.0, 1} or (seg.color or UI.C_TXT)
@@ -8055,36 +8025,36 @@ local function draw_dictionary_modal(input_queue)
                                 
                                 local sw = gfx.measurestr((seg.text:gsub(acute, "")))
                                 
+                                local seg_hover = UI_STATE.window_focused and gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h
+
+                                if seg_hover and is_rmb_clicked and not is_obstructed and not is_mouse_in_selection(line_h, gfx.y) then
+                                    local rel_x = gfx.mouse_x - gfx.x
+                                    local wx, ww, wtxt = get_word_at_x(seg.text, rel_x)
+                                    
+                                    hovered_segment = { text = wtxt, word = seg.word }
+                                    
+                                    -- Auto-select for visual feedback
+                                    dict_modal.selection = {
+                                        active = true,
+                                        start_x = gfx.x + wx, start_y = gfx.y - (dict_modal.scroll_y or 0),
+                                        end_x = gfx.x + wx + ww, end_y = gfx.y - (dict_modal.scroll_y or 0),
+                                        text = "" 
+                                    }
+                                end
+
                                 if seg.is_link then
                                     set_color({0.4, 0.7, 1.0, 1})
                                     gfx.line(gfx.x, gfx.y + gfx.texth, gfx.x + sw, gfx.y + gfx.texth)
-                                    if is_mouse_clicked() then
-                                        if not is_obstructed and gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h then
-                                            -- Reset selection on navigation
+                                    if is_lmb_released and not is_obstructed and seg_hover then
+                                        local s = dict_modal.selection
+                                        local dist = math.abs(s.start_x - s.end_x) + math.abs(s.start_y - s.end_y)
+                                        if dist < 3 then
                                             dict_modal.selection = { active = false, start_x=0, start_y=0, end_x=0, end_y=0, text="" }
                                             trigger_dictionary_lookup(seg.word)
                                         end
                                     end
                                 else
                                     -- Text / Selection
-                                    local seg_hover = UI_STATE.window_focused and gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h
-
-                                    -- SELECTION LOGIC
-                                    if seg_hover and is_rmb_clicked and not is_obstructed and not is_mouse_in_selection(line_h, gfx.y) then
-                                        local rel_x = gfx.mouse_x - gfx.x
-                                        local wx, ww, wtxt = get_word_at_x(seg.text, rel_x)
-                                        
-                                        hovered_segment = { text = wtxt, word = seg.word }
-                                        
-                                        -- Auto-select for visual feedback
-                                        dict_modal.selection = {
-                                            active = true,
-                                            start_x = gfx.x + wx, start_y = gfx.y - (dict_modal.scroll_y or 0),
-                                            end_x = gfx.x + wx + ww, end_y = gfx.y - (dict_modal.scroll_y or 0),
-                                            text = "" -- Let draw_dict_text_with_selection populate this to avoid duplication
-                                        }
-                                    end
-
                                     if L.is_header and not seg.is_plain and seg.text:match("%S") then
                                         local clean_txt = seg.text:gsub(acute, ""):match("^%s*(.-)%s*$")
                                         local is_symbol = clean_txt:match("^[%p%s]+$")
@@ -8093,7 +8063,7 @@ local function draw_dictionary_modal(input_queue)
                                             set_color({1.0, 0.3, 0.3, 0.15})
                                             gfx.rect(gfx.x - 2, gfx.y - 1, sw + 4, line_h + 2, 1)
                                             set_color(UI.C_ACCENT or UI.C_SEL)
-                                            if is_mouse_clicked() and not dict_modal.tts_loading then
+                                            if is_mouse_clicked(1) and (gfx.mouse_cap & 2 == 0) and not dict_modal.tts_loading then
                                                 local tts_text = seg.word
                                                 if not tts_text or tts_text == "" then tts_text = seg.text end
                                                 play_tts_audio(tts_text)
@@ -8123,7 +8093,7 @@ local function draw_dictionary_modal(input_queue)
         local target_text = ""
         
         -- On-Demand Reconstruction for Context Menu
-        if dict_modal.selection.active then
+        if dict_modal.selection.active or (dict_modal.selection.start_x ~= dict_modal.selection.end_x) then
             local txt = reconstruct_selection_text()
             if txt and txt ~= "" then
                 dict_modal.selection.text = txt -- Populate for external consumer!
