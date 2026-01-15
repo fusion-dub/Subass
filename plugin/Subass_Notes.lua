@@ -7140,12 +7140,12 @@ local function draw_dictionary_modal(input_queue)
     local is_lmb_released = (gfx.mouse_cap & 1 == 0) and (UI_STATE.last_mouse_cap & 1 == 1)
     local is_rmb_clicked = (gfx.mouse_cap & 2 == 2) and (UI_STATE.last_mouse_cap & 2 == 0)
     
-    
     -- Keyboard shortcuts handling
     if input_queue then
         for i, key in ipairs(input_queue) do
             if key == 27 then -- ESC
                 dict_modal.show = false
+                dict_modal.selection = { active = false, start_x = 0, start_y = 0, end_x = 0, end_y = 0, text = "" }
                 return
             elseif key == 8 then -- BACKSPACE
                 if dict_modal.history and #dict_modal.history > 0 then
@@ -7157,6 +7157,8 @@ local function draw_dictionary_modal(input_queue)
                     dict_modal.target_scroll_y = prev_state.target_scroll_y
                     navigated = true
                 end
+
+                dict_modal.selection = { active = false, start_x = 0, start_y = 0, end_x = 0, end_y = 0, text = "" }
             end
         end
     end
