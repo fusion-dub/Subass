@@ -13965,6 +13965,16 @@ local function draw_table(input_queue)
                 gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
             end
             
+            -- Hover Effect
+            local row_hover = UI_STATE.window_focused and (gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and
+                                 gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h_dynamic and
+                                 gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h)
+            
+            if row_hover then
+                set_color({1, 1, 1, 0.07})
+                gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
+            end
+
             if is_active_row then
                 set_color({0.2, 0.9, 0.2}) -- Bright Green Border
                 gfx.rect(0, buf_y, 5, row_h_dynamic, 1)
