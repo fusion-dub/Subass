@@ -1,9 +1,9 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 3.9
+-- @version 4.0
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
-local script_title = "Subass Notes v3.9"
+local script_title = "Subass Notes v4.0"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -5951,28 +5951,35 @@ local function play_tts_audio(text, save_to_timeline)
     
     -- Build command using standardized python executable if available
     local is_windows = reaper.GetOS():match("Win")
-    local cmd
+    local tts_input_file = (script_path .. "/tts/tts_input.txt")
+    if is_windows then tts_input_file = tts_input_file:gsub("/", "\\") end
     
+    local f_in = io.open(tts_input_file, "w")
+    if f_in then
+        f_in:write(text)
+        f_in:close()
+    else
+        show_snackbar("Помилка запису тимчасового файлу", "error")
+        dict_modal.tts_loading = false
+        UI_STATE.script_loading_state.active = false
+        return
+    end
+
+    local cmd
     if is_windows then
         -- Normalize paths for Windows to avoid issues
         tts_script = tts_script:gsub("/", "\\")
-        local escaped_text = text:gsub('"', '""')
         
         -- Use configured python executable from requirements state if available
         local py_exe = requirements_state.python.executable or "python"
         
-        -- Use list format for run_async_command on Windows? 
-        -- Actually run_async_command expects a shell string, but handles wrapping.
-        cmd = string.format('%s "%s" "%s" %s %s', py_exe, tts_script, escaped_text, voice_arg, key_arg)
+        -- Pass text via file to avoid shell expansion/multiline issues
+        cmd = string.format('%s "%s" --file "%s" %s %s', py_exe, tts_script, tts_input_file, voice_arg, key_arg)
     else
-        -- Use single quotes to avoid escaping issues with Ukrainian text
-        -- Mac/Linux: Need to escape single quotes inside the text for the shell
-        local escaped_text = text:gsub("'", "'\"'\"'")
         -- Use detected python or fallback
         local py_exe = requirements_state.python.executable or "python3"
-        -- Capture both stdout and stderr ( > out 2>&1 )
-        -- We don't add the redirection here, but in run_async_command.
-        cmd = string.format("'%s' '%s' '%s' %s %s", py_exe, tts_script, escaped_text, voice_arg, key_arg)
+        -- Pass text via file for consistency and robustness
+        cmd = string.format("'%s' '%s' --file '%s' %s %s", py_exe, tts_script, tts_input_file, voice_arg, key_arg)
     end
     
     -- Run command asynchronously using the standardized function
@@ -8572,6 +8579,17 @@ local function draw_file()
         -- Calculate rows needed
         local row_count = math.ceil(#sorted_actors / cols)
         
+        -- Pre-calculate stats per actor for tooltips
+        local actor_tooltips = {}
+        for _, line in ipairs(ass_lines) do
+            local act = line.actor or "Default"
+            if not actor_tooltips[act] then actor_tooltips[act] = {replicas = 0, words = 0} end
+            actor_tooltips[act].replicas = actor_tooltips[act].replicas + 1
+            local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+            local _, count = clean:gsub("%S+", "")
+            actor_tooltips[act].words = actor_tooltips[act].words + count
+        end
+
         for i, act in ipairs(sorted_actors) do
             -- Grid Indexing (0-based for math)
             local idx = i - 1
@@ -8644,6 +8662,22 @@ local function draw_file()
                 local display_act = fit_text_width(act, max_txt_w)
                 
                 gfx.drawstr(display_act, 4 | 256, x_pos + item_w - S(5), chk_y + S(20))
+
+                -- Tooltip Logic
+                if UI_STATE.window_focused and
+                   gfx.mouse_x >= x_pos - S(2) and gfx.mouse_x <= x_pos + item_w - S(5) and
+                   gfx.mouse_y >= chk_y - S(2) and gfx.mouse_y <= chk_y + S(22) then
+                    
+                    local stats = actor_tooltips[act] or {replicas = 0, words = 0}
+                    local tooltip = string.format("%s\nРеплік: %d\nСлів: %d", act, stats.replicas, stats.words)
+                    
+                    local tip_id = "actor_tip_" .. act
+                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                        UI_STATE.tooltip_state.hover_id = tip_id
+                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    end
+                    UI_STATE.tooltip_state.text = tooltip
+                end
             
                 -- Click Logic
                 if is_mouse_clicked() then
