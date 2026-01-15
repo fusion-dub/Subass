@@ -6536,7 +6536,17 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local sel_min, sel_max = math.min(state.cursor, state.anchor), math.max(state.cursor, state.anchor)
         local has_sel = sel_min ~= sel_max
-        local ret = gfx.showmenu("Вирізати|Копіювати|Вставити|Виділити все||Озвучити|Озвучити та зберегти")
+        
+        -- Build Dynamic Menu
+        local menu_items = { "Вирізати", "Копіювати", "Вставити", "", "Виділити все", "", "Озвучити", "Озвучити та зберегти", "", ">Змінити голос" }
+        for _, v_name in ipairs(cfg.tts_voices_order) do
+            local check = (v_name == cfg.tts_voice) and "• " or ""
+            table.insert(menu_items, check .. (v_name:gsub("|", "||")))
+        end
+        table.insert(menu_items, "<")
+        
+        local menu_str = table.concat(menu_items, "|")
+        local ret = gfx.showmenu(menu_str)
         
         -- Force update UI_STATE.last_mouse_cap to current state to prevent immediate re-trigger loop 
         -- if the user is somehow still holding the button (though showmenu blocks).
@@ -6585,6 +6595,11 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             if text_to_speak ~= "" then
                 play_tts_audio(text_to_speak, ret == 6)
             end
+        elseif ret >= 7 and ret < 7 + #cfg.tts_voices_order then
+            -- Change TTS Voice
+            cfg.tts_voice = cfg.tts_voices_order[ret - 6]
+            save_settings()
+            show_snackbar("Голос змінено на " .. cfg.tts_voice)
         end
     end
     
