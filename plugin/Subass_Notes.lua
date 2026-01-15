@@ -6547,7 +6547,8 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
         local has_sel = sel_min ~= sel_max
         
         -- Build Dynamic Menu
-        local menu_items = { "Вирізати", "Копіювати", "Вставити", "", "Виділити все", "Шукати в ГОРОХ", "", "Озвучити", "Озвучити та зберегти", "", ">Змінити голос" }
+        local dict_label = has_sel and "Шукати в ГОРОСі" or "Знайти нове слово в ГОРОСі"
+        local menu_items = { "Вирізати", "Копіювати", "Вставити", "Виділити все", "", dict_label, "", "Озвучити", "Озвучити та зберегти", "", ">Змінити голос" }
         for _, v_name in ipairs(cfg.tts_voices_order) do
             local check = (v_name == cfg.tts_voice) and "• " or ""
             table.insert(menu_items, check .. (v_name:gsub("|", "||")))
@@ -6591,9 +6592,16 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             state.cursor = #state.text
         elseif ret == 5 then
             -- Search in GOROH
-            local target = has_sel and state.text:sub(sel_min + 1, sel_max) or state.text
-            if target and target ~= "" then
-                trigger_dictionary_lookup(target)
+            if has_sel then
+                local target = state.text:sub(sel_min + 1, sel_max)
+                if target and target ~= "" then
+                    trigger_dictionary_lookup(target)
+                end
+            else
+                local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
+                if ok and input ~= "" then
+                    trigger_dictionary_lookup(input)
+                end
             end
         elseif ret == 6 or ret == 7 then
             -- Speak (Озвучити) / Speak & Save
@@ -7070,7 +7078,7 @@ local function draw_dictionary_modal(input_queue)
         target_text = target_text:match("^%s*(.-)%s*$")
         if target_text == "" then return end
         
-        local menu_items = { "Копіювати", "", "Шукати в ГОРОХ", "", "Озвучити", "Озвучити та зберегти", "", ">Змінити голос" }
+        local menu_items = { "Копіювати", "", "Шукати в ГОРОСі", "", "Озвучити", "Озвучити та зберегти", "", ">Змінити голос" }
         for _, v_name in ipairs(cfg.tts_voices_order) do
             local check = (v_name == cfg.tts_voice) and "• " or ""
             table.insert(menu_items, check .. (v_name:gsub("|", "||")))
@@ -7109,6 +7117,18 @@ local function draw_dictionary_modal(input_queue)
     if dict_modal.pending_menu then
         process_context_menu(dict_modal.pending_menu)
         dict_modal.pending_menu = nil
+    end
+
+    if dict_modal.pending_empty_menu then
+        dict_modal.pending_empty_menu = nil
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local ret = gfx.showmenu("Знайти нове слово в ГОРОСі")
+        if ret == 1 then
+            local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
+            if ok and input ~= "" then
+                trigger_dictionary_lookup(input)
+            end
+        end
     end
 
     -- 1. Navigation & History (Handle FIRST to ensure state is clean for layout)
@@ -7605,7 +7625,8 @@ local function draw_dictionary_modal(input_queue)
             
             for _, seg in ipairs(rich_line) do
                 if seg and seg.text then
-                    gfx.setfont(seg.is_bold and F.dict_bld or F.dict_std)
+                    local is_bld = seg.is_bold or (is_cell_header and not seg.is_plain)
+                    gfx.setfont(is_bld and F.dict_bld or F.dict_std)
                     local full_seg_w = gfx.measurestr((seg.text:gsub(acute, "")))
                     
                     if take_full then
@@ -7675,7 +7696,19 @@ local function draw_dictionary_modal(input_queue)
                                         local ty = row_y + (total_cell_h - (#cell.wrapped * line_h))/2
                                         for l_idx, rich_line in ipairs(cell.wrapped) do
                                             local ly = ty + (l_idx - 1) * line_h
-                                            local line_txt = get_line_selection(rich_line, ly, ly + line_h, content_x + (cell.x or 0) + 4)
+                                            
+                                            local current_x = content_x + (cell.x or 0) + 4
+                                            if (cell.colspan == item.cols) then -- Spanned Header Centering
+                                                local tw = 0
+                                                for _, seg in ipairs(rich_line) do
+                                                    local bld = seg.is_bold or (cell.is_header and not seg.is_plain)
+                                                    gfx.setfont(bld and F.dict_bld or F.dict_std)
+                                                    tw = tw + gfx.measurestr((seg.text:gsub(acute, "")))
+                                                end
+                                                current_x = content_x + (cell.x or 0) + (cell.w - tw) / 2
+                                            end
+
+                                            local line_txt = get_line_selection(rich_line, ly, ly + line_h, current_x, cell.is_header)
                                            
                                             if line_txt ~= "" then
                                                 res_text = res_text .. line_txt
@@ -8105,6 +8138,9 @@ local function draw_dictionary_modal(input_queue)
         if target_text ~= "" then
             -- Defer menu to next frame to allow selection to draw
             dict_modal.pending_menu = target_text
+        else
+            -- Empty area click
+            dict_modal.pending_empty_menu = true
         end
     end
     
@@ -10716,7 +10752,7 @@ local function handle_prompter_context_menu()
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
         local slider_check = cfg.prompter_slider_mode and "• " or ""
-        local menu = "Відобразити SubOverlay від Lionzz|Відобразити Словник|" .. slider_check .. "Режим Слайдера||" .. dock_check .. "Закріпити вікно (Dock)"
+        local menu = "Відобразити SubOverlay від Lionzz||Знайти нове слово в ГОРОСі|Відобразити Словник|" .. slider_check .. "Режим Слайдера||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -10724,11 +10760,16 @@ local function handle_prompter_context_menu()
         if ret == 1 then
             run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею")
         elseif ret == 2 then
-            run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника")
+            local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
+            if ok and input ~= "" then
+                trigger_dictionary_lookup(input)
+            end
         elseif ret == 3 then
+            run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника")
+        elseif ret == 4 then
             cfg.prompter_slider_mode = not cfg.prompter_slider_mode
             save_settings()
-        elseif ret == 4 then
+        elseif ret == 5 then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
