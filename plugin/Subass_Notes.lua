@@ -9402,24 +9402,50 @@ local function draw_prompter_drawer(input_queue)
                             if current_text == "" then
                                 table.insert(lines, "")
                             else
-                                while #current_text > 0 do
-                                    local best_fit = ""
-                                    for p, code in utf8.codes(current_text) do
-                                        local char = utf8.char(code)
-                                        local test_sub = current_text:sub(1, p + #char - 1)
-                                        if gfx.measurestr(test_sub) > col_text_w - S(10) then break end
-                                        best_fit = test_sub
-                                    end
-                                    if best_fit == "" then
-                                        for p, code in utf8.codes(current_text) do
-                                            best_fit = utf8.char(code)
-                                            break
+                                -- Improved Word-based wrapping with hyphenation
+                                local words = {}
+                                for w in current_text:gmatch("%S+") do table.insert(words, w) end
+                                if #words == 0 and #current_text > 0 then words = {current_text} end
+                                
+                                local cur_l = ""
+                                local max_wrap_w = col_text_w - S(10)
+                                
+                                for _, w in ipairs(words) do
+                                    local test_l = cur_l == "" and w or (cur_l .. " " .. w)
+                                    if gfx.measurestr(test_l) <= max_wrap_w then
+                                        cur_l = test_l
+                                    else
+                                        if cur_l ~= "" then table.insert(lines, cur_l) end
+                                        
+                                        -- If word itself is too long, break it with hyphenation
+                                        if gfx.measurestr(w) > max_wrap_w then
+                                            local partial = ""
+                                            local w_len = utf8.len(w) or #w
+                                            for j = 1, w_len do
+                                                local char_start = utf8.offset(w, j)
+                                                local char_end = (utf8.offset(w, j+1) or #w+1) - 1
+                                                local char = w:sub(char_start, char_end)
+                                                
+                                                -- Check if adding char + optional hyphen fits
+                                                local test_char = char
+                                                if j < w_len then test_char = char .. "-" end
+                                                
+                                                if gfx.measurestr(partial .. test_char) > max_wrap_w then
+                                                    if partial ~= "" then 
+                                                        table.insert(lines, partial .. "-") 
+                                                    end
+                                                    partial = char
+                                                else
+                                                    partial = partial .. char
+                                                end
+                                            end
+                                            cur_l = partial
+                                        else
+                                            cur_l = w
                                         end
-                                        if best_fit == "" then best_fit = current_text:sub(1,1) end
                                     end
-                                    table.insert(lines, best_fit)
-                                    current_text = current_text:sub(#best_fit + 1)
                                 end
+                                if cur_l ~= "" then table.insert(lines, cur_l) end
                             end
                         end
                         
