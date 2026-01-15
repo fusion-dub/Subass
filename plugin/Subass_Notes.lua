@@ -323,7 +323,8 @@ local dict_modal = {
     history = {}, -- History stack for back navigation
     tts_loading = false, -- TTS loading state
     tts_preview = nil, -- Active audio preview handle
-    tts_current_word = "" -- Word currently being processed for TTS
+    tts_current_word = "", -- Word currently being processed for TTS
+    selection = { active = false, start_x = 0, start_y = 0, end_x = 0, end_y = 0, text = "" } -- Text selection state
 }
 
 -- Director Mode State
@@ -1074,6 +1075,10 @@ local sws_alert_shown = false
 --- Set system clipboard text
 --- @param text string Text to copy to clipboard
 local function set_clipboard(text)
+    if not text then return end
+    text = text:match("^%s*(.-)%s*$")
+    if text == "" then return end
+    
     if reaper.CF_SetClipboard then 
         reaper.CF_SetClipboard(text)
         return
@@ -5908,6 +5913,10 @@ end
 --- @param text string Text to synthesize
 --- @param save_to_timeline boolean|nil If true, insert audio into active track at cursor
 local function play_tts_audio(text, save_to_timeline)
+    if not text then return end
+    text = text:match("^%s*(.-)%s*$")
+    if text == "" then return end
+
     if dict_modal.tts_loading then return end
     
     -- Set loading state immediately to prevent concurrent calls
@@ -6538,7 +6547,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
         local has_sel = sel_min ~= sel_max
         
         -- Build Dynamic Menu
-        local menu_items = { "Вирізати", "Копіювати", "Вставити", "", "Виділити все", "", "Озвучити", "Озвучити та зберегти", "", ">Змінити голос" }
+        local menu_items = { "Вирізати", "Копіювати", "Вставити", "", "Виділити все", "Шукати в ГОРОХ", "", "Озвучити", "Озвучити та зберегти", "", ">Змінити голос" }
         for _, v_name in ipairs(cfg.tts_voices_order) do
             local check = (v_name == cfg.tts_voice) and "• " or ""
             table.insert(menu_items, check .. (v_name:gsub("|", "||")))
@@ -6580,7 +6589,13 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             -- Select All
             state.anchor = 0
             state.cursor = #state.text
-        elseif ret == 5 or ret == 6 then
+        elseif ret == 5 then
+            -- Search in GOROH
+            local target = has_sel and state.text:sub(sel_min + 1, sel_max) or state.text
+            if target and target ~= "" then
+                trigger_dictionary_lookup(target)
+            end
+        elseif ret == 6 or ret == 7 then
             -- Speak (Озвучити) / Speak & Save
             local text_to_speak = ""
             if not has_sel then
@@ -6593,11 +6608,11 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             end
 
             if text_to_speak ~= "" then
-                play_tts_audio(text_to_speak, ret == 6)
+                play_tts_audio(text_to_speak, ret == 7)
             end
-        elseif ret >= 7 and ret < 7 + #cfg.tts_voices_order then
+        elseif ret >= 8 and ret < 8 + #cfg.tts_voices_order then
             -- Change TTS Voice
-            cfg.tts_voice = cfg.tts_voices_order[ret - 6]
+            cfg.tts_voice = cfg.tts_voices_order[ret - 7]
             save_settings()
             show_snackbar("Голос змінено на " .. cfg.tts_voice)
         end
@@ -6970,9 +6985,140 @@ end
 --- @param input_queue table List of key inputs
 local function draw_dictionary_modal(input_queue)
     if not dict_modal.show then return end
+    
+    local hovered_segment = nil
+
+    -- Helper to find word under cursor within a text string (Character-accurate)
+    local function get_word_at_x(text, rel_x)
+        if not text or text == "" then return 0, 0, "" end
+        
+        local cur_x = 0
+        local i = 1
+        local len = #text
+        
+        local current_word = ""
+        local word_start_x = 0
+        local word_width = 0
+        
+        -- Helper: check if a character is a word character (letter or apostrophe)
+        local function is_word_char(char)
+            local clean = char:gsub(acute, "")
+            -- Accept Cyrillic, Latin letters, and apostrophes
+            if clean:match("[%a']") then return true end
+            if clean:match("[А-Яа-яЁёІіЇїЄєҐґ]") then return true end
+            return false
+        end
+        
+        while i <= len do
+            -- Decode char (bytes check)
+            local b = text:byte(i)
+            local char_len = 1
+            if b >= 240 then char_len = 4
+            elseif b >= 224 then char_len = 3
+            elseif b >= 192 then char_len = 2
+            end
+            
+            local char_start = i
+            local char_end = i + char_len - 1
+            local next_i = i + char_len
+            
+            -- Handle acute accent (combining char)
+            if next_i <= len and text:byte(next_i) == 204 and text:byte(next_i+1) == 129 then
+                char_end = next_i + 1
+                next_i = next_i + 2
+            end
+            
+            local char = text:sub(char_start, char_end)
+            local sw = gfx.measurestr((char:gsub(acute, "")))
+            
+            -- Check if this is a word character or separator
+            if not is_word_char(char) then
+                -- Separator: check if we just finished a word
+                if current_word ~= "" then
+                    if rel_x >= word_start_x and rel_x < cur_x then
+                        return word_start_x, word_width, current_word 
+                    end
+                end
+                
+                -- Reset for next word
+                current_word = ""
+                word_width = 0
+                word_start_x = cur_x + sw
+            else
+                -- Word character
+                if current_word == "" then word_start_x = cur_x end
+                current_word = current_word .. char
+                word_width = word_width + sw
+            end
+            
+            cur_x = cur_x + sw
+            i = next_i
+        end
+        
+        -- Check last word
+        if current_word ~= "" then
+            if rel_x >= word_start_x and rel_x <= cur_x then
+                return word_start_x, word_width, current_word
+            end
+        end
+        
+        return 0, 0, ""
+    end
+
+    local function process_context_menu(target_text)
+        if not target_text then return end
+        target_text = target_text:match("^%s*(.-)%s*$")
+        if target_text == "" then return end
+        
+        local menu_items = { "Копіювати", "", "Шукати в ГОРОХ", "", "Озвучити", "Озвучити та зберегти", "", ">Змінити голос" }
+        for _, v_name in ipairs(cfg.tts_voices_order) do
+            local check = (v_name == cfg.tts_voice) and "• " or ""
+            table.insert(menu_items, check .. (v_name:gsub("|", "||")))
+        end
+        table.insert(menu_items, "<")
+        
+        local menu_str = table.concat(menu_items, "|")
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local ret = gfx.showmenu(menu_str)
+        UI_STATE.last_mouse_cap = gfx.mouse_cap 
+        
+        -- Reset dragging state and handle mouse to prevent expansion-drag on menu click
+        dict_modal.selection.active = false
+        UI_STATE.mouse_handled = true
+        if ret == 1 then
+            set_clipboard(target_text)
+            show_snackbar("Текст скопійовано")
+        elseif ret == 2 then
+            trigger_dictionary_lookup(target_text)
+        elseif ret == 3 or ret == 4 then
+            play_tts_audio(target_text, ret == 4)
+        elseif ret >= 5 and ret < 5 + #cfg.tts_voices_order then
+            cfg.tts_voice = cfg.tts_voices_order[ret - 4]
+            save_settings()
+            show_snackbar("Голос змінено на " .. cfg.tts_voice)
+        end
+    end
+
+    -- Check for resize (clear selection as layout shifts)
+    if dict_modal.last_w ~= gfx.w or dict_modal.last_h ~= gfx.h then
+        dict_modal.selection = { active = false, start_x = 0, start_y = 0, end_x = 0, end_y = 0, text = "" }
+        dict_modal.last_w, dict_modal.last_h = gfx.w, gfx.h
+    end
+
+    -- Handle pending context menu from previous frame (so selection draws first)
+    if dict_modal.pending_menu then
+        process_context_menu(dict_modal.pending_menu)
+        dict_modal.pending_menu = nil
+    end
 
     -- 1. Navigation & History (Handle FIRST to ensure state is clean for layout)
     local navigated = false
+    
+    -- Selection and Context Menu Globals (PRE-CALCULATE)
+    local mouse_x, mouse_y = gfx.mouse_x, gfx.mouse_y
+    local is_lmb_down = gfx.mouse_cap & 1 == 1
+    local is_rmb_clicked = (gfx.mouse_cap & 2 == 2) and (UI_STATE.last_mouse_cap & 2 == 0)
+    
     
     -- Keyboard shortcuts handling
     if input_queue then
@@ -7027,6 +7173,155 @@ local function draw_dictionary_modal(input_queue)
 
     if navigated then return end -- Skip one frame to re-trigger with new state
 
+    local function draw_dict_text_with_selection(text, use_all_caps, line_h, text_color)
+        if not text or text == "" then return 0 end
+        
+        local d_text = text
+        if use_all_caps then d_text = utf8_upper(text) end
+        
+        local sel = dict_modal.selection
+        local has_any_sel = (sel.start_x ~= sel.end_x or sel.start_y ~= sel.end_y)
+        
+        if not sel.active and not has_any_sel then
+            if text_color then set_color(text_color) end
+            draw_text_with_stress_marks(d_text)
+            return gfx.measurestr((d_text:gsub(acute, "")))
+        end
+
+        local cur_x, cur_y = gfx.x, gfx.y
+        local v_scroll = dict_modal.scroll_y or 0
+        local x1, y1 = sel.start_x, sel.start_y
+        local x2, y2 = sel.end_x, sel.end_y
+        
+        -- Convert Absolute Selection to Visual for rendering check
+        y1 = y1 + v_scroll
+        y2 = y2 + v_scroll
+        
+        -- Point to tiny selection range
+        if y1 == y2 then y2 = y2 + 0.001 end
+        
+        -- Normalize for logic: sy1 is always the top one
+        local iy1, ix1, iy2, ix2
+        if y1 < y2 or (math.abs(y1 - y2) < line_h * 0.5 and x1 < x2) then
+            iy1, ix1, iy2, ix2 = y1, x1, y2, x2
+        else
+            iy1, ix1, iy2, ix2 = y2, x2, y1, x1
+        end
+
+        local i = 1
+        local len = #d_text
+        local total_sw = 0
+        
+        while i <= len do
+            local b = d_text:byte(i)
+            local char_len = 1
+            if b >= 240 then char_len = 4
+            elseif b >= 224 then char_len = 3
+            elseif b >= 192 then char_len = 2
+            end
+            
+            local char = d_text:sub(i, i + char_len - 1)
+            local next_i = i + char_len
+            if next_i <= len and d_text:byte(next_i) == 204 and d_text:byte(next_i+1) == 129 then
+                char = char .. acute
+                next_i = next_i + 2
+            end
+            
+            local sw = gfx.measurestr((char:gsub(acute, "")))
+            
+            local is_selected = false
+            
+            -- Tighten Overlap Logic
+            local line_top = cur_y
+            local line_bot = cur_y + line_h
+            
+            -- Use iy1 as TOP and iy2 as BOTTOM (already normalized)
+            local iy1_in = (iy1 >= line_top and iy1 < line_bot)
+            local iy2_in = (iy2 > line_top and iy2 <= line_bot)
+            
+            if iy1_in and iy2_in then
+                -- Single line selection match
+                local char_x2 = cur_x + sw
+                if math.max(cur_x, ix1) < math.min(char_x2, ix2) then is_selected = true end
+            elseif iy1_in then
+                -- Starts on this line
+                if cur_x + sw > ix1 then is_selected = true end 
+            elseif iy2_in then
+                -- Ends on this line
+                if cur_x < ix2 then is_selected = true end
+            elseif iy1 < line_top and iy2 >= line_bot then
+                -- Middle lines: spans across this line completely
+                is_selected = true
+            end
+            
+            if is_selected then
+                set_color({0.0, 0.4, 1.0, 0.3})
+                gfx.rect(cur_x, cur_y, sw, line_h, 1)
+                sel.text = sel.text .. char
+            end
+            
+            if text_color then set_color(text_color) else set_color(UI.C_TXT) end
+            gfx.x, gfx.y = cur_x, cur_y
+            draw_text_with_stress_marks(char)
+            
+            cur_x = cur_x + sw
+            total_sw = total_sw + sw
+            i = next_i
+        end
+        
+        gfx.x = cur_x
+        return total_sw
+    end
+    
+    -- Helper to check if mouse is within the current selection relative to the current line being hovered
+    local function is_mouse_in_selection(line_h, line_y)
+        -- Check if there is ANY selection (active or persisted)
+        local sel = dict_modal.selection
+        if not sel.active and (sel.start_x == sel.end_x and sel.start_y == sel.end_y) then return false end
+        
+        local v_scroll = dict_modal.scroll_y or 0
+        local mx = gfx.mouse_x
+        local iy1, ix1, iy2, ix2
+        local x1, y1 = dict_modal.selection.start_x, dict_modal.selection.start_y
+        local x2, y2 = dict_modal.selection.end_x, dict_modal.selection.end_y
+        
+        -- Convert Absolute Selection to Visual for hit detection
+        y1 = y1 + v_scroll
+        y2 = y2 + v_scroll
+        
+        -- Point to tiny selection range
+        if y1 == y2 then y2 = y2 + 0.001 end
+        
+        -- Normalize
+        if y1 < y2 or (math.abs(y1 - y2) < line_h * 0.5 and x1 < x2) then
+            iy1, ix1, iy2, ix2 = y1, x1, y2, x2
+        else
+            iy1, ix1, iy2, ix2 = y2, x2, y1, x1
+        end
+        
+        -- Tighten Overlap Logic
+        local line_top = line_y
+        local line_bot = line_y + line_h
+        
+        local iy1_in = (iy1 >= line_top and iy1 < line_bot)
+        local iy2_in = (iy2 > line_top and iy2 <= line_bot)
+        
+        if iy1_in and iy2_in then
+            -- Entire selection is visually on this line (Single Line)
+            return mx >= ix1 and mx <= ix2
+        elseif iy1_in then
+            -- Starts on this line
+            return mx >= ix1
+        elseif iy2_in then
+            -- Ends on this line
+            return mx <= ix2
+        elseif iy1 < line_top and iy2 >= line_bot then
+            -- Selection spans across this line completely
+            return true
+        end
+        
+        return false
+    end
     
     -- Darken background
     gfx.set(0, 0, 0, 0.85)
@@ -7055,8 +7350,23 @@ local function draw_dictionary_modal(input_queue)
     
     -- Draw hover background
     if title_hover and not dict_modal.tts_loading then
-        set_color({0.3, 0.6, 1.0, 0.15})
+        set_color({1.0, 0.3, 0.3, 0.15})
         gfx.rect(title_x - S(5), title_y - S(2), title_w + S(10), title_h + S(4), 1)
+        
+        -- Support context menu for title -> Auto-select
+        if is_rmb_clicked and not is_mouse_in_selection(title_h, title_y) then
+            local rel_x = gfx.mouse_x - title_x
+            local wx, ww, wtxt = get_word_at_x(dict_modal.word, rel_x)
+            
+            hovered_segment = { text = wtxt }
+            -- Visual selection
+            dict_modal.selection = {
+                active = true,
+                start_x = title_x + wx, start_y = title_y - (dict_modal.scroll_y or 0),
+                end_x = title_x + wx + ww, end_y = title_y - (dict_modal.scroll_y or 0),
+                text = wtxt
+            }
+        end
     end
     
     -- Draw title text
@@ -7139,6 +7449,13 @@ local function draw_dictionary_modal(input_queue)
                     if not dict_modal.content[cat] then
                         dict_modal.content[cat] = fetch_dictionary_category(dict_modal.word, cat)
                     end
+                    -- Reset selection on tab switch
+                    dict_modal.selection = {
+                        active = false,
+                        start_x = 0, start_y = 0,
+                        end_x = 0, end_y = 0,
+                        text = ""
+                    }
                 end
             end
         end
@@ -7156,10 +7473,277 @@ local function draw_dictionary_modal(input_queue)
     local line_h = gfx.texth + S(4)
     
     -- Inputs (ESC to close)
+    
+    -- Layout Helper (Extracted to ensure copy works on unrendered items)
+    local function ensure_item_layout(item, width)
+        if item.layout and item.layout.width == width then return end
+        
+        item.layout = { width = width }
+                
+        if item.is_separator then
+            -- Separator Layout
+            item.layout = { width = width, is_separator = true, total_h = S(30) }
+        elseif type(item) == "table" and item.is_table then
+            -- Table Layout (Pass 1)
+            local col_w = width / item.cols
+            local occupancy = {} 
+            local is_start = {}
+            local row_heights = {}
+            local row_y_pos = {}
+            local running_y = 0
+            
+            item.layout.col_w = col_w
+            item.layout.occupancy = occupancy
+            item.layout.is_start = is_start
+            item.layout.row_heights = row_heights
+            
+            for r_idx, grid_row in ipairs(item.rows) do
+                occupancy[r_idx] = occupancy[r_idx] or {}
+                is_start[r_idx] = is_start[r_idx] or {}
+                local l_col = 1
+                local max_row_h = line_h 
+                
+                for _, cell in ipairs(grid_row.cells) do
+                    while occupancy[r_idx][l_col] do l_col = l_col + 1 end
+                    
+                    local cell_w = col_w * cell.colspan
+                    
+                    -- Wrapping
+                    local wrapped = wrap_rich_text(cell.segments, cell_w - 8, F.dict_std, "Arial", S(17), cell.is_header or grid_row.is_header)
+                    local needed_h = #wrapped * line_h
+                    
+                    local cell_info = {
+                        text = cell.text, 
+                        wrapped = wrapped,
+                        colspan = cell.colspan,
+                        rowspan = cell.rowspan,
+                        is_header = cell.is_header or grid_row.is_header,
+                        w = cell_w,
+                        x = (l_col - 1) * col_w
+                    }
+                    
+                    is_start[r_idx][l_col] = true
+                    for rr = 0, cell.rowspan - 1 do
+                        local target_r = r_idx + rr
+                        occupancy[target_r] = occupancy[target_r] or {}
+                        is_start[target_r] = is_start[target_r] or {}
+                        for cc = 0, cell.colspan - 1 do
+                            occupancy[target_r][l_col + cc] = cell_info
+                        end
+                    end
+                    
+                    if cell.rowspan == 1 then
+                        if needed_h > max_row_h then max_row_h = needed_h end
+                    end
+                    l_col = l_col + cell.colspan
+                end
+                row_heights[r_idx] = max_row_h + 20
+                row_y_pos[r_idx] = running_y
+                running_y = running_y + row_heights[r_idx]
+            end
+            item.layout.row_y_pos = row_y_pos
+            item.layout.total_h = running_y + 48 -- + margin
+            
+        else
+            -- Paragraph Layout
+            local para_data = item
+             -- Support legacy string
+            if type(item) == "string" then para_data = {segments = {{text = item}}, indent = 0} end
+            
+            local segments = para_data.segments or {}
+            local indent = para_data.indent or 0
+            -- Fix for phantom header issue: ensure is_header is respected from data
+            local is_header = para_data.is_header or false
+            
+            local indent_x = indent * 24
+            local effective_w = width - indent_x - 100
+            
+            local lines_to_draw = wrap_rich_text(segments, effective_w, F.dict_std, "Arial", S(17), is_header)
+            
+            item.layout.wrapped = lines_to_draw
+            item.layout.indent_x = indent_x
+            item.layout.is_header = is_header
+            item.layout.total_h = #lines_to_draw * line_h + S(10) -- slight margin
+            
+            -- Headers have tighter spacing
+            if is_header then item.layout.total_h = item.layout.total_h + 4 else item.layout.total_h = item.layout.total_h + 12 end
+        end
+    end
+
+    -- On-Demand Selection Text Generation (Iterates full content)
+    local function reconstruct_selection_text()
+        local s = dict_modal.selection
+        if (s.start_x == s.end_x and s.start_y == s.end_y) then return "" end
+       
+        -- Normalize selection: sy1 is top, sy2 is bottom
+        local sy1, sy2 = s.start_y, s.end_y
+        local sx1, sx2 = s.start_x, s.end_x
+        if sy1 > sy2 then sy1, sy2 = sy2, sy1; sx1, sx2 = sx2, sx1 end
+        
+        -- Convert point selection to tiny range to ensure consistent logic [top, bot)
+        if sy1 == sy2 then sy2 = sy2 + 0.001 end
+        
+        local res_text = ""
+        local cur_scan_y = content_y
+        
+        local items = dict_modal.filtered_data or (dict_modal.content and dict_modal.content[dict_modal.selected_tab])
+        if not items then return "" end
+
+        -- Helper to parse rich lines with character accuracy
+        local function get_line_selection(rich_line, line_top, line_bot, start_cx)
+            -- Exclusive hit test: [top, bot)
+            if sy1 >= line_bot or sy2 < line_top then return "" end
+            
+            local take_full = (sy1 <= line_top and sy2 >= line_bot)
+            local take_from = (sy1 >= line_top and sy1 < line_bot)
+            local take_to = (sy2 > line_top and sy2 <= line_bot)
+            
+            if not (take_full or take_from or take_to) then return "" end
+            
+            local line_txt = ""
+            local cx = start_cx
+            
+            for _, seg in ipairs(rich_line) do
+                if seg and seg.text then
+                    gfx.setfont(seg.is_bold and F.dict_bld or F.dict_std)
+                    local full_seg_w = gfx.measurestr((seg.text:gsub(acute, "")))
+                    
+                    if take_full then
+                        line_txt = line_txt .. seg.text
+                        cx = cx + full_seg_w
+                    else
+                        -- Character-accurate split
+                        local d_text = seg.text
+                        local i = 1
+                        local len = #d_text
+                        while i <= len do
+                            local b = d_text:byte(i)
+                            local char_len = 1
+                            if b >= 240 then char_len = 4
+                            elseif b >= 224 then char_len = 3
+                            elseif b >= 192 then char_len = 2
+                            end
+                            local char = d_text:sub(i, i + char_len - 1)
+                            local next_i = i + char_len
+                            if next_i <= len and d_text:byte(next_i) == 204 and d_text:byte(next_i+1) == 129 then
+                                char = char .. acute
+                                next_i = next_i + 2
+                            end
+                            
+                            local sw = gfx.measurestr((char:gsub(acute, "")))
+                            local char_x2 = cx + sw
+                            
+                            local is_selected = false
+                            if take_from and take_to then
+                                -- Selection starts and ends on this line
+                                if math.max(cx, sx1) < math.min(char_x2, sx2) then is_selected = true end
+                            elseif take_from then
+                                -- Selection starts here (continues below)
+                                if char_x2 > sx1 then is_selected = true end
+                            elseif take_to then
+                                -- Selection ends here (started above)
+                                if cx < sx2 then is_selected = true end
+                            end
+                            
+                            if is_selected then line_txt = line_txt .. char end
+                            cx = char_x2
+                            i = next_i
+                        end
+                    end
+                end
+            end
+            return line_txt
+        end
+
+        for _, item in ipairs(items) do
+            ensure_item_layout(item, content_w)
+            local item_h = (item.layout and item.layout.total_h) or 0
+            
+            if sy2 >= cur_scan_y and sy1 < cur_scan_y + item_h then
+                if item.is_table then
+                    local L = item.layout
+                    if L and L.row_heights and L.occupancy then
+                        for r_idx=1, #L.row_heights do
+                            local row_rel_y = L.row_y_pos[r_idx] or 0
+                            local row_y = cur_scan_y + row_rel_y
+                            for l_col = 1, item.cols do
+                                if L.is_start[r_idx] and L.is_start[r_idx][l_col] then
+                                    local cell = L.occupancy[r_idx][l_col]
+                                    if cell and cell.wrapped then
+                                        local total_cell_h = 0
+                                        for rr = 0, cell.rowspan - 1 do total_cell_h = total_cell_h + (L.row_heights[r_idx + rr] or 0) end
+                                        local ty = row_y + (total_cell_h - (#cell.wrapped * line_h))/2
+                                        for l_idx, rich_line in ipairs(cell.wrapped) do
+                                            local ly = ty + (l_idx - 1) * line_h
+                                            local line_txt = get_line_selection(rich_line, ly, ly + line_h, content_x + (cell.x or 0) + 4)
+                                           
+                                            if line_txt ~= "" then
+                                                res_text = res_text .. line_txt
+                                                if l_idx < #cell.wrapped then
+                                                    if res_text:sub(-1) ~= "-" and res_text:sub(-1) ~= " " then res_text = res_text .. " " end
+                                                else
+                                                    local is_last_in_row = (l_col + cell.colspan - 1 == item.cols)
+                                                    if is_last_in_row then
+                                                        if res_text:sub(-1) ~= "\n" then res_text = res_text .. "\n" end
+                                                    else
+                                                        if res_text:sub(-1) ~= " " then res_text = res_text .. " " end
+                                                    end
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                elseif item.is_separator then
+                    if res_text ~= "" and res_text:sub(-1) ~= "\n" then res_text = res_text .. "\n" end
+                    res_text = res_text .. "\n"
+                else
+                    local L = item.layout
+                    if L and L.wrapped then
+                        local para_y = cur_scan_y
+                        for l_idx, rich_line in ipairs(L.wrapped) do
+                            local ly = para_y + (l_idx - 1) * line_h
+                            local line_txt = get_line_selection(rich_line, ly, ly + line_h, content_x + (L.indent_x or 0))
+                           
+                            if line_txt ~= "" then
+                                res_text = res_text .. line_txt
+                                if l_idx < #L.wrapped then
+                                    if res_text:sub(-1) ~= "-" and res_text:sub(-1) ~= " " then res_text = res_text .. " " end
+                                else
+                                    if res_text:sub(-1) ~= "\n" then res_text = res_text .. "\n" end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            cur_scan_y = cur_scan_y + item_h
+        end
+        return res_text
+    end
+
     if input_queue then
         for _, char in ipairs(input_queue) do
+            -- Check for Ctrl+C (3) OR Command+C (Mac)
+            local is_copy = (char == 3)
+            
+            -- Alternative: Check modifiers globally
+            local is_cmd = (gfx.mouse_cap & 4 == 4)
+            if is_cmd and (char == 99 or char == 67) then is_copy = true end -- c or C
+            
             if char == 27 then -- ESC
                 dict_modal.show = false
+            elseif is_copy then
+                local s = dict_modal.selection
+                if (s.start_x ~= s.end_x or s.start_y ~= s.end_y) then
+                    local txt = reconstruct_selection_text()
+                    if txt and txt ~= "" then
+                        set_clipboard(txt:match("^%s*(.-)%s*$"))
+                        show_snackbar("Текст скопійовано")
+                    end
+                end
             end
         end
     end
@@ -7177,6 +7761,55 @@ local function draw_dictionary_modal(input_queue)
     dict_modal.scroll_y = dict_modal.scroll_y + (dict_modal.target_scroll_y - dict_modal.scroll_y) * 0.8
     if math.abs(dict_modal.target_scroll_y - dict_modal.scroll_y) < 0.5 then
         dict_modal.scroll_y = dict_modal.target_scroll_y
+    end
+    
+    local in_content_area = mouse_x >= content_x and mouse_x <= content_x + content_w and
+                            mouse_y >= content_y and mouse_y <= content_y + content_h
+
+    if is_lmb_down and in_content_area and not UI_STATE.mouse_handled and not is_obstructed then
+        if not dict_modal.selection.active then
+            local is_shift = (gfx.mouse_cap & 8 == 8)
+            local s = dict_modal.selection
+            local has_sel = (s.start_x ~= s.end_x or s.start_y ~= s.end_y)
+            
+            if is_shift and has_sel then
+                -- Shift-Click: Extend selection
+                local mx, my = mouse_x, mouse_y - (dict_modal.scroll_y or 0)
+                local d1 = (mx - s.start_x)^2 + (my - s.start_y)^2
+                local d2 = (mx - s.end_x)^2 + (my - s.end_y)^2
+                
+                if d1 < d2 then
+                    -- Closer to Start: anchored at End, drag new Start (which becomes visual End logic)
+                    s.start_x, s.start_y = s.end_x, s.end_y
+                end
+                -- If closer to End: anchored at Start (default), dragging End.
+                
+                -- Update active state immediately
+                s.active = true
+                s.end_x, s.end_y = mx, my
+                s.text = "" 
+            else
+                -- New Selection
+                dict_modal.selection.active = true
+                dict_modal.selection.start_x = mouse_x
+                dict_modal.selection.start_y = mouse_y - (dict_modal.scroll_y or 0)
+                dict_modal.selection.end_x = mouse_x
+                dict_modal.selection.end_y = mouse_y - (dict_modal.scroll_y or 0)
+                dict_modal.selection.text = ""
+            end
+        else
+            dict_modal.selection.end_x = mouse_x
+            dict_modal.selection.end_y = mouse_y - (dict_modal.scroll_y or 0)
+            dict_modal.selection.text = ""
+        end
+    elseif not is_lmb_down then
+        dict_modal.selection.active = false
+    end
+
+    -- Reset selection if clicking elsewhere
+    if is_mouse_clicked(1) and not in_content_area and not is_obstructed then
+        dict_modal.selection.segments = {}
+        dict_modal.selection.text = ""
     end
     
     -- Draw text within clip
@@ -7202,103 +7835,35 @@ local function draw_dictionary_modal(input_queue)
         gfx.y = content_y + 20
         gfx.drawstr("Немає даних для цієї категорії (або ГОРОХ знову впав).")
     else
+        local hovered_segment = nil -- Reset each frame
+        -- Trigger context menu if needed (Bridge to External Consumer)
+        if is_rmb_clicked and not is_obstructed then
+            -- reaper.ShowConsoleMsg("DEBUG RMB Clicked. Active="..tostring(dict_modal.selection.active).."\n")
+            local target_text = ""
+            
+            -- On-Demand Reconstruction for Context Menu
+            local s = dict_modal.selection
+            if (s.start_x ~= s.end_x or s.start_y ~= s.end_y) then
+                local txt = reconstruct_selection_text()
+                if txt and txt ~= "" then
+                    dict_modal.selection.text = txt -- Populate for external consumer!
+                    target_text = txt
+                end
+            end
+            
+            if target_text == "" and hovered_segment then
+                target_text = hovered_segment.text
+            end
+    
+            if target_text ~= "" then
+                -- Defer menu to next frame to allow selection to draw
+                dict_modal.pending_menu = target_text
+            end
+        end
         for _, item in ipairs(active_content) do
             
             -- LAYOUT PHASE (Cache results)
-            local needs_layout = not item.layout or item.layout.width ~= content_w
-            
-            if needs_layout then
-                item.layout = { width = content_w }
-                
-                if item.is_separator then
-                    -- Separator Layout
-                    item.layout = { width = content_w, is_separator = true, total_h = S(30) }
-                elseif type(item) == "table" and item.is_table then
-                    -- Table Layout (Pass 1)
-                    local col_w = content_w / item.cols
-                    local occupancy = {} 
-                    local is_start = {}
-                    local row_heights = {}
-                    local row_y_pos = {}
-                    local running_y = 0
-                    
-                    item.layout.col_w = col_w
-                    item.layout.occupancy = occupancy
-                    item.layout.is_start = is_start
-                    item.layout.row_heights = row_heights
-                    
-                    for r_idx, grid_row in ipairs(item.rows) do
-                        occupancy[r_idx] = occupancy[r_idx] or {}
-                        is_start[r_idx] = is_start[r_idx] or {}
-                        local l_col = 1
-                        local max_row_h = line_h 
-                        
-                        for _, cell in ipairs(grid_row.cells) do
-                            while occupancy[r_idx][l_col] do l_col = l_col + 1 end
-                            
-                            local cell_w = col_w * cell.colspan
-                            
-                            -- Wrapping
-                            local wrapped = wrap_rich_text(cell.segments, cell_w - 8, F.dict_std, "Arial", S(17), cell.is_header or grid_row.is_header)
-                            local needed_h = #wrapped * line_h
-                            
-                            local cell_info = {
-                                text = cell.text, 
-                                wrapped = wrapped,
-                                colspan = cell.colspan,
-                                rowspan = cell.rowspan,
-                                is_header = cell.is_header or grid_row.is_header,
-                                w = cell_w,
-                                x = (l_col - 1) * col_w
-                            }
-                            
-                            is_start[r_idx][l_col] = true
-                            for rr = 0, cell.rowspan - 1 do
-                                local target_r = r_idx + rr
-                                occupancy[target_r] = occupancy[target_r] or {}
-                                is_start[target_r] = is_start[target_r] or {}
-                                for cc = 0, cell.colspan - 1 do
-                                    occupancy[target_r][l_col + cc] = cell_info
-                                end
-                            end
-                            
-                            if cell.rowspan == 1 then
-                                if needed_h > max_row_h then max_row_h = needed_h end
-                            end
-                            l_col = l_col + cell.colspan
-                        end
-                        row_heights[r_idx] = max_row_h + 20
-                        row_y_pos[r_idx] = running_y
-                        running_y = running_y + row_heights[r_idx]
-                    end
-                    item.layout.row_y_pos = row_y_pos
-                    item.layout.total_h = running_y + 48 -- + margin
-                    
-                else
-                    -- Paragraph Layout
-                    local para_data = item
-                     -- Support legacy string
-                    if type(item) == "string" then para_data = {segments = {{text = item}}, indent = 0} end
-                    
-                    local segments = para_data.segments or {}
-                    local indent = para_data.indent or 0
-                    -- Fix for phantom header issue: ensure is_header is respected from data
-                    local is_header = para_data.is_header or false
-                    
-                    local indent_x = indent * 24
-                    local effective_w = content_w - indent_x - 100
-                    
-                    local lines_to_draw = wrap_rich_text(segments, effective_w, F.dict_std, "Arial", S(17), is_header)
-                    
-                    item.layout.wrapped = lines_to_draw
-                    item.layout.indent_x = indent_x
-                    item.layout.is_header = is_header
-                    item.layout.total_h = #lines_to_draw * line_h + S(10) -- slight margin
-                    
-                    -- Headers have tighter spacing
-                    if is_header then item.layout.total_h = item.layout.total_h + 4 else item.layout.total_h = item.layout.total_h + 12 end
-                end
-            end
+            ensure_item_layout(item, content_w)
             
             -- RENDER PHASE (Clipping)
             local item_h = item.layout.total_h
@@ -7375,24 +7940,41 @@ local function draw_dictionary_modal(input_queue)
                                                 local sw = gfx.measurestr((seg.text:gsub(acute, "")))
                                                 
                                                 if seg.is_link then
-                                                    set_color(UI.C_SEL)
+                                                    set_color({0.4, 0.7, 1.0, 1})
                                                     gfx.line(current_x, ly + gfx.texth, current_x + sw, ly + gfx.texth)
                                                     if is_mouse_clicked() then
                                                         if not is_obstructed and gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h then
+                                                            -- Reset selection on navigation
+                                                            dict_modal.selection = { active = false, start_x=0, start_y=0, end_x=0, end_y=0, text="" }
                                                             trigger_dictionary_lookup(seg.word)
                                                         end
                                                     end
                                                 else
-                                                    -- TTS Logic
-                                                     local clean_txt = seg.text:gsub(acute, ""):lower():match("^%s*(.-)%s*$")
-                                                     local is_excluded = clean_txt == "—" or clean_txt == "називний" or clean_txt == "родовий" or clean_txt == "давальний" or clean_txt == "знахідний" or clean_txt == "орудний" or clean_txt == "місцевий" or clean_txt == "кличний" or clean_txt == "1 особа" or clean_txt == "2 особа" or clean_txt == "3 особа" or clean_txt == "інфінітив" or clean_txt == "чол. р." or clean_txt == "жін. р." or clean_txt == "сер. р." or clean_txt:match("^%s*$")
-                                                     
-                                                     if not cell.is_header and not is_excluded then
-                                                        local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
-                                                        local is_hovering = is_inflection_tab and UI_STATE.window_focused and gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h
+                                                    -- TTS Logic / Selection
+                                                    local clean_txt = seg.text:gsub(acute, ""):lower():match("^%s*(.-)%s*$")
+                                                    local is_excluded = clean_txt == "—" or clean_txt == "називний" or clean_txt == "родовий" or clean_txt == "давальний" or clean_txt == "знахідний" or clean_txt == "орудний" or clean_txt == "місцевий" or clean_txt == "кличний" or clean_txt == "1 особа" or clean_txt == "2 особа" or clean_txt == "3 особа" or clean_txt == "інфінітив" or clean_txt == "чол. р." or clean_txt == "жін. р." or clean_txt == "сер. р." or clean_txt:match("^%s*$")
+                                                    
+                                                    local seg_hover = UI_STATE.window_focused and gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h
+                                                    
+                                                    if seg_hover and is_rmb_clicked and not is_obstructed and not is_mouse_in_selection(line_h, ly) then
+                                                        local rel_x = gfx.mouse_x - current_x
+                                                        local wx, ww, wtxt = get_word_at_x(seg.text, rel_x)
                                                         
-                                                        if is_hovering and not is_obstructed then
-                                                            set_color({0.3, 0.6, 1.0, 0.15})
+                                                        hovered_segment = { text = wtxt, word = seg.word } 
+                                                        
+                                                        -- Auto-select for visual feedback
+                                                        dict_modal.selection = {
+                                                            active = true,
+                                                            start_x = current_x + wx, start_y = ly - (dict_modal.scroll_y or 0),
+                                                            end_x = current_x + wx + ww, end_y = ly - (dict_modal.scroll_y or 0),
+                                                            text = "" -- Let draw_dict_text_with_selection populate this to avoid duplication
+                                                        }
+                                                    end
+
+                                                    if not cell.is_header and not is_excluded then
+                                                        local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
+                                                        if is_inflection_tab and seg_hover and not is_obstructed then
+                                                            set_color({1.0, 0.3, 0.3, 0.15})
                                                             gfx.rect(current_x - 2, ly - 1, sw + 4, line_h + 2, 1)
                                                             set_color(UI.C_ACCENT or UI.C_SEL)
                                                             if is_mouse_clicked() and not dict_modal.tts_loading then
@@ -7400,17 +7982,14 @@ local function draw_dictionary_modal(input_queue)
                                                                 if not tts_text or tts_text == "" then tts_text = seg.text end
                                                                 play_tts_audio(tts_text)
                                                             end
-                                                        else
-                                                            if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
                                                         end
-                                                     else
-                                                         if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
-                                                     end
+                                                    end
                                                 end
                                                 
-                                                gfx.x = current_x
-                                                draw_text_with_stress_marks(seg.text)
-                                                current_x = current_x + sw
+                                                gfx.x = current_x; gfx.y = ly
+                                                local eff_color = seg.is_link and {0.4, 0.7, 1.0, 1} or (seg.color or UI.C_TXT)
+                                                local drawn_w = draw_dict_text_with_selection(seg.text, false, line_h, eff_color)
+                                                current_x = current_x + drawn_w
                                             end
                                         end
                                     end
@@ -7434,48 +8013,66 @@ local function draw_dictionary_modal(input_queue)
                     local L = item.layout
                     local current_line_y = cur_y
                     
-                    for _, rich_line in ipairs(L.wrapped) do
+                    for l_idx, rich_line in ipairs(L.wrapped) do
                         if current_line_y + line_h > content_y and current_line_y < content_y + content_h then
-                             local segment_x = content_x + L.indent_x
-                             for _, seg in ipairs(rich_line) do
-                                 if seg.is_bold or (L.is_header and not seg.is_plain) then gfx.setfont(F.dict_bld) else gfx.setfont(F.dict_std) end
-                                 gfx.x = segment_x; gfx.y = current_line_y
-                                 
-                                 local sw = gfx.measurestr((seg.text:gsub(acute, "")))
-                                 
-                                 if seg.is_link then
-                                    set_color(UI.C_SEL)
+                            local segment_x = content_x + L.indent_x
+                            for _, seg in ipairs(rich_line) do
+                                if seg.is_bold or (L.is_header and not seg.is_plain) then gfx.setfont(F.dict_bld) else gfx.setfont(F.dict_std) end
+                                gfx.x = segment_x; gfx.y = current_line_y
+                                
+                                local sw = gfx.measurestr((seg.text:gsub(acute, "")))
+                                
+                                if seg.is_link then
+                                    set_color({0.4, 0.7, 1.0, 1})
                                     gfx.line(gfx.x, gfx.y + gfx.texth, gfx.x + sw, gfx.y + gfx.texth)
                                     if is_mouse_clicked() then
                                         if not is_obstructed and gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h then
+                                            -- Reset selection on navigation
+                                            dict_modal.selection = { active = false, start_x=0, start_y=0, end_x=0, end_y=0, text="" }
                                             trigger_dictionary_lookup(seg.word)
                                         end
                                     end
-                                 elseif L.is_header and not seg.is_plain and seg.text:match("%S") then
-                                      local clean_txt = seg.text:gsub(acute, ""):match("^%s*(.-)%s*$")
-                                      local is_symbol = clean_txt:match("^[%p%s]+$")
-                                      local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
-                                      local is_hovering = is_inflection_tab and not is_symbol and UI_STATE.window_focused and gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h
-                                      
-                                      if is_hovering and not is_obstructed then
-                                          set_color({0.3, 0.6, 1.0, 0.15})
-                                          gfx.rect(gfx.x - 2, gfx.y - 1, sw + 4, line_h + 2, 1)
-                                          set_color(UI.C_ACCENT or UI.C_SEL)
-                                          if is_mouse_clicked() and not dict_modal.tts_loading then
-                                              local tts_text = seg.word
-                                              if not tts_text or tts_text == "" then tts_text = seg.text end
-                                              play_tts_audio(tts_text)
-                                          end
-                                      else
-                                          if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
-                                      end
-                                 else
-                                     if seg.color then set_color(seg.color) else set_color(UI.C_TXT) end
-                                 end
-                                 
-                                 draw_text_with_stress_marks(seg.text)
-                                 segment_x = segment_x + sw
-                             end
+                                else
+                                    -- Text / Selection
+                                    local seg_hover = UI_STATE.window_focused and gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h
+
+                                    -- SELECTION LOGIC
+                                    if seg_hover and is_rmb_clicked and not is_obstructed and not is_mouse_in_selection(line_h, gfx.y) then
+                                        local rel_x = gfx.mouse_x - gfx.x
+                                        local wx, ww, wtxt = get_word_at_x(seg.text, rel_x)
+                                        
+                                        hovered_segment = { text = wtxt, word = seg.word }
+                                        
+                                        -- Auto-select for visual feedback
+                                        dict_modal.selection = {
+                                            active = true,
+                                            start_x = gfx.x + wx, start_y = gfx.y - (dict_modal.scroll_y or 0),
+                                            end_x = gfx.x + wx + ww, end_y = gfx.y - (dict_modal.scroll_y or 0),
+                                            text = "" -- Let draw_dict_text_with_selection populate this to avoid duplication
+                                        }
+                                    end
+
+                                    if L.is_header and not seg.is_plain and seg.text:match("%S") then
+                                        local clean_txt = seg.text:gsub(acute, ""):match("^%s*(.-)%s*$")
+                                        local is_symbol = clean_txt:match("^[%p%s]+$")
+                                        local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
+                                        if is_inflection_tab and not is_symbol and seg_hover and not is_obstructed then
+                                            set_color({1.0, 0.3, 0.3, 0.15})
+                                            gfx.rect(gfx.x - 2, gfx.y - 1, sw + 4, line_h + 2, 1)
+                                            set_color(UI.C_ACCENT or UI.C_SEL)
+                                            if is_mouse_clicked() and not dict_modal.tts_loading then
+                                                local tts_text = seg.word
+                                                if not tts_text or tts_text == "" then tts_text = seg.text end
+                                                play_tts_audio(tts_text)
+                                            end
+                                        end
+                                    end
+                                end
+                                gfx.x = segment_x; gfx.y = current_line_y
+                                 local eff_color = seg.is_link and {0.4, 0.7, 1.0, 1} or (seg.color or UI.C_TXT)
+                                local drawn_w = draw_dict_text_with_selection(seg.text, false, line_h, eff_color)
+                                segment_x = segment_x + drawn_w
+                            end     
                         end
                         current_line_y = current_line_y + line_h
                     end
@@ -7485,6 +8082,29 @@ local function draw_dictionary_modal(input_queue)
             -- Advance cursor by total height regardless of visibility
             cur_y = item_y + item.layout.total_h
             total_h = total_h + item.layout.total_h
+        end
+    end
+
+    -- Trigger context menu if needed
+    if is_rmb_clicked and not is_obstructed then
+        local target_text = ""
+        
+        -- On-Demand Reconstruction for Context Menu
+        if dict_modal.selection.active then
+            local txt = reconstruct_selection_text()
+            if txt and txt ~= "" then
+                dict_modal.selection.text = txt -- Populate for external consumer!
+                target_text = txt
+            end
+        end
+        
+        if target_text == "" and hovered_segment then
+            target_text = hovered_segment.text
+        end
+
+        if target_text ~= "" then
+            -- Defer menu to next frame to allow selection to draw
+            dict_modal.pending_menu = target_text
         end
     end
     
@@ -8111,6 +8731,10 @@ local function open_text_editor(initial_text, callback, line_idx, all_lines, is_
     text_editor_state.callback = callback
     text_editor_state.context_line_idx = line_idx
     text_editor_state.context_all_lines = all_lines
+
+    if dict_modal.show then
+        dict_modal.show = false
+    end
     
     -- Suppress interaction for a split second to prevent double-click bleed-through
     text_editor_state.interaction_start_time = reaper.time_precise() + 0.25
@@ -14959,10 +15583,6 @@ local function handle_remote_commands()
         local word = reaper.GetExtState("SubassSync", "WORD")
         if word ~= "" then
             trigger_dictionary_lookup(word)
-
-            if text_editor_state.active then
-                show_snackbar("Потрібно закрити редактор, аби побачити ГОРОХ", "error")
-            end
         end
     elseif cmd_id == 4 then -- EDIT_SPECIFIC (with exact times)
         local t1 = reaper.gmem_read(1)
@@ -15356,10 +15976,10 @@ local function main()
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
     
     -- Main Drawing Logic
-    if text_editor_state.active then
-        draw_text_editor(input_queue)
-    elseif dict_modal.show then
+    if dict_modal.show then
         draw_dictionary_modal(input_queue)
+    elseif text_editor_state.active then
+        draw_text_editor(input_queue)
     else
         if UI_STATE.current_tab == 1 then 
             if UI_STATE.inside_window then handle_drag_drop() end
