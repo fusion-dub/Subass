@@ -31,7 +31,4 @@ if %ERRORLEVEL% EQU 0 (
         exit /b 1
     )
 )
-
-echo.
-echo Server stopped.
-pause
+REM Terminal will be closed automatically by the Python script's exit logic
