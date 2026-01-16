@@ -268,7 +268,8 @@ local UI_STATE = {
     window_focused = true, -- Track if window is focused
     inside_window = false, -- Track if mouse is within window bounds
     AUTO_UPDATE_INTERVAL = 21600, -- 6 hours
-    last_update_check_time = 0
+    last_update_check_time = 0,
+    is_restarting = false
 }
 
 local regions = {}
@@ -773,6 +774,9 @@ function UTILS.restart_script()
     
     local script_path = debug.getinfo(1, 'S').source:match("^@?(.*)")
     if gfx.quit then gfx.quit() end
+    
+    UI_STATE.is_restarting = true
+    
     reaper.defer(function()
         dofile(script_path)
     end)
@@ -16004,6 +16008,8 @@ local function process_post_recording()
 end
 
 local function main()
+    if UI_STATE.is_restarting then return end
+    
     -- Heartbeat for Lionzz
     reaper.gmem_write(100, reaper.time_precise())
     handle_remote_commands()
