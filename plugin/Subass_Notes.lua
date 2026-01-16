@@ -9645,9 +9645,9 @@ local function draw_file()
                 py_script = py_script:gsub("/", "\\")
                 reaper.ExecProcess('cmd.exe /C start "" "' .. py_exe .. '" "' .. py_script .. '"', -1)
             elseif os_name:match("OSX") or os_name:match("macOS") then
-                -- macOS: Tell Terminal.app to run Python directly (non-blocking)
-                -- Use -1 for timeout to return immediately and avoid blocking REAPER
-                local cmd = string.format('/usr/bin/open -a Terminal.app --args python3 "%s"', py_script)
+                -- macOS: Launch in Terminal (non-blocking)
+                -- We use open -n to ensure a new Terminal window handles the script
+                local cmd = string.format('open -n -a Terminal.app "%s"', py_script)
                 reaper.ExecProcess(cmd, -1)
             else
                 -- Linux: Direct background execution
