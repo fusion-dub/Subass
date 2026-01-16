@@ -267,6 +267,8 @@ local UI_STATE = {
     last_is_recording = false,
     window_focused = true, -- Track if window is focused
     inside_window = false, -- Track if mouse is within window bounds
+    AUTO_UPDATE_INTERVAL = 21600, -- 6 hours
+    last_update_check_time = 0
 }
 
 local regions = {}
@@ -1037,7 +1039,9 @@ local global_async_pool = {} -- { { id=str, out_file=str, done_file=str, callbac
 --- Execute a shell command asynchronously (background task)
 --- @param shell_cmd string Command to execute
 --- @param callback function Callback function(output) on completion
-local function run_async_command(shell_cmd, callback)
+--- @param is_silent boolean? If true, don't show "Loading..." loader
+--- @param loading_text string? Optional custom loading text
+local function run_async_command(shell_cmd, callback, is_silent, loading_text)
     local id = tostring(os.time()) .. "_" .. math.random(1000,9999)
     local path = reaper.GetResourcePath() .. "/Scripts/"
     local out_file = path .. "async_out_" .. id .. ".tmp"
@@ -1100,8 +1104,10 @@ local function run_async_command(shell_cmd, callback)
         callback = callback
     })
     
-    UI_STATE.script_loading_state.active = true
-    UI_STATE.script_loading_state.text = "Завантаження даних..."
+    if not is_silent then
+        UI_STATE.script_loading_state.active = true
+        UI_STATE.script_loading_state.text = loading_text or "Завантаження даних..."
+    end
 end
 
 local sws_alert_shown = false
@@ -5455,7 +5461,8 @@ local function wrap_text(text, max_w)
 end
 
 --- Run auto-update script and show results
-local function check_for_updates()
+--- @param is_silent boolean If true, don't show "checking" loader or "up-to-date" message
+local function check_for_updates(is_silent)
     local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
     local py_script = script_path .. "subass_autoupdate.py"
     
@@ -5470,11 +5477,8 @@ local function check_for_updates()
         cmd = string.format("'%s' '%s' '%s'", py_exe, py_script, script_title)
     end
 
-    UI_STATE.script_loading_state.active = true
-    UI_STATE.script_loading_state.text = "Перевіряю оновлення..."
-    
     run_async_command(cmd, function(output)
-        UI_STATE.script_loading_state.active = false
+        if not is_silent then UI_STATE.script_loading_state.active = false end
         if output and output ~= "" then
             -- Parse line-based format
             local data = {}
@@ -5513,9 +5517,6 @@ local function check_for_updates()
                             update_cmd = string.format("'%s' '%s' --update '%s'", py_exe, py_script, data.download_url or "")
                         end
                         
-                        UI_STATE.script_loading_state.active = true
-                        UI_STATE.script_loading_state.text = "Оновлюю..."
-                        
                         run_async_command(update_cmd, function(upd_output)
                             UI_STATE.script_loading_state.active = false
                             local ok_msg = "Оновлення успішно завершено!"
@@ -5525,18 +5526,18 @@ local function check_for_updates()
                             else
                                 reaper.MB(upd_output or "Помилка оновлення.", "Автооновитель", 0)
                             end
-                        end)
+                        end, false, "Оновлюю...")
                     end
                 end
-            else
-                -- If not available, we show either the python msg or "you have latest"
+            elseif not is_silent then
+                -- If not available and NOT silent, we show either the python msg or "you have latest"
                 local clean_out = output:gsub("UPDATE_AVAILABLE: false[\r\n]*", ""):gsub("CURRENT_TITLE: .-[\r\n]*", ""):match("^%s*(.-)%s*$")
                 reaper.MB(clean_out ~= "" and clean_out or "У вас вже встановлена актуальна версія.", "Перевірка оновлень", 0)
             end
-        else
+        elseif not is_silent then
             reaper.MB("Не вдалося отримати відповідь від сервера оновлень.\nКоманда: " .. cmd, "Помилка", 0)
         end
-    end)
+    end, is_silent, "Перевіряю оновлення...")
 end
 
 --- Wrap rich text (segments) to fit width
@@ -16163,6 +16164,16 @@ local function main()
 
     -- Async handling and Loader must be drawn BEFORE gfx.update
     check_async_pool()
+    
+    -- Periodic Update Check
+    if reaper.time_precise() - UI_STATE.last_update_check_time > UI_STATE.AUTO_UPDATE_INTERVAL then
+        UI_STATE.last_update_check_time = reaper.time_precise()
+        -- Only check if we are not already doing something async
+        if not UI_STATE.script_loading_state.active then 
+            check_for_updates(true) -- Silent check
+        end
+    end
+
     draw_loader()
     
     process_post_recording()
