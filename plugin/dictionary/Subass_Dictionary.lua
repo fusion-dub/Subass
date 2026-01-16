@@ -1,5 +1,5 @@
 -- @description Subass Dictionary
--- @version 1.3
+-- @version 1.4
 -- @author Fusion (Fusion Dub)
 -- @about Dictionary of slang, idioms and terminology for dubbing.
 
@@ -298,7 +298,7 @@ local function loop()
     -- POP GLOBAL STYLE
     Style.pop(ctx)
 
-    if open then
+    if open and reaper.GetExtState("Subass_Global", "ForceCloseComplementary") ~= "1" then
         reaper.defer(loop)
     end
 end
