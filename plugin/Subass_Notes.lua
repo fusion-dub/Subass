@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.1.6
+-- @version 4.1.7
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.1.6"
+local script_title = "Subass Notes v4.1.7"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -14054,9 +14054,7 @@ local function draw_table(input_queue)
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     find_replace_state.show = true
-                    if cfg.show_markers_in_table then
-                        show_snackbar("Знайти та замінити не працюватиме для правок", "info")
-                    end
+                    show_snackbar("'Знайти та замінити' працює лише для колонки 'Репліка'", "info")
                 elseif ret == 2 then
                     cfg.reader_mode = not cfg.reader_mode
                     if cfg.reader_mode then
@@ -14356,7 +14354,8 @@ local function draw_table(input_queue)
                            table_data_cache.sort_col ~= table_sort.col or
                            table_data_cache.sort_dir ~= table_sort.dir or
                            table_data_cache.show_markers ~= cfg.show_markers_in_table or
-                           table_data_cache.case_sensitive ~= find_replace_state.case_sensitive)
+                           table_data_cache.case_sensitive ~= find_replace_state.case_sensitive or
+                           table_data_cache.fr_show ~= find_replace_state.show)
 
     if cache_invalid then
         local raw_data = {}
@@ -14415,7 +14414,7 @@ local function draw_table(input_queue)
                 index_match = tostring(line.index or ""):lower():find(query_clean, 1, true)
             end
 
-            if query == "" or text_match or actor_match or index_match then
+            if query == "" or text_match or (not find_replace_state.show and (actor_match or index_match)) then
                 line.h_text = h_text -- Store pre-calculated highlight
                 line.h_actor = h_actor
                 
@@ -14472,6 +14471,7 @@ local function draw_table(input_queue)
         table_data_cache.sort_dir = table_sort.dir
         table_data_cache.show_markers = cfg.show_markers_in_table
         table_data_cache.case_sensitive = use_case
+        table_data_cache.fr_show = find_replace_state.show
         
         -- Cleanup selection of stale marker indices (only those not in current raw_data)
         -- We do NOT cleanup based on 'filtered' as that would wipe selection during search
@@ -14510,7 +14510,8 @@ local function draw_table(input_queue)
                             last_layout_state.col_w_start ~= cfg.col_w_start or
                             last_layout_state.col_w_end ~= cfg.col_w_end or
                             last_layout_state.col_w_cps ~= cfg.col_w_cps or
-                            last_layout_state.col_w_actor ~= cfg.col_w_actor)
+                            last_layout_state.col_w_actor ~= cfg.col_w_actor or
+                            last_layout_state.fr_show ~= find_replace_state.show)
 
     local x_off = last_layout_state.x_off or {S(10)}
     local col_keys = last_layout_state.col_keys or {}
@@ -14577,7 +14578,8 @@ local function draw_table(input_queue)
             col_vis_start = cfg.col_table_start,
             col_vis_end = cfg.col_table_end,
             col_vis_cps = cfg.col_table_cps,
-            col_vis_actor = cfg.col_table_actor
+            col_vis_actor = cfg.col_table_actor,
+            fr_show = find_replace_state.show
         }
     end
 
