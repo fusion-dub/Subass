@@ -682,10 +682,14 @@ def launch_gui():
                 pass
         elif sys.platform == "win32":
             try:
-                # On Windows, taskkill can be used to close the parent cmd window
-                # We target the parent PID if possible, or just exit and let the .bat finish
-                # If we want it to close IMMEDIATELY on Ctrl+C without further batch processing:
-                os.system("taskkill /F /PID " + str(os.getppid()) + " >nul 2>&1")
+                import ctypes
+                # Post WM_CLOSE (0x10) to the console window
+                hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+                if hwnd:
+                    ctypes.windll.user32.PostMessageW(hwnd, 0x10, 0, 0)
+                else:
+                    # Fallback to killing the parent if possible
+                    os.system("taskkill /F /PID " + str(os.getppid()) + " >nul 2>&1")
             except:
                 pass
         sys.exit(0)
