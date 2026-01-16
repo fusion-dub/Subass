@@ -9645,12 +9645,14 @@ local function draw_file()
                 py_script = py_script:gsub("/", "\\")
                 reaper.ExecProcess('cmd.exe /C start "" "' .. py_exe .. '" "' .. py_script .. '"', -1)
             elseif os_name:match("OSX") or os_name:match("macOS") then
-                -- macOS: Use python3 in Terminal
-                local cmd = 'open -a Terminal.app "' .. py_script .. '"'
-                os.execute(cmd)
+                -- macOS: Tell Terminal.app to run Python directly (non-blocking)
+                -- Use -1 for timeout to return immediately and avoid blocking REAPER
+                local cmd = string.format('/usr/bin/open -a Terminal.app --args python3 "%s"', py_script)
+                reaper.ExecProcess(cmd, -1)
             else
-                -- Linux: Use python3 in background
-                os.execute('python3 "' .. py_script .. '" &')
+                -- Linux: Direct background execution
+                local py_script = script_path .. "stress/ukrainian_stress_tool.py"
+                reaper.ExecProcess('python3 "' .. py_script .. '" &', -1)
             end
         elseif ret == 3 then
             -- Export as SRT
