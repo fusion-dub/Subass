@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.1.5
+-- @version 4.1.6
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.1.5"
+local script_title = "Subass Notes v4.1.6"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -9640,9 +9640,10 @@ local function draw_file()
             
             if os_name:match("Win") then
                 -- Windows: Launch Python directly in a new CMD window (non-blocking)
+                -- Use -1 for timeout to return immediately and avoid blocking REAPER
                 local py_exe = requirements_state.python.executable or "python"
                 py_script = py_script:gsub("/", "\\")
-                reaper.ExecProcess('cmd.exe /C start "" "' .. py_exe .. '" "' .. py_script .. '"', 0)
+                reaper.ExecProcess('cmd.exe /C start "" "' .. py_exe .. '" "' .. py_script .. '"', -1)
             elseif os_name:match("OSX") or os_name:match("macOS") then
                 -- macOS: Use python3 in Terminal
                 local cmd = 'open -a Terminal.app "' .. py_script .. '"'
