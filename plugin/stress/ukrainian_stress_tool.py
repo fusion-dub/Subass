@@ -671,7 +671,24 @@ def launch_gui():
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n\n👋 Дякуємо за використання Ukrainian Stress Tool!")
-        server.shutdown()
+    finally:
+        server.server_close()
+        # On macOS, try to close the terminal window automatically
+        if sys.platform == "darwin":
+            try:
+                # Use AppleScript to close the front window of Terminal without confirmation
+                os.system("osascript -e 'tell application \"Terminal\" to close front window saving no' &")
+            except:
+                pass
+        elif sys.platform == "win32":
+            try:
+                # On Windows, taskkill can be used to close the parent cmd window
+                # We target the parent PID if possible, or just exit and let the .bat finish
+                # If we want it to close IMMEDIATELY on Ctrl+C without further batch processing:
+                os.system("taskkill /F /PID " + str(os.getppid()) + " >nul 2>&1")
+            except:
+                pass
+        sys.exit(0)
 
 
 if __name__ == "__main__":
