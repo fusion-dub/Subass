@@ -6,14 +6,83 @@ Supports both the Goroh (v1) backend and the direct Gemini Beta (v1beta1) backen
 """
 
 import re
+import os
 import sys
-import base64
-import hashlib
-import requests
 import time
+import base64
 import struct
+import hashlib
 import platform
 import subprocess
+
+def bootstrap():
+    """Automatically installs dependencies if they are missing."""
+    try:
+        import requests
+    except ImportError:
+        print("--- Subass TTS: First Time Setup ---")
+        print("Dependencies missing. Attempting to install 'requests'...")
+
+        packages = ["requests"]
+
+        print(f"Using Python: {sys.executable}")
+        
+        # Base install command
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+        ] + packages
+
+        try:
+            # Check if pip is available
+            subprocess.check_call([sys.executable, "-m", "pip", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            print("--- ERROR: PIP_MISSING ---")
+            print("Python install does not have 'pip'.")
+            if sys.platform == "win32":
+                print("Try: python -m ensurepip --default-pip")
+            else:
+                print("Try: python3 -m ensurepip --default-pip")
+            return False
+
+        try:
+            # Try normal install
+            print(f"Running: {' '.join(cmd)}")
+            subprocess.check_call(cmd)
+        except subprocess.CalledProcessError:
+            # Try with --break-system-packages for macOS/Linux system Python
+            try:
+                print("Standard install failed. Trying with --break-system-packages...")
+                subprocess.check_call(cmd + ["--break-system-packages"])
+            except subprocess.CalledProcessError as e:
+                print("--- ERROR: DEPENDENCY_INSTALL_FAILED ---")
+                print(f"\nError: Could not install dependencies automatically (Exit Code: {e.returncode}).")
+                print(
+                    f"Please try running manually: {sys.executable} -m pip install requests"
+                )
+                return False
+
+        print("\nDependencies installed successfully!")
+
+        # Invalidate caches so the new package can be found
+        import importlib
+        importlib.invalidate_caches()
+
+        # Also refresh site-packages for the current process
+        import site
+        from importlib import reload
+        reload(site)
+
+        return True
+    return False
+
+# Run bootstrap before other imports
+bootstrap()
+
+import requests
 from pathlib import Path
 
 
@@ -451,7 +520,8 @@ def text_to_speech(text, voice_name=None, gemini_api_key=None, eleven_api_key=No
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Goroh & Gemini TTS Wrapper")
-    parser.add_argument("text", help="Text to synthesize")
+    parser.add_argument("text", nargs="?", help="Text to synthesize (optional if --file is used)")
+    parser.add_argument("--file", help="Path to a text file to read content from")
     parser.add_argument("--voice", help="Voice name (Alnilam, Yaroslava, uk-UA-Wavenet-A, etc.)")
     parser.add_argument("--gemini-key", help="Gemini API Key")
     parser.add_argument("--eleven-key", help="ElevenLabs API Key")
@@ -459,9 +529,21 @@ def main():
     args = parser.parse_args()
     
     try:
+        input_text = args.text
+        if args.file:
+            if not os.path.exists(args.file):
+                print(f"Error: Input file not found: {args.file}", file=sys.stderr)
+                return 1
+            with open(args.file, "r", encoding="utf-8") as f:
+                input_text = f.read()
+        
+        if not input_text or not input_text.strip():
+            print("Error: No text provided for synthesis", file=sys.stderr)
+            return 1
+            
         gemini_key = args.gemini_key.strip() if args.gemini_key else None
         eleven_key = args.eleven_key.strip() if args.eleven_key else None
-        output_path = text_to_speech(args.text, voice_name=args.voice, gemini_api_key=gemini_key, eleven_api_key=eleven_key)
+        output_path = text_to_speech(input_text, voice_name=args.voice, gemini_api_key=gemini_key, eleven_api_key=eleven_key)
         print(output_path)
         return 0
     except Exception as e:
