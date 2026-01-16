@@ -1,9 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.0
+-- @version 4.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
-local script_title = "Subass Notes v4.0"
+-- Clear force close signal for other scripts on startup
+reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
+
+local script_title = "Subass Notes v4.1"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -263,7 +266,7 @@ local UI_STATE = {
     },
     last_is_recording = false,
     window_focused = true, -- Track if window is focused
-    inside_window = false -- Track if mouse is within window bounds
+    inside_window = false, -- Track if mouse is within window bounds
 }
 
 local regions = {}
@@ -741,6 +744,39 @@ end
 -- =============================================================================
 -- UTILITY FUNCTIONS
 -- =============================================================================
+
+--- Check if mouse is within a given rectangle
+local function is_mouse_in_rect(x, y, w, h)
+    return gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h
+end
+
+-- Helper to open URLs safely (fallback if SWS not installed)
+local function open_url(url)
+    if reaper.CF_ShellExecute then
+        reaper.CF_ShellExecute(url)
+    else
+        local os_name = reaper.GetOS()
+        if os_name:match("Win") then
+            reaper.ExecProcess('cmd.exe /C start "" "' .. url .. '"', 0)
+        elseif os_name:match("OSX") or os_name:match("macOS") then
+            os.execute('open "' .. url .. '"')
+        else
+            os.execute('xdg-open "' .. url .. '"')
+        end
+    end
+end
+
+-- Function to automatically restart the current script
+local function restart_script()
+    -- Signal other scripts to close
+    reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "1", false)
+    
+    local script_path = debug.getinfo(1, 'S').source:match("^@?(.*)")
+    if gfx.quit then gfx.quit() end
+    reaper.defer(function()
+        dofile(script_path)
+    end)
+end
 
 --- Set GFX color from RGB array
 --- @param c table RGB color array {r, g, b}
@@ -5420,6 +5456,91 @@ local function wrap_text(text, max_w)
     return lines
 end
 
+--- Run auto-update script and show results
+local function check_for_updates()
+    local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
+    local py_script = script_path .. "subass_autoupdate.py"
+    
+    local py_exe = requirements_state.python.executable or (reaper.GetOS():match("Win") and "python" or "python3")
+    local is_windows = reaper.GetOS():match("Win")
+    
+    local cmd
+    if is_windows then
+        py_script = py_script:gsub("/", "\\")
+        cmd = string.format('%s "%s" "%s"', py_exe, py_script, script_title)
+    else
+        cmd = string.format("'%s' '%s' '%s'", py_exe, py_script, script_title)
+    end
+
+    UI_STATE.script_loading_state.active = true
+    UI_STATE.script_loading_state.text = "Перевіряю оновлення..."
+    
+    run_async_command(cmd, function(output)
+        UI_STATE.script_loading_state.active = false
+        if output and output ~= "" then
+            -- Parse line-based format
+            local data = {}
+            data.update_available = output:match("UPDATE_AVAILABLE: (%a+)") == "true"
+            data.current_title = output:match("CURRENT_TITLE: (.-)[\r\n]")
+            data.latest_title = output:match("LATEST_TITLE: (.-)[\r\n]")
+            data.manual_update = output:match("MANUAL_UPDATE: (%a+)") == "true"
+            data.download_url = output:match("DOWNLOAD_URL: (.-)[\r\n]") or output:match("PATH: (.-)[\r\n]")
+            data.description = output:match("DESCRIPTION_START[\r\n]*(.-)[\r\n]*DESCRIPTION_END")
+            
+            if data.update_available then
+                local msg = string.format("Доступна нова версія: %s\n(У вас: %s)\n\n", data.latest_title or "v?", data.current_title or "v?")
+                if data.description and data.description ~= "" then
+                    msg = msg .. "Що нового:\n" .. data.description .. "\n\n"
+                end
+                
+                if data.manual_update then
+                    msg = msg .. "Це оновлення потребує ручного встановлення.\nПерейти до Telegram каналу для завантаження?"
+                    
+                    -- MB Type 4 = Yes/No (Yes=6, No=7)
+                    local res = reaper.MB(msg, "Ручне оновлення", 4)
+                    if res == 6 then
+                        open_url("https://t.me/subass_notes")
+                    end
+                else
+                    msg = msg .. "Бажаєте оновити?"
+                    
+                    -- MB Type 4 = Yes/No (Yes=6, No=7)
+                    local res = reaper.MB(msg, "Доступне оновлення", 4)
+                    if res == 6 then
+                        -- Trigger update in python
+                        local update_cmd
+                        if is_windows then
+                            update_cmd = string.format('%s "%s" --update "%s"', py_exe, py_script, data.download_url or "")
+                        else
+                            update_cmd = string.format("'%s' '%s' --update '%s'", py_exe, py_script, data.download_url or "")
+                        end
+                        
+                        UI_STATE.script_loading_state.active = true
+                        UI_STATE.script_loading_state.text = "Оновлюю..."
+                        
+                        run_async_command(update_cmd, function(upd_output)
+                            UI_STATE.script_loading_state.active = false
+                            local ok_msg = "Оновлення успішно завершено!"
+                            if upd_output and upd_output:find(ok_msg) then
+                                reaper.MB(upd_output, "Автооновитель", 0)
+                                restart_script()
+                            else
+                                reaper.MB(upd_output or "Помилка оновлення.", "Автооновитель", 0)
+                            end
+                        end)
+                    end
+                end
+            else
+                -- If not available, we show either the python msg or "you have latest"
+                local clean_out = output:gsub("UPDATE_AVAILABLE: false[\r\n]*", ""):gsub("CURRENT_TITLE: .-[\r\n]*", ""):match("^%s*(.-)%s*$")
+                reaper.MB(clean_out ~= "" and clean_out or "У вас вже встановлена актуальна версія.", "Перевірка оновлень", 0)
+            end
+        else
+            reaper.MB("Не вдалося отримати відповідь від сервера оновлень.\nКоманда: " .. cmd, "Помилка", 0)
+        end
+    end)
+end
+
 --- Wrap rich text (segments) to fit width
 local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, is_header, first_line_indent)
     local lines = {}
@@ -8225,11 +8346,11 @@ local function get_py_ver()
         -- macOS/Linux - Keep synchronous as it works fine
         local p = "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin "
         local cmds = {
-            '/bin/sh -c "' .. p .. 'python3 --version 2>&1"',
-            '/bin/sh -c "' .. p .. 'python --version 2>&1"',
             "/opt/homebrew/bin/python3 --version",
             "/usr/local/bin/python3 --version",
             "/usr/bin/python3 --version",
+            '/bin/sh -c "' .. p .. 'python3 --version 2>&1"',
+            '/bin/sh -c "' .. p .. 'python --version 2>&1"',
             "python3 --version",
             "python --version"
         }
@@ -8364,22 +8485,6 @@ local function draw_requirements_window()
         -- Right
         for i = ty, ty + th, dash_len * 2 do
             gfx.line(tx + tw, i, tx + tw, math.min(i + dash_len, ty + th))
-        end
-    end
-
-    -- Helper to open URLs safely (fallback if SWS not installed)
-    local function open_url(url)
-        if reaper.CF_ShellExecute then
-            reaper.CF_ShellExecute(url)
-        else
-            local os_name = reaper.GetOS()
-            if os_name:match("Win") then
-                reaper.ExecProcess('cmd.exe /C start "" "' .. url .. '"', 0)
-            elseif os_name:match("OSX") or os_name:match("macOS") then
-                os.execute('open "' .. url .. '"')
-            else
-                os.execute('xdg-open "' .. url .. '"')
-            end
         end
     end
 
@@ -12554,9 +12659,9 @@ local function draw_settings()
     end
     
     -- ═══════════════════════════════════════════
-    -- 1. СЕРВІСИ ТА ДІЇ (Services & Actions)
+    -- 0. API КЛЮЧІ
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "СЕРВІСИ ТА ДІЇ")
+    s_section(y_cursor, "API КЛЮЧІ")
     y_cursor = y_cursor + S(35)
     
     -- Gemini API Key
@@ -12593,11 +12698,21 @@ local function draw_settings()
         end
     end
 
-    y_cursor = y_cursor + S(40)
+    y_cursor = y_cursor + S(60)
+    -- ═══════════════════════════════════════════
+    -- 1. ГЛОБАЛЬНІ ДІЇ
+    -- ═══════════════════════════════════════════
+    s_section(y_cursor, "ГЛОБАЛЬНІ ДІЇ")
+    y_cursor = y_cursor + S(35)
 
     -- Delete regions (Danger Zone)
     if s_btn(x_start, y_cursor, S(200), S(30), "Видалити ВСІ регіони", "Видаляє всі регіони з проекту REAPER.\nДія незворотна!", {0.4, 0.2, 0.2}) then
         delete_all_regions()
+    end
+
+    -- Update Check
+    if s_btn(x_start + S(220), y_cursor, S(200), S(30), "Перевірити оновлення", "Перевірити наявність нових версій Subass на сервері.") then
+        check_for_updates()
     end
     y_cursor = y_cursor + S(60)
 
