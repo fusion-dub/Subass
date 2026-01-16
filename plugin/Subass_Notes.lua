@@ -745,13 +745,11 @@ end
 -- UTILITY FUNCTIONS
 -- =============================================================================
 
---- Check if mouse is within a given rectangle
-local function is_mouse_in_rect(x, y, w, h)
-    return gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h
-end
+-- Helper to open URLs safely (fallback if SWS not installed)
+local UTILS = {}
 
 -- Helper to open URLs safely (fallback if SWS not installed)
-local function open_url(url)
+function UTILS.open_url(url)
     if reaper.CF_ShellExecute then
         reaper.CF_ShellExecute(url)
     else
@@ -767,7 +765,7 @@ local function open_url(url)
 end
 
 -- Function to automatically restart the current script
-local function restart_script()
+function UTILS.restart_script()
     -- Signal other scripts to close
     reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "1", false)
     
@@ -790,7 +788,7 @@ end
 --- @param s1 string
 --- @param s2 string
 --- @return boolean
-local function compare_sub_text(s1, s2)
+function UTILS.compare_sub_text(s1, s2)
     if s1 == s2 then return true end
     if not s1 or not s2 then return false end
     
@@ -866,7 +864,7 @@ end
 --- Get color for CPS (Characters Per Second) with smooth gradient for high speeds
 --- @param cps number
 --- @return table RGB color array
-local function get_cps_color(cps)
+function UTILS.get_cps_color(cps)
     if cps < 5 then
         -- Gradient from Blue {0.3, 0.6, 1} to White {1, 1, 1}
         local t = cps / 5
@@ -898,7 +896,7 @@ end
 --- URL Encode string for safe usage in URLs
 --- @param str string Input string
 --- @return string Encoded string
-local function url_encode(str)
+function UTILS.url_encode(str)
     if not str then return "" end
     str = str:gsub("\n", "\r\n")
     str = str:gsub("([^%w %-%_%.%~])",
@@ -910,7 +908,7 @@ end
 --- URL Decode string
 --- @param str string Encoded string
 --- @return string Decoded string
-local function url_decode(str)
+function UTILS.url_decode(str)
     if not str then return "" end
     return str:gsub("+", " "):gsub("%%(%x%x)", function(h) return string.char(tonumber(h, 16)) end)
 end
@@ -1909,7 +1907,7 @@ local function parse_html_to_spans(html, inherited)
             
             if chosen_tag == "a" then
                 local word = chosen_attr:match('href=".-/([^/"]+)"') or chosen_text
-                word = url_decode(clean_html(word)):gsub("^%s+", ""):gsub("%s+$", "")
+                word = UTILS.url_decode(clean_html(word)):gsub("^%s+", ""):gsub("%s+$", "")
                 next_inherited.is_link = true
                 next_inherited.word = word
             elseif chosen_tag == "span" then
@@ -2379,9 +2377,9 @@ local function fetch_dictionary_category(word, display_name)
     if not url_part then return nil end
     
     local encoded = word
-    if not word:find("%%") then encoded = url_encode(word) end
+    if not word:find("%%") then encoded = UTILS.url_encode(word) end
     
-    local url = "https://goroh.pp.ua/" .. url_encode(url_part) .. "/" .. encoded
+    local url = "https://goroh.pp.ua/" .. UTILS.url_encode(url_part) .. "/" .. encoded
     
     -- Construct curl command
     -- Add User Agent to avoid 403 blocks
@@ -3720,7 +3718,7 @@ local function update_regions_cache()
                         -- Strict Time Match (approx 1ms tolerance)
                         if math.abs(line.t1 - rgn.pos) < 0.001 and math.abs(line.t2 - rgn.rgnend) < 0.001 then
                             -- Also check text to minimize wrong actor binding if times are identical
-                            if compare_sub_text(line.text, rgn.name) then 
+                            if UTILS.compare_sub_text(line.text, rgn.name) then 
                                 line.rgn_idx = idx
                                 rgn.actor = line.actor
                                 tracked_rgn_idxs[idx] = true
@@ -5499,7 +5497,7 @@ local function check_for_updates()
                     -- MB Type 4 = Yes/No (Yes=6, No=7)
                     local res = reaper.MB(msg, "Ручне оновлення", 4)
                     if res == 6 then
-                        open_url("https://t.me/subass_notes")
+                        UTILS.open_url("https://t.me/subass_notes")
                     end
                 else
                     msg = msg .. "Бажаєте оновити?"
@@ -5523,7 +5521,7 @@ local function check_for_updates()
                             local ok_msg = "Оновлення успішно завершено!"
                             if upd_output and upd_output:find(ok_msg) then
                                 reaper.MB(upd_output, "Автооновитель", 0)
-                                restart_script()
+                                UTILS.restart_script()
                             else
                                 reaper.MB(upd_output or "Помилка оновлення.", "Автооновитель", 0)
                             end
@@ -8739,7 +8737,7 @@ local function draw_requirements_window()
                                     
                                     if is_mouse_clicked() and gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + link_w and
                                        gfx.mouse_y >= line_y and gfx.mouse_y <= line_y + S(22) then
-                                        open_url(p.url)
+                                        UTILS.open_url(p.url)
                                         UI_STATE.mouse_handled = true
                                     end
                                     draw_x = draw_x + link_w
@@ -11450,7 +11448,7 @@ local function draw_prompter_slider(input_queue)
                             for idx, line in ipairs(ass_lines) do
                                 if math.abs(line.t1 - rgn.pos) < 0.01 and 
                                    math.abs(line.t2 - rgn.rgnend) < 0.01 and
-                                   compare_sub_text(line.text, rgn.name) then
+                                   UTILS.compare_sub_text(line.text, rgn.name) then
                                     local edit_line = line
                                     open_text_editor(line.text, function(new_text)
                                         push_undo("Редагування тексту")
@@ -11711,7 +11709,7 @@ local function draw_prompter(input_queue)
             end
 
             if max_cps >= 15 then
-                local col = get_cps_color(max_cps)
+                local col = UTILS.get_cps_color(max_cps)
                 set_color({col[1], col[2], col[3], 0.8})
                 gfx.rect(content_offset_left, S(25), available_w, S(2), 1) -- Top warning strip
             end
@@ -12157,7 +12155,7 @@ local function draw_prompter(input_queue)
                             for i, line in ipairs(ass_lines) do
                                 if math.abs(line.t1 - bounds.region.pos) < 0.01 and 
                                    math.abs(line.t2 - bounds.region.rgnend) < 0.01 and
-                                   compare_sub_text(line.text, bounds.region.name) then
+                                   UTILS.compare_sub_text(line.text, bounds.region.name) then
                                     local edit_line = line
                                     open_text_editor(line.text, function(new_text)
                                         push_undo("Редагування тексту")
@@ -14446,7 +14444,7 @@ local function draw_table(input_queue)
                 local char_count = utf8.len(clean_txt) or #clean_txt
                 line.cps = duration > 0 and (char_count / duration) or 0
                 line.cps_str = line.is_marker and "" or string.format("%.1f", line.cps)
-                line.cps_color = get_cps_color(line.cps)
+                line.cps_color = UTILS.get_cps_color(line.cps)
                 
                 line.t1_str = reaper.format_timestr(line.t1 or 0, "")
                 line.t2_str = line.is_marker and "" or reaper.format_timestr(line.t2 or 0, "")
