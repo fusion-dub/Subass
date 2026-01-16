@@ -311,7 +311,7 @@ if (Test-Path $scriptSource) {
             Get-ChildItem $ttsSource | Where-Object { 
                 $_.Name -ne "history" 
             } | ForEach-Object {
-                Copy-Item $_.FullName $ttsTarget -Recurse -Force
+                    Copy-Item $_.FullName $ttsTarget -Recurse -Force
             }
         } else {
             # First install - copy everything
