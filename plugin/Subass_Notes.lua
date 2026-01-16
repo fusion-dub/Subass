@@ -267,7 +267,7 @@ local UI_STATE = {
     last_is_recording = false,
     window_focused = true, -- Track if window is focused
     inside_window = false, -- Track if mouse is within window bounds
-    AUTO_UPDATE_INTERVAL = 21600, -- 6 hours
+    AUTO_UPDATE_INTERVAL = 86400, -- 24 hours
     last_update_check_time = 0,
     is_restarting = false
 }
