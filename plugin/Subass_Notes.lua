@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.1
+-- @version 4.1.4
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.1"
+local script_title = "Subass Notes v4.1.4"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -11130,12 +11130,6 @@ local function handle_info_overlay_interaction(content_offset_left, content_offs
     
     local display_time = override_time or (reaper.GetPlayState() & 1 == 1 and reaper.GetPlayPosition() or reaper.GetCursorPosition())
     local left_str = format_timestamp(display_time + 0.001)
-    local right_str = ""
-    
-    if active_regions and #active_regions > 0 then
-        local r = active_regions[1]
-        right_str = "#" .. tostring(r.idx)
-    end
     
     -- Interaction: Left Info
     if left_str ~= "" then
@@ -11157,27 +11151,6 @@ local function handle_info_overlay_interaction(content_offset_left, content_offs
             end
         end
     end
-    
-    -- Interaction: Right Info
-    if right_str ~= "" then
-        gfx.setfont(F.std)
-        local iw, ih = gfx.measurestr(right_str)
-        if gfx.mouse_x >= gfx.w - iw - S(10) - content_offset_right and gfx.mouse_x <= gfx.w - S(10) - content_offset_right and
-           gfx.mouse_y >= S(30) and gfx.mouse_y <= S(30) + ih then
-             if is_mouse_clicked() and not UI_STATE.mouse_handled then
-                UI_STATE.mouse_handled = true
-                local now = reaper.time_precise()
-                if UI_STATE.last_click_row == -7 and (now - UI_STATE.last_click_time) < 0.3 then
-                    set_clipboard(right_str)
-                    show_snackbar("Скопійовано: " .. right_str, "info")
-                    UI_STATE.last_click_row = 0
-                else
-                    UI_STATE.last_click_time = now
-                    UI_STATE.last_click_row = -7
-                end
-            end
-        end
-    end
 end
 
 local function draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, override_time)
@@ -11192,7 +11165,7 @@ local function draw_info_overlay_graphics(content_offset_left, content_offset_ri
     
     if active_regions and #active_regions > 0 then
         local r = active_regions[1]
-        right_str = "#" .. tostring(r.idx)
+        right_str = tostring(r.idx) .. "/" .. tostring(#regions)
     end
     
     if left_str ~= "" then
@@ -11559,7 +11532,6 @@ local function draw_prompter_slider(input_queue)
     draw_info_overlay_graphics(content_offset_left, content_offset_right, current_active_regions, UI_STATE.latched_overlay_time)
 
     if cfg.p_drawer then draw_prompter_drawer(input_queue) end
-
 
     handle_prompter_context_menu()
 end
