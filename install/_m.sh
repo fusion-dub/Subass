@@ -151,8 +151,8 @@ if [ -f "$SCRIPT_SOURCE" ]; then
     if [ -d "$STRESS_SOURCE" ]; then
         # Preserve stanza_resources folder during update
         if [ -d "$SCRIPTS_PATH/stress" ]; then
-            # Update existing stress folder, excluding stanza_resources
-            rsync -av --exclude='stanza_resources' --exclude='stress_debug.log' "$STRESS_SOURCE/" "$SCRIPTS_PATH/stress/"
+        # Update existing stress folder, excluding stanza_resources
+        rsync -av --exclude='stanza_resources' --exclude='stress_debug.log' "$STRESS_SOURCE/" "$SCRIPTS_PATH/stress/"
         else
             # First install - copy everything
             cp -R "$STRESS_SOURCE" "$SCRIPTS_PATH/"
@@ -171,8 +171,8 @@ if [ -f "$SCRIPT_SOURCE" ]; then
     if [ -d "$TTS_SOURCE" ]; then
         # Preserve history folder during update
         if [ -d "$SCRIPTS_PATH/tts" ]; then
-            # Update existing tts folder, excluding history
-            rsync -av --exclude='history' "$TTS_SOURCE/" "$SCRIPTS_PATH/tts/"
+        # Update existing tts folder, excluding history
+        rsync -av --exclude='history' "$TTS_SOURCE/" "$SCRIPTS_PATH/tts/"
         else
             # First install - copy everything
             cp -R "$TTS_SOURCE" "$SCRIPTS_PATH/"
