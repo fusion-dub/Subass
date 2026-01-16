@@ -271,6 +271,7 @@ $projectRoot = Split-Path $scriptBase -Parent
 $scriptSource = Join-Path $projectRoot "plugin\Subass_Notes.lua"
 $stressSource = Join-Path $projectRoot "plugin\stress"
 $overlaySource = Join-Path $projectRoot "plugin\overlay\Lionzz_SubOverlay_Subass.lua"
+$autoupdateSource = Join-Path $projectRoot "plugin\subass_autoupdate.py"
 $dictionarySource = Join-Path $projectRoot "plugin\dictionary"
 $ttsSource = Join-Path $projectRoot "plugin\tts"
 
@@ -295,6 +296,9 @@ if (Test-Path $scriptSource) {
         $overlayTargetDir = Join-Path $scriptsPath "overlay"
         if (-not (Test-Path $overlayTargetDir)) { New-Item -ItemType Directory $overlayTargetDir | Out-Null }
         Copy-Item $overlaySource (Join-Path $overlayTargetDir "Lionzz_SubOverlay_Subass.lua") -Force
+    }
+    if (Test-Path $autoupdateSource) {
+        Copy-Item $autoupdateSource $scriptsPath -Force
     }
     if (Test-Path $dictionarySource) {
         Copy-Item $dictionarySource $scriptsPath -Recurse -Force
