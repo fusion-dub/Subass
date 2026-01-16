@@ -70,6 +70,15 @@ def perform_update(zip_url):
 
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(tmp_dir)
+            
+        # Restore executable permissions on Unix systems (+x for scripts)
+        if os.name != 'nt': # Not Windows
+            for root, dirs, files in os.walk(tmp_dir):
+                for f in files:
+                    if f.endswith(('.py', '.sh', '.command')):
+                        p = os.path.join(root, f)
+                        st = os.stat(p)
+                        os.chmod(p, st.st_mode | 0o111)
 
         # Smarter root detection: find folder containing Subass_Notes.lua
         found_root = None
