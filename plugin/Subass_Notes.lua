@@ -4024,6 +4024,12 @@ local function load_project_data()
     UI_STATE.current_file_name = nil
     
     local ok, loaded = reaper.GetProjExtState(0, section_name, "ass_loaded")
+    
+    if not ok or loaded ~= "1" then
+        -- NEW PROJECT: No data loaded -> Switch to File tab
+        UI_STATE.current_tab = 1
+    end
+
     if ok and loaded == "1" then
         UI_STATE.ass_file_loaded = true
         
