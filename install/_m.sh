@@ -145,6 +145,7 @@ OVERLAY_SOURCE="$PROJECT_ROOT/plugin/overlay/Lionzz_SubOverlay_Subass.lua"
 UPDATE_SOURCE="$PROJECT_ROOT/plugin/subass_autoupdate.py"
 DICTIONARY_SOURCE="$PROJECT_ROOT/plugin/dictionary"
 TTS_SOURCE="$PROJECT_ROOT/plugin/tts"
+STATS_SOURCE="$PROJECT_ROOT/plugin/stats"
 
 if [ -f "$SCRIPT_SOURCE" ]; then
     cp "$SCRIPT_SOURCE" "$SCRIPTS_PATH/"
@@ -164,6 +165,23 @@ if [ -f "$SCRIPT_SOURCE" ]; then
     fi
     if [ -f "$UPDATE_SOURCE" ]; then
         cp "$UPDATE_SOURCE" "$SCRIPTS_PATH/"
+    fi
+    if [ -d "$STATS_SOURCE" ]; then
+        mkdir -p "$SCRIPTS_PATH/stats"
+        # Copy python scripts and other files (force update)
+        cp -f "$STATS_SOURCE"/!(*.json) "$SCRIPTS_PATH/stats/" 2>/dev/null || true
+        # Copy everything else but don't overwrite existing files (for new json templates if any)
+        # Note: zsh extended globbing might not be enabled by default in sh mode if run as sh, 
+        # but this script starts with #!/bin/zsh.
+        # Fallback safe copy for all files using -n (no clobber)
+        cp -Rn "$STATS_SOURCE/" "$SCRIPTS_PATH/stats/"
+        # Ideally we want to Force update .py files.
+        # Let's iterate to be safe and cross-shell compatible if possible, 
+        # or rely on zsh features since shebang is zsh.
+        # Simple Logic:
+        # 1. Copy everything with -n (no overwrite) - safely adds new JSONs and Code
+        # 2. Copy *.py with -f (overwrite) - updates Code
+        cp -f "$STATS_SOURCE"/*.py "$SCRIPTS_PATH/stats/" 2>/dev/null
     fi
     if [ -d "$DICTIONARY_SOURCE" ]; then
         cp -R "$DICTIONARY_SOURCE" "$SCRIPTS_PATH/"
