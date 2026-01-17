@@ -274,6 +274,7 @@ $overlaySource = Join-Path $projectRoot "plugin\overlay\Lionzz_SubOverlay_Subass
 $autoupdateSource = Join-Path $projectRoot "plugin\subass_autoupdate.py"
 $dictionarySource = Join-Path $projectRoot "plugin\dictionary"
 $ttsSource = Join-Path $projectRoot "plugin\tts"
+$statsSource = Join-Path $projectRoot "plugin\stats"
 
 if (Test-Path $scriptSource) {
     Copy-Item $scriptSource $scriptsPath -Force
@@ -303,6 +304,24 @@ if (Test-Path $scriptSource) {
     if (Test-Path $dictionarySource) {
         Copy-Item $dictionarySource $scriptsPath -Recurse -Force
     }
+    if (Test-Path $statsSource) {
+        $statsTarget = Join-Path $scriptsPath "stats"
+        if (-not (Test-Path $statsTarget)) { New-Item -ItemType Directory $statsTarget | Out-Null }
+        
+        Get-ChildItem $statsSource | ForEach-Object {
+            $destFile = Join-Path $statsTarget $_.Name
+            if ($_.Extension -eq ".json") {
+                # Only copy if doesn't exist (don't overwrite user data)
+                if (-not (Test-Path $destFile)) {
+                    Copy-Item $_.FullName $destFile
+                }
+            } else {
+                # Update code files (.py, etc)
+                Copy-Item $_.FullName $destFile -Force
+            }
+        }
+    }
+
     if (Test-Path $ttsSource) {
         $ttsTarget = Join-Path $scriptsPath "tts"
         # Preserve history folder during update
