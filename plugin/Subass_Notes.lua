@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.1.7
+-- @version 4.1.8
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.1.7"
+local script_title = "Subass Notes v4.1.8"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -61,6 +61,7 @@ local cfg = {
     p_info = (get_set("p_info", "1") == "1" or get_set("p_info", 1) == 1),
     auto_srt_split = get_set("auto_srt_split", "():"),
     prmt_theme = get_set("prmt_theme", "Бетон"),
+    ui_theme = get_set("ui_theme", "Titanium"),
     gemini_api_key = get_set("gemini_api_key", ""),
     eleven_api_key = get_set("eleven_api_key", ""),
     p_drawer = (get_set("p_drawer", "1") == "1" or get_set("p_drawer", 1) == 1),
@@ -553,17 +554,179 @@ UI_STATE.ass_file_loaded = false
 UI_STATE.current_file_name = nil
 
 local UI = {
-    C_BG = {0.15, 0.15, 0.15},
-    C_BTN = {0.3, 0.3, 0.3},
-    C_BTN_H = {0.4, 0.4, 0.4},
-    C_TXT = {0.9, 0.9, 0.9},
-    C_ROW = {0.2, 0.2, 0.2},
-    C_ROW_ALT = {0.23, 0.23, 0.23},
-    C_SEL = {0.6, 0.7, 0.9},
-    C_TAB_ACT = {0.25, 0.25, 0.25},
-    C_TAB_INA = {0.2, 0.2, 0.2},
-    C_SEL_BG = {0.3, 0.6, 1.0, 0.15}
+    -- === 1. Core Interface ===
+    C_SEL_BG = {0.3, 0.6, 1.0, 0.15},  -- Subtle selection background (blue tint)
+
+    -- === 2. Buttons ===
+    C_BTN_DARK = {0.3, 0.4, 0.3, 1},    -- Muted/Dark button background
+
+    -- === 3. Notifications (Snackbars) ===
+    C_SNACK_SUCCESS = {0.1, 0.35, 0.1, 0.95}, -- Success message background
+    C_SNACK_ERROR = {0.4, 0.1, 0.1, 0.95},   -- Error message background
+    C_SNACK_WARN = {0.35, 0.3, 0.1, 0.95},    -- Warning message background
+    C_SNACK_BORDER = {0.4, 0.4, 0.4, 1.0},   -- Snackbar border color
+    C_SNACK_TXT = {1, 1, 1, 1.0},            -- Snackbar text color
+    C_SNACK_SHADOW = {0, 0, 0, 0.3},         -- Snackbar shadow
+
+    -- === 4. Modals & Overlays (Frames) ===
+    C_FR_BG = {0, 0, 0, 0.5},                -- Modal/Frame overlay background
+    C_FR_BORDER = {0.4, 0.4, 0.4, 0.5},      -- Modal/Frame border
+    C_FR_CLOSE = {0.8, 0.3, 0.3},            -- Close button highlight (reddish)
+    C_FR_MATCH_BG = {0.2, 0.25, 0.3, 1.0},   -- "Match" state background in modals
+    C_FR_MATCH_INA = {0.14, 0.14, 0.14, 1.0}, -- Inactive "Match" state
+    C_FR_MATCH_BORDER = {0.3, 0.3, 0.3, 1.0}, -- "Match" state border
+    C_FR_MATCH_TXT = {1, 1, 1, 1.0},         -- "Match" state text
+
+    -- === 5. Text Editor Syntax ===
+    C_ED_HILI_G = {0.5, 0.8, 0.3, 0.2},      -- Green highlight (subtle)
+    C_ED_HILI_B = {0.3, 0.4, 0.7, 0.5},      -- Blue highlight (stronger)
+    C_ED_GUTTER = {0.5, 0.5, 0.5},           -- Gutter color (line numbers)
+
+    -- === 6. Status & Semantic Highlights ===
+    C_HILI_RED = {1.0, 0.3, 0.3, 0.2},
+    C_HILI_BLUE = {0.0, 0.4, 1.0, 0.3},
+    C_HILI_GREEN = {0.1, 0.35, 0.2, 0.5},
+    C_HILI_YELLOW = {1, 1, 0, 0.3},
+    C_HILI_WHITE = {1, 1, 1, 0.1},
+    C_HILI_WHITE_LOW = {1, 1, 1, 0.05},
+    C_HILI_WHITE_MID = {1, 1, 1, 0.3},
+    C_HILI_WHITE_BRIGHT = {1, 1, 1, 0.2},
+    C_HILI_GREY_LOW = {0.5, 0.5, 0.5, 0.3},
+    C_HILI_GREY_MID = {0.5, 0.5, 0.5, 0.6},
+    C_HILI_GREY_HIGH = {0.5, 0.5, 0.5, 0.8},
+    C_BORDER_MUTED = {0.5, 0.5, 0.5, 0.5},
+    C_SHADOW = {0, 0, 0, 0.3},
+
+    -- === 7. Standard Color Palette ===
+    C_WHITE = {1, 1, 1, 1},
+    C_BLACK = {0, 0, 0, 1},
+    C_RED = {1, 0.3, 0.3, 1},
+    C_GREEN = {0.2, 0.8, 0.2, 1},
+    C_YELLOW = {1, 0.9, 0, 1},
+    C_DARK_GREY = {0.15, 0.15, 0.15, 1},
+    C_GREEN_BRIGHT = {0.2, 0.9, 0.2, 1},
+    C_BLUE_BRIGHT = {0.3, 0.6, 1, 1},
+
+    -- === 8. Specialized Elements ===
+    C_RESIZE_HDL = {0.5, 0.5, 0.8, 0.6},      -- Resize handle color
+    C_BLACK_OVERLAY = {0, 0, 0, 0.5},         -- General dark overlay
+    C_BLACK_TRANSP = {0, 0, 0, 0.5},          -- Semi-transparent black
+    C_HILI_BLUE_LIGHT = {0.4, 0.7, 1.0, 1},
+    C_HILI_RED_DARK = {0.6, 0.1, 0.1, 1},
+    C_HILI_RED_BRIGHT = {0.8, 0.2, 0.2, 1},
+
+    -- === 9. Dynamic Color Helpers ===
+    -- Use these to get colors that react to user configuration (cfg.*)
+    GET_P_COLOR = function(a) return {cfg.p_cr, cfg.p_cg, cfg.p_cb, a} end, -- Prompter Color
+    GET_N_COLOR = function(a) return {cfg.n_cr, cfg.n_cg, cfg.n_cb, a} end, -- Note Color
+    GET_C_COLOR = function(a) return {cfg.c_cr, cfg.c_cg, cfg.c_cb, a} end, -- Correction Color
+    GET_BG_COLOR = function(a) return {cfg.bg_cr, cfg.bg_cg, cfg.bg_cb, a} end -- Custom Background
 }
+
+UI.UI_THEMES = {
+    ["Titanium"] = {
+        C_BG = {0.15, 0.15, 0.15},
+        C_TXT = {0.9, 0.9, 0.9},
+        C_BTN = {0.3, 0.3, 0.3},
+        C_BTN_H = {0.4, 0.4, 0.4},
+        C_ROW = {0.2, 0.2, 0.2},
+        C_ROW_ALT = {0.23, 0.23, 0.23},
+        C_SEL = {0.6, 0.7, 0.9},
+        C_TAB_ACT = {0.25, 0.25, 0.25},
+        C_TAB_INA = {0.2, 0.2, 0.2},
+        C_SNACK_INFO = {0.1, 0.1, 0.1},      -- Darker Header
+        C_LIGHT_GREY = {0.7, 0.7, 0.7},     -- Section Title
+        C_MEDIUM_GREY = {0.3, 0.3, 0.3},    -- Section Line
+        C_HILI_HEADER = {0.2, 0.3, 0.35},   -- Header Hover
+        C_ACCENT_G = {0.2, 0.6, 0.2},       -- Green (Active)
+        C_ACCENT_N = {0.3, 0.35, 0.3},      -- Neutral
+        C_MARKER_BG = {0.3, 0.1, 0.1},      -- Dark Red Row
+        C_MARKER_SEL = {0.5, 0.4, 0.0},     -- Dark Orange Selection
+        C_TOOLTIP_BG = {0, 0, 0, 0.9},      -- Dark Tooltip BG
+        C_TOOLTIP_TXT = {1, 1, 1, 1},       -- White Tooltip Text
+        C_BTN_MEDIUM = {0.3, 0.5, 0.3, 1},
+        C_BTN_UPDATE = {0.35, 0.55, 0.8, 1},
+        C_BTN_ERROR = {0.8, 0.3, 0.3},
+        C_TXT_ERROR = {1.0, 0.4, 0.4},          -- Bright Red (Text on Dark BG)
+        C_DICT_TITLE_NORM = {0.6, 0.7, 0.9},    -- Same as C_SEL
+        C_DICT_TITLE_HOVER = {0.5, 0.8, 1.0},   -- Bright Blue Hover
+        C_SCROLL_BG = {0, 0, 0, 0.3},      -- Scrollbar track background
+        C_SCROLL_HDL = {0.5, 0.5, 0.5, 0.8}, -- Scrollbar handle
+        C_SCROLL_HDL_H = {0.7, 0.7, 0.7, 0.9}, -- Scrollbar handle (hovered)
+    },
+    ["Obsidian"] = {
+        C_BG = {0.08, 0.08, 0.08},
+        C_TXT = {0.8, 0.8, 0.8},
+        C_BTN = {0.15, 0.15, 0.15},
+        C_BTN_H = {0.25, 0.25, 0.25},
+        C_ROW = {0.12, 0.12, 0.12},
+        C_ROW_ALT = {0.14, 0.14, 0.14},
+        C_SEL = {0.4, 0.5, 0.7},
+        C_TAB_ACT = {0.15, 0.15, 0.15},
+        C_TAB_INA = {0.1, 0.1, 0.1},
+        C_SNACK_INFO = {0.05, 0.05, 0.05},  -- Deeper Header
+        C_LIGHT_GREY = {0.6, 0.6, 0.6},     -- Softer Section Title
+        C_MEDIUM_GREY = {0.2, 0.2, 0.2},    -- Subtle Section Line
+        C_HILI_HEADER = {0.15, 0.2, 0.25},  -- Deeper Header Hover
+        C_ACCENT_G = {0.15, 0.5, 0.15},     -- Deeper Green
+        C_ACCENT_N = {0.2, 0.25, 0.2},      -- Deeper Neutral
+        C_MARKER_BG = {0.25, 0.08, 0.08},   -- Deep Dark Red Row
+        C_MARKER_SEL = {0.45, 0.35, 0.05},  -- Deep Orange Selection
+        C_TOOLTIP_BG = {0, 0, 0, 0.95},     -- Black Tooltip BG
+        C_TOOLTIP_TXT = {0.9, 0.9, 0.9, 1}, -- Off-White Tooltip Text
+        C_BTN_MEDIUM = {0.25, 0.5, 0.25, 1},
+        C_BTN_UPDATE = {0.3, 0.5, 0.75, 1},
+        C_BTN_ERROR = {0.7, 0.2, 0.2},
+        C_TXT_ERROR = {1.0, 0.3, 0.3},          -- Bright Red (Text on Dark BG)
+        C_DICT_TITLE_NORM = {0.4, 0.5, 0.7},    -- Same as C_SEL
+        C_DICT_TITLE_HOVER = {0.5, 0.8, 1.0},   -- Bright Blue Hover
+        C_SCROLL_BG = {1, 1, 1, 0.05},      -- Scrollbar track background
+        C_SCROLL_HDL = {0.5, 0.5, 0.5, 0.8}, -- Scrollbar handle
+        C_SCROLL_HDL_H = {0.7, 0.7, 0.7, 0.9}, -- Scrollbar handle (hovered)
+    },
+    ["Quartz"] = {
+        C_BG = {0.80, 0.80, 0.78}, -- High Contrast Grey Matte
+        C_TXT = {0.05, 0.05, 0.05},
+        C_BTN = {0.72, 0.72, 0.70},
+        C_BTN_H = {0.65, 0.65, 0.63},
+        C_ROW = {0.76, 0.76, 0.74},
+        C_ROW_ALT = {0.72, 0.72, 0.70},
+        C_SEL = {0.3, 0.55, 0.85},
+        C_TAB_ACT = {0.72, 0.72, 0.70},
+        C_TAB_INA = {0.78, 0.78, 0.76},
+        C_SNACK_INFO = {0.70, 0.70, 0.68}, -- Table Header Background
+        C_LIGHT_GREY = {0.2, 0.2, 0.2},     -- Section Title Text
+        C_MEDIUM_GREY = {0.6, 0.6, 0.6},    -- Section Divider Line
+        C_HILI_HEADER = {0.60, 0.60, 0.70},  -- Header Hover Highlight
+        C_ACCENT_G = {0.70, 0.95, 0.70},    -- Pastel Green (Light)
+        C_ACCENT_N = {0.55, 0.55, 0.53},    -- Neutral Grey
+        C_MARKER_BG = {0.95, 0.35, 0.35},   -- Strong Red Row
+        C_MARKER_SEL = {0.92, 0.65, 0.45},  -- Pastel Orange Selection (Light)
+        C_TOOLTIP_BG = {0.95, 0.95, 0.93, 1}, -- Light Opaque Tooltip BG
+        C_TOOLTIP_TXT = {0.1, 0.1, 0.1, 1},   -- Dark Tooltip Text
+        C_BTN_MEDIUM = {0.3, 0.5, 0.3, 1},
+        C_BTN_UPDATE = {0.35, 0.45, 0.75, 1},
+        C_BTN_ERROR = {0.8, 0.3, 0.3},
+        C_TXT_ERROR = {0.8, 0.2, 0.2},          -- Dark Red (Text on Light BG)
+        C_DICT_TITLE_NORM = {0.08, 0.22, 0.50}, -- Dark Royal Blue
+        C_DICT_TITLE_HOVER = {0.15, 0.30, 0.60},
+        C_SCROLL_BG = {0, 0, 0, 0.1},      -- Scrollbar track background
+        C_SCROLL_HDL = {0.5, 0.5, 0.5, 0.7}, -- Scrollbar handle
+        C_SCROLL_HDL_H = {0.5, 0.5, 0.5, 1}, -- Scrollbar handle (hovered)
+    },
+}
+
+function UI.apply_ui_theme(theme_name)    
+    local theme = UI.UI_THEMES[theme_name] or UI.UI_THEMES["Titanium"]
+    for k, v in pairs(theme) do
+        UI[k] = v
+    end
+    cfg.ui_theme = theme_name
+end
+
+-- Apply initial theme
+UI.apply_ui_theme(cfg.ui_theme)
+
 local bg_palette = {
     UI.C_BG, -- Default Dark
     {0.67, 0.69, 0.69}, -- Light Grey
@@ -604,6 +767,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "p_valign", cfg.p_valign, true)
     reaper.SetExtState(section_name, "auto_srt_split", cfg.auto_srt_split, true)
     reaper.SetExtState(section_name, "prmt_theme", cfg.prmt_theme, true)
+    reaper.SetExtState(section_name, "ui_theme", cfg.ui_theme, true)
     reaper.SetExtState(section_name, "tts_voice", cfg.tts_voice, true)
 
     -- Invalidate prompter cache when settings change (like wrap length)
@@ -783,11 +947,12 @@ function UTILS.restart_script()
 end
 
 --- Set GFX color from RGB array
---- @param c table RGB color array {r, g, b}
-local function set_color(c)
+--- @param c table RGB color array {r, g, b, [a]}
+--- @param a_override number? Optional alpha override
+local function set_color(c, a_override)
     if not c or type(c) ~= "table" then return end
     gfx.r, gfx.g, gfx.b = c[1], c[2], c[3]
-    gfx.a = c[4] or 1.0
+    gfx.a = a_override or c[4] or 1.0
 end
 
 --- Compare subtitle text robustly
@@ -826,7 +991,7 @@ local function draw_scrollbar(x, y, w, h, total_h, visible_h, scroll_y)
     if total_h <= visible_h then return 0 end
     
     -- Background
-    set_color({0, 0, 0, 0.3})
+    set_color(UI.C_SCROLL_BG)
     gfx.rect(x, y, w, h, 1)
     
     local ratio = visible_h / total_h
@@ -843,9 +1008,9 @@ local function draw_scrollbar(x, y, w, h, total_h, visible_h, scroll_y)
     -- Draw Handle
     local is_hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= handle_y and gfx.mouse_y <= handle_y + handle_h)
     if is_hover then
-        set_color({0.7, 0.7, 0.7, 0.9})
+        set_color(UI.C_SCROLL_HDL_H)
     else
-        set_color({0.5, 0.5, 0.5, 0.8})
+        set_color(UI.C_SCROLL_HDL)
     end
     gfx.rect(x + 2, handle_y, w - 4, handle_h, 1)
     
@@ -871,22 +1036,33 @@ end
 --- @param cps number
 --- @return table RGB color array
 function UTILS.get_cps_color(cps)
-    if cps < 5 then
-        -- Gradient from Blue {0.3, 0.6, 1} to White {1, 1, 1}
-        local t = cps / 5
-        return {0.3 + 0.7 * t, 0.6 + 0.4 * t, 1.0}
+    if cps < 6 then
+        -- Interpolate from Blue to Normal (Text)
+        -- t=0 -> Blue, t=1 -> Text
+        local t = cps / 6.0
+        local c1 = UI.C_DICT_TITLE_HOVER -- Blue (Themed)
+        local c2 = UI.C_TXT
+        return {
+            c1[1] + (c2[1] - c1[1]) * t,
+            c1[2] + (c2[2] - c1[2]) * t,
+            c1[3] + (c2[3] - c1[3]) * t,
+            1
+        }
     elseif cps < 14 then
-        return {1, 1, 1} -- White (Normal)
-    elseif cps < 15 then
-        -- Gradient from White {1, 1, 1} to Orange {0.9, 0.6, 0.2}
-        local t = cps - 14
-        return {1.0 - 0.1 * t, 1.0 - 0.4 * t, 1.0 - 0.8 * t}
+        return UI.C_TXT -- Always visible (Theme Aware)
     elseif cps <= 20 then
-        -- Gradient from Orange {0.9, 0.6, 0.2} to Red {0.9, 0.2, 0.2}
-        local t = (cps - 15) / 5
-        return {0.9, 0.6 - 0.4 * t, 0.2}
+        -- Interpolate from Normal (Text) to Error (Red)
+        local t = (cps - 14) / 6.0
+        local c1 = UI.C_TXT
+        local c2 = UI.C_TXT_ERROR
+        return {
+            c1[1] + (c2[1] - c1[1]) * t,
+            c1[2] + (c2[2] - c1[2]) * t,
+            c1[3] + (c2[3] - c1[3]) * t,
+            1
+        }
     else
-        return {0.9, 0.2, 0.2} -- Red (Max Speed)
+        return UI.C_TXT_ERROR -- Max Warning (Theme Aware)
     end
 end
 
@@ -1398,19 +1574,19 @@ local function draw_tooltip()
     
     -- 3. Draw
     -- Shadow (subtle)
-    set_color({0, 0, 0, 0.3})
+    set_color(UI.C_SCROLL_BG)
     gfx.rect(tx + 2, ty + 2, box_w, box_h, 1)
     
     -- Background
-    set_color({0.1, 0.1, 0.1, 0.95})
+    set_color(UI.C_TOOLTIP_BG)
     gfx.rect(tx, ty, box_w, box_h, 1)
     
     -- Border
-    set_color({0.6, 0.6, 0.6, 0.6})
+    set_color(UI.C_FR_BORDER)
     gfx.rect(tx, ty, box_w, box_h, 0)
     
     -- Text
-    set_color(UI.C_TXT)
+    set_color(UI.C_TOOLTIP_TXT)
     for i, line in ipairs(wrapped_lines) do
         gfx.x = tx + padding
         gfx.y = ty + padding + (i-1) * line_h
@@ -1448,23 +1624,31 @@ local function draw_snackbar()
     local snack_x = (gfx.w - snack_w) / 2
     local snack_y = gfx.h - snack_h - 10
     
+    -- Use shorter names for convenience
+    local sx, sy, sw, sh = snack_x, snack_y, snack_w, snack_h
+    local type = UI_STATE.snackbar_state.type
+    
+    -- Shadow
+    set_color(UI.C_SNACK_SHADOW, alpha * 0.3)
+    gfx.rect(sx + 2, sy + 2, sw, sh, 1)
+    
     -- Background
-    -- Background based on type
-    if UI_STATE.snackbar_state.type == "success" then
-        set_color({0.1, 0.35, 0.1, alpha * 0.95}) -- Dark Green
-    elseif UI_STATE.snackbar_state.type == "error" then
-        set_color({0.4, 0.1, 0.1, alpha * 0.95}) -- Dark Red
-    else
-        set_color({0.35, 0.3, 0.1, alpha * 0.95}) -- Dark Yellow (Amber)
+    set_color(UI.C_SNACK_INFO, alpha * 0.95)
+    if type == "success" then 
+        set_color(UI.C_SNACK_SUCCESS, alpha * 0.95)
+    elseif type == "error" then 
+        set_color(UI.C_SNACK_ERROR, alpha * 0.95)
+    elseif type == "warning" then
+        set_color(UI.C_SNACK_WARN, alpha * 0.95)
     end
-    gfx.rect(snack_x, snack_y, snack_w, snack_h, 1)
+    gfx.rect(sx, sy, sw, sh, 1)
     
     -- Border
-    set_color({0.4, 0.4, 0.4, alpha})
-    gfx.rect(snack_x, snack_y, snack_w, snack_h, 0)
+    set_color(UI.C_SNACK_BORDER, alpha)
+    gfx.rect(sx, sy, sw, sh, 0)
     
     -- Text
-    set_color({1, 1, 1, alpha})
+    set_color(UI.C_SNACK_TXT, alpha)
     gfx.x = snack_x + padding
     gfx.y = snack_y + padding / 2
     gfx.drawstr(UI_STATE.snackbar_state.text)
@@ -5865,7 +6049,7 @@ local function draw_ai_modal(skip_draw)
                            gfx.mouse_y >= y and gfx.mouse_y <= y + menu_h)
 
     -- Draw Menu Shadow
-    set_color({0, 0, 0, 0.5})
+    set_color(UI.C_BLACK_OVERLAY)
     gfx.rect(x+3, y+3, menu_w, menu_h, 1)
     
     -- Capture current destination to return later
@@ -5908,7 +6092,7 @@ local function draw_ai_modal(skip_draw)
         if has_back then
             set_color(UI.C_TAB_INA)
             gfx.rect(0, view_h, menu_w, footer_h, 1)
-            set_color({0.4, 0.4, 0.4, 0.5})
+            set_color(UI.C_FR_BORDER)
             gfx.line(0, view_h, menu_w, view_h)
             
             local bbx, bby, bbw, bbh = 5, view_h + 5, menu_w - 10, footer_h - 10
@@ -5951,12 +6135,13 @@ local function draw_ai_modal(skip_draw)
                          (gfx.mouse_x >= x + bx and gfx.mouse_x <= x + bx + bw and
                           gfx.mouse_y >= y + by and gfx.mouse_y <= y + by + block_h)
             
-            set_color(hover and {0.2 * alpha, 0.25 * alpha, 0.3 * alpha, 1.0 * alpha} or {0.14 * alpha, 0.14 * alpha, 0.14 * alpha, 1.0 * alpha})
+            set_color(hover and {UI.C_FR_MATCH_BG[1]*alpha, UI.C_FR_MATCH_BG[2]*alpha, UI.C_FR_MATCH_BG[3]*alpha, 1.0 * alpha} or 
+                      {UI.C_FR_MATCH_INA[1]*alpha, UI.C_FR_MATCH_INA[2]*alpha, UI.C_FR_MATCH_INA[3]*alpha, 1.0 * alpha})
             gfx.rect(bx, by, bw, block_h, 1)
-            set_color({0.3 * alpha, 0.3 * alpha, 0.3 * alpha, 1.0 * alpha})
+            set_color(UI.C_FR_MATCH_BORDER, alpha)
             gfx.rect(bx, by, bw, block_h, 0)
             
-            set_color({1 * alpha, 1 * alpha, 1 * alpha, 1.0 * alpha})
+            set_color(UI.C_FR_MATCH_TXT, alpha)
             for li, line in ipairs(wrapped_lines) do
                 gfx.x, gfx.y = bx + 8, by + 5 + (li-1) * 18
                 gfx.drawstr(line)
@@ -5967,7 +6152,7 @@ local function draw_ai_modal(skip_draw)
         -- Fixed Footer with Back and Retry Buttons
         set_color(UI.C_TAB_INA)
         gfx.rect(0, view_h, menu_w, footer_h, 1)
-        set_color({0.4, 0.4, 0.4, 0.5})
+        set_color(UI.C_FR_BORDER)
         gfx.line(0, view_h, menu_w, view_h)
         
         local bbx, bby, bbw, bbh = 5, view_h + 5, (menu_w / 2) - 7, footer_h - 10
@@ -5986,7 +6171,7 @@ local function draw_ai_modal(skip_draw)
         local hover_more = mouse_in_menu and
                            (gfx.mouse_x >= x + rbx and gfx.mouse_x <= x + rbx + rbw and
                             gfx.mouse_y >= y + rby and gfx.mouse_y <= y + rby + rbh)
-        set_color(hover_more and UI.C_SEL or {0.3, 0.4, 0.3})
+        set_color(hover_more and UI.C_SEL or UI.C_BTN_DARK)
         gfx.rect(rbx, rby, rbw, rbh, 1)
         set_color(UI.C_TXT)
         local msw, msh = gfx.measurestr("ЩЕ")
@@ -5994,7 +6179,7 @@ local function draw_ai_modal(skip_draw)
         gfx.drawstr("ЩЕ")
 
     elseif ai_modal.current_step == "ERROR" then
-        set_color({0.8, 0.3, 0.3})
+        set_color(UI.C_FR_CLOSE)
         gfx.setfont(F.std)
         local mw, mh = gfx.measurestr(ai_modal.error_msg)
         gfx.x, gfx.y = (menu_w - mw) / 2, (menu_h - mh) / 2 - 20
@@ -6025,7 +6210,7 @@ local function draw_ai_modal(skip_draw)
     if content_h > menu_h then
         local sb_h = (menu_h / content_h) * menu_h
         local sb_y = y + (ai_modal.scroll / content_h) * menu_h
-        set_color({0.5, 0.5, 0.5, 0.8})
+        set_color(UI.C_SCROLL_HDL)
         gfx.rect(x + menu_w - 8, sb_y, 4, sb_h, 1)
     end
     
@@ -6785,7 +6970,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     gfx.rect(0, 0, w, h, 1)
 
     if #state.text == 0 and not state.focus then
-        set_color({0.5, 0.5, 0.5})
+        set_color(UI.C_ED_GUTTER)
         gfx.x, gfx.y = padding, is_multiline and padding or (h - line_h) / 2
         gfx.drawstr(placeholder or "")
     else
@@ -6813,14 +6998,14 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             if is_director_mode and bracket_end > 0 then
                 local b_end = math.min(#state.text, bracket_end)
                 local bw = gfx.measurestr(state.text:sub(1, b_end))
-                set_color({0.5, 0.8, 0.3, 0.2}) -- Subtle green highlight
+                set_color(UI.C_ED_HILI_G) -- Subtle green highlight
                 gfx.rect(padding - state.scroll - S(2), ty - S(1), bw + S(4), line_h + S(2), 1)
             end
 
             if has_sel then
                 local w_before = gfx.measurestr(state.text:sub(1, sel_min))
                 local w_sel = gfx.measurestr(state.text:sub(sel_min + 1, sel_max))
-                set_color({0.3, 0.4, 0.7, 0.5})
+                set_color(UI.C_ED_HILI_B)
                 gfx.rect(padding + w_before - state.scroll, S(3), w_sel, h - S(6), 1)
             end
             set_color(UI.C_TXT)
@@ -6852,11 +7037,11 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
                         if s_start < s_end then
                             local x1 = padding + gfx.measurestr(v_line.text:sub(1, s_start - l_start))
                             local sw = gfx.measurestr(v_line.text:sub(s_start - l_start + 1, s_end - l_start))
-                            set_color({0.3, 0.4, 0.7, 0.5})
+                            set_color(UI.C_ED_HILI_B)
                             gfx.rect(x1, ly, sw, line_h, 1)
                         end
                         if not v_line.is_wrapped and sel_max > l_end and sel_min <= l_end then
-                            set_color({0.3, 0.4, 0.7, 0.5})
+                            set_color(UI.C_ED_HILI_B)
                             gfx.rect(padding + gfx.measurestr(v_line.text), ly, S(5), line_h, 1)
                         end
                     end
@@ -6867,7 +7052,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
                         if b_start < b_end then
                             local x1 = padding + gfx.measurestr(v_line.text:sub(1, b_start - l_start))
                             local x2 = padding + gfx.measurestr(v_line.text:sub(1, b_end - l_start))
-                            set_color({0.5, 0.8, 0.3, 0.2}) -- Subtle green highlight
+                            set_color(UI.C_ED_HILI_G) -- Subtle green highlight
                             gfx.rect(x1 - S(2), ly - S(1), (x2 - x1) + S(4), line_h + S(2), 1)
                         end
                     end
@@ -7402,7 +7587,7 @@ local function draw_dictionary_modal(input_queue)
             end
             
             if is_selected then
-                set_color({0.0, 0.4, 1.0, 0.3})
+                set_color(UI.C_HILI_BLUE)
                 gfx.rect(cur_x, cur_y, sw, line_h, 1)
                 sel.text = sel.text .. char
             end
@@ -7497,7 +7682,7 @@ local function draw_dictionary_modal(input_queue)
     
     -- Draw hover background
     if title_hover and not dict_modal.tts_loading then
-        set_color({1.0, 0.3, 0.3, 0.15})
+        set_color(UI.C_HILI_RED)
         gfx.rect(title_x - S(5), title_y - S(2), title_w + S(10), title_h + S(4), 1)
         
         -- Support context menu for title -> Auto-select
@@ -7517,7 +7702,7 @@ local function draw_dictionary_modal(input_queue)
     end
     
     -- Draw title text
-    set_color(title_hover and {0.5, 0.8, 1.0} or UI.C_SEL)
+    set_color(title_hover and UI.C_DICT_TITLE_HOVER or UI.C_DICT_TITLE_NORM)
     gfx.x = title_x
     gfx.y = title_y
     gfx.drawstr(display_word)
@@ -7529,10 +7714,10 @@ local function draw_dictionary_modal(input_queue)
     
     -- Render Close Button
     if close_hover then
-        set_color({1, 0.3, 0.3, 0.2})
+        set_color(UI.C_HILI_RED)
         gfx.rect(close_x, close_y, close_sz, close_sz, 1)
     end
-    set_color(close_hover and {1, 0.5, 0.5} or UI.C_TXT)
+    set_color(close_hover and UI.C_BTN_ERROR or UI.C_TXT)
     gfx.setfont(F.std)
     gfx.x = close_x + (close_sz - gfx.measurestr("X")) / 2
     gfx.y = close_y + (close_sz - gfx.texth) / 2
@@ -7566,13 +7751,13 @@ local function draw_dictionary_modal(input_queue)
         
         -- Tab button
         if is_sel then
-            set_color(UI.C_SEL)
+            set_color(UI.C_DICT_TITLE_NORM)
             gfx.rect(bx, by, tab_w, tab_h, 1)
             set_color(UI.C_BG)
         else
             set_color(UI.C_TAB_INA)
             gfx.rect(bx, by, tab_w, tab_h, 1)
-            set_color({0.5, 0.5, 0.5, 0.5}) -- Border
+            set_color(UI.C_BORDER_MUTED) -- Border
             gfx.rect(bx, by, tab_w, tab_h, 0)
             set_color(UI.C_TXT)
         end
@@ -7993,12 +8178,12 @@ local function draw_dictionary_modal(input_queue)
     local active_content = dict_modal.content[dict_modal.selected_tab]
     
     if active_content and #active_content == 0 then
-        set_color({0.5, 0.5, 0.5, 0.5})
+        set_color(UI.C_BORDER_MUTED)
         gfx.x = content_x
         gfx.y = content_y + 20
         gfx.drawstr("Нічого немає для " .. dict_modal.selected_tab)
     elseif not active_content then
-        set_color({0.5, 0.5, 0.5, 0.5})
+        set_color(UI.C_BORDER_MUTED)
         gfx.x = content_x
         gfx.y = content_y + 20
         gfx.drawstr("Немає даних для цієї категорії (або ГОРОХ знову впав).")
@@ -8018,7 +8203,7 @@ local function draw_dictionary_modal(input_queue)
                 if item.is_separator then
                     -- Render Horizontal Rule
                     local line_y = item_y + item_h / 2
-                    set_color({1, 1, 1, 0.2}) -- Subtle white
+                    set_color(UI.C_HILI_WHITE_BRIGHT) -- Subtle white
                     gfx.line(content_x, line_y, content_x + content_w, line_y)
                 elseif type(item) == "table" and item.is_table then
                     -- Render Table from Cached Layout
@@ -8026,7 +8211,7 @@ local function draw_dictionary_modal(input_queue)
                     local L = item.layout
                     
                     -- Background for top line
-                    set_color({1, 1, 1, 0.1})
+                    set_color(UI.C_HILI_WHITE)
                     if table_start_y > content_y and table_start_y < content_y + content_h then
                         gfx.line(content_x, table_start_y, content_x + content_w, table_start_y)
                     end
@@ -8053,7 +8238,7 @@ local function draw_dictionary_modal(input_queue)
                                     -- Background
                                     local is_span_header = (cell.colspan == item.cols)
                                     if cell.is_header or is_span_header then
-                                        set_color({1, 1, 1, 0.08})
+                                        set_color(UI.C_HILI_WHITE)
                                         local bg_y = math.max(row_y, content_y)
                                         local bg_h = math.min(row_y + total_cell_h, content_y + content_h) - bg_y
                                         if bg_h > 0 then gfx.rect(cell_x, bg_y, cell_w, bg_h, 1) end
@@ -8100,7 +8285,7 @@ local function draw_dictionary_modal(input_queue)
                                                 end
 
                                                 if seg.is_link then
-                                                    set_color({0.4, 0.7, 1.0, 1})
+                                                    set_color(UI.C_DICT_TITLE_NORM)
                                                     gfx.line(current_x, ly + gfx.texth, current_x + sw, ly + gfx.texth)
                                                     if is_lmb_released and not is_obstructed and seg_hover then
                                                         local s = dict_modal.selection
@@ -8113,7 +8298,7 @@ local function draw_dictionary_modal(input_queue)
                                                 elseif not cell.is_header and not is_excluded then
                                                     local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
                                                     if is_inflection_tab and seg_hover and not is_obstructed then
-                                                        set_color({1.0, 0.3, 0.3, 0.15})
+                                                        set_color(UI.C_HILI_RED)
                                                         gfx.rect(current_x - 2, ly - 1, sw + 4, line_h + 2, 1)
                                                         set_color(UI.C_ACCENT or UI.C_SEL)
                                                         if is_mouse_clicked(1) and (gfx.mouse_cap & 2 == 0) and not dict_modal.tts_loading then
@@ -8125,7 +8310,7 @@ local function draw_dictionary_modal(input_queue)
                                                 end
                                                 
                                                 gfx.x = current_x; gfx.y = ly
-                                                local eff_color = seg.is_link and {0.4, 0.7, 1.0, 1} or (seg.color or UI.C_TXT)
+                                                local eff_color = seg.is_link and UI.C_DICT_TITLE_NORM or (seg.color or UI.C_TXT)
                                                 local drawn_w = draw_dict_text_with_selection(seg.text, false, line_h, eff_color)
                                                 current_x = current_x + drawn_w
                                             end
@@ -8133,7 +8318,7 @@ local function draw_dictionary_modal(input_queue)
                                     end
                                     
                                     -- Borders
-                                    set_color({1, 1, 1, 0.1})
+                                    set_color(UI.C_HILI_WHITE)
                                     local line_y = row_y + total_cell_h
                                     if line_y > content_y and line_y < content_y + content_h then gfx.line(cell_x, line_y, cell_x + cell_w, line_y) end
                                     if l_col + cell.colspan - 1 < item.cols then
@@ -8178,7 +8363,7 @@ local function draw_dictionary_modal(input_queue)
                                 end
 
                                 if seg.is_link then
-                                    set_color({0.4, 0.7, 1.0, 1})
+                                    set_color(UI.C_HILI_BLUE_LIGHT)
                                     gfx.line(gfx.x, gfx.y + gfx.texth, gfx.x + sw, gfx.y + gfx.texth)
                                     if is_lmb_released and not is_obstructed and seg_hover then
                                         local s = dict_modal.selection
@@ -8195,7 +8380,7 @@ local function draw_dictionary_modal(input_queue)
                                         local is_symbol = clean_txt:match("^[%p%s]+$")
                                         local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
                                         if is_inflection_tab and not is_symbol and seg_hover and not is_obstructed then
-                                            set_color({1.0, 0.3, 0.3, 0.15})
+                                            set_color(UI.C_HILI_RED)
                                             gfx.rect(gfx.x - 2, gfx.y - 1, sw + 4, line_h + 2, 1)
                                             set_color(UI.C_ACCENT or UI.C_SEL)
                                             if is_mouse_clicked(1) and (gfx.mouse_cap & 2 == 0) and not dict_modal.tts_loading then
@@ -8207,7 +8392,7 @@ local function draw_dictionary_modal(input_queue)
                                     end
                                 end
                                 gfx.x = segment_x; gfx.y = current_line_y
-                                 local eff_color = seg.is_link and {0.4, 0.7, 1.0, 1} or (seg.color or UI.C_TXT)
+                                local eff_color = seg.is_link and UI.C_DICT_TITLE_NORM or (seg.color or UI.C_TXT)
                                 local drawn_w = draw_dict_text_with_selection(seg.text, false, line_h, eff_color)
                                 segment_x = segment_x + drawn_w
                             end     
@@ -8443,7 +8628,7 @@ local function draw_requirements_window()
         
         -- Centered Text
         gfx.setfont(F.dict_bld)
-        set_color({1, 1, 1, 1})
+        set_color(UI.C_WHITE)
         local str = "Checking environment..."
         local sw, sh = gfx.measurestr(str)
         gfx.x, gfx.y = (gfx.w - sw)/2, (gfx.h - sh)/2
@@ -8463,13 +8648,13 @@ local function draw_requirements_window()
     local bx, by = (gfx.w - bw) / 2, (gfx.h - bh) / 2
     
     -- Background
-    set_color({0.15, 0.15, 0.15, 1})
+    set_color(UI.C_DARK_GREY)
     gfx.rect(bx, by, bw, bh, 1)
 
     --- Draw a bold dashed rectangle to draw attention
     dash_len = 15
     thickness = 4
-    set_color({1, 0.9, 0, 1}) -- Yellow
+    set_color(UI.C_YELLOW) -- Yellow
     
     for t = 0, thickness - 1 do
         local tx, ty, tw, th = bx - t, by - t, bw + t*2, bh + t*2
@@ -8693,11 +8878,11 @@ local function draw_requirements_window()
                 gfx.setfont(F.dict_bld)
 
                 if item.ok then
-                    set_color({0.2, 0.8, 0.2, 1}) -- Green
+                    set_color(UI.C_GREEN) -- Green
                     gfx.x, gfx.y = col_x, draw_y
                     gfx.drawstr("[OK]")
                 else
-                    set_color({1, 0.2, 0.2, 1}) -- Red
+                    set_color(UI.C_RED) -- Red
                     gfx.x, gfx.y = col_x, draw_y
                     gfx.drawstr("[ X ]")
                 end
@@ -8726,7 +8911,7 @@ local function draw_requirements_window()
                                 -- Add space if not first
                                 if j > 1 then
                                     gfx.setfont(F.dict_std_sm)
-                                    set_color({0.7, 0.7, 0.7, 1})
+                                    set_color(UI.C_LIGHT_GREY)
                                     gfx.x, gfx.y = draw_x, line_y
                                     local space_w = gfx.measurestr(" ")
                                     gfx.drawstr(" ")
@@ -8735,7 +8920,7 @@ local function draw_requirements_window()
                                 
                                 if p.type == "link" then
                                     gfx.setfont(F.dict_std_sm)
-                                    set_color({0.3, 0.6, 1, 1})
+                                    set_color(UI.C_BLUE_BRIGHT)
                                     gfx.x, gfx.y = draw_x, line_y
                                     local link_w = gfx.measurestr(p.content)
                                     gfx.drawstr(p.content)
@@ -8748,14 +8933,14 @@ local function draw_requirements_window()
                                     draw_x = draw_x + link_w
                                 elseif p.type == "bold" then
                                     gfx.setfont(F.dict_bld_sm)
-                                    set_color({1, 1, 1, 1})
+                                    set_color(UI.C_WHITE)
                                     gfx.x, gfx.y = draw_x, line_y
                                     local bold_w = gfx.measurestr(p.content)
                                     gfx.drawstr(p.content)
                                     draw_x = draw_x + bold_w
                                 else
                                     gfx.setfont(F.dict_std_sm)
-                                    set_color({0.7, 0.7, 0.7, 1})
+                                    set_color(UI.C_LIGHT_GREY)
                                     gfx.x, gfx.y = draw_x, line_y
                                     local text_w = gfx.measurestr(p.content)
                                     gfx.drawstr(p.content)
@@ -8791,7 +8976,7 @@ local function draw_requirements_window()
     
     -- Header Background (Mask) & Title Elements (Moved here for Z-ordering)
     -- Opaque background to mask scrolling content (inset to preserve border)
-    set_color({0.15, 0.15, 0.15, 1}) 
+    set_color(UI.C_DARK_GREY) 
     gfx.rect(bx + S(4), by + S(4), bw - S(8), S(56), 1)
 
     -- Close Button (Red X)
@@ -8801,17 +8986,17 @@ local function draw_requirements_window()
                       gfx.mouse_y >= cby and gfx.mouse_y <= cby + btn_size
     
     if over_close then
-        set_color({0.8, 0.2, 0.2, 1})
+        set_color(UI.C_HILI_RED_BRIGHT)
         if is_mouse_clicked() then
             requirements_state.show = false
             return
         end
     else
-        set_color({0.6, 0.1, 0.1, 1})
+        set_color(UI.C_HILI_RED_DARK)
     end
 
     gfx.rect(cbx, cby, btn_size, btn_size, 1)
-    set_color({1, 1, 1, 1})
+    set_color(UI.C_WHITE)
     gfx.line(cbx + 5, cby + 5, cbx + btn_size - 5, cby + btn_size - 5)
     gfx.line(cbx + btn_size - 5, cby + 5, cbx + 5, cby + btn_size - 5)
     
@@ -8827,7 +9012,7 @@ local function draw_requirements_window()
 
     -- Scrollbar indicator if needed (thicker for visibility)
     if total_h > view_h then
-        set_color({0.3, 0.3, 0.3, 1})
+        set_color(UI.C_MEDIUM_GREY)
         local sbw = S(8)  -- Increased from S(4)
         local sbx = bx + bw - sbw - S(4)
         local progress = requirements_state.scroll_y / max_scroll
@@ -8890,7 +9075,7 @@ local function draw_tabs()
         gfx.rect(x, 0, tab_w, h, 1)
 
         -- Separator
-        set_color({0,0,0})
+        set_color(UI.C_BLACK)
         gfx.line(x+tab_w, 0, x+tab_w, h)
         
         set_color(UI.C_TXT)
@@ -9164,7 +9349,7 @@ local function draw_file()
             local fn_y = get_y(y_cursor)
             if fn_y + S(20) > start_y and fn_y < gfx.h then
                 gfx.setfont(F.std)
-                set_color({0.5, 0.5, 0.5, 0.8})
+                set_color(UI.C_HILI_GREY_HIGH)
                 local str = "Обрано: " .. UI_STATE.current_file_name
                 str = fit_text_width(str, gfx.w - S(40))
                 gfx.x = S(20)
@@ -9371,7 +9556,7 @@ local function draw_file()
                 if UI_STATE.window_focused and
                    gfx.mouse_x >= x_pos - S(2) and gfx.mouse_x <= x_pos + item_w - S(5) and
                    gfx.mouse_y >= chk_y - S(2) and gfx.mouse_y <= chk_y + S(22) then
-                    set_color({1, 1, 1, 0.1}) -- Slight white highlight
+                    set_color(UI.C_HILI_WHITE) -- Slight white highlight
                     gfx.rect(x_pos - S(2), chk_y - S(2), item_w - S(3), S(24), 1)
                 end
                 
@@ -9391,15 +9576,15 @@ local function draw_file()
                     set_color({native_r/255, native_g/255, native_b/255})
                     gfx.rect(x_pos, chk_y, S(20), S(20), 1) -- Filled
 
-                    set_color({0.5, 0.5, 0.5})
+                    set_color(UI.C_ED_GUTTER)
                     gfx.rect(x_pos, chk_y, S(20), S(20), 0)
                     
                     -- Checkmark (Contrast color? Black or White depending on luminance)
                     local lum = (native_r * 0.299 + native_g * 0.587 + native_b * 0.114) / 255
-                    if lum > 0.5 then set_color({0,0,0}) else set_color({1,1,1}) end
+                    if lum > 0.5 then set_color(UI.C_BLACK) else set_color(UI.C_WHITE) end
                 else
                     -- Disabled: Grey outline
-                    set_color({0.5, 0.5, 0.5})
+                    set_color(UI.C_ED_GUTTER)
                     gfx.rect(x_pos, chk_y, S(20), S(20), 0) -- Outline
                     
                     -- Small indicator of their color inside?
@@ -9600,7 +9785,7 @@ local function draw_file()
         local dx = S(20)
         
         -- Dashed Border
-        set_color({0.5, 0.5, 0.5, 0.3})
+        set_color(UI.C_HILI_GREY_LOW)
         for dash_x = dx, dx + dw - S(10), S(10) do
             gfx.line(dash_x, drop_y, dash_x + S(5), drop_y)
             gfx.line(dash_x, drop_y + dh, dash_x + S(5), drop_y + dh)
@@ -9611,7 +9796,7 @@ local function draw_file()
         end
         
         -- Text
-        set_color({0.5, 0.5, 0.5, 0.6})
+        set_color(UI.C_HILI_GREY_MID)
         gfx.setfont(F.std)
         local str = fit_text_width("Перетягніть .SRT, .ASS, .VTT або .CSV (правки) файл сюди для імпорту", dw - S(20))
         local sw, sh = gfx.measurestr(str)
@@ -10108,10 +10293,11 @@ local function draw_prompter_drawer(input_queue)
                                  gfx.mouse_y >= close_y and gfx.mouse_y <= close_y + close_sz)
             
             if close_hover then
-                set_color({1, 0.3, 0.3, 0.2})
+                set_color(UI.C_HILI_RED)
                 gfx.rect(close_x, close_y, close_sz, close_sz, 1)
             end
-            set_color(close_hover and {1, 0.5, 0.5} or UI.C_TXT)
+
+            set_color(close_hover and UI.C_BTN_ERROR or UI.C_TXT)
             gfx.setfont(F.std)
             gfx.x = close_x + (close_sz - gfx.measurestr("X")) / 2
             gfx.y = close_y + (close_sz - gfx.texth) / 2
@@ -10359,20 +10545,20 @@ local function draw_prompter_drawer(input_queue)
                     if bg_draw_h > 0 then
                         -- Zebra Stripe
                         if idx % 2 == 0 then
-                            set_color({1, 1, 1, 0.03})
+                            set_color(UI.C_HILI_WHITE_LOW) -- Slight white highlight
                             gfx.rect(drawer_x, bg_draw_y, prompter_drawer.width, bg_draw_h, 1)
                         end
                         
                         if prompter_drawer.selection[m.markindex] then
-                            set_color({0.1, 0.35, 0.2, 0.5}) -- Green selection (matching table)
+                            set_color(UI.C_HILI_GREEN) -- Green selection (matching table)
                             gfx.rect(drawer_x, bg_draw_y, prompter_drawer.width, bg_draw_h, 1)
                         elseif m.markindex == prompter_drawer.active_markindex then
-                            set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.25}) -- Active marker highlight (p_color)
+                            set_color(UI.C_HILI_GREEN) -- Active marker highlight (p_color)
                             gfx.rect(drawer_x, bg_draw_y, prompter_drawer.width, bg_draw_h, 1)
                         end
                         
                         if row_hover then
-                            set_color({1, 1, 1, 0.07})
+                            set_color(UI.C_HILI_WHITE)
                             gfx.rect(drawer_x, bg_draw_y, prompter_drawer.width, bg_draw_h, 1)
                             
                             -- LEFT CLICK
@@ -10404,7 +10590,7 @@ local function draw_prompter_drawer(input_queue)
                                         if gfx.mouse_x < col_text_x then
                                             -- ID Column: Cycle Color
                                             local g_r, g_g, g_b = 0, 255, 0
-                                            local orange_r, orange_g, orange_b = 255, 200, 100
+                                            local orange_r, orange_g, orange_b = 255, 100, 100
                                             local target_color
                                             local cur_r, cur_g, cur_b = reaper.ColorFromNative((m.color or 0) & 0xFFFFFF)
                                             if cur_r == 0 and cur_g == 255 and cur_b == 0 then
@@ -10501,7 +10687,7 @@ local function draw_prompter_drawer(input_queue)
                             set_color({r/255, g/255, b/255, 1})
                         else
                             -- Default marker color (Red in REAPER by default)
-                            set_color({1.0, 0.3, 0.3, 1})
+                            set_color(UI.C_RED)
                         end
                         gfx.x, gfx.y = draw_x, draw_y
                         gfx.drawstr(m.id)
@@ -10530,7 +10716,7 @@ local function draw_prompter_drawer(input_queue)
                                     local px = lx + gfx.measurestr(prefix)
                                     local pw = gfx.measurestr(match_str)
                                     
-                                    set_color({1, 1, 0, 0.3}) -- Yellow highlight
+                                    set_color(UI.C_HILI_YELLOW) -- Yellow highlight
                                     gfx.rect(px, line_y + S(2), pw, base_row_h - S(4), 1)
                                     
                                     start_pos = e + 1
@@ -10550,7 +10736,7 @@ local function draw_prompter_drawer(input_queue)
                 local sb_w = S(4)
                 local sb_h = (view_h / total_list_h) * view_h
                 local sb_y = table_y + (prompter_drawer.scroll_y / total_list_h) * view_h
-                set_color({1, 1, 1, 0.3})
+                set_color(UI.C_HILI_WHITE_MID)
                 gfx.rect(drawer_x + prompter_drawer.width - sb_w - S(1), sb_y, sb_w, sb_h, 1)
             end
             
@@ -10567,16 +10753,16 @@ local function draw_prompter_drawer(input_queue)
             local handle_hover = UI_STATE.window_focused and UI_STATE.inside_window and (gfx.mouse_x >= grab_x - S(4) and gfx.mouse_x <= grab_x + grab_w + S(4))
             
             -- Draw 2px vertical line
-            set_color(handle_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
+            set_color(handle_hover and UI.C_HILI_WHITE_MID or UI.C_HILI_WHITE)
             gfx.rect(cfg.p_drawer_left and (drawer_x + prompter_drawer.width - S(1)) or drawer_x, drawer_top_y, strip_w, gfx.h - drawer_top_y, 1)
             
             -- Draw the central grab handle square only on hover
             if handle_hover or prompter_drawer.dragging then
-                set_color({1, 1, 1, 0.8})
+                set_color(UI.C_WHITE, 0.8)
                 gfx.rect(grab_x, grab_y, grab_w, grab_h, 1)
                 
                 -- Subtle border for the grab handle
-                set_color({0, 0, 0, 0.5})
+                set_color(UI.C_BLACK_TRANSP)
                 gfx.rect(grab_x, grab_y, grab_w, grab_h, 0)
             end
             
@@ -10810,7 +10996,7 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
         draw_text_with_stress_marks(span.text, cfg.all_caps)
         if span.comment then
             local sr, sg, sb, sa = gfx.r, gfx.g, gfx.b, gfx.a
-            set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.15})
+            set_color(UI.GET_P_COLOR(0.15))
             local comment_width = span.text_width or span.width
             local comm_len = utf8.len(span.comment) or #span.comment
             local dash_w = math.max(S(3), S(8) - math.min(S(5), math.floor(comm_len / 15)))
@@ -11052,7 +11238,7 @@ local function render_corrections(cor_markers, y_offset, font_size, center_x, av
     if #cor_markers == 0 then return end
     
     local fsize = font_size or cfg.c_fsize
-    set_color({cfg.c_cr, cfg.c_cg, cfg.c_cb})
+    set_color(UI.GET_C_COLOR())
     gfx.setfont(F.cor, cfg.p_font, fsize)
     
     local raw_lh = gfx.texth
@@ -11499,8 +11685,8 @@ local function draw_prompter_slider(input_queue)
             
             if item.type == "region" then
                 local is_active = (item.region_idx == active_idx)
-                local alpha = is_active and 1.0 or 0.3
-                set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, alpha})
+                local alpha = is_active and 1.0 or 0.2
+                set_color(UI.GET_P_COLOR(alpha))
                 
                 if cfg.karaoke_mode and is_active then
                     local w_count = count_words_in_lines(item.lines)
@@ -11520,7 +11706,7 @@ local function draw_prompter_slider(input_queue)
                 local m = item.marker
                 local alpha = 1.0 -- Corrections are always visible if they are in view? 
                 -- Or maybe dim them if they are far? Let's keep them bright for now as they are "pravki".
-                set_color({cfg.c_cr, cfg.c_cg, cfg.c_cb, alpha})
+                set_color(UI.GET_C_COLOR(alpha))
                 
                 for idx, line in ipairs(lines_to_draw) do
                     draw_rich_line(line, center_x, text_y, F.cor, cfg.p_font, item.fsize, true, nil, available_w, content_offset_left, content_offset_right)
@@ -11547,7 +11733,7 @@ local function draw_prompter(input_queue)
     end
 
     -- Draw Custom Background
-    set_color({cfg.bg_cr, cfg.bg_cg, cfg.bg_cb})
+    set_color(UI.GET_BG_COLOR())
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
 
     -- === EARLY DRAWER BUTTON CLICK CHECK ===
@@ -11715,7 +11901,7 @@ local function draw_prompter(input_queue)
         if not next_rgn then return 0, 0 end
         y_offset = y_offset or 0
         
-        set_color({cfg.n_cr, cfg.n_cg, cfg.n_cb})
+        set_color(UI.GET_N_COLOR())
         
         -- Parse Text (with Cache)
         local display_name = next_rgn.name
@@ -12078,7 +12264,7 @@ local function draw_prompter(input_queue)
             end
  
             -- Draw all text blocks with prompt color
-            set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb})
+            set_color(UI.GET_P_COLOR())
             for block_idx, block in ipairs(all_text_blocks) do
                 local block_x1, block_y1, block_x2, block_y2 = gfx.w, gfx.h, 0, 0
                 
@@ -12117,9 +12303,9 @@ local function draw_prompter(input_queue)
                 if block_idx < #all_text_blocks then
                     local sep_w = S(40)
                     local sep_y = current_y - S_GAP / 2
-                    set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.2})
+                    set_color(UI.GET_P_COLOR(0.2))
                     gfx.line(center_x - sep_w/2, sep_y, center_x + sep_w/2, sep_y)
-                    set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 1.0})
+                    set_color(UI.GET_P_COLOR(1.0))
                 end
             end
             
@@ -12183,7 +12369,7 @@ local function draw_prompter(input_queue)
                 end
             end
         else
-            set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.3})
+            set_color(UI.GET_P_COLOR(0.3))
             gfx.setfont(F.std)
             local txt = "Нічого немає (Суфлер не активний)"
             local tw, th = gfx.measurestr(txt)
@@ -12263,7 +12449,7 @@ local function draw_prompter(input_queue)
                     elseif cfg.p_valign == "bottom" then cor_y = gfx.h - ch - S(50) end
                     render_corrections(cms, cor_y, cor_fsize, center_x, available_w, content_offset_left, content_offset_right)
                 else
-                    set_color({cfg.p_cr, cfg.p_cg, cfg.p_cb, 0.3})
+                    set_color(UI.GET_P_COLOR(0.3))
                     gfx.setfont(F.std)
                     local txt = "Нічого немає (Суфлер не активний)"
                     local tw, th = gfx.measurestr(txt)
@@ -12385,25 +12571,25 @@ local function draw_custom_color_box(bx, screen_y, box_sz, r, g, b, on_change, i
     if is_selected then
         set_color({r, g, b})
     else
-        set_color({0.2, 0.2, 0.2, 0.5})
+        set_color(UI.C_BLACK_OVERLAY)
     end
     gfx.rect(bx, screen_y, box_sz, box_sz, 1)
     
     -- Border
     if is_selected then
-        set_color({1, 1, 1})
+        set_color(UI.C_WHITE)
         draw_selection_border(bx, screen_y, box_sz, box_sz)
     else
-        set_color({1, 1, 1, 0.3})
+        set_color(UI.C_HILI_WHITE_MID)
         gfx.rect(bx, screen_y, box_sz, box_sz, 0)
     end
     
     -- Plus sign
     if is_selected then
         local lum = (r * 0.299 + g * 0.587 + b * 0.114)
-        set_color(lum > 0.5 and {0, 0, 0} or {1, 1, 1})
+        set_color(lum > 0.5 and UI.C_BLACK or UI.C_WHITE)
     else
-        set_color({0.8, 0.8, 0.8})
+        set_color(UI.C_LIGHT_GREY)
     end
 
     gfx.setfont(F.std)
@@ -12499,7 +12685,7 @@ local function draw_settings()
     end
 
     local function checkbox_box(show_param_checkbox, x_checkbox_start, y_checkbox_start)
-        set_color({0.5, 0.5, 0.5})
+        set_color(UI.C_ED_GUTTER)
         gfx.rect(x_checkbox_start, y_checkbox_start, S(20), S(20), 0)
         if show_param_checkbox then
             set_color(UI.C_TXT)
@@ -12527,7 +12713,7 @@ local function draw_settings()
                        gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + chk_sz)
 
         if hover then
-            set_color({1, 1, 1, 0.1}) -- Slight white highlight
+            set_color(UI.C_HILI_WHITE) -- Slight white highlight
             gfx.rect(x - S(2), screen_y - S(2), chk_sz + gfx.measurestr(text) + S(18), chk_sz + S(4), 1)
             set_color(UI.C_TXT)
         end
@@ -12572,7 +12758,7 @@ local function draw_settings()
         if screen_y + S(30) < start_y or screen_y > gfx.h then return end
         
         -- Line
-        set_color({0.35, 0.35, 0.35})
+        set_color(UI.C_MEDIUM_GREY)
         gfx.rect(x_start, screen_y + S(10), gfx.w - S(40), 1, 1)
         
         -- Title background
@@ -12582,7 +12768,7 @@ local function draw_settings()
         gfx.rect(x_start, screen_y, tw + S(10), S(20), 1)
         
         -- Title text
-        set_color({0.7, 0.7, 0.7})
+        set_color(UI.C_LIGHT_GREY)
         gfx.setfont(F.std)
         gfx.x = x_start
         gfx.y = screen_y
@@ -12610,10 +12796,10 @@ local function draw_settings()
                                 math.abs(cur_b - b) < 0.01)
                 if is_sel then
                     pal_sel = true
-                    set_color({1,1,1})
+                    set_color(UI.C_WHITE)
                     draw_selection_border(bx, screen_y, box_sz, box_sz)
                 else
-                    set_color({1, 1, 1, 0.3})
+                    set_color(UI.C_HILI_WHITE_MID)
                     gfx.rect(bx, screen_y, box_sz, box_sz, 0)
                 end
                 
@@ -12646,9 +12832,9 @@ local function draw_settings()
     -- Gemini API Key
     local gemini_btn_col = UI.C_BTN
     if cfg.gemini_key_status == 200 or cfg.gemini_key_status == 429 then
-        gemini_btn_col = {0.2, 0.4, 0.2} -- Greenish
+        gemini_btn_col = UI.C_BTN_MEDIUM -- Greenish (Theme Aware)
     elseif cfg.gemini_api_key ~= "" and cfg.gemini_key_status ~= 0 then
-        gemini_btn_col = {0.5, 0.2, 0.2} -- Reddish
+        gemini_btn_col = UI.C_BTN_ERROR -- Reddish (Theme Aware)
     end
 
     if s_btn(x_start, y_cursor, S(200), S(30), "Gemini API ключ", "Ключ доступу до Gemini AI для функцій перефразування та редагування тексту.", gemini_btn_col) then
@@ -12663,9 +12849,9 @@ local function draw_settings()
     -- ElevenLabs API Key
     local eleven_btn_col = UI.C_BTN
     if cfg.eleven_key_status == 200 then
-        eleven_btn_col = {0.2, 0.4, 0.2} -- Greenish
+        eleven_btn_col = UI.C_BTN_MEDIUM -- Greenish (Theme Aware)
     elseif cfg.eleven_api_key ~= "" and cfg.eleven_key_status ~= 0 then
-        eleven_btn_col = {0.5, 0.2, 0.2} -- Reddish
+        eleven_btn_col = UI.C_BTN_ERROR -- Reddish (Theme Aware)
     end
 
     if s_btn(x_start + S(220), y_cursor, S(200), S(30), "ElevenLabs API ключ", "Ключ доступу до ElevenLabs для озвучування преміальними голосами.", eleven_btn_col) then
@@ -12685,7 +12871,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(35)
 
     -- Delete regions (Danger Zone)
-    if s_btn(x_start, y_cursor, S(200), S(30), "Видалити ВСІ регіони", "Видаляє всі регіони з проекту REAPER.\nДія незворотна!", {0.4, 0.2, 0.2}) then
+    if s_btn(x_start, y_cursor, S(200), S(30), "Видалити ВСІ регіони", "Видаляє всі регіони з проекту REAPER.\nДія незворотна!", UI.C_BTN_ERROR) then
         delete_all_regions()
     end
 
@@ -12727,7 +12913,7 @@ local function draw_settings()
     for i, opt in ipairs(srt_split_options) do
         local bx = x_start + ((i-1) * (split_btn_w + S(10)))
         local is_sel = (cfg.auto_srt_split == opt)
-        local btn_bg = is_sel and {0.3, 0.5, 0.3} or UI.C_BTN
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
         if s_btn(bx, y_cursor, split_btn_w, S(30), srt_split_labels[i], nil, btn_bg) then
             cfg.auto_srt_split = opt
             save_settings()
@@ -12851,9 +13037,55 @@ local function draw_settings()
     y_cursor = y_cursor + S(60)
 
     -- ═══════════════════════════════════════════
-    -- 5. ТЕМИ ТА ДИЗАЙН (Themes & Design)
+    -- 5. ТЕМА ІНТЕРФЕЙСУ (Interface Theme)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ТЕМИ ТА ДИЗАЙН")
+    s_section(y_cursor, "ТЕМА ІНТЕРФЕЙСУ")
+    y_cursor = y_cursor + S(35)
+
+    local ui_theme_options = {"Titanium", "Obsidian", "Quartz"}
+    local ui_theme_labels = {"Титан", "Обсидіан", "Кварц"}
+    local ui_btn_w = S(135)
+    
+    for i, opt in ipairs(ui_theme_options) do
+        local bx = x_start + ((i-1) * (ui_btn_w + S(10)))
+        local sy = get_y(y_cursor)
+        local is_sel = (cfg.ui_theme == opt)
+        local theme_data = UI.UI_THEMES[opt]
+        
+        if sy + S(30) > start_y and sy < gfx.h then
+            -- Selection highlight
+            if is_sel then
+                set_color(UI.C_GREEN)
+                gfx.rect(bx - S(2), sy - S(2), ui_btn_w + S(4), S(34), 0)
+            end
+            
+            -- Theme preview swatch
+            set_color(theme_data.C_BG)
+            gfx.rect(bx, sy, ui_btn_w, S(30), 1)
+            
+            -- Label in theme colors
+            set_color(theme_data.C_TXT)
+            gfx.setfont(F.std)
+            local lw, lh = gfx.measurestr(ui_theme_labels[i])
+            gfx.x, gfx.y = bx + (ui_btn_w - lw)/2, sy + (S(30) - lh)/2
+            gfx.drawstr(ui_theme_labels[i])
+            
+            if is_mouse_clicked() and gfx.mouse_x >= bx and gfx.mouse_x <= bx + ui_btn_w and 
+               gfx.mouse_y >= sy and gfx.mouse_y <= sy + S(30) then
+                UI.apply_ui_theme(opt)
+                save_settings()
+                -- Force cache rebuild for color updates (CPS, etc)
+                table_data_cache.state_count = -1 
+                last_layout_state.state_count = -1
+            end
+        end
+    end
+    y_cursor = y_cursor + S(60)
+
+    -- ═══════════════════════════════════════════
+    -- 6. ТЕМИ ТА ДИЗАЙН СУФЛЕРА (Prompter Themes)
+    -- ═══════════════════════════════════════════
+    s_section(y_cursor, "ТЕМИ ТА ДИЗАЙН СУФЛЕРА")
     y_cursor = y_cursor + S(35)
     
     local theme_options = {
@@ -12871,7 +13103,7 @@ local function draw_settings()
         local sy = get_y(y_cursor + r * S(40))
         local is_sel = (cfg.prmt_theme == opt)
         if sy + S(30) > start_y and sy < gfx.h then
-            if is_sel then set_color({0.2, 0.8, 0.2}) gfx.rect(bx - S(2), sy - S(2), theme_btn_w + S(4), S(34), 0) end
+            if is_sel then set_color(UI.C_GREEN) gfx.rect(bx - S(2), sy - S(2), theme_btn_w + S(4), S(34), 0) end
             set_color(theme_options[i][1]) gfx.rect(bx, sy, theme_btn_w, S(30), 1)
             set_color(theme_options[i][2])
             gfx.setfont(F.std)
@@ -12900,7 +13132,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(20)
 
     -- ═══════════════════════════════════════════
-    -- 6. ОСНОВНИЙ ТЕКСТ (Main Text Layout)
+    -- 7. ОСНОВНИЙ ТЕКСТ (Main Text Layout)
     -- ═══════════════════════════════════════════
     s_section(y_cursor, "ОСНОВНИЙ ТЕКСТ")
     y_cursor = y_cursor + S(35)
@@ -12939,7 +13171,7 @@ local function draw_settings()
     for i, opt in ipairs(align_options) do
         local bx = x_start + ((i-1) * S(100))
         local is_sel = (cfg.p_align == opt)
-        local btn_bg = is_sel and {0.3, 0.5, 0.3} or UI.C_BTN
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
         if s_btn(bx, y_cursor, S(90), S(30), align_labels[i], nil, btn_bg) then
             cfg.p_align = opt
             save_settings()
@@ -12954,7 +13186,7 @@ local function draw_settings()
     for i, opt in ipairs(valign_options) do
         local bx = x_start + ((i-1) * S(100))
         local is_sel = (cfg.p_valign == opt)
-        local btn_bg = is_sel and {0.3, 0.5, 0.3} or UI.C_BTN
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
         if s_btn(bx, y_cursor, S(90), S(30), valign_labels[i], nil, btn_bg) then
             cfg.p_valign = opt
             save_settings()
@@ -12971,7 +13203,7 @@ local function draw_settings()
         local r, c = math.floor((i-1)/5), (i-1)%5
         local bx = x_start + c * (font_btn_w + S(10))
         local is_sel = (cfg.p_font == f_name)
-        local btn_bg = is_sel and {0.3, 0.5, 0.3} or UI.C_BTN
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
         if s_btn(bx, y_cursor + r * S(35), font_btn_w, S(30), f_name, nil, btn_bg) then
             cfg.p_font = f_name
             save_settings()
@@ -12982,7 +13214,7 @@ local function draw_settings()
     for _, f in ipairs(font_options) do if f == cfg.p_font then is_preset = true break end end
     local font_btn_custom_w = (font_btn_w * 5) + S(40)
     local d_name = not is_preset and cfg.p_font or "Свій..."
-    local btn_bg = (not is_preset) and {0.3, 0.5, 0.3} or UI.C_BTN
+    local btn_bg = (not is_preset) and UI.C_BTN_MEDIUM or UI.C_BTN
     if s_btn(x_start, y_cursor + S(40), font_btn_custom_w, S(30), d_name, nil, btn_bg) then
         local ok, nf = reaper.GetUserInputs("Вибір шрифту", 1, "Назва шрифту:,extrawidth=200", cfg.p_font)
         if ok and nf ~= "" then cfg.p_font = nf save_settings() end
@@ -12999,7 +13231,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(20)
 
     -- ═══════════════════════════════════════════
-    -- 7. НАСТУПНА РЕПЛІКА (Next Line)
+    -- 8. НАСТУПНА РЕПЛІКА (Next Line)
     -- ═══════════════════════════════════════════
     s_section(y_cursor, "НАСТУПНА РЕПЛІКА")
     y_cursor = y_cursor + S(35)
@@ -13073,7 +13305,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(40)
 
     -- ═══════════════════════════════════════════
-    -- 8. ПРАВКИ (Corrections)
+    -- 9. ПРАВКИ (Corrections)
     -- ═══════════════════════════════════════════
     s_section(y_cursor, "ПРАВКИ")
     y_cursor = y_cursor + S(35)
@@ -13113,7 +13345,9 @@ local function draw_settings()
     end
     y_cursor = y_cursor + S(40)
 
-    -- RECORDING SECTION
+    -- ═══════════════════════════════════════════
+    -- 10. ЗАПИС ТА АВТО-ПІДРІЗАННЯ (Recording)
+    -- ═══════════════════════════════════════════
     s_section(y_cursor, "ЗАПИС ТА АВТО-ПІДРІЗАННЯ")
     y_cursor = y_cursor + S(35)
     
@@ -13154,7 +13388,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(65)
     
     -- ═══════════════════════════════════════════
-    -- 10. ТЕКСТ У МОВУ (Text-to-Speech)
+    -- 11. ТЕКСТ У МОВУ (Text-to-Speech)
     -- ═══════════════════════════════════════════
     s_section(y_cursor, "ТЕКСТ У МОВУ")
     y_cursor = y_cursor + S(35)
@@ -13475,7 +13709,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         gfx.rect(panel_x, panel_y, panel_w, panel_h, 1)
         
         -- Draw Separator (Left or Top depending on layout? For now basic border)
-        set_color({0.3, 0.3, 0.3})
+        set_color(UI.C_MEDIUM_GREY)
         if cfg.director_layout == "right" then
             gfx.line(panel_x, panel_y, panel_x, panel_y + panel_h)
         else
@@ -13501,7 +13735,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     -- Actor buttons should wrap before reaching the options button
     local limit_x = opt_x - S(5) -- Leave small gap before options button
     
-    if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", {0.3, 0.35, 0.3}) then
+    if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
         local dock_check = gfx.dock(-1) > 0 and "!" or ""
         local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
         local menu_str = "Копіювати правки в буфер|Експортувати правки в CSV|Імпортувати імена акторів з субтитрів|" .. layout_label .. "|Закрити вікно"
@@ -13718,7 +13952,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
              -- Logic drawing ...
              -- Active state determination
             local is_active = current_actors_set[actor]
-            local bg_col = is_active and {0.2, 0.6, 0.2} or UI.C_BTN
+            local bg_col = is_active and UI.C_ACCENT_G or UI.C_BTN
             
             -- Hover Check for Right Click
             -- Adjust hit test to relative coords
@@ -13868,7 +14102,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     end
     
     if not calc_only then
-        if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "+", {0.3, 0.35, 0.3}) then
+        if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "+", UI.C_ACCENT_N) then
             local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
             if ok then
                 -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
@@ -13923,7 +14157,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             has_changes = true
         end
 
-        local save_col = has_changes and (director_state.last_marker_id and {0.2, 0.4, 0.6} or {0.2, 0.5, 0.2}) or UI.C_BTN
+        local save_col = has_changes and (director_state.last_marker_id and UI.C_BTN_UPDATE or UI.C_BTN_MEDIUM) or UI.C_BTN
         local save_label = director_state.last_marker_id and "Оновити" or "Зберегти"
         
         -- Position save button: vertical stack for Right mode, horizontal for Bottom mode
@@ -14006,7 +14240,7 @@ local function draw_table(input_queue)
 
     -- Case Sensitive Toggle (Aa) - Always visible
     local chk_x = filter_x + filter_w + gap
-    local case_col = find_replace_state.case_sensitive and {0.2, 0.8, 0.2} or {0.3, 0.3, 0.3}
+    local case_col = find_replace_state.case_sensitive and UI.C_ACCENT_G or UI.C_BTN
     if draw_btn_inline(chk_x, filter_y, chk_w, filter_h, "Aa", case_col) then
         find_replace_state.case_sensitive = not find_replace_state.case_sensitive
     end
@@ -14027,7 +14261,7 @@ local function draw_table(input_queue)
 
     if find_replace_state.show then
         -- CLOSE BUTTON (Reddish)
-        if draw_btn_inline(btn_x, filter_y, opt_btn_w, filter_h, "✕", {0.3, 0.2, 0.2}) then
+        if draw_btn_inline(btn_x, filter_y, opt_btn_w, filter_h, "X", UI.C_BTN_ERROR) then
             find_replace_state.show = false
         end
     else
@@ -14091,7 +14325,7 @@ local function draw_table(input_queue)
         -- Red Dot indicator for hidden columns or enabled markers
         local any_hidden = cfg.reader_mode or cfg.show_markers_in_table or not (cfg.col_table_index and cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
         if any_hidden then
-            set_color({1, 0, 0, 1}) -- Red
+            set_color(UI.C_RED) -- Red
             gfx.circle(btn_x + opt_btn_w - 4, filter_y + 4, 3, 1)
         end
     end
@@ -14233,8 +14467,8 @@ local function draw_table(input_queue)
             while i >= 0 do
                 local _, isrgn, _, _, _, mark_id = reaper.EnumProjectMarkers3(0, i)
                 if not isrgn and markers_to_delete[mark_id] then
-                     reaper.DeleteProjectMarkerByIndex(0, i)
-                     total_deleted = total_deleted + 1
+                    reaper.DeleteProjectMarkerByIndex(0, i)
+                    total_deleted = total_deleted + 1
                 end
                 i = i - 1
             end
@@ -14719,7 +14953,7 @@ local function draw_table(input_queue)
         
         -- Special background for markers
         if line.is_marker then
-            set_color({0.3, 0.1, 0.1}) -- Dark reddish background for markers
+            set_color(UI.C_MARKER_BG) -- Dark reddish background for markers
             gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
         else
             -- zebra
@@ -14741,9 +14975,9 @@ local function draw_table(input_queue)
             
             if is_selected then
                 if line.is_marker then
-                    set_color({0.5, 0.4, 0.0, 1}) -- Dark Orange Selection for markers
+                    set_color(UI.C_MARKER_SEL) -- Dark Orange Selection for markers
                 else
-                    set_color({0.1, 0.35, 0.2}) -- Darker Green Selection
+                    set_color(UI.C_HILI_GREEN) -- Darker Green Selection
                 end
                 gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
             end
@@ -14754,12 +14988,12 @@ local function draw_table(input_queue)
                                  gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h)
             
             if row_hover then
-                set_color({1, 1, 1, 0.07})
+                set_color(UI.C_HILI_WHITE)
                 gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
             end
 
             if is_active_row then
-                set_color({0.2, 0.9, 0.2}) -- Bright Green Border
+                set_color(UI.C_GREEN_BRIGHT) -- Bright Green Border
                 gfx.rect(0, buf_y, 5, row_h_dynamic, 1)
             end
             
@@ -14769,7 +15003,7 @@ local function draw_table(input_queue)
                 -- Checkbox column (skip for markers)
                 local chk_y = buf_y + (row_h_dynamic - chk_sz)/2
                 
-                set_color({0.5, 0.5, 0.5})
+                set_color(UI.C_ED_GUTTER)
                 gfx.rect(chk_x, chk_y, chk_sz, chk_sz, 0)
                 
                 if line.enabled ~= false then
@@ -14844,7 +15078,7 @@ local function draw_table(input_queue)
                             local match_str = display_txt:sub(s_start, math.min(s_end, #display_txt))
                             local pre_w = gfx.measurestr(pre_match)
                             local match_w = gfx.measurestr(match_str)
-                            set_color({1, 1, 0, 0.4})
+                            set_color(UI.C_HILI_YELLOW, 0.4)
                             gfx.rect(x + pre_w, y, match_w, gfx.texth, 1)
                             set_color(row_base_color)
                         end
@@ -14874,7 +15108,7 @@ local function draw_table(input_queue)
                                 local match_str = line_str:sub(s_start, s_end)
                                 local pre_w = gfx.measurestr(pre_match)
                                 local match_w = gfx.measurestr(match_str)
-                                set_color({1, 1, 0, 0.4})
+                                set_color(UI.C_HILI_YELLOW, 0.4)
                                 gfx.rect(x + pre_w, cur_y, match_w, line_h, 1)
                                 set_color(row_base_color)
                                 first_match_done = true 
@@ -15253,7 +15487,7 @@ local function draw_table(input_queue)
             
             -- Draw Separator
             is_hover = UI_STATE.inside_window and UI_STATE.window_focused and math.abs(gfx.mouse_x - border_x) <= resize_zone and (gfx.mouse_y >= content_y)
-            set_color(is_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
+            set_color(is_hover and UI.C_HILI_WHITE_MID or UI.C_HILI_WHITE)
             gfx.rect(border_x, content_y, strip_sz, avail_h + h_director, 1)
 
             -- Logic
@@ -15284,7 +15518,7 @@ local function draw_table(input_queue)
             handle_y = border_y - (handle_h / 2)
 
             is_hover = UI_STATE.inside_window and UI_STATE.window_focused and math.abs(gfx.mouse_y - border_y) <= resize_zone
-            set_color(is_hover and {1, 1, 1, 0.4} or {1, 1, 1, 0.1})
+            set_color(is_hover and UI.C_HILI_WHITE_MID or UI.C_HILI_WHITE)
             gfx.rect(0, border_y, gfx.w, strip_sz, 1)
 
             if is_hover or director_resize_drag then
@@ -15309,16 +15543,16 @@ local function draw_table(input_queue)
 
         -- Draw Handle Pill (Only on hover or drag)
         if is_hover or director_resize_drag then
-            set_color({1, 1, 1, 0.8})
+            set_color(UI.C_WHITE, 0.8)
             gfx.rect(handle_x, handle_y, handle_w, handle_h, 1)
-            set_color({0, 0, 0, 0.5})
+            set_color(UI.C_BLACK_OVERLAY)
             gfx.rect(handle_x, handle_y, handle_w, handle_h, 0)
         end
     end
 
     -- Draw Header LAST (always on top)
     if not cfg.reader_mode then
-        set_color({0.1, 0.1, 0.1})
+        set_color(UI.C_SNACK_INFO)
         gfx.rect(0, start_y, avail_w, h_header, 1)
     end
     
@@ -15387,7 +15621,7 @@ local function draw_table(input_queue)
 
         if is_hover then
             if not mouse_in_menu and not col_resize.dragging then -- Checks if custom menus are open
-                set_color({0.2, 0.3, 0.35})
+                set_color(UI.C_HILI_HEADER)
                 gfx.rect(x, y, cell_w, h_header, 1)
                 
                 if is_mouse_clicked() then
@@ -15403,7 +15637,7 @@ local function draw_table(input_queue)
         
         -- Draw resize handle highlight
         if is_resize_hover or (col_resize.dragging and col_resize.key == resize_key) then
-            set_color({0.5, 0.5, 0.8, 0.6})
+            set_color(UI.C_RESIZE_HDL)
             gfx.rect(next_x - S(2), y, S(4), h_header, 1)
         end
 
@@ -15463,20 +15697,20 @@ local function draw_table(input_queue)
         local m_h = #items * item_h + S(10)
         
         -- Background with shadow
-        set_color({0, 0, 0, 0.4}); gfx.rect(m_x+S(2), m_y+S(2), m_w, m_h, 1) -- Shadow
+        set_color(UI.C_SHADOW); gfx.rect(m_x+S(2), m_y+S(2), m_w, m_h, 1) -- Shadow
         set_color(UI.C_BG); gfx.rect(m_x, m_y, m_w, m_h, 1)
         set_color(UI.C_BTN_H); gfx.rect(m_x, m_y, m_w, m_h, 0)
         
         for idx, item in ipairs(items) do
             if item.separator then
-                set_color({0.5, 0.5, 0.5, 0.3})
+                set_color(UI.C_HILI_GREY_LOW)
                 gfx.line(m_x + S(5), m_y + S(5) + (idx-1) * item_h + item_h/2, m_x + m_w - S(5), m_y + S(5) + (idx-1) * item_h + item_h/2)
             else
                 local iy = m_y + S(5) + (idx-1) * item_h
                 local hover = UI_STATE.window_focused and (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= iy and gfx.mouse_y < iy + item_h)
                 
                 if hover then
-                    set_color({1, 1, 1, 0.1})
+                    set_color(UI.C_HILI_WHITE)
                     gfx.rect(m_x, iy, m_w, item_h, 1)
                 end
                 
@@ -15484,7 +15718,7 @@ local function draw_table(input_queue)
                 local chk_sz = S(14)
                 local chk_x = m_x + S(8)
                 local chk_y = iy + (item_h - chk_sz)/2
-                set_color({0.5, 0.5, 0.5})
+                set_color(UI.C_ED_GUTTER)
                 gfx.rect(chk_x, chk_y, chk_sz, chk_sz, 0)
                 
                 if cfg[item.key] then
@@ -15541,7 +15775,7 @@ local function draw_table(input_queue)
         local m_h = S(125)
         
         -- Background with shadow
-        set_color({0, 0, 0, 0.4}); gfx.rect(m_x+S(2), m_y+S(2), m_w, m_h, 1) -- Shadow
+        set_color(UI.C_SHADOW); gfx.rect(m_x+S(2), m_y+S(2), m_w, m_h, 1) -- Shadow
         set_color(UI.C_BG); gfx.rect(m_x, m_y, m_w, m_h, 1)
         set_color(UI.C_BTN_H); gfx.rect(m_x, m_y, m_w, m_h, 0)
         
@@ -15552,11 +15786,11 @@ local function draw_table(input_queue)
         local hover_chk = UI_STATE.window_focused and (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= iy and gfx.mouse_y < iy + S(24))
         
         if hover_chk then
-            set_color({1, 1, 1, 0.05})
+            set_color(UI.C_HILI_WHITE_LOW)
             gfx.rect(m_x, iy-S(4), m_w, S(24), 1)
         end
         
-        set_color({0.5, 0.5, 0.5})
+        set_color(UI.C_ED_GUTTER)
         gfx.rect(chk_x, iy + S(4), chk_sz, chk_sz, 0)
         if time_shift_menu.only_selected then
             set_color(UI.C_TXT)
@@ -15607,7 +15841,7 @@ local function draw_table(input_queue)
         draw_row(neg_offsets, m_y + S(42))
         
         -- Separator
-        set_color({1, 1, 1, 0.1})
+        set_color(UI.C_HILI_WHITE)
         gfx.line(m_x + S(10), m_y + S(76), m_x + m_w - S(10), m_y + S(76))
         
         draw_row(pos_offsets, m_y + S(90))
