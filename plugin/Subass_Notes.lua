@@ -226,7 +226,7 @@ update_prompter_fonts()
 -- Grouped State (to fix Lua local variable limit)
 local UI_STATE = {
     tabs = {"Файл", "Репліки", "Суфлер", "Налаштування"},
-    current_tab = 3, -- Default to Prompter
+    current_tab = get_set("last_tab", 1),
     last_mouse_cap = 0,
     mouse_handled = false,
     scroll_y = 0,
@@ -397,6 +397,328 @@ local prompter_drawer = {
     filtered_cache = { state_count = -1, query = "", width = -1, gui_scale = -1, list = {}, total_h = 0 }
 }
 
+-- ═══════════════════════════════════════════════════════════════
+-- STATISTICS MODULE - JSON Utilities & Data Tracking
+-- ═══════════════════════════════════════════════════════════════
+
+--- Statistics Module
+local STATS = {
+    file_path = nil, -- Will be set dynamically per project
+    stats_dir = nil, -- Will be initialized below
+    data = nil,
+    dirty = false,
+    last_save_time = 0,
+    current_project_id = nil
+}
+
+-- Initialize stats directory path
+do
+    local script_path = debug.getinfo(1, "S").source:match("^@?(.+[/\\])") or ""
+    STATS.stats_dir = script_path .. "stats/"
+end
+
+--- Simple JSON encoder (handles basic types: string, number, boolean, table)
+function STATS.json_encode(val, indent)
+    indent = indent or 0
+    local t = type(val)
+    
+    if t == "string" then
+        return string.format("%q", val)
+    elseif t == "number" or t == "boolean" then
+        return tostring(val)
+    elseif t == "table" then
+        local is_array = true
+        local max_idx = 0
+        for k, v in pairs(val) do
+            if type(k) ~= "number" or k < 1 or k ~= math.floor(k) then
+                is_array = false
+                break
+            end
+            max_idx = math.max(max_idx, k)
+        end
+        
+        local spacing = string.rep("  ", indent)
+        local inner_spacing = string.rep("  ", indent + 1)
+        
+        -- Check if table is empty
+        local count = 0
+        for _ in pairs(val) do count = count + 1 end
+        if count == 0 then
+            return "{}"
+        end
+        
+        if is_array then
+            local parts = {}
+            for i = 1, max_idx do
+                table.insert(parts, inner_spacing .. STATS.json_encode(val[i], indent + 1))
+            end
+            return "[\n" .. table.concat(parts, ",\n") .. "\n" .. spacing .. "]"
+        else
+            local parts = {}
+            for k, v in pairs(val) do
+                local key = type(k) == "string" and string.format("%q", k) or tostring(k)
+                table.insert(parts, inner_spacing .. key .. ": " .. STATS.json_encode(v, indent + 1))
+            end
+            return "{\n" .. table.concat(parts, ",\n") .. "\n" .. spacing .. "}"
+        end
+    else
+        return "null"
+    end
+end
+
+--- Simple JSON decoder (handles basic JSON structures)
+function STATS.json_decode(str)
+    if not str or str == "" then return nil end
+    
+    -- Remove whitespace
+    str = str:gsub("^%s+", ""):gsub("%s+$", "")
+    
+    -- Try to load as Lua table (safe subset)
+    local fn, err = load("return " .. str:gsub("null", "nil"):gsub("true", "true"):gsub("false", "false"))
+    if fn then
+        local ok, result = pcall(fn)
+        if ok then return result end
+    end
+    
+    -- Fallback: return empty structure
+    return {}
+end
+
+
+--- Generate unique project ID from project path
+function STATS.get_project_id()
+    local proj_path = reaper.GetProjectPath("") .. "/" .. reaper.GetProjectName(0, "")
+    if proj_path == "/" then return nil end -- No project loaded
+    
+    -- Simple hash: sum of character codes
+    local hash = 0
+    for i = 1, #proj_path do
+        hash = (hash * 31 + string.byte(proj_path, i)) % 0xFFFFFFFF
+    end
+    return string.format("%08x", hash)
+end
+
+--- Get current date string (YYYY-MM-DD)
+function STATS.get_date_string()
+    return os.date("%Y-%m-%d")
+end
+
+--- Get file path for current project (creates new file with date if needed)
+function STATS.get_project_file_path()
+    local proj_id = STATS.get_project_id()
+    if not proj_id then return nil end
+    
+    -- Check if we already have a file path for this project
+    if STATS.current_project_id == proj_id and STATS.file_path then
+        return STATS.file_path
+    end
+    
+    -- Look for existing file for this project
+    local pattern = "stats_" .. proj_id .. "_*.json"
+    local files = {}
+    
+    -- Scan stats directory for matching files
+    local i = 0
+    repeat
+        local file = reaper.EnumerateFiles(STATS.stats_dir, i)
+        if file and file:match("^stats_" .. proj_id .. "_") then
+            table.insert(files, file)
+        end
+        i = i + 1
+    until not file
+    
+    -- Use existing file or create new one with current date
+    local filename
+    if #files > 0 then
+        -- Use the first (oldest) file found
+        table.sort(files)
+        filename = files[1]
+    else
+        -- Create new file with current date
+        filename = "stats_" .. proj_id .. "_" .. STATS.get_date_string() .. ".json"
+    end
+    
+    STATS.current_project_id = proj_id
+    STATS.file_path = STATS.stats_dir .. filename
+    return STATS.file_path
+end
+
+--- Load statistics from file
+function STATS.load()
+    local file_path = STATS.get_project_file_path()
+    if not file_path then
+        STATS.data = nil
+        return
+    end
+    
+    local file = io.open(file_path, "r")
+    if not file then
+        -- Initialize default structure for this project
+        STATS.data = {
+            meta_version = 1,
+            project_id = STATS.get_project_id(),
+            project_name = reaper.GetProjectName(0, ""),
+            project_path = reaper.GetProjectPath("") .. "/" .. reaper.GetProjectName(0, ""),
+            created_date = STATS.get_date_string(),
+            last_updated = os.time(),
+            metadata = {
+                total_lines_in_script = 0,
+                total_words = 0,
+                edits_count = 0
+            },
+            total = {
+                lines_recorded = 0
+            },
+            daily_stats = {}
+        }
+        STATS.dirty = true
+        return
+    end
+    
+    local content = file:read("*all")
+    file:close()
+    
+    local decoded = STATS.json_decode(content)
+    if decoded and decoded.project_id then
+        STATS.data = decoded
+    else
+        -- Fallback: initialize default structure
+        STATS.data = {
+            meta_version = 1,
+            project_id = STATS.get_project_id(),
+            project_name = reaper.GetProjectName(0, ""),
+            project_path = reaper.GetProjectPath("") .. "/" .. reaper.GetProjectName(0, ""),
+            created_date = STATS.get_date_string(),
+            last_updated = os.time(),
+            metadata = {
+                total_lines_in_script = 0,
+                total_words = 0,
+                edits_count = 0
+            },
+            total = {
+                lines_recorded = 0
+            },
+            daily_stats = {}
+        }
+        STATS.dirty = true
+    end
+end
+
+--- Save statistics to file
+function STATS.save()
+    if not STATS.data or not STATS.dirty then return end
+    
+    local file_path = STATS.get_project_file_path()
+    if not file_path then return end
+    
+    -- Ensure directory exists
+    local dir = STATS.file_path:match("^(.+[/\\])")
+    if dir then
+        reaper.RecursiveCreateDirectory(dir, 0)
+    end
+    
+    local file = io.open(file_path, "w")
+    if not file then return end
+    
+    file:write(STATS.json_encode(STATS.data))
+    file:close()
+    
+    STATS.dirty = false
+    STATS.last_save_time = reaper.time_precise()
+end
+
+--- Get or create project entry (now returns the main data object)
+function STATS.get_project()
+    if not STATS.data then
+        STATS.load()
+    end
+    
+    -- Reload if project changed
+    local current_proj_id = STATS.get_project_id()
+    if current_proj_id ~= STATS.current_project_id then
+        STATS.load()
+    end
+    
+    return STATS.data
+end
+
+--- Increment outside recordings counter
+function STATS.increment_outside()
+    local proj = STATS.get_project()
+    if not proj then return end
+    
+    local date = STATS.get_date_string()
+    
+    -- Ensure daily stats entry exists
+    if not proj.daily_stats[date] then
+        proj.daily_stats[date] = {
+            lines = 0,
+            actors = {}
+        }
+    end
+    
+    -- Initialize outside counter if missing
+    if not proj.total.lines_recorded_outside then
+        proj.total.lines_recorded_outside = 0
+    end
+    if not proj.daily_stats[date].lines_outside then
+        proj.daily_stats[date].lines_outside = 0
+    end
+    
+    -- Increment counters
+    proj.total.lines_recorded_outside = proj.total.lines_recorded_outside + 1
+    proj.daily_stats[date].lines_outside = proj.daily_stats[date].lines_outside + 1
+    
+    proj.last_updated = os.time()
+    STATS.dirty = true
+end
+
+
+--- Increment recorded lines counter
+function STATS.increment_recorded(actor_name)
+    local proj = STATS.get_project()
+    if not proj then return end
+    
+    local date = STATS.get_date_string()
+    
+    -- Ensure daily stats entry exists
+    if not proj.daily_stats[date] then
+        proj.daily_stats[date] = {
+            lines = 0,
+            actors = {}
+        }
+    end
+    
+    -- Increment counters
+    proj.total.lines_recorded = proj.total.lines_recorded + 1
+    proj.daily_stats[date].lines = proj.daily_stats[date].lines + 1
+    
+    -- Track per-actor
+    if actor_name then
+        if not proj.daily_stats[date].actors[actor_name] then
+            proj.daily_stats[date].actors[actor_name] = { lines = 0 }
+        end
+        proj.daily_stats[date].actors[actor_name].lines = proj.daily_stats[date].actors[actor_name].lines + 1
+    end
+    
+    proj.last_updated = os.time()
+    STATS.dirty = true
+end
+
+--- Increment edits counter
+function STATS.increment_edit()
+    local proj = STATS.get_project()
+    if not proj then return end
+    
+    proj.metadata.edits_count = proj.metadata.edits_count + 1
+    proj.last_updated = os.time()
+    STATS.dirty = true
+end
+
+--- Initialize stats on script load
+STATS.load()
+
+
 --- Update the global marker cache used by both drawer and prompter
 local function update_marker_cache()
     local state_count = reaper.GetProjectStateChangeCount(0)
@@ -552,6 +874,76 @@ local actor_colors = {} -- {ActorName = integerColor}
 
 UI_STATE.ass_file_loaded = false
 UI_STATE.current_file_name = nil
+
+--- Update project metadata (total lines, words)
+function STATS.update_metadata()
+    local proj = STATS.get_project()
+    if not proj then return end
+    
+    local total_lines = 0
+    local total_words = 0
+    local selected_lines = 0
+    local selected_words = 0
+    local actor_stats = {}
+    
+    -- Iterate ass_lines directly (defined locally above)
+    if ass_lines then
+        for _, line in ipairs(ass_lines) do
+            -- Count every line (we want total lines in script)
+            total_lines = total_lines + 1
+            
+            -- Word count logic matching line 10094 (strip tags, convert breaks, count non-whitespace)
+            local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+            local _, count = clean:gsub("%S+", "")
+            total_words = total_words + count
+            
+            -- Count selected/enabled lines
+            if line.enabled ~= false then
+                selected_lines = selected_lines + 1
+                selected_words = selected_words + count
+            end
+            
+            -- Track per-actor stats (total in script)
+            local actor = line.actor
+            if actor and actor ~= "" then
+                if not actor_stats[actor] then
+                    -- Check selection status from ass_actors global table
+                    -- ass_actors[name] is true if selected/visible, nil/false if hidden
+                    local is_selected = false
+                    if ass_actors and ass_actors[actor] == true then
+                        is_selected = true
+                    end
+
+                    actor_stats[actor] = {
+                        lines = 0,
+                        words = 0,
+                        id = actor,
+                        selected = is_selected
+                    }
+                end
+                actor_stats[actor].lines = actor_stats[actor].lines + 1
+                actor_stats[actor].words = actor_stats[actor].words + count
+            end
+        end
+    end
+    
+    -- Always update metadata if values differ
+    -- We'll assume if total counts changed, actor stats might have too, so we update the actors table
+    if proj.metadata.total_lines_in_script ~= total_lines or 
+       proj.metadata.total_words ~= total_words or
+       proj.metadata.selected_lines_count ~= selected_lines or
+       proj.metadata.selected_words_count ~= selected_words or
+       not proj.metadata.actors or
+       (total_lines > 0 and proj.metadata.total_lines_in_script == 0) then
+        proj.metadata.total_lines_in_script = total_lines
+        proj.metadata.total_words = total_words
+        proj.metadata.selected_lines_count = selected_lines
+        proj.metadata.selected_words_count = selected_words
+        proj.metadata.actors = actor_stats
+        proj.last_updated = os.time()
+        STATS.dirty = true
+    end
+end
 
 local UI = {
     -- === 1. Core Interface ===
@@ -756,6 +1148,7 @@ local text_palette = {
 
 --- Save current settings to REAPER ExtState (persistent storage)
 local function save_settings()
+    reaper.SetExtState(section_name, "last_tab", tostring(UI_STATE.current_tab), true)
     reaper.SetExtState(section_name, "dock", tostring(last_dock_state), true)
     
     reaper.SetExtState(section_name, "p_fsize", tostring(cfg.p_fsize), true)
@@ -944,6 +1337,25 @@ function UTILS.restart_script()
     reaper.defer(function()
         dofile(script_path)
     end)
+end
+
+--- Launch external python script
+function UTILS.launch_python_script(script_relative_path)
+    local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
+    local py_script = script_path .. script_relative_path
+    local os_name = reaper.GetOS()
+    
+    if os_name:match("Win") then
+        local py_exe = requirements_state.python.executable or "python"
+        py_script = py_script:gsub("/", "\\")
+        reaper.ExecProcess('cmd.exe /C start "" "' .. py_exe .. '" "' .. py_script .. '"', -1)
+    elseif os_name:match("OSX") or os_name:match("macOS") then
+        local cmd = string.format('/usr/bin/open -n -a Terminal.app "%s"', py_script)
+        reaper.ExecProcess(cmd, -1)
+    else
+        local py_script = script_path .. script_relative_path
+        reaper.ExecProcess('python3 "' .. py_script .. '" &', -1)
+    end
 end
 
 --- Set GFX color from RGB array
@@ -3516,6 +3928,9 @@ local function save_project_data()
     if UI_STATE.current_file_name then
         reaper.SetProjExtState(0, section_name, "ass_fname", UI_STATE.current_file_name)
     end
+    
+    -- Track edit in statistics
+    STATS.increment_edit()
 
     local mark_tbl = {}
     for _, m in ipairs(ass_markers) do
@@ -3743,7 +4158,10 @@ local function load_project_data()
             end
         end
     end
+
+    STATS.update_metadata()
 end
+
 -- LOAD DATA ON STARTUP
 load_project_data()
 sanitize_indices()
@@ -4033,6 +4451,7 @@ local function rebuild_regions()
 
     update_regions_cache() -- Update cache immediately execution
     save_project_data() -- SAVE ON CHANGE
+    STATS.update_metadata()
 end
 
 local function push_undo(label)
@@ -9813,7 +10232,7 @@ local function draw_file()
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "Видалити ВСІ регіони|Відкрити WEB-менеджер наголосів|Експортувати як SRT||" .. dock_check .. "Закріпити вікно (Dock)"
+        local menu = "Видалити ВСІ регіони|Відкрити WEB-менеджер наголосів|Відкрити мою Статистику|Експортувати як SRT||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -9822,32 +10241,14 @@ local function draw_file()
             delete_all_regions()
         elseif ret == 2 then
             -- Open web-based stress manager
-            local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
-            local py_script = script_path .. "stress/ukrainian_stress_tool.py"
-            local os_name = reaper.GetOS()
-            
-            if os_name:match("Win") then
-                -- Windows: Launch Python directly in a new CMD window (non-blocking)
-                -- Use -1 for timeout to return immediately and avoid blocking REAPER
-                local py_exe = requirements_state.python.executable or "python"
-                py_script = py_script:gsub("/", "\\")
-                reaper.ExecProcess('cmd.exe /C start "" "' .. py_exe .. '" "' .. py_script .. '"', -1)
-            elseif os_name:match("OSX") or os_name:match("macOS") then
-                -- macOS: Launch in Terminal (non-blocking)
-                -- 1. We use the full path to 'open' to ensure reaper.ExecProcess finds it.
-                -- 2. We use -n to ensure a new Terminal window is opened every time.
-                -- 3. We use -1 timeout in ExecProcess to return focus to REAPER instantly.
-                local cmd = string.format('/usr/bin/open -n -a Terminal.app "%s"', py_script)
-                reaper.ExecProcess(cmd, -1)
-            else
-                -- Linux: Direct background execution
-                local py_script = script_path .. "stress/ukrainian_stress_tool.py"
-                reaper.ExecProcess('python3 "' .. py_script .. '" &', -1)
-            end
+            UTILS.launch_python_script("stress/ukrainian_stress_tool.py")
         elseif ret == 3 then
+            -- Open web-based STATS manager
+            UTILS.launch_python_script("stats/subass_stats.py")
+        elseif ret == 4 then
             -- Export as SRT
             export_as_srt()
-        elseif ret == 4 then
+        elseif ret == 5 then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
@@ -16080,8 +16481,6 @@ end
 
 --- Automatically trim start/end and check for clipping of newly recorded items
 local function process_post_recording()
-    if not cfg.auto_trim and not cfg.check_clipping then return end
-    
     local play_state = reaper.GetPlayState()
     local is_recording = (play_state & 4) == 4
     
@@ -16089,6 +16488,60 @@ local function process_post_recording()
         -- Recording just stopped
         local item_count = reaper.CountSelectedMediaItems(0)
         if item_count > 0 then
+            
+            -- Track statistics: count recorded items and get actor names
+            local recorded_actors = {}
+            for i = 0, item_count - 1 do
+                local item = reaper.GetSelectedMediaItem(0, i)
+                if item then
+                    -- Find actor by matching item position to ass_lines
+                    local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                    local item_end = item_pos + reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                    
+                    local found_actor = false
+                    if ass_lines then
+                        for _, line in ipairs(ass_lines) do
+                            -- Check if item overlaps line time range
+                            if line.enabled ~= false and line.t1 and line.t2 then
+                                -- Simple check: does the item start near this line?
+                                -- Giving 0.5s tolerance
+                                if item_pos >= (line.t1 - 0.5) and item_pos < (line.t2 + 0.5) then
+                                    if line.actor and line.actor ~= "" then
+                                        recorded_actors[line.actor] = (recorded_actors[line.actor] or 0) + 1
+                                        found_actor = true
+                                        break -- Count once per item
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- If no actor found, count as "outside" recording
+                    if not found_actor then
+                        recorded_actors["_OUTSIDE_"] = (recorded_actors["_OUTSIDE_"] or 0) + 1
+                    end
+                end
+            end
+            
+            -- Increment stats for each actor
+            for actor, count in pairs(recorded_actors) do
+                for _ = 1, count do
+                    if actor == "_OUTSIDE_" then
+                        STATS.increment_outside()
+                    else
+                        STATS.increment_recorded(actor)
+                    end
+                end
+            end
+            
+            -- Save stats immediately after recording
+            STATS.save()
+            
+            -- Only proceed with trim/clipping if enabled
+            if not cfg.auto_trim and not cfg.check_clipping then
+                UI_STATE.last_is_recording = is_recording
+                return
+            end
             
             -- 1. Auto Trim
             if cfg.auto_trim then
@@ -16228,6 +16681,12 @@ local function main()
     -- Heartbeat for Lionzz
     reaper.gmem_write(100, reaper.time_precise())
     handle_remote_commands()
+    
+    -- Save statistics every 1 minute
+    local now = reaper.time_precise()
+    if now - STATS.last_save_time > 60 then -- 1 minute
+        STATS.save()
+    end
 
     -- Persistently nudge focus if requested (to overcome OS race conditions)
     if text_editor_state.needs_focus_nudge and text_editor_state.needs_focus_nudge > 0 then
@@ -16426,6 +16885,9 @@ local function main()
 end
 
 update_regions_cache()
-reaper.atexit(save_settings)
+reaper.atexit(function()
+    save_settings()
+    STATS.save()
+end)
 
 main()
