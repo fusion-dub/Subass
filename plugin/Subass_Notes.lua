@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.1.8
+-- @version 4.1.9
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.1.8"
+local script_title = "Subass Notes v4.1.9"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -9063,21 +9063,24 @@ end
 --- Draw main navigation UI_STATE.tabs
 local function draw_tabs()
     local btn_scan_w = S(30)
-    local total_tab_w = gfx.w - btn_scan_w
+    local gap_w = 1 -- 1 pixel gap
+    local total_tab_w = gfx.w - btn_scan_w - gap_w
     local tab_w = total_tab_w / #UI_STATE.tabs
     local h = S(25)
     
     for i, name in ipairs(UI_STATE.tabs) do
-        local x = (i - 1) * tab_w
+        -- Integer calculation to prevent gaps
+        local x_start = math.floor((i - 1) * total_tab_w / #UI_STATE.tabs)
+        local x_end = math.floor(i * total_tab_w / #UI_STATE.tabs)
+        local tab_w = x_end - x_start
+        local x = x_start
+        
         local is_act = (UI_STATE.current_tab == i)
         
         set_color(is_act and UI.C_TAB_ACT or UI.C_TAB_INA)
         gfx.rect(x, 0, tab_w, h, 1)
 
-        -- Separator
-        set_color(UI.C_BLACK)
-        gfx.line(x+tab_w, 0, x+tab_w, h)
-        
+
         set_color(UI.C_TXT)
         gfx.setfont(F.std)
         local display_name = fit_text_width(name, tab_w - S(10))
@@ -9102,7 +9105,7 @@ local function draw_tabs()
     end
     
     -- Jump to Region Button (Small Tab at the end)
-    local btn_x = total_tab_w
+    local btn_x = total_tab_w + gap_w
     
     set_color(UI.C_TAB_INA) -- Use inactive tab color
     gfx.rect(btn_x, 0, btn_scan_w, h, 1)
@@ -9156,7 +9159,7 @@ local function draw_tabs()
                     -- If input HAS colon (e.g. "01:13.82"), respect the dot as decimal.
                     local time_str = clean_input
                     if not time_str:find(":") and time_str:find("%.") then
-                         time_str = time_str:gsub("%.", ":")
+                        time_str = time_str:gsub("%.", ":")
                     end
                     
                     local pos = reaper.parse_timestr(time_str)
