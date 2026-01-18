@@ -221,9 +221,9 @@ fi
 echo "\033[1;34m>> Registering Action and Menu Item...\033[0m"
 KB_FILE="$REAPER_PATH/reaper-kb.ini"
 MENU_FILE="$REAPER_PATH/reaper-menu.ini"
-ACTION_ID="RS77777777777777777777777777777777"
-OVERLAY_ID="RS88888888888888888888888888888888"
-DICT_ID="RS99999999999999999999999999999999"
+ACTION_ID="RS7777777777777777777777777777777777777777"
+OVERLAY_ID="RS8888888888888888888888888888888888888888"
+DICT_ID="RS9999999999999999999999999999999999999999"
 
 # Python helper to update INI files
 python3 <<EOF
@@ -274,8 +274,9 @@ def update_ini():
             if not found_main: new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
             if not found_overlay: new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
             if not found_dict: new_kb_lines.append(f'SCR 4 0 {dict_id_target} "Custom: Subass Dictionary" "{dict_rel}"\n')
-
-            with open(kb_file, 'w', encoding='utf-8') as f:
+            
+            # Use standard UTF-8 WITHOUT BOM (Python default, but being explicit)
+            with open(kb_file, 'w', encoding='utf-8', newline='\n') as f:
                 f.writelines(new_kb_lines)
 
         # 2. Update reaper-menu.ini
@@ -328,8 +329,9 @@ def update_ini():
         if content_after:
             if new_lines[-1].strip() != "": new_lines.append("\n")
             new_lines.extend(content_after)
-
-        with open(menu_file, 'w', encoding='utf-8') as f:
+            
+        # Use standard UTF-8 WITHOUT BOM
+        with open(menu_file, 'w', encoding='utf-8', newline='\n') as f:
             f.writelines(new_lines)
             
     except Exception as e:
