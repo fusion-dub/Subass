@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.1.1
+-- @version 0.1.2
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -1322,41 +1322,28 @@ end
 
 -- Helper to extract actor from name
 local function extract_actor(name, t1, t2, rgn_id)
-    local actor = ""
-    -- 1. Спроба витягти з тексту регіону
-    local a_bra = name:match("^%s*%b[]")
-    if a_bra then
-        actor = a_bra:sub(2, -2):gsub("^%s+", ""):gsub("%s+$", "")
-        name = name:sub(#a_bra + 1):gsub("^%s*", "")
-    else
-        local a_col, rem = name:match("^%s*([^:{%s][^:{}]*)%s*:%s*(.*)$")
-        if a_col and not a_col:find("[{}<>]") then 
-            actor = a_col:gsub("^%s+", ""):gsub("%s+$", "")
-            name = rem
-        end
-    end
+    local db_actor = ""
+    local cleaned_name = name
 
-    -- 2. Спроба підтягнути з зовнішньої бази, якщо в тексті немає
-    if actor == "" and t1 and t2 and #external_ass_lines > 0 then
+    -- 1. Спроба підтягнути з зовнішньої бази (Subass_Notes)
+    if t1 and t2 and #external_ass_lines > 0 then
         for _, l in ipairs(external_ass_lines) do
             -- Пріоритет 1: Збіг за унікальним ID регіону
             if rgn_id and l.rgn_idx == rgn_id then
-                actor = l.actor
+                db_actor = l.actor
                 break
             end
             
-            -- Пріоритет 2: Збіг за часом початку, кінця ТА текстом (для ітемів та старих даних)
+            -- Пріоритет 2: Збіг за часом початку, кінця ТА текстом
             if math.abs(l.t1 - t1) < 0.005 and math.abs(l.t2 - t2) < 0.015 then
-                -- Також перевіряємо текст (без урахування актора в дужках)
                 if l.text == name or l.text:gsub("\\n", "\n") == name then
-                        actor = l.actor
-                    -- Не перериваємо відразу, якщо ID не збігається, можливо є кращий збіг далі
+                    db_actor = l.actor
                 end
             end
         end
     end
 
-    return actor, name
+    return (db_actor ~= "" and db_actor or ""), name
 end
 
 -- Отримання поточних правок (маркерів) навколо позиції
