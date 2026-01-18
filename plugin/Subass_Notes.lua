@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.2
+-- @version 4.2.3
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.2"
+local script_title = "Subass Notes v4.2.3"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -11217,7 +11217,7 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
             {"ться", "цця"}, {"зш", "шш"}, {"сш", "шш"}, {"зч", "чч"}, {"стч", "шч"},
             {"сч", "чч"}, {"тч", "чч"}, {"дч", "чч"}, {"шся", "сся"}, {"чся", "цся"},
             {"зж", "жж"}, {"чці", "цці"}, {"жці", "зці"}, {"стд", "зд"}, {"стці", "сці"},
-            {"нтст", "нст"}, {"стська", "сська"}, {"нтськ", "нська"}, {"стс", "сс"}, {"тс", "ц"},
+            {"нтст", "нст"}, {"стськ", "сськ"}, {"нтськ", "нськ"}, {"стс", "сс"}, {"тс", "ц"}
         }
          
         local new_spans = {}
