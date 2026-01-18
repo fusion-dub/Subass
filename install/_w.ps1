@@ -370,9 +370,9 @@ if (Test-Path $stressTool) {
 # 6. Register Action and Menu Item
 $kbFile = Join-Path $reaperPath "reaper-kb.ini"
 $menuFile = Join-Path $reaperPath "reaper-menu.ini"
-$actionId = "RS77777777777777777777777777777777"
-$overlayActionId = "RS88888888888888888888888888888888"
-$dictActionId = "RS99999999999999999999999999999999"
+$actionId = "RS7777777777777777777777777777777777777777"
+$overlayActionId = "RS8888888888888888888888888888888888888888"
+$dictActionId = "RS9999999999999999999999999999999999999999"
 
 Write-Host-Color "Updating REAPER configuration..." "Cyan"
 
@@ -419,7 +419,9 @@ if (Test-Path $kbFile) {
     if (-not $foundOverlay) { $newKb.Add("SCR 4 0 $overlayActionId ""Custom: Subass SubOverlay (Lionzz)"" ""$overlayRelativePath""") }
     if (-not $foundDict) { $newKb.Add("SCR 4 0 $dictActionId ""Custom: Subass Dictionary"" ""$dictRelativePath""") }
     
-    [System.IO.File]::WriteAllLines($kbFile, $newKb)
+    # Use UTF-8 WITHOUT BOM for REAPER configs
+    $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllLines($kbFile, [string[]]$newKb, $utf8NoBOM)
 }
 
 if (-not (Test-Path $menuFile)) {
