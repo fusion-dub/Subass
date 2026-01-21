@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.1.2
+-- @version 0.1.3
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -100,6 +100,7 @@ local ignore_newlines = false           -- ігнорувати символи �
 local word_hold = { start_time = 0, word = "", triggered = false }
 local last_window_click = 0
 local is_any_word_held = false
+local transparency_key = 0              -- 0 = Shift, 1 = Tab, 2 = None
 
 -- New Countdown Timer Settings
 local count_timer = true                -- таймер зворотного відліку
@@ -137,6 +138,12 @@ local SETTINGS_SECTION = "LionzzSubOverlaySubass"
 -- ==========================
 -- TEXT PROCESSING HELPERS
 -- ==========================
+
+local function apply_alpha(color, factor)
+    if not color or factor >= 1.0 then return color end
+    local r, g, b, a = reaper.ImGui_ColorConvertU32ToDouble4(color)
+    return reaper.ImGui_ColorConvertDouble4ToU32(r, g, b, a * factor)
+end
 
 --- Convert codepoint to UTF-8 string
 local function utf8_char(cp)
@@ -546,6 +553,7 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "oact_shadow_color", string.format("%08X", oact_shadow_color), true)
     reaper.SetExtState(SETTINGS_SECTION, "oact_offset", tostring(oact_offset), true)
     reaper.SetExtState(SETTINGS_SECTION, "line_spacing_oact", tostring(line_spacing_oact), true)
+    reaper.SetExtState(SETTINGS_SECTION, "transparency_key", tostring(transparency_key), true)
     -- Зберігаємо висоту тільки якщо увімкнено прив'язку до відеовікна
     if attach_to_video then
         reaper.SetExtState(SETTINGS_SECTION, "win_h", tostring(win_h), true)
@@ -628,6 +636,7 @@ local function load_settings()
     if oact_shd_col ~= "" then oact_shadow_color = tonumber(oact_shd_col,16) or 0x000000FF end
     oact_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "oact_offset")) or 12
     line_spacing_oact = tonumber(reaper.GetExtState(SETTINGS_SECTION, "line_spacing_oact")) or 6
+    transparency_key = tonumber(reaper.GetExtState(SETTINGS_SECTION, "transparency_key")) or 0
     -- Завантажуємо висоту тільки якщо увімкнено прив'язку до відеовікна
     if attach_to_video then
         win_h = tonumber(reaper.GetExtState(SETTINGS_SECTION, "win_h")) or 300
@@ -756,6 +765,18 @@ local function draw_context_menu()
         tooltip("Увімкнує підкладку під кожним рядком. Кольором виступає колір фону")
         window_bg_color       = add_change(reaper.ImGui_ColorEdit4(ctx, "Колір фону вікна", window_bg_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         tooltip("Задає колір фону та підкладки")
+
+        local key_labels = {"Shift", "Tab", "Вимкнено"}
+        if reaper.ImGui_BeginCombo(ctx, "Клавіша прозорості", key_labels[transparency_key + 1]) then
+            for i, lab in ipairs(key_labels) do
+                if reaper.ImGui_Selectable(ctx, lab, transparency_key == i-1) then
+                    transparency_key = i-1
+                    changes = changes + 1
+                end
+            end
+            reaper.ImGui_EndCombo(ctx)
+        end
+        tooltip("Клавіша, при затисканні якої все вікно стає прозорим на 80%")
 
         local assim_changed, new_assim = reaper.ImGui_Checkbox(ctx, "Показувати асиміляцію", show_assimilation)
         if assim_changed then
@@ -1025,7 +1046,7 @@ local function calculate_line_count(tokens, font_index, font_scale, win_w)
 end
 
 -- Функція відображення токенів
-local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shadow_color, win_w, is_next_line, line_spacing, id_prefix)
+local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shadow_color, win_w, is_next_line, line_spacing, id_prefix, alpha_factor)
     local font_main = font_objects[font_index] or font_objects[1]
 
     -- We push Main font as default
@@ -1097,7 +1118,7 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                 local rect_y1 = win_y + cur_y - padding_y
                 local rect_x2 = rect_x1 + line_total_w + padding_x*2
                 local rect_y2 = rect_y1 + line_h + padding_y*2
-                reaper.ImGui_DrawList_AddRectFilled(draw_list, rect_x1, rect_y1, rect_x2, rect_y2, window_bg_color or 0x000000AA, 4)
+                reaper.ImGui_DrawList_AddRectFilled(draw_list, rect_x1, rect_y1, rect_x2, rect_y2, apply_alpha(window_bg_color, alpha_factor or 1.0) or 0x000000AA, 4)
             end
 
             local temp_x = win_x + cur_x
@@ -1943,7 +1964,29 @@ end
 local function loop()
     reaper.ImGui_PushFont(ctx, ui_font, UI_FONT_SCALE)
     reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowBorderSize(), 0)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), window_bg_color)
+    
+    local key_held = false
+    if transparency_key == 0 then -- Shift
+        key_held = (reaper.ImGui_GetKeyMods(ctx) & 1) ~= 0
+        if not key_held and reaper.JS_VKeys_GetState then
+            local state = reaper.JS_VKeys_GetState(0)
+            if state:byte(16) ~= 0 then key_held = true end
+        end
+    elseif transparency_key == 1 then -- Tab
+        if reaper.JS_VKeys_GetState then
+            local state = reaper.JS_VKeys_GetState(0)
+            if state:byte(9) ~= 0 then key_held = true end
+        end
+    end
+    
+    local alpha_factor = key_held and 0.2 or 1.0
+    local transparency_pushed = false
+    if key_held then
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_Alpha(), alpha_factor)
+        transparency_pushed = true
+    end
+    
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), apply_alpha(window_bg_color, alpha_factor))
     
     local window_flags = reaper.ImGui_WindowFlags_NoScrollbar() | reaper.ImGui_WindowFlags_NoScrollWithMouse()
     if flags.NoTitle then window_flags = window_flags | reaper.ImGui_WindowFlags_NoTitleBar() end
@@ -2193,7 +2236,7 @@ local function loop()
         -- Відображення інших акторів (НАД основним рядком)
         if #other_actors_tokens > 0 then
             reaper.ImGui_PushID(ctx, "oact_line")
-            draw_tokens(ctx, other_actors_tokens, oact_font_index, oact_font_scale, oact_text_color, oact_shadow_color, win_w, false, line_spacing_oact, "oact")
+            draw_tokens(ctx, other_actors_tokens, oact_font_index, oact_font_scale, apply_alpha(oact_text_color, alpha_factor), apply_alpha(oact_shadow_color, alpha_factor), win_w, false, line_spacing_oact, "oact", alpha_factor)
             reaper.ImGui_PopID(ctx)
             
             local cur_y = reaper.ImGui_GetCursorPosY(ctx)
@@ -2203,7 +2246,7 @@ local function loop()
         
         -- відображення тексту (використовуємо auto-scaled значення)
         reaper.ImGui_PushID(ctx, "current_line")
-        draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, text_color, shadow_color, win_w, false, line_spacing_main, "cur") -- перший рядок
+        draw_tokens(ctx, current_tokens, current_font_index, actual_font_scale, apply_alpha(text_color, alpha_factor), apply_alpha(shadow_color, alpha_factor), win_w, false, line_spacing_main, "cur", alpha_factor) -- перший рядок
         reaper.ImGui_PopID(ctx)
 
         -- Відображення правок (між основним рядком та другим)
@@ -2211,7 +2254,7 @@ local function loop()
             local cur_y = reaper.ImGui_GetCursorPosY(ctx)
             reaper.ImGui_SetCursorPosY(ctx, cur_y + corr_offset)
             reaper.ImGui_PushID(ctx, "corr_line")
-            draw_tokens(ctx, corr_tokens, corr_font_index, corr_font_scale, corr_text_color, corr_shadow_color, win_w, true, line_spacing_corr, "corr")
+            draw_tokens(ctx, corr_tokens, corr_font_index, corr_font_scale, apply_alpha(corr_text_color, alpha_factor), apply_alpha(corr_shadow_color, alpha_factor), win_w, true, line_spacing_corr, "corr", alpha_factor)
             reaper.ImGui_PopID(ctx)
         end
 
@@ -2288,14 +2331,14 @@ local function loop()
                 
                 -- Simple Drop Shadow (like main text)
                 local shadow_off = 2
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x00000000 | math.floor(alpha * 255))
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x00000000 | math.floor(alpha * alpha_factor * 255))
                 reaper.ImGui_SetCursorPos(ctx, cx + shadow_off, cy + shadow_off)
                 reaper.ImGui_Text(ctx, countdown_str)
                 reaper.ImGui_PopStyleColor(ctx)
                 
                 -- Main Text (Colored)
                 reaper.ImGui_SetCursorPos(ctx, cx, cy)
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), text_rgb | math.floor(alpha * 255))
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), text_rgb | math.floor(alpha * alpha_factor * 255))
                 reaper.ImGui_Text(ctx, countdown_str)
                 reaper.ImGui_PopStyleColor(ctx)
                 reaper.ImGui_PopFont(ctx)
@@ -2322,13 +2365,13 @@ local function loop()
                 local ay = win_Y + btn_y + btn_h / 2
                 local sz = 25
                 -- Use text color, brighter if hover, half-transparent otherwise
-                local arrow_alpha = hover and 0xCC or 0x80 -- 0.8 or 0.5
-                local col = text_rgb | arrow_alpha
+                local arrow_alpha_factor = (hover and 0.8 or 0.5) -- 0.8 or 0.5
+                local col = apply_alpha(text_rgb, arrow_alpha_factor * alpha_factor)
                 local thick = 3
                 
                 -- Shadow parameters
                 local s_off = 2
-                local s_col = 0x00000000 | math.floor(arrow_alpha)
+                local s_col = apply_alpha(0x00000000, arrow_alpha_factor * alpha_factor)
                 
                 -- Arrow 1 Shadow
                 reaper.ImGui_DrawList_AddLine(dl, ax + s_off, ay - sz + s_off, ax + sz + s_off, ay + s_off, s_col, thick)
@@ -2351,7 +2394,7 @@ local function loop()
                local gap_progress = 1.0 - math.min(1.0, gap_to_next / math.max(1.0, total_gap))
                local dl = reaper.ImGui_GetWindowDrawList(ctx)
                 -- Use text color for bars
-                local col = text_rgb | math.floor(alpha * 255)
+                local col = apply_alpha(text_rgb | math.floor(alpha * 255), alpha_factor)
                
                if count_timer_bottom then
                    -- Bottom Bar
@@ -2401,13 +2444,13 @@ local function loop()
             end
             
             reaper.ImGui_PushID(ctx, "next_line_1")
-            draw_tokens(ctx, next_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true, line_spacing_next, "next1")
+            draw_tokens(ctx, next_tokens, second_font_index, actual_second_font_scale, apply_alpha(second_text_color, alpha_factor), apply_alpha(second_shadow_color, alpha_factor), win_w, true, line_spacing_next, "next1", alpha_factor)
             reaper.ImGui_PopID(ctx)
             
             if show_next_two and #next2_tokens > 0 then
                 reaper.ImGui_SetCursorPosY(ctx, start_y_next + next_total_h + next_region_offset)
                 reaper.ImGui_PushID(ctx, "next_line_2")
-                draw_tokens(ctx, next2_tokens, second_font_index, actual_second_font_scale, second_text_color, second_shadow_color, win_w, true, line_spacing_next, "next2")
+                draw_tokens(ctx, next2_tokens, second_font_index, actual_second_font_scale, apply_alpha(second_text_color, alpha_factor), apply_alpha(second_shadow_color, alpha_factor), win_w, true, line_spacing_next, "next2", alpha_factor)
                 reaper.ImGui_PopID(ctx)
             end
         end
@@ -2450,13 +2493,13 @@ local function loop()
         local sb_active = (reaper.time_precise() - sb_heartbeat) < 0.5
         if sb_active then
            local dl = reaper.ImGui_GetWindowDrawList(ctx)
-           reaper.ImGui_DrawList_AddCircleFilled(dl, win_X + 5, win_Y + 5, 3, 0x00FF00FF)
+           reaper.ImGui_DrawList_AddCircleFilled(dl, win_X + 5, win_Y + 5, 3, apply_alpha(0x00FF00FF, alpha_factor))
         end
 
         -- Відображення напрямних ліній для відступу переносу
         if show_wrap_guides and wrap_margin > 0 then
             local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
-            local guide_color = 0x00FFFFFF  -- яскравий бірюзовий (cyan)
+            local guide_color = apply_alpha(0x00FFFFFF, alpha_factor)  -- яскравий бірюзовий (cyan)
             
             -- Ліва лінія
             local left_x = win_X + wrap_margin
@@ -2483,7 +2526,12 @@ local function loop()
     end
 
     reaper.ImGui_PopStyleColor(ctx)
-    reaper.ImGui_PopStyleVar(ctx)
+    reaper.ImGui_PopStyleVar(ctx) -- WindowBorderSize
+    
+    if transparency_pushed then
+        reaper.ImGui_PopStyleVar(ctx) -- Alpha
+    end
+    
     reaper.ImGui_PopFont(ctx)
     
     local continue_running = (open ~= false) and not close_requested and reaper.GetExtState("Subass_Global", "ForceCloseComplementary") ~= "1"
