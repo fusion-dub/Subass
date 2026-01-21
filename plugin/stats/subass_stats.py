@@ -1247,8 +1247,9 @@ def get_aggregated_stats():
                         proj["daily_duration"][day_str] += dur
 
                 # Period Aggregation (Attempts)
-                if proj["history"]:
-                    for date, hist_data in proj["history"].items():
+                history = data.get("daily_stats", {})
+                if isinstance(history, dict) and history:
+                    for date, hist_data in history.items():
                         lines = 0
                         lines_outside = 0
                         
@@ -1257,11 +1258,12 @@ def get_aggregated_stats():
                             lines_outside = hist_data.get("lines_outside", 0)
                             # Aggregate attempts per actor
                             day_actors = hist_data.get("actors", {})
-                            for actor_name, actor_data in day_actors.items():
-                                if isinstance(actor_data, dict):
-                                    att = actor_data.get("lines", 0)
-                                    proj["actor_attempts"][actor_name] += att
-                                    stats["total_actor_attempts"][actor_name] += att
+                            if isinstance(day_actors, dict):
+                                for actor_name, actor_data in day_actors.items():
+                                    if isinstance(actor_data, dict):
+                                        att = actor_data.get("lines", 0)
+                                        proj["actor_attempts"][actor_name] += att
+                                        stats["total_actor_attempts"][actor_name] += att
                         else:
                             lines = hist_data
                             
