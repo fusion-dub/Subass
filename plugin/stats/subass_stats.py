@@ -538,7 +538,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 }
 
                 initHeatMapYearSelector();
-                renderStats();
+                setPeriod(currentPeriod);
             } catch (e) {
                 console.error("Failed to load stats:", e);
                 alert("Не вдалося завантажити статистику. Перевірте консоль браузера.");
@@ -673,11 +673,37 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         function setPeriod(period) {
             currentPeriod = period;
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('[id^="filter-"]').forEach(b => b.classList.remove('active'));
+            
             if (period !== 'custom') {
-                document.getElementById(`filter-${period}`).classList.add('active');
-                document.getElementById('date-from').value = '';
-                document.getElementById('date-to').value = '';
+                const btn = document.getElementById(`filter-${period}`);
+                if (btn) btn.classList.add('active');
+                
+                const now = new Date();
+                const toISO = (d) => {
+                    return d.getFullYear() + '-' + 
+                           String(d.getMonth() + 1).padStart(2, '0') + '-' + 
+                           String(d.getDate()).padStart(2, '0');
+                };
+
+                let from = '', to = '';
+                if (period === 'today') {
+                    from = toISO(now);
+                    to = from;
+                } else if (period === 'week') {
+                    const day = now.getDay() || 7;
+                    const start = new Date(now);
+                    start.setDate(now.getDate() - day + 1);
+                    from = toISO(start);
+                    to = toISO(now);
+                } else if (period === 'month') {
+                    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+                    from = toISO(start);
+                    to = toISO(now);
+                }
+
+                document.getElementById('date-from').value = from;
+                document.getElementById('date-to').value = to;
             }
             renderStats();
         }
@@ -1023,7 +1049,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 data: {
                     labels: plotDates,
                     datasets: [
-                        { label: 'Слова', data: plotDates.map(d => dateMap[d].words), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.05)', fill: true, tension: 0.3, yAxisID: 'y1', key: 'words' },
                         { label: 'Спроби (дублів)', data: plotDates.map(d => dateMap[d].total), borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.05)', fill: true, tension: 0.3, yAxisID: 'y', key: 'total' },
                         { label: 'Репліки (зовні)', data: plotDates.map(d => dateMap[d].outside), borderColor: '#ef4444', borderDash: [5, 5], tension: 0.3, yAxisID: 'y', key: 'outside' },
                         { label: 'Репліки (проект)', data: plotDates.map(d => dateMap[d].lines), borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.05)', fill: true, tension: 0.3, yAxisID: 'y', key: 'lines' }
@@ -1031,6 +1056,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 },
                 options: { 
                     responsive: true, maintainAspectRatio: false,
+                    elements: {
+                        point: {
+                            radius: 4,
+                            hoverRadius: 6,
+                            hitRadius: 10
+                        }
+                    },
                     plugins: {
                         legend: { position: 'bottom' },
                         tooltip: {
@@ -1040,19 +1072,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                     const metricKey = context[0].dataset.key;
                                     const dayInfo = dateMap[date];
                                     if (!dayInfo || !dayInfo.projects) return '';
-                                    const lines = ['\\\\nРозбивка по проектах:'];
+                                    const lines = [''];
                                     Object.entries(dayInfo.projects).forEach(([name, projStats]) => {
                                         const val = projStats[metricKey] || 0;
                                         if (val > 0) lines.push(`${name}: ${val.toLocaleString()}`);
                                     });
-                                    return lines.length > 1 ? lines.join('\\\\n') : '';
+                                    return lines.length > 1 ? lines : [];
                                 }
                             }
                         }
                     },
                     scales: { 
-                        y: { position: 'left', beginAtZero: true, title: { display: true, text: 'Репліки / Спроби' } },
-                        y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: 'Слова' } }
+                        y: { position: 'left', beginAtZero: true, title: { display: true, text: 'Репліки / Спроби' } }
                     } 
                 }
             });
