@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.2.3
+-- @version 4.2.5
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.2.3"
+local script_title = "Subass Notes v4.2.5"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -423,29 +423,29 @@ function STATS.json_encode(val, indent)
     local t = type(val)
     
     if t == "string" then
-        return string.format("%q", val)
+        return '"' .. val:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '\\r') .. '"'
     elseif t == "number" or t == "boolean" then
         return tostring(val)
     elseif t == "table" then
         local is_array = true
         local max_idx = 0
+        local count = 0
         for k, v in pairs(val) do
+            count = count + 1
             if type(k) ~= "number" or k < 1 or k ~= math.floor(k) then
                 is_array = false
-                break
+            else
+                max_idx = math.max(max_idx, k)
             end
-            max_idx = math.max(max_idx, k)
+        end
+        if is_array and count ~= max_idx then is_array = false end
+        if count == 0 then
+            -- Heuristic: if key is 'duration' or 'actors' (when array), it might be an array
+            return "[]" 
         end
         
         local spacing = string.rep("  ", indent)
         local inner_spacing = string.rep("  ", indent + 1)
-        
-        -- Check if table is empty
-        local count = 0
-        for _ in pairs(val) do count = count + 1 end
-        if count == 0 then
-            return "{}"
-        end
         
         if is_array then
             local parts = {}
@@ -455,9 +455,18 @@ function STATS.json_encode(val, indent)
             return "[\n" .. table.concat(parts, ",\n") .. "\n" .. spacing .. "]"
         else
             local parts = {}
-            for k, v in pairs(val) do
-                local key = type(k) == "string" and string.format("%q", k) or tostring(k)
-                table.insert(parts, inner_spacing .. key .. ": " .. STATS.json_encode(v, indent + 1))
+            local keys = {}
+            for k in pairs(val) do table.insert(keys, tostring(k)) end
+            table.sort(keys)
+            
+            for _, k_str in ipairs(keys) do
+                local k = k_str
+                if val[tonumber(k_str)] ~= nil then k = tonumber(k_str) end
+                if val[k_str] == nil and val[k] == nil then k = k_str end 
+
+                local v = val[k]
+                local key_part = '"' .. tostring(k):gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
+                table.insert(parts, inner_spacing .. key_part .. ": " .. STATS.json_encode(v, indent + 1))
             end
             return "{\n" .. table.concat(parts, ",\n") .. "\n" .. spacing .. "}"
         end
@@ -470,18 +479,126 @@ end
 function STATS.json_decode(str)
     if not str or str == "" then return nil end
     
-    -- Remove whitespace
-    str = str:gsub("^%s+", ""):gsub("%s+$", "")
+    local pos = 1
     
-    -- Try to load as Lua table (safe subset)
-    local fn, err = load("return " .. str:gsub("null", "nil"):gsub("true", "true"):gsub("false", "false"))
-    if fn then
-        local ok, result = pcall(fn)
-        if ok then return result end
+    local function skip_whitespace()
+        while pos <= #str and str:sub(pos, pos):match("%s") do
+            pos = pos + 1
+        end
     end
     
-    -- Fallback: return empty structure
-    return {}
+    local decode_value -- forward declaration
+    
+    local function decode_string()
+        pos = pos + 1 -- skip opening "
+        local res = ""
+        while pos <= #str do
+            local char = str:sub(pos, pos)
+            if char == '"' then
+                pos = pos + 1
+                return res
+            elseif char == '\\' then
+                local next_char = str:sub(pos + 1, pos + 1)
+                if next_char == 'n' then res = res .. "\n"
+                elseif next_char == 'r' then res = res .. "\r"
+                elseif next_char == 't' then res = res .. "\t"
+                else res = res .. next_char end
+                pos = pos + 2
+            else
+                res = res .. char
+                pos = pos + 1
+            end
+        end
+        return res
+    end
+    
+    local function decode_number()
+        local start = pos
+        while pos <= #str and str:sub(pos, pos):match("[%d%.%-eE]") do
+            pos = pos + 1
+        end
+        return tonumber(str:sub(start, pos - 1))
+    end
+    
+    local function decode_array()
+        pos = pos + 1 -- [
+        local res = {}
+        skip_whitespace()
+        if str:sub(pos, pos) == "]" then
+            pos = pos + 1
+            return res
+        end
+        while pos <= #str do
+            table.insert(res, decode_value())
+            skip_whitespace()
+            local char = str:sub(pos, pos)
+            if char == "]" then
+                pos = pos + 1
+                return res
+            elseif char == "," then
+                pos = pos + 1
+            end
+        end
+        return res
+    end
+    
+    local function decode_object()
+        pos = pos + 1 -- {
+        local res = {}
+        skip_whitespace()
+        if str:sub(pos, pos) == "}" then
+            pos = pos + 1
+            return res
+        end
+        while pos <= #str do
+            skip_whitespace()
+            local key = decode_value()
+            skip_whitespace()
+            if str:sub(pos, pos) == ":" then
+                pos = pos + 1
+            end
+            res[key] = decode_value()
+            skip_whitespace()
+            local char = str:sub(pos, pos)
+            if char == "}" then
+                pos = pos + 1
+                return res
+            elseif char == "," then
+                pos = pos + 1
+            end
+        end
+        return res
+    end
+    
+    decode_value = function()
+        skip_whitespace()
+        local char = str:sub(pos, pos)
+        if char == "{" then
+            return decode_object()
+        elseif char == "[" then
+            return decode_array()
+        elseif char == '"' then
+            return decode_string()
+        elseif char == "t" and str:sub(pos, pos+3) == "true" then
+            pos = pos + 4
+            return true
+        elseif char == "f" and str:sub(pos, pos+4) == "false" then
+            pos = pos + 5
+            return false
+        elseif char == "n" and str:sub(pos, pos+3) == "null" then
+            pos = pos + 4
+            return nil
+        else
+            return decode_number()
+        end
+    end
+    
+    local ok, res = pcall(decode_value)
+    if not ok then 
+        reaper.ShowConsoleMsg("JSON Decode Error: " .. tostring(res) .. " at pos " .. pos .. "\n")
+        return {} 
+    end
+    return res
 end
 
 
@@ -569,6 +686,7 @@ function STATS.load()
             total = {
                 lines_recorded = 0
             },
+            duration = {},
             daily_stats = {}
         }
         STATS.dirty = true
@@ -581,6 +699,7 @@ function STATS.load()
     local decoded = STATS.json_decode(content)
     if decoded and decoded.project_id then
         STATS.data = decoded
+        if not STATS.data.duration then STATS.data.duration = {} end
     else
         -- Fallback: initialize default structure
         STATS.data = {
@@ -598,6 +717,7 @@ function STATS.load()
             total = {
                 lines_recorded = 0
             },
+            duration = {},
             daily_stats = {}
         }
         STATS.dirty = true
@@ -16490,8 +16610,31 @@ local function process_post_recording()
     local play_state = reaper.GetPlayState()
     local is_recording = (play_state & 4) == 4
     
-    if UI_STATE.last_is_recording and not is_recording then
+    -- Track duration sessions
+    if not UI_STATE.last_is_recording and is_recording then
+        -- Recording just started
+        local proj = STATS.get_project()
+        if proj then
+            local now = os.time()
+            if #proj.duration == 0 or (now - proj.duration[#proj.duration]["end"] > 600) then
+                -- New session (more than 10 mins gap or first session)
+                table.insert(proj.duration, { start = now, ["end"] = now })
+            else
+                -- Continue existing session (update end to start time of recording)
+                proj.duration[#proj.duration]["end"] = now
+            end
+            STATS.dirty = true
+        end
+    elseif UI_STATE.last_is_recording and not is_recording then
         -- Recording just stopped
+        local proj = STATS.get_project()
+        if proj and #proj.duration > 0 then
+            proj.duration[#proj.duration]["end"] = os.time()
+            STATS.dirty = true
+            STATS.save()
+        end
+        
+        -- Recording just stopped (Existing items processing)
         local item_count = reaper.CountSelectedMediaItems(0)
         if item_count > 0 then
             
