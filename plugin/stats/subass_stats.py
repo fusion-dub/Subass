@@ -68,13 +68,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         .card .sub { font-size: 12px; color: var(--text-light); margin-top: 5px; }
 
         /* Charts Section */
-        .chart-container { background: var(--card-bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border); height: 400px; margin-bottom: 30px; position: relative; }
+        .chart-container { background: var(--card-bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border); height: 400px; margin-bottom: 30px; position: relative; display: flex; flex-direction: column; }
+        .chart-container canvas { flex: 1; min-height: 0; }
 
         /* Data Tables */
         .table-container { background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 15px 20px; text-align: left; border-bottom: 1px solid var(--border); }
         th { background: #f9fafb; font-weight: 600; color: var(--text-light); font-size: 13px; text-transform: uppercase; }
+        th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 30px; }
+        th.sortable:hover { background: #f3f4f6; color: var(--primary); }
+        th.sort-asc::after { content: " ↑"; position: absolute; right: 10px; color: var(--primary); }
+        th.sort-desc::after { content: " ↓"; position: absolute; right: 10px; color: var(--primary); }
         tr:last-child td { border-bottom: none; }
         
         .clickable-row { cursor: pointer; transition: background 0.2s; }
@@ -156,6 +161,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             transition: all 0.2s; 
         }
         .load-more-btn:hover { background: var(--border); color: var(--text); border-color: var(--primary); }
+
+        .search-container { margin-bottom: 20px; display: flex; gap: 10px; align-items: center; }
+        .search-input { 
+            padding: 10px 15px; 
+            border: 1px solid var(--border); 
+            border-radius: 8px; 
+            font-size: 14px; 
+            width: 300px; 
+            background: #fff;
+            transition: all 0.2s;
+            box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .search-input:focus { 
+            outline: none; 
+            border-color: var(--primary); 
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1), inset 0 1px 2px rgba(0,0,0,0.05); 
+        }
     </style>
 </head>
 <body>
@@ -179,10 +201,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <table>
                     <thead>
                         <tr>
-                            <th>Актор</th>
-                            <th>Спроб (дублів)</th>
-                            <th>Реплік (всього)</th>
-                            <th>Слів (всього)</th>
+                            <th class="sortable" onclick="handleSort('modal', 'name')">Актор</th>
+                            <th class="sortable" onclick="handleSort('modal', 'attempts')">Спроб (дублів)</th>
+                            <th class="sortable" onclick="handleSort('modal', 'lines')">Реплік (всього)</th>
+                            <th class="sortable" onclick="handleSort('modal', 'words')">Слів (всього)</th>
                         </tr>
                     </thead>
                     <tbody id="modal-table-body">
@@ -205,10 +227,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <button class="tab-btn" id="tab-actors" onclick="switchTab('actors')">Актори</button>
             </div>
             <div class="filter-group">
-                <button class="filter-btn active" id="filter-all" onclick="setPeriod('all')">Весь час</button>
+                <button class="filter-btn" id="filter-all" onclick="setPeriod('all')">Весь час</button>
                 <button class="filter-btn" id="filter-today" onclick="setPeriod('today')">Сьогодні</button>
                 <button class="filter-btn" id="filter-week" onclick="setPeriod('week')">Тиждень</button>
-                <button class="filter-btn" id="filter-month" onclick="setPeriod('month')">Місяць</button>
+                <button class="filter-btn active" id="filter-month" onclick="setPeriod('month')">Місяць</button>
                 <div style="display: flex; align-items: center; gap: 5px; margin-left: 5px;">
                     <input type="date" id="date-from" class="date-input" onchange="setPeriod('custom')">
                     <span style="color: var(--text-light); font-size: 12px;">—</span>
@@ -220,6 +242,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <!-- OVERVIEW TAB -->
         <div id="overview" class="tab-content active">
             <div class="scorecards">
+                <div class="card">
+                    <h3>Час запису</h3>
+                    <div class="value" id="period-duration">00:00:00</div>
+                    <div class="sub" id="avg-duration">Середнє: 00:00:00 / день</div>
+                </div>
                 <div class="card">
                     <h3>Період: Записано</h3>
                     <div class="value" id="period-recorded">0</div>
@@ -242,8 +269,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 </div>
             </div>
 
-            <div class="chart-container">
-                <canvas id="overviewChart"></canvas>
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px;">
+                <div class="chart-container" style="margin-bottom: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h3 style="margin: 0; font-size: 14px; color: var(--text-light); text-transform: uppercase;">Динаміка роботи за період</h3>
+                    </div>
+                    <canvas id="overviewChart"></canvas>
+                </div>
+                <div class="chart-container" style="margin-bottom: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h3 id="duration-chart-title" style="margin: 0; font-size: 14px; color: var(--text-light); text-transform: uppercase;">Час запису</h3>
+                        <div class="filter-group" style="margin: 0;">
+                            <button class="filter-btn" id="dur-mode-total" style="padding: 2px 8px; font-size: 11px;" onclick="setDurationMode('total')">Всього</button>
+                            <button class="filter-btn active" id="dur-mode-timeline" style="padding: 2px 8px; font-size: 11px;" onclick="setDurationMode('timeline')">Таймлайн</button>
+                        </div>
+                    </div>
+                    <canvas id="durationChart"></canvas>
+                </div>
             </div>
 
             <div class="heatmap-container">
@@ -263,10 +305,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <div style="display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 10px; font-size: 11px; color: var(--text-light);">
                     <span>Менше</span>
                     <div class="heatmap-cell lvl-0" title="0 спроб"></div>
-                    <div class="heatmap-cell lvl-1" title="1-9 спроб"></div>
-                    <div class="heatmap-cell lvl-2" title="10-49 спроб"></div>
-                    <div class="heatmap-cell lvl-3" title="50-99 спроб"></div>
-                    <div class="heatmap-cell lvl-4" title="100+ спроб"></div>
+                    <div class="heatmap-cell lvl-1" title="1-99 спроб"></div>
+                    <div class="heatmap-cell lvl-2" title="100-499 спроб"></div>
+                    <div class="heatmap-cell lvl-3" title="500-999 спроб"></div>
+                    <div class="heatmap-cell lvl-4" title="1000+ спроб"></div>
                     <span>Більше</span>
                 </div>
             </div>
@@ -277,10 +319,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <table>
                         <thead>
                             <tr>
-                                <th>Дата</th>
-                                <th>Всього спроб</th>
-                                <th>Унікальних реплік</th>
-                                <th>Поза регіонами</th>
+                                <th class="sortable" onclick="handleSort('trends', 'date')">Дата</th>
+                                <th class="sortable" onclick="handleSort('trends', 'total')">Всього спроб</th>
+                                <th class="sortable" onclick="handleSort('trends', 'lines')">Унікальних реплік</th>
+                                <th class="sortable" onclick="handleSort('trends', 'outside')">Поза регіонами</th>
                             </tr>
                         </thead>
                         <tbody id="trends-table-body">
@@ -296,15 +338,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         <!-- PROJECTS TAB -->
         <div id="projects" class="tab-content">
+            <div class="search-container">
+                <input type="text" id="project-search" class="search-input" placeholder="🔍 Пошук за назвою або шляхом..." oninput="handleSearch('projects', this.value)">
+            </div>
             <div class="table-container">
                 <table>
                     <thead>
                         <tr>
-                            <th>Проект</th>
-                            <th>Реплік (вибр.)</th>
-                            <th>Слів (вибр.)</th>
-                            <th>Спроб за період</th>
-                            <th>Загальний прогрес</th>
+                            <th class="sortable" onclick="handleSort('projects', 'name')">Проект</th>
+                            <th class="sortable" onclick="handleSort('projects', 'selected_lines')">Реплік (вибр.)</th>
+                            <th class="sortable" onclick="handleSort('projects', 'selected_words')">Слів (вибр.)</th>
+                            <th class="sortable" onclick="handleSort('projects', 'period_attempts')">Спроб за період</th>
+                            <th class="sortable" onclick="handleSort('projects', 'progress')">Загальний прогрес</th>
                         </tr>
                     </thead>
                     <tbody id="projects-table-body">
@@ -316,23 +361,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         
         <!-- ACTORS TAB -->
         <div id="actors" class="tab-content">
-             <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
-                <label style="cursor: pointer; font-size: 14px; color: var(--text-light); display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="show-hidden-actors" onchange="renderActorsTable()" style="accent-color: var(--primary);"> 
-                    Показати прихованих акторів (не активні)
-                </label>
+             <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap; justify-content: space-between;">
+                    <input type="text" id="actor-search" class="search-input" placeholder="🔍 Пошук актора або проєкту..." oninput="handleSearch('actors', this.value)" style="width: 250px;">
+                    <label style="cursor: pointer; font-size: 14px; color: var(--text-light); display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="show-hidden-actors" onchange="renderActorsTable()" style="accent-color: var(--primary);"> 
+                        Показати прихованих акторів (не активні)
+                    </label>
+                </div>
                 <div style="font-size: 13px; color: var(--text-light);" id="actor-period-label">Активність за весь час</div>
              </div>
              <div class="table-container">
                 <table>
                     <thead>
                         <tr>
-                            <th>Актор</th>
-                            <th>Спроб (за період)</th>
-                            <th>Проект</th>
-                            <th>Реплік (всього)</th>
-                            <th>Слів (всього)</th>
-                            <th>Статус</th>
+                            <th class="sortable" onclick="handleSort('actors', 'name')">Актор</th>
+                            <th class="sortable" onclick="handleSort('actors', 'attempts')">Спроб (проєкт)</th>
+                            <th class="sortable" onclick="handleSort('actors', 'global_attempts')">Спроб (всього)</th>
+                            <th class="sortable" onclick="handleSort('actors', 'project')">Проект</th>
+                            <th class="sortable" onclick="handleSort('actors', 'lines')">Реплік (всього)</th>
+                            <th class="sortable" onclick="handleSort('actors', 'words')">Слів (всього)</th>
+                            <th class="sortable" onclick="handleSort('actors', 'selected')">Статус</th>
                         </tr>
                     </thead>
                     <tbody id="actors-table-body">
@@ -347,6 +396,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <script>
         // --- LOGIC ---
         let chartInstance = null;
+        let durationChartInstance = null;
         let globalRawData = null;
         let globalActorsData = [];
         let globalProjectsData = [];
@@ -354,9 +404,98 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         let globalActivityByDate = {}; // { date: { total, projects: { name: count } } }
         let recentDaysLimit = 10;
         let currentProjectIndex = -1;
-        let currentPeriod = 'all';
+        let currentPeriod = 'month';
+        let durationMode = 'timeline'; // 'total' or 'timeline'
+        let projectSearchTerm = '';
+        let actorSearchTerm = '';
+
+        let sortConfig = {
+            projects: { col: 'period_attempts', desc: true },
+            actors: { col: 'global_attempts', desc: true },
+            trends: { col: 'date', desc: true },
+            modal: { col: 'selected', desc: true }
+        };
 
         document.addEventListener('DOMContentLoaded', loadStats);
+
+        function handleSort(tableType, column) {
+            if (sortConfig[tableType].col === column) {
+                sortConfig[tableType].desc = !sortConfig[tableType].desc;
+            } else {
+                sortConfig[tableType].col = column;
+                sortConfig[tableType].desc = true;
+            }
+            
+            updateSortIcons(tableType);
+
+            if (tableType === 'projects' || tableType === 'trends') renderStats();
+            if (tableType === 'actors') renderActorsTable();
+            if (tableType === 'modal') refreshProjectModal();
+        }
+
+        function handleSearch(tab, value) {
+            if (tab === 'projects') {
+                projectSearchTerm = value.toLowerCase();
+                renderStats();
+            } else if (tab === 'actors') {
+                actorSearchTerm = value.toLowerCase();
+                renderActorsTable();
+            }
+        }
+
+        function updateSortIcons(tableType) {
+            // Find the table and headers
+            let tableId = '';
+            if (tableType === 'projects') tableId = 'projects';
+            if (tableType === 'actors') tableId = 'actors';
+            if (tableType === 'trends') tableId = 'overview';
+            if (tableType === 'modal') tableId = 'project-modal';
+
+            const container = document.getElementById(tableId);
+            if (!container) return;
+
+            const headers = container.querySelectorAll('th.sortable');
+            headers.forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+                const handler = th.getAttribute('onclick');
+                if (handler && handler.includes(`'${sortConfig[tableType].col}'`)) {
+                    th.classList.add(sortConfig[tableType].desc ? 'sort-desc' : 'sort-asc');
+                }
+            });
+        }
+
+        function applySort(data, tableType) {
+            const config = sortConfig[tableType];
+            if (!config) return data;
+            
+            return [...data].sort((a, b) => {
+                let vA = a[config.col];
+                let vB = b[config.col];
+                
+                // Specials
+                if (config.col === 'progress') {
+                    vA = (a.recorded / (a.selected_lines || 1));
+                    vB = (b.recorded / (b.selected_lines || 1));
+                }
+                if (config.col === 'selected' && tableType === 'modal') {
+                    // Primary sort by selected, then by attempts
+                    if (a.meta.selected !== b.meta.selected) return config.desc ? (b.meta.selected ? 1 : -1) : (a.meta.selected ? 1 : -1);
+                    vA = a.attempts;
+                    vB = b.attempts;
+                }
+                if (tableType === 'modal') {
+                    if (config.col === 'name') { vA = a.name; vB = b.name; }
+                    if (config.col === 'attempts') { vA = a.attempts; vB = b.attempts; }
+                    if (config.col === 'lines') { vA = a.meta.lines; vB = b.meta.lines; }
+                    if (config.col === 'words') { vA = a.meta.words; vB = b.meta.words; }
+                }
+
+                if (typeof vA === 'string') {
+                    return config.desc ? vB.localeCompare(vA) : vA.localeCompare(vB);
+                }
+                return config.desc ? (vB - vA) : (vA - vB);
+            });
+        }
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -369,8 +508,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
         async function loadStats() {
             try {
+                console.log("Fetching stats...");
                 const response = await fetch('/api/stats');
                 const data = await response.json();
+                console.log("Stats loaded:", data);
                 globalRawData = data;
                 
                 // Pre-calculate full activity map (not filtered by period)
@@ -379,13 +520,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     data.projects.forEach(p => {
                         if (p.history) {
                             Object.entries(p.history).forEach(([date, histData]) => {
-                                if (!globalActivityByDate[date]) globalActivityByDate[date] = { total: 0, projects: {} };
+                                if (!globalActivityByDate[date]) globalActivityByDate[date] = { total: 0, duration: 0, projects: {} };
                                 const lines = typeof histData === 'object' ? (histData.lines || 0) : histData;
                                 const linesOutside = typeof histData === 'object' ? (histData.lines_outside || 0) : 0;
                                 const count = lines + linesOutside;
                                 
                                 globalActivityByDate[date].total += count;
                                 globalActivityByDate[date].projects[p.name] = (globalActivityByDate[date].projects[p.name] || 0) + count;
+                                
+                                // Duration from project
+                                if (p.daily_duration && p.daily_duration[date]) {
+                                    globalActivityByDate[date].duration += p.daily_duration[date];
+                                }
                             });
                         }
                     });
@@ -395,7 +541,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 renderStats();
             } catch (e) {
                 console.error("Failed to load stats:", e);
-                alert("Не вдалося завантажити статистику. Перевірте, чи запущено скрипт.");
+                alert("Не вдалося завантажити статистику. Перевірте консоль браузера.");
             }
         }
 
@@ -482,20 +628,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 cell.className = 'heatmap-cell';
                 let lvl = 0;
                 if (dayData.total > 0) lvl = 1;
-                if (dayData.total >= 10) lvl = 2;
-                if (dayData.total >= 50) lvl = 3;
-                if (dayData.total >= 100) lvl = 4;
+                if (dayData.total >= 100) lvl = 2;
+                if (dayData.total >= 500) lvl = 3;
+                if (dayData.total >= 1000) lvl = 4;
                 cell.classList.add(`lvl-${lvl}`);
 
                 cell.onmouseenter = (e) => {
-                    let text = `<strong>${dateStr}</strong>\\nВсього спроб: ${dayData.total}`;
+                    const formatDurationShort = (s) => {
+                        const h = Math.floor(s / 3600);
+                        const m = Math.floor((s % 3600) / 60);
+                        if (h > 0) return `${h}г ${m}хв`;
+                        return `${m}хв`;
+                    };
+
+                    let text = `<strong>${dateStr}</strong>\\\\nВсього спроб: ${dayData.total}`;
+                    if (dayData.duration > 0) {
+                        text += `\\\\nЧас запису: ${formatDurationShort(dayData.duration)}`;
+                    }
                     if (dayData.total > 0) {
-                        text += `\\n\\nРозбивка по проектах:`;
+                        text += `\\\\n\\\\nРозбивка по проектах:`;
                         Object.entries(dayData.projects).forEach(([name, count]) => {
-                            if (count > 0) text += `\\n${name}: ${count}`;
+                            if (count > 0) text += `\\\\n${name}: ${count}`;
                         });
                     }
-                    tooltip.innerHTML = text.replace(/\\n/g, '<br>');
+                    tooltip.innerHTML = text.replace(/\\\\n/g, '<br>');
                     tooltip.style.display = 'block';
                     const rect = cell.getBoundingClientRect();
                     tooltip.style.left = (rect.left + rect.width / 2) + 'px';
@@ -506,6 +662,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 currentWeek.appendChild(cell);
                 curr.setDate(curr.getDate() + 1);
             }
+        }
+
+        function setDurationMode(mode) {
+            durationMode = mode;
+            document.querySelectorAll('#dur-mode-total, #dur-mode-timeline').forEach(b => b.classList.remove('active'));
+            document.getElementById(`dur-mode-${mode}`).classList.add('active');
+            renderStats();
         }
 
         function setPeriod(period) {
@@ -519,6 +682,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             renderStats();
         }
 
+        const toLocalISO = (d) => {
+            return d.getFullYear() + '-' + 
+                   String(d.getMonth() + 1).padStart(2, '0') + '-' + 
+                   String(d.getDate()).padStart(2, '0');
+        };
+
         function isWithinPeriod(dateStr) {
             if (currentPeriod === 'all') return true;
             
@@ -526,12 +695,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const date = new Date(y, m - 1, d);
             const now = new Date();
             now.setHours(0,0,0,0);
-            
-            const toLocalISO = (d) => {
-                return d.getFullYear() + '-' + 
-                       String(d.getMonth() + 1).padStart(2, '0') + '-' + 
-                       String(d.getDate()).padStart(2, '0');
-            };
 
             if (currentPeriod === 'today') {
                 return dateStr === toLocalISO(new Date());
@@ -586,9 +749,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     attempts: (p.actor_attempts_total && p.actor_attempts_total[name]) || 0
                 }));
 
-            actorsList.sort((a, b) => (b.meta.selected ? 1 : -1) - (a.meta.selected ? 1 : -1) || b.attempts - a.attempts);
+            const sortedActors = applySort(actorsList, 'modal');
 
-            actorsList.forEach(a => {
+            sortedActors.forEach(a => {
                 if (!showAll && !a.meta.selected) return;
                 tbody.innerHTML += `<tr>
                     <td><strong>${a.name}</strong> ${a.meta.selected ? '' : '<span style="color:#9ca3af; font-size:11px;">(Hidden)</span>'}</td>
@@ -609,12 +772,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const actorsTbody = document.getElementById('actors-table-body');
             actorsTbody.innerHTML = '';
 
-            globalActorsData.forEach(a => {
-                if (!showHidden && !a.selected) return;
-                const attempts = globalActorAttempts[a.name] || 0;
+            const filteredActors = globalActorsData.filter(a => {
+                const matchesHidden = showHidden || a.selected;
+                const matchesSearch = a.name.toLowerCase().includes(actorSearchTerm) || 
+                                    a.project.toLowerCase().includes(actorSearchTerm);
+                return matchesHidden && matchesSearch;
+            });
+
+            const sortedActors = applySort(filteredActors, 'actors');
+
+            sortedActors.forEach(a => {
                 actorsTbody.innerHTML += `<tr>
                     <td><strong>${a.name}</strong></td>
-                    <td>${attempts.toLocaleString()}</td>
+                    <td>${a.attempts.toLocaleString()}</td>
+                    <td>${a.global_attempts.toLocaleString()}</td>
                     <td>${a.project}</td>
                     <td>${a.lines.toLocaleString()}</td>
                     <td>${a.words.toLocaleString()}</td>
@@ -629,42 +800,92 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         function renderStats() {
             const data = globalRawData;
             if (!data) return;
+            console.log("Rendering stats for period:", currentPeriod);
 
             // 1. Calculate Period Totals and Map History
             let periodRecorded = 0;
             let periodAttempts = 0;
             let periodWords = 0;
+            let periodDuration = 0;
+            const activeDates = new Set();
             const filteredProjects = JSON.parse(JSON.stringify(data.projects));
             const actorAttemptsByPeriod = {};
-            const dateMap = {}; // { date: { total: 0, lines: 0, outside: 0, words: 0 } }
+            const dateMap = {}; // { date: { total: 0, lines: 0, outside: 0, words: 0, duration: 0, segments: [], projects: {} } }
+
+            // Pre-collect dates from all projects to initialize dateMap
+            filteredProjects.forEach(p => {
+                if (p.history) {
+                    Object.keys(p.history).forEach(date => {
+                        if (!dateMap[date]) dateMap[date] = { total: 0, lines: 0, outside: 0, words: 0, duration: 0, segments: [], projects: {} };
+                    });
+                }
+                // Also collect dates from duration if any (might not be in history)
+                if (p.duration) {
+                    p.duration.forEach(seg => {
+                        const date = toLocalISO(new Date(seg.start * 1000));
+                        if (!dateMap[date]) dateMap[date] = { total: 0, lines: 0, outside: 0, words: 0, duration: 0, segments: [], projects: {} };
+                    });
+                }
+            });
+
+            const sortedDates = Object.keys(dateMap).sort();
+            const filteredDates = sortedDates.filter(d => isWithinPeriod(d));
+            const plotDates = filteredDates.length > 0 ? filteredDates : sortedDates.slice(-30);
 
             filteredProjects.forEach(p => {
                 p.period_attempts = 0;
                 p.period_recorded = 0;
                 p.period_words = 0;
                 p.actor_attempts_period = {};
-                p.actor_attempts_total = {}; // All-time attempts per actor for this project
+                p.actor_attempts_total = {}; 
 
-                // First, calculate all-time attempts per actor to handle capping correctly
                 if (p.history) {
-                    const sortedHistory = Object.entries(p.history).sort((a,b) => b[0].localeCompare(a[0]));
-                    sortedHistory.forEach(([date, histData]) => {
-                        if (!dateMap[date]) dateMap[date] = { total: 0, lines: 0, outside: 0, words: 0, projects: {} };
+                    Object.entries(p.history).forEach(([date, histData]) => {
+                        const info = dateMap[date];
+                        if (!info) return; // Should not happen given pre-collection
                         const lines = typeof histData === 'object' ? (histData.lines || 0) : histData;
                         const linesOutside = typeof histData === 'object' ? (histData.lines_outside || 0) : 0;
-                        dateMap[date].lines += lines;
-                        dateMap[date].outside += linesOutside;
-                        dateMap[date].total += (lines + linesOutside);
                         
-                        if (!dateMap[date].projects[p.name]) dateMap[date].projects[p.name] = { total: 0, lines: 0, outside: 0, words: 0 };
-                        dateMap[date].projects[p.name].lines += lines;
-                        dateMap[date].projects[p.name].outside += linesOutside;
-                        dateMap[date].projects[p.name].total += (lines + linesOutside);
+                        info.lines += lines;
+                        info.outside += linesOutside;
+                        info.total += (lines + linesOutside);
+                        
+                        // Estimate words for this day based on project ratio
+                        if (p.selected_lines > 0) {
+                            const ratio = lines / p.selected_lines;
+                            const dayWords = Math.round(ratio * (p.selected_words || 0));
+                            info.words += dayWords;
+                        }
+
+                        // Add duration for this date
+                        const dayDur = (p.daily_duration && p.daily_duration[date]) || 0;
+                        info.duration += dayDur;
+
+                        if (!info.projects[p.name]) info.projects[p.name] = { total: 0, lines: 0, outside: 0, duration: 0, words: 0 };
+                        info.projects[p.name].lines += lines;
+                        info.projects[p.name].outside += linesOutside;
+                        info.projects[p.name].total += (lines + linesOutside);
+                        info.projects[p.name].duration += dayDur;
+
+                        // Add segments for this project
+                        if (p.duration) {
+                            p.duration.forEach(seg => {
+                                const dStart = new Date(seg.start * 1000);
+                                if (toLocalISO(dStart) === date) {
+                                    const hourStart = dStart.getHours() + dStart.getMinutes()/60 + dStart.getSeconds()/3600;
+                                    const dEnd = new Date(seg.end * 1000);
+                                    const hourEnd = dEnd.getHours() + dEnd.getMinutes()/60 + dEnd.getSeconds()/3600;
+                                    info.segments.push({ project: p.name, range: [hourStart, hourEnd] });
+                                }
+                            });
+                        }
 
                         const isPeriod = isWithinPeriod(date);
                         if (isPeriod) {
                             p.period_attempts += (lines + linesOutside);
                             periodAttempts += (lines + linesOutside);
+                            periodDuration += dayDur;
+                            if (lines + linesOutside > 0 || dayDur > 0) activeDates.add(date);
                         }
 
                         if (typeof histData === 'object' && histData.actors) {
@@ -680,16 +901,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     });
                 }
 
-                // Second, calculate "Recorded" (Progress) based on capping logic per actor
-                p.recorded = 0; // Total unique-ish lines recorded across project
-                let recordedBefore = 0; // Progress before current period start
-                
+                // Progress calculation
+                p.recorded = 0;
                 if (p.actors) {
-                    Object.entries(p.actors).forEach(([actor, meta]) => {
+                    Object.entries(p.actors).forEach(([actor, actorMeta]) => {
                         const totalAtt = p.actor_attempts_total[actor] || 0;
                         const periodAtt = p.actor_attempts_period[actor] || 0;
                         const beforeAtt = totalAtt - periodAtt;
-                        const scriptLines = meta.lines || 0;
+                        const scriptLines = actorMeta.lines || 0;
 
                         const cappedTotal = Math.min(totalAtt, scriptLines);
                         const cappedBefore = Math.min(beforeAtt, scriptLines);
@@ -697,10 +916,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         p.recorded += cappedTotal;
                         p.period_recorded += (cappedTotal - cappedBefore);
 
-                        // Word estimation based on progress
                         if (scriptLines > 0) {
                             const progressGain = (cappedTotal - cappedBefore) / scriptLines;
-                            p.period_words += Math.round(progressGain * (meta.words || 0));
+                            p.period_words += Math.round(progressGain * (actorMeta.words || 0));
                         }
                     });
                 }
@@ -711,7 +929,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             globalProjectsData = filteredProjects;
             globalActorAttempts = actorAttemptsByPeriod;
 
-            // 2. Update Scorecards (Calculated from period activity)
+            // 2. Update Scorecards
             let displayTotalLines = 0;
             let displayTotalWords = 0;
             let activeProjectsCount = 0;
@@ -729,7 +947,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             document.getElementById('total-lines').innerText = displayTotalLines.toLocaleString();
             document.getElementById('total-words').innerText = displayTotalWords.toLocaleString();
             
-            // Update "sub" text to show how many projects are counted
+            const formatDuration = (s) => {
+                const h = Math.floor(s / 3600);
+                const m = Math.floor((s % 3600) / 60);
+                const sec = s % 60;
+                return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+            };
+
+            document.getElementById('period-duration').innerText = formatDuration(periodDuration);
+            const daysWithActivity = activeDates.size;
+            const avgSec = daysWithActivity > 0 ? Math.round(periodDuration / daysWithActivity) : 0;
+            document.getElementById('avg-duration').innerText = `Середнє: ${formatDuration(avgSec)} / активний день`;
+
             const subLines = document.querySelector('#total-lines + .sub');
             if (subLines) {
                 subLines.innerText = currentPeriod === 'all' ? 'Всього в усіх проектах' : `Всього в ${activeProjectsCount} активних проектах`;
@@ -738,12 +967,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             // 3. Render Projects Table
             const projTbody = document.getElementById('projects-table-body');
             projTbody.innerHTML = '';
-            filteredProjects.forEach((p, idx) => {
-                if (currentPeriod !== 'all' && p.period_attempts === 0) return;
-                
-                // Find original index in data.projects to keep modal working
+            const projectsToRender = filteredProjects.filter(p => {
+                const matchesPeriod = currentPeriod === 'all' || p.period_attempts > 0;
+                const matchesSearch = p.name.toLowerCase().includes(projectSearchTerm) || 
+                                    p.path.toLowerCase().includes(projectSearchTerm);
+                return matchesPeriod && matchesSearch;
+            });
+
+            const sortedProjects = applySort(projectsToRender, 'projects');
+            sortedProjects.forEach((p) => {
                 const originalIndex = data.projects.findIndex(origP => origP.project_id === p.project_id);
-                
                 const progress = (p.recorded / (p.selected_lines || 1)) * 100;
                 projTbody.innerHTML += `<tr class="clickable-row" onclick="showProjectDetails(${originalIndex})">
                     <td><strong>${p.name}</strong><br><span style="font-size:12px;color:#888">${p.path.split('/').pop()}</span></td>
@@ -757,132 +990,189 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 </tr>`;
             });
 
-            // 4. Update Actors Table
+            // 4. Global Actor Stats
             globalActorsData = [];
             filteredProjects.forEach(p => {
                 if (p.actors) {
                     Object.values(p.actors).forEach(a => {
                         if (a.id === "all") return;
-                        globalActorsData.push({ name: a.id, project: p.name, lines: a.lines, words: a.words, selected: a.selected });
+                        globalActorsData.push({ 
+                            name: a.id, 
+                            project: p.name, 
+                            attempts: p.actor_attempts_period[a.id] || 0,
+                            global_attempts: actorAttemptsByPeriod[a.id] || 0,
+                            lines: a.lines, 
+                            words: a.words, 
+                            selected: a.selected 
+                        });
                     });
                 }
             });
-            globalActorsData.sort((a, b) => (globalActorAttempts[b.name] || 0) - (globalActorAttempts[a.name] || 0) || b.lines - a.lines);
             renderActorsTable();
 
-            const sortedDates = Object.keys(dateMap).sort();
-            const filteredDates = sortedDates.filter(d => isWithinPeriod(d));
-            const plotDates = filteredDates.length > 0 ? filteredDates : sortedDates.slice(-30);
+            updateSortIcons('projects');
+            updateSortIcons('actors');
+            updateSortIcons('trends');
 
-            // 5. Render Overview Chart (Trend by day within period)
+            // 5. Render Overview Chart
             const ctx = document.getElementById('overviewChart').getContext('2d');
             if (chartInstance) chartInstance.destroy();
-
             chartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: plotDates,
                     datasets: [
-                        {
-                            label: 'Слова',
-                            data: plotDates.map(d => dateMap[d].words),
-                            borderColor: '#3b82f6',
-                            backgroundColor: 'rgba(59, 130, 246, 0.05)',
-                            fill: true,
-                            tension: 0.3,
-                            yAxisID: 'y1',
-                            key: 'words'
-                        },
-                        {
-                            label: 'Спроби (дублів)',
-                            data: plotDates.map(d => dateMap[d].total),
-                            borderColor: '#f59e0b',
-                            backgroundColor: 'rgba(245, 158, 11, 0.05)',
-                            fill: true,
-                            tension: 0.3,
-                            yAxisID: 'y',
-                            key: 'total'
-                        },
-                        {
-                            label: 'Репліки (зовні)',
-                            data: plotDates.map(d => dateMap[d].outside),
-                            borderColor: '#ef4444',
-                            borderDash: [5, 5],
-                            tension: 0.3,
-                            yAxisID: 'y',
-                            key: 'outside'
-                        },
-                        {
-                            label: 'Репліки (проект)',
-                            data: plotDates.map(d => dateMap[d].lines),
-                            borderColor: '#10b981',
-                            backgroundColor: 'rgba(16, 185, 129, 0.05)',
-                            fill: true,
-                            tension: 0.3,
-                            yAxisID: 'y',
-                            key: 'lines'
-                        }
+                        { label: 'Слова', data: plotDates.map(d => dateMap[d].words), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.05)', fill: true, tension: 0.3, yAxisID: 'y1', key: 'words' },
+                        { label: 'Спроби (дублів)', data: plotDates.map(d => dateMap[d].total), borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.05)', fill: true, tension: 0.3, yAxisID: 'y', key: 'total' },
+                        { label: 'Репліки (зовні)', data: plotDates.map(d => dateMap[d].outside), borderColor: '#ef4444', borderDash: [5, 5], tension: 0.3, yAxisID: 'y', key: 'outside' },
+                        { label: 'Репліки (проект)', data: plotDates.map(d => dateMap[d].lines), borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.05)', fill: true, tension: 0.3, yAxisID: 'y', key: 'lines' }
                     ]
                 },
                 options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false, 
-                    stacked: false,
+                    responsive: true, maintainAspectRatio: false,
                     plugins: {
-                        title: { display: true, text: 'Динаміка роботи за період' },
                         legend: { position: 'bottom' },
                         tooltip: {
                             callbacks: {
                                 afterBody: function(context) {
                                     const date = context[0].label;
-                                    const item = context[0];
-                                    const metricKey = item.dataset.key;
+                                    const metricKey = context[0].dataset.key;
                                     const dayInfo = dateMap[date];
                                     if (!dayInfo || !dayInfo.projects) return '';
-                                    
-                                    const lines = ['\\nРозбивка по проектах:'];
+                                    const lines = ['\\\\nРозбивка по проектах:'];
                                     Object.entries(dayInfo.projects).forEach(([name, projStats]) => {
                                         const val = projStats[metricKey] || 0;
-                                        if (val > 0) {
-                                            lines.push(`${name}: ${val.toLocaleString()}`);
-                                        }
+                                        if (val > 0) lines.push(`${name}: ${val.toLocaleString()}`);
                                     });
-                                    return lines.length > 1 ? lines.join('\\n') : '';
+                                    return lines.length > 1 ? lines.join('\\\\n') : '';
                                 }
                             }
                         }
                     },
                     scales: { 
-                        y: { type: 'linear', display: true, position: 'left', beginAtZero: true, title: { display: true, text: 'Репліки / Спроби' } },
-                        y1: { type: 'linear', display: true, position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: 'Слова' } }
+                        y: { position: 'left', beginAtZero: true, title: { display: true, text: 'Репліки / Спроби' } },
+                        y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: 'Слова' } }
                     } 
                 }
             });
 
-            // 6. Trends Table (reverses order, filtered)
-            const tableDates = [...filteredDates].reverse();
+            // 5a. Render Duration Chart
+            const dctx = document.getElementById('durationChart').getContext('2d');
+            if (durationChartInstance) durationChartInstance.destroy();
             
-            const trendsTbody = document.getElementById('trends-table-body');
-            const loadMoreContainer = document.getElementById('load-more-container');
+            const durationData = [];
+            const durationDatasets = [];
             
-            trendsTbody.innerHTML = '';
-            tableDates.slice(0, recentDaysLimit).forEach(date => {
-                const info = dateMap[date];
-                trendsTbody.innerHTML += `<tr>
-                    <td><strong>${date}</strong></td>
-                    <td>${info.total.toLocaleString()}</td>
-                    <td>${info.lines.toLocaleString()}</td>
-                    <td>${info.outside.toLocaleString()}</td>
-                </tr>`;
+            if (durationMode === 'total') {
+                durationDatasets.push({
+                    label: 'Час запису (хв)',
+                    data: plotDates.map(d => Math.round((dateMap[d].duration || 0) / 60)),
+                    backgroundColor: 'rgba(79, 70, 229, 0.6)',
+                    borderColor: 'rgb(79, 70, 229)',
+                    borderWidth: 1
+                });
+            } else {
+                // Timeline Mode: Multiple datasets or floating bars
+                // Chart.js floating bars: data is [ [start, end], [start, end] ]
+                // To show multiple sessions on the same X-label, we can use a single dataset with array data mapping
+                const timelineData = [];
+                plotDates.forEach(date => {
+                    const dayInfo = dateMap[date];
+                    if (dayInfo.segments.length > 0) {
+                        dayInfo.segments.forEach(seg => {
+                            timelineData.push({
+                                x: date,
+                                y: seg.range,
+                                project: seg.project
+                            });
+                        });
+                    }
+                });
+
+                durationDatasets.push({
+                    label: 'Сесії запису',
+                    data: timelineData,
+                    backgroundColor: 'rgba(16, 185, 129, 0.6)',
+                    borderColor: 'rgb(16, 185, 129)',
+                    borderWidth: 1,
+                    barPercentage: 0.8
+                });
+            }
+
+            let yMin = 0;
+            let yMax = 24;
+            if (durationMode === 'timeline' && durationDatasets[0]?.data.length > 0) {
+                let minH = 24;
+                let maxH = 0;
+                durationDatasets[0].data.forEach(d => {
+                    minH = Math.min(minH, d.y[0]);
+                    maxH = Math.max(maxH, d.y[1]);
+                });
+                yMin = Math.max(0, Math.floor(minH) - 1);
+                yMax = Math.min(24, Math.ceil(maxH) + 1);
+            }
+
+            durationChartInstance = new Chart(dctx, {
+                type: 'bar',
+                data: {
+                    labels: plotDates,
+                    datasets: durationDatasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: durationMode === 'total' },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    if (durationMode === 'total') {
+                                        return `Час: ${context.parsed.y} хв`;
+                                    } else {
+                                        const raw = context.raw;
+                                        const format = (h) => {
+                                            const hh = Math.floor(h);
+                                            const mm = Math.floor((h - hh) * 60);
+                                            return `${hh.toString().padStart(2,'0')}:${mm.toString().padStart(2,'0')}`;
+                                        };
+                                        return `Проект: ${raw.project} | ${format(raw.y[0])} - ${format(raw.y[1])}`;
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            title: { 
+                                display: true, 
+                                text: durationMode === 'total' ? 'Хвилини' : 'Години' 
+                            },
+                            min: durationMode === 'total' ? 0 : yMin,
+                            max: durationMode === 'total' ? undefined : yMax,
+                            ticks: durationMode === 'timeline' ? {
+                                stepSize: 1,
+                                callback: value => `${value}:00`
+                            } : {}
+                        }
+                    }
+                }
             });
 
-            if (tableDates.length > recentDaysLimit) {
-                loadMoreContainer.style.display = 'flex';
-            } else {
-                loadMoreContainer.style.display = 'none';
-            }
- 
-            // 7. Render Heat Map
+            // 6. Trends Table
+            const trendsTbody = document.getElementById('trends-table-body');
+            const loadMoreContainer = document.getElementById('load-more-container');
+            const tableDates = filteredDates.map(date => {
+                const info = dateMap[date];
+                return { date, total: info.total, lines: info.lines, outside: info.outside };
+            });
+            const sortedTrends = applySort(tableDates, 'trends');
+            trendsTbody.innerHTML = '';
+            sortedTrends.slice(0, recentDaysLimit).forEach(info => {
+                trendsTbody.innerHTML += `<tr><td><strong>${info.date}</strong></td><td>${info.total.toLocaleString()}</td><td>${info.lines.toLocaleString()}</td><td>${info.outside.toLocaleString()}</td></tr>`;
+            });
+            loadMoreContainer.style.display = (tableDates.length > recentDaysLimit) ? 'flex' : 'none';
+
+            // 7. Heat Map
             renderHeatMap();
         }
     </script>
@@ -942,9 +1232,20 @@ def get_aggregated_stats():
                     "recorded": data.get("total", {}).get("lines_recorded", 0),
                     "actors": meta.get("actors", {}),
                     "history": data.get("daily_stats", {}),
-                    "actor_attempts": defaultdict(int) 
+                    "actor_attempts": defaultdict(int),
+                    "duration": data.get("duration", []),
+                    "daily_duration": defaultdict(int) 
                 }
                 
+                # Aggregate duration into daily totals
+                for entry in proj["duration"]:
+                    start_ts = entry.get("start")
+                    end_ts = entry.get("end")
+                    if start_ts and end_ts:
+                        dur = end_ts - start_ts
+                        day_str = datetime.fromtimestamp(start_ts).strftime("%Y-%m-%d")
+                        proj["daily_duration"][day_str] += dur
+
                 # Period Aggregation (Attempts)
                 if proj["history"]:
                     for date, hist_data in proj["history"].items():
@@ -975,6 +1276,7 @@ def get_aggregated_stats():
 
                 # Finalize project data
                 proj["actor_attempts"] = dict(proj["actor_attempts"])
+                proj["daily_duration"] = dict(proj["daily_duration"])
                 stats["projects"].append(proj)
                 stats["total_lines_script"] += proj["lines"]
                 stats["total_words"] += proj["words"]
