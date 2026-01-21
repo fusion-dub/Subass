@@ -845,10 +845,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         if (!info) return; // Should not happen given pre-collection
                         const lines = typeof histData === 'object' ? (histData.lines || 0) : histData;
                         const linesOutside = typeof histData === 'object' ? (histData.lines_outside || 0) : 0;
+                        const attempts = (typeof histData === 'object' && histData.total) ? histData.total : (lines + linesOutside);
                         
                         info.lines += lines;
                         info.outside += linesOutside;
-                        info.total += (lines + linesOutside);
+                        info.total += attempts;
                         
                         // Estimate words for this day based on project ratio
                         if (p.selected_lines > 0) {
@@ -864,7 +865,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         if (!info.projects[p.name]) info.projects[p.name] = { total: 0, lines: 0, outside: 0, duration: 0, words: 0 };
                         info.projects[p.name].lines += lines;
                         info.projects[p.name].outside += linesOutside;
-                        info.projects[p.name].total += (lines + linesOutside);
+                        info.projects[p.name].total += attempts;
                         info.projects[p.name].duration += dayDur;
 
                         // Add segments for this project
@@ -882,8 +883,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
                         const isPeriod = isWithinPeriod(date);
                         if (isPeriod) {
-                            p.period_attempts += (lines + linesOutside);
-                            periodAttempts += (lines + linesOutside);
+                            p.period_attempts += attempts;
+                            periodAttempts += attempts;
                             periodDuration += dayDur;
                             if (lines + linesOutside > 0 || dayDur > 0) activeDates.add(date);
                         }
