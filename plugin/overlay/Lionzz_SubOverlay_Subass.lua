@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.1.3
+-- @version 0.1.4
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -19,9 +19,11 @@ local last_external_sync_time = 0       -- Час останньої синхр�
 -- Кеш координат відеовікна
 local video_cache_valid = false
 local cached_video_x1, cached_video_y1, cached_video_x2, cached_video_y2 = nil, nil, nil, nil
-local cached_attach_x, cached_attach_y, cached_attach_w = nil, nil, nil
+local cached_attach_x, cached_attach_y, cached_attach_w, cached_attach_h = nil, nil, nil, nil
 local is_user_resizing = false  -- прапорець для відстеження ресайзу користувачем
 local show_wrap_guides = false  -- прапорець для відображення напрямних відступу переносу
+
+local slider_repeat_state = {}  -- для ручного автоповтору кнопок
 
 
 -- Налаштування шрифту та масштабу
@@ -85,6 +87,7 @@ local show_corrections = true           -- показувати правки (м
 local align_center = true               -- вирівнювання по центру (горизонтально, за замовчуванням увімкн.)
 local align_vertical = false            -- вирівнювання по вертикалі (центрування контенту у вікні)
 local align_bottom = true               -- вирівнювання по низу
+local bottom_offset = 24                -- відступ від низу вікна
 local show_assimilation = true          -- показувати асиміляцію (незалежно від Subass Notes)
 local always_show_next = true           -- завжди показувати наступну репліку (навіть у прогалинах)
 local fill_gaps = false                 -- показувати найближчий регіон/ітем між об'єктами
@@ -92,6 +95,7 @@ local show_tooltips = true              -- показувати підказки
 local tooltip_delay = 0.5
 local tooltip_state = {}
 local attach_to_video = false           -- прив'язувати до відеовікна
+local attach_to_video_h = false         -- прив'язувати по висоті до відеовікна
 local attach_offset = 0                 -- відступ у відсотках (0-100)
 local attach_manual_x = 0               -- ручна корекція X (пікселі)
 local attach_manual_y = 0               -- ручна корекція Y (пікселі)
@@ -531,11 +535,13 @@ local function save_settings()
     
     reaper.SetExtState(SETTINGS_SECTION, "align_vertical", tostring(align_vertical), true)
     reaper.SetExtState(SETTINGS_SECTION, "align_bottom", tostring(align_bottom), true)
+    reaper.SetExtState(SETTINGS_SECTION, "bottom_offset", tostring(bottom_offset), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_assimilation", tostring(show_assimilation), true)
     reaper.SetExtState(SETTINGS_SECTION, "always_show_next", tostring(always_show_next), true)
     reaper.SetExtState(SETTINGS_SECTION, "fill_gaps", tostring(fill_gaps), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_tooltips", tostring(show_tooltips), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_to_video", tostring(attach_to_video), true)
+    reaper.SetExtState(SETTINGS_SECTION, "attach_to_video_h", tostring(attach_to_video_h), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_offset", tostring(attach_offset), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_manual_x", tostring(attach_manual_x), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_manual_y", tostring(attach_manual_y), true)
@@ -611,11 +617,13 @@ local function load_settings()
     
     align_vertical = (reaper.GetExtState(SETTINGS_SECTION, "align_vertical") == "true")
     align_bottom = (reaper.GetExtState(SETTINGS_SECTION, "align_bottom") ~= "false")
+    bottom_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "bottom_offset")) or 24
     show_assimilation = (reaper.GetExtState(SETTINGS_SECTION, "show_assimilation") ~= "false")
     always_show_next = (reaper.GetExtState(SETTINGS_SECTION, "always_show_next") ~= "false")
     fill_gaps = (reaper.GetExtState(SETTINGS_SECTION, "fill_gaps") == "true")
     show_tooltips = (reaper.GetExtState(SETTINGS_SECTION, "show_tooltips") ~= "false")
     attach_to_video = (reaper.GetExtState(SETTINGS_SECTION, "attach_to_video") == "true")
+    attach_to_video_h = (reaper.GetExtState(SETTINGS_SECTION, "attach_to_video_h") == "true")
     attach_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "attach_offset")) or 0
     attach_manual_x = tonumber(reaper.GetExtState(SETTINGS_SECTION, "attach_manual_x")) or 0
     attach_manual_y = tonumber(reaper.GetExtState(SETTINGS_SECTION, "attach_manual_y")) or 0
@@ -737,6 +745,85 @@ local function draw_context_menu()
             changes = changes + (changed and 1 or 0)
             return new_value
         end
+        
+        local function add_change_slider(label, value, min, max, default)
+            reaper.ImGui_PushID(ctx, label)
+            local btn_w = 18
+            local changed, new_value = false, value
+            
+            -- Допоміжна функція для ручного автоповтору
+            local function handle_repeat(id, current_val, delta)
+                if reaper.ImGui_IsItemActive(ctx) then
+                    local now = reaper.time_precise()
+                    local state = slider_repeat_state[label .. id]
+                    if not state then
+                        slider_repeat_state[label .. id] = { last = now, delay = 0.4 }
+                    elseif now - state.last > state.delay then
+                        new_value = math.max(min, math.min(max, current_val + delta))
+                        changed = true
+                        state.last = now
+                        state.delay = 0.05 -- Швидкість повтору після затримки
+                    end
+                else
+                    slider_repeat_state[label .. id] = nil
+                end
+            end
+
+            -- Кнопка Мінус
+            if reaper.ImGui_Button(ctx, "-", btn_w) then
+                new_value = math.max(min, value - 1)
+                changed = true
+            end
+            handle_repeat("-", new_value, -1)
+            
+            reaper.ImGui_SameLine(ctx, nil, 2)
+            reaper.ImGui_SetNextItemWidth(ctx, 150)
+            local s_changed, s_val = reaper.ImGui_SliderInt(ctx, "##s", value, min, max)
+            if s_changed then 
+                new_value = s_val
+                changed = true
+            end
+            
+            -- Right Click for Manual Input
+            if reaper.ImGui_IsItemClicked(ctx, 1) then
+                reaper.ImGui_OpenPopup(ctx, "manual_input_popup")
+            end
+            
+            if reaper.ImGui_BeginPopup(ctx, "manual_input_popup") then
+                reaper.ImGui_SetNextItemWidth(ctx, 60)
+                reaper.ImGui_SetKeyboardFocusHere(ctx)
+                local m_changed, m_val = reaper.ImGui_InputInt(ctx, "##input", value, 0, 0)
+                if m_changed then
+                    new_value = math.max(min, math.min(max, m_val))
+                    changed = true
+                end
+                if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Enter()) or reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_KeypadEnter()) then
+                    reaper.ImGui_CloseCurrentPopup(ctx)
+                end
+                reaper.ImGui_EndPopup(ctx)
+            end
+            
+            if reaper.ImGui_IsItemHovered(ctx) and reaper.ImGui_IsMouseDoubleClicked(ctx, 0) then
+                new_value = default
+                changed = true
+            end
+            
+            reaper.ImGui_SameLine(ctx, nil, 2)
+            
+            -- Кнопка Плюс
+            if reaper.ImGui_Button(ctx, "+", btn_w) then
+                new_value = math.min(max, new_value + 1)
+                changed = true
+            end
+            handle_repeat("+", new_value, 1)
+            
+            reaper.ImGui_SameLine(ctx)
+            reaper.ImGui_Text(ctx, label)
+            
+            changes = changes + (changed and 1 or 0)
+            reaper.ImGui_PopID(ctx)
+            return new_value
+        end
 
         -- Режим джерела
         local label = (source_mode == 0) and "0: Регіони"
@@ -801,12 +888,17 @@ local function draw_context_menu()
             if align_bottom then align_vertical = false end -- Mutual exclusion
             changes = changes + 1
         end
+        if align_bottom then
+            reaper.ImGui_Indent(ctx)
+            bottom_offset = add_change_slider("відступ знизу", bottom_offset, 0, 100, 24)
+            reaper.ImGui_Unindent(ctx)
+        end
         tooltip("Притискає рядки до низу вікна")
         reaper.ImGui_Separator(ctx)
         enable_wrap           = add_change(reaper.ImGui_Checkbox(ctx, "Перенос рядків", enable_wrap))
         tooltip("Не дозволяє рядкам вилазити за межі вікна, розбиваючи їх на рівні відрізки")
         if enable_wrap then
-            wrap_margin       = add_change(reaper.ImGui_SliderInt(ctx, "відступ переносу", wrap_margin, 0, 300))
+            wrap_margin       = add_change_slider("відступ переносу", wrap_margin, 0, 300, 0)
             tooltip("Відступ від краю вікна при автопереносі (пікселі)\nВраховується з обох сторін")
             -- Показуємо напрямні якщо слайдер активний або на нього наведена миша
             show_wrap_guides = reaper.ImGui_IsItemActive(ctx) or reaper.ImGui_IsItemHovered(ctx)
@@ -830,16 +922,19 @@ local function draw_context_menu()
         if attach_to_video then
             reaper.ImGui_Indent(ctx)
             -- Слайдер позиції (0% - зверху, 100% - знизу)
-            attach_offset = add_change(reaper.ImGui_SliderInt(ctx, "Верт. позиція %", attach_offset, 0, 100))
+            attach_offset = add_change_slider("Верт. позиція %", attach_offset, 0, 100, 0)
             tooltip("Позиція оверлею відносно висоти відеовікна")
             
             -- Ручна корекція X
-            attach_manual_x = add_change(reaper.ImGui_SliderInt(ctx, "Корекція X (px)", attach_manual_x, -500, 500))
+            attach_manual_x = add_change_slider("Корекція X (px)", attach_manual_x, -500, 500, 0)
             tooltip("Додаткове зміщення по горизонталі")
 
             -- Ручна корекція Y
-            attach_manual_y = add_change(reaper.ImGui_SliderInt(ctx, "Корекція Y (px)", attach_manual_y, -500, 500))
+            attach_manual_y = add_change_slider("Корекція Y (px)", attach_manual_y, -500, 500, 0)
             tooltip("Додаткове зміщення по вертикалі")
+
+            attach_to_video_h = add_change(reaper.ImGui_Checkbox(ctx, "Прив'язувати по висоті", attach_to_video_h))
+            tooltip("Оверлей автоматично прийматиме висоту відеовікна")
 
             -- macOS Fix
             invert_y_axis = add_change(reaper.ImGui_Checkbox(ctx, "Інвертувати рух (macOS Fix)", invert_y_axis))
@@ -854,9 +949,9 @@ local function draw_context_menu()
         tooltip("Увімкнує анімацію тривалості поточного регіону/ітема")
         if show_progress then
             reaper.ImGui_Indent(ctx)
-            progress_width  = add_change(reaper.ImGui_SliderInt(ctx, "довжина", progress_width, 200, 2000))
-            progress_height = add_change(reaper.ImGui_SliderInt(ctx, "товщина", progress_height, 1, 10))
-            progress_offset = add_change(reaper.ImGui_SliderInt(ctx, "відступ", progress_offset, 0, 200))
+            progress_width  = add_change_slider("довжина", progress_width, 200, 2000, 400)
+            progress_height = add_change_slider("товщина", progress_height, 1, 10, 4)
+            progress_offset = add_change_slider("відступ", progress_offset, 0, 200, 20)
             reaper.ImGui_Unindent(ctx)
         end
 
@@ -875,7 +970,7 @@ local function draw_context_menu()
                 count_timer_digit = not count_timer_digit
                 save_settings()
             end
-            count_timer_scale = add_change(reaper.ImGui_SliderInt(ctx, "Розмір шрифту (%)", count_timer_scale, 10, 70))
+            count_timer_scale = add_change_slider("Розмір шрифту (%)", count_timer_scale, 10, 70, 25)
             reaper.ImGui_Unindent(ctx)
         end
         
@@ -891,8 +986,8 @@ local function draw_context_menu()
             end
             reaper.ImGui_EndCombo(ctx)
         end
-        font_scale      = add_change(reaper.ImGui_SliderInt(ctx, "масштаб", font_scale, 10, 100))
-        line_spacing_main = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Main)", line_spacing_main, -10, 50))
+        font_scale      = add_change_slider("масштаб", font_scale, 10, 100, 30)
+        line_spacing_main = add_change_slider("міжрядковий інтервал (Main)", line_spacing_main, -10, 50, 6)
         text_color      = add_change(reaper.ImGui_ColorEdit4(ctx, "колір", text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         shadow_color    = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь", shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         
@@ -911,9 +1006,9 @@ local function draw_context_menu()
                 end
                 reaper.ImGui_EndCombo(ctx)
             end
-            second_font_scale   = add_change(reaper.ImGui_SliderInt(ctx, "масштаб 2", second_font_scale, 10, 100))
-            line_spacing_next   = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Next)", line_spacing_next, -10, 50))
-            next_region_offset  = add_change(reaper.ImGui_SliderInt(ctx, "відступ 2", next_region_offset, 0, 200))
+            second_font_scale   = add_change_slider("масштаб 2", second_font_scale, 10, 100, 22)
+            line_spacing_next   = add_change_slider("міжрядковий інтервал (Next)", line_spacing_next, -10, 50, 6)
+            next_region_offset  = add_change_slider("відступ 2", next_region_offset, 0, 200, 20)
             second_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір 2", second_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             second_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь 2", second_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             show_next_two       = add_change(reaper.ImGui_Checkbox(ctx, "2 наступні репліки", show_next_two))
@@ -939,9 +1034,9 @@ local function draw_context_menu()
                 end
                 reaper.ImGui_EndCombo(ctx)
             end
-            oact_font_scale   = add_change(reaper.ImGui_SliderInt(ctx, "масштаб інших", math.floor(oact_font_scale), 10, 100))
-            line_spacing_oact = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Other)", line_spacing_oact, -10, 50))
-            oact_offset       = add_change(reaper.ImGui_SliderInt(ctx, "відступ інших", oact_offset, 0, 100))
+            oact_font_scale   = add_change_slider("масштаб інших", math.floor(oact_font_scale), 10, 100, 18)
+            line_spacing_oact = add_change_slider("міжрядковий інтервал (Other)", line_spacing_oact, -10, 50, 6)
+            oact_offset       = add_change_slider("відступ інших", oact_offset, 0, 100, 12)
             oact_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір інших", oact_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             oact_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь інших", oact_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             reaper.ImGui_Unindent(ctx)
@@ -962,9 +1057,9 @@ local function draw_context_menu()
                 end
                 reaper.ImGui_EndCombo(ctx)
             end
-            corr_font_scale   = add_change(reaper.ImGui_SliderInt(ctx, "масштаб правок", math.floor(corr_font_scale), 10, 100))
-            line_spacing_corr = add_change(reaper.ImGui_SliderInt(ctx, "міжрядковий інтервал (Corr)", line_spacing_corr, -10, 50))
-            corr_offset       = add_change(reaper.ImGui_SliderInt(ctx, "відступ правок", corr_offset, 0, 100))
+            corr_font_scale   = add_change_slider("масштаб правок", math.floor(corr_font_scale), 10, 100, 18)
+            line_spacing_corr = add_change_slider("міжрядковий інтервал (Corr)", line_spacing_corr, -10, 50, 6)
+            corr_offset       = add_change_slider("відступ правок", corr_offset, 0, 100, 12)
             corr_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір правок", corr_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             corr_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь правок", corr_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             reaper.ImGui_Unindent(ctx)
@@ -1869,6 +1964,7 @@ local function check_video_window_moved()
     
     -- Final positions
     attach_w = video_width
+    attach_h = video_height
     local available_range = math.max(0, video_height - win_h)
     local offset_pixels = (attach_offset / 100) * available_range
     attach_x = left_x + attach_manual_x
@@ -1889,7 +1985,7 @@ local function check_video_window_moved()
     end
     
     cached_video_x1, cached_video_y1, cached_video_x2, cached_video_y2 = x1, y1, x2, y2
-    cached_attach_x, cached_attach_y, cached_attach_w = attach_x, attach_y, attach_w
+    cached_attach_x, cached_attach_y, cached_attach_w, cached_attach_h = attach_x, attach_y, attach_w, attach_h
     video_cache_valid = true
     
     return true
@@ -2005,7 +2101,8 @@ local function loop()
     -- Якщо увімкнено прив'язку до відеовікна та користувач НЕ змінює розмір - застосовуємо позиції
     if attach_to_video and not is_user_resizing and check_video_window_moved() then
         reaper.ImGui_SetNextWindowPos(ctx, attach_x, attach_y)
-        reaper.ImGui_SetNextWindowSize(ctx, attach_w, win_h)
+        local target_h = attach_to_video_h and attach_h or win_h
+        reaper.ImGui_SetNextWindowSize(ctx, attach_w, target_h)
     end
 
     local visible, open = reaper.ImGui_Begin(ctx, "SubOverlay", win_open, window_flags)
@@ -2224,7 +2321,7 @@ local function loop()
             if align_vertical then
                 start_y = math.floor((win_h - total_height) / 2 + 0.5)
             elseif align_bottom then
-                start_y = math.floor(win_h - total_height - padding_y * 12 + 0.5)
+                start_y = math.floor(win_h - total_height - bottom_offset + 0.5)
             end
             start_y = math.max(0, start_y)
             layout_start_y = start_y
@@ -2435,7 +2532,7 @@ local function loop()
                 end
                 
                 -- Фіксована позиція для другого рядка відносно низу вікна
-                start_y_next = win_h - next_total_h - next2_total_h - padding_y * 12
+                start_y_next = win_h - next_total_h - next2_total_h - bottom_offset
                 reaper.ImGui_SetCursorPosY(ctx, start_y_next)
             else
                 local cur_y = reaper.ImGui_GetCursorPosY(ctx)
