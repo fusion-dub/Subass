@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.3
+-- @version 4.3.2
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.3"
+local script_title = "Subass Notes v4.3.2"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -341,7 +341,9 @@ local director_state = {
     last_marker_id = nil,
     last_time = -1,
     original_text = "",
-    pending_scroll_id = nil
+    pending_scroll_id = nil,
+    has_recent_notes = false,
+    recent_indices = {}
 }
 
 -- Proximity helper for marker detection
@@ -10196,7 +10198,7 @@ local function draw_file()
                        gfx.mouse_y >= chk_y and gfx.mouse_y <= chk_y + S(20) then
                         
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                        local ret = gfx.showmenu("Змінити колір|Змінити ім'я актора|Видалити актора")
+                        local ret = gfx.showmenu("Змінити колір|Змінити ім'я актора||Видалити актора")
                         if ret == 1 then
                             -- Handle Scheduled Color Picker (Move from main to draw_file)
                             local current_native = get_actor_color(act)
@@ -10358,7 +10360,7 @@ local function draw_file()
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "Видалити ВСІ регіони|Відкрити WEB-менеджер наголосів|Відкрити мою Статистику|Експортувати як SRT||" .. dock_check .. "Закріпити вікно (Dock)"
+        local menu = "Видалити ВСІ регіони||Відкрити WEB-менеджер наголосів|Відкрити мою Статистику|Експортувати як SRT||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -14268,7 +14270,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
         local dock_check = gfx.dock(-1) > 0 and "!" or ""
         local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
-        local menu_str = "Копіювати правки в буфер|Експортувати правки в CSV|Імпортувати імена акторів з субтитрів|" .. layout_label .. "|Закрити вікно"
+        local menu_str = "Копіювати правки в буфер||Експортувати правки в CSV|Імпортувати імена акторів з субтитрів||" .. layout_label .. "|Закрити вікно"
         
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local ret = gfx.showmenu(menu_str)
@@ -14511,6 +14513,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                     director_state.input.text = "[" .. table.concat(list, ", ") .. "] " .. clean
                 end
                 director_state.input.cursor = #director_state.input.text
+                director_state.input.anchor = director_state.input.cursor
                 director_state.input.focus = true
             end
             
@@ -14520,7 +14523,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 UI_STATE.mouse_handled = true
 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str2 = "Змінити ім'я|Видалити ім'я"
+                local menu_str2 = "Змінити ім'я||Видалити ім'я"
                 local ret2 = gfx.showmenu(menu_str2)
                 if ret2 == 1 then
                     -- RENAME
@@ -14556,6 +14559,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                                     end
                                     local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
                                     director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
+                                    director_state.input.cursor = #director_state.input.text
+                                    director_state.input.anchor = director_state.input.cursor
                                 end
 
                                 show_snackbar("Об'єднано з '" .. new_name .. "' (" .. ops .. " змін) (Режисер)", "success")
@@ -14579,6 +14584,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                                     end
                                     local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
                                     director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
+                                    director_state.input.cursor = #director_state.input.text
+                                    director_state.input.anchor = director_state.input.cursor
                                 end
 
                                 show_snackbar("Змінено ім'я у '" .. ops .. "' місцях (Режисер)", "success")
@@ -14612,6 +14619,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                             else
                                 director_state.input.text = clean
                             end
+                            director_state.input.cursor = #director_state.input.text
+                            director_state.input.anchor = director_state.input.cursor
                         end
                         
                         show_snackbar("Видалено актора та '" .. ops .. "' префіксів (Режисер)", "info")
@@ -14631,7 +14640,69 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         draw_y = panel_y + y
     end
     
+    -- Check for recent notes visibility
+    director_state.has_recent_notes = false
+    for _, m in ipairs(ass_markers) do
+        if m.name and m.name:gsub("%s", "") ~= "" then
+            director_state.has_recent_notes = true
+            break
+        end
+    end
+
     if not calc_only then
+        -- Draw # Button (Recent Notes)
+        if director_state.has_recent_notes then
+            if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "#", UI.C_ACCENT_N) then
+                -- Collect Unique Notes
+                local unique_notes = {}
+                local used_text = {}
+                
+                -- 1. Try Recent Indices First
+                local markers_by_id = {}
+                for _, m in ipairs(ass_markers) do markers_by_id[m.markindex] = m end
+                
+                for _, rid in ipairs(director_state.recent_indices) do
+                    local m = markers_by_id[rid]
+                    if m and m.name and m.name ~= "" and not used_text[m.name] then
+                        table.insert(unique_notes, m.name)
+                        used_text[m.name] = true
+                        if #unique_notes >= 15 then break end
+                    end
+                end
+                
+                -- 2. Fill with Newest Markers if space remains
+                if #unique_notes < 15 then
+                    for i = #ass_markers, 1, -1 do
+                        local m = ass_markers[i]
+                        if m and m.name and m.name ~= "" and not used_text[m.name] then
+                            table.insert(unique_notes, m.name)
+                            used_text[m.name] = true
+                            if #unique_notes >= 15 then break end
+                        end
+                    end
+                end
+                
+                if #unique_notes > 0 then
+                    local menu_items = {}
+                    for _, note in ipairs(unique_notes) do
+                        table.insert(menu_items, (note:gsub("|", "||")))
+                    end
+                    local menu_str = table.concat(menu_items, "|")
+                    
+                    gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                    local ret = gfx.showmenu(menu_str)
+                    if ret > 0 and unique_notes[ret] then
+                        director_state.input.text = unique_notes[ret]
+                        director_state.input.cursor = #director_state.input.text
+                        director_state.input.anchor = director_state.input.cursor
+                        director_state.input.focus = true
+                    end
+                end
+            end
+            draw_x = draw_x + S(24) + S(5)
+            x = x + S(24) + S(5)
+        end
+
         if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "+", UI.C_ACCENT_N) then
             local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
             if ok then
@@ -14718,6 +14789,16 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 table_data_cache.state_count = -1
                 last_layout_state.state_count = -1
                 prompter_drawer.marker_cache.count = -1
+                
+                -- Update Recent Indices
+                local mid = director_state.pending_scroll_id
+                if mid then
+                    local new_indices = {mid}
+                    for _, old_mid in ipairs(director_state.recent_indices) do
+                        if old_mid ~= mid then table.insert(new_indices, old_mid) end
+                    end
+                    director_state.recent_indices = new_indices
+                end
                 
                 director_state.last_marker_id = nil
                 director_state.input.text = ""
@@ -14814,7 +14895,7 @@ local function draw_table(input_queue)
                 local director_label = (cfg.director_mode and "• " or "") .. "Режим Режисера"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу|" .. markers_label .. "|" .. director_label .. "|>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування|<"
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     find_replace_state.show = true
@@ -15037,6 +15118,49 @@ local function draw_table(input_queue)
         end
     end
 
+    local function duplicate_logic(target_id)
+        local original_pos = nil
+        for p, l in ipairs(ass_lines) do
+            if (l.index or p) == target_id then
+                original_pos = p
+                break
+            end
+        end
+
+        if original_pos then
+            local source = ass_lines[original_pos]
+            push_undo("Продублювати репліку")
+            
+            -- Create copy
+            local new_replica = {}
+            for k, v in pairs(source) do new_replica[k] = v end
+            
+            -- Generate new unique index
+            local max_idx = 0
+            for _, l in ipairs(ass_lines) do
+                if type(l.index) == "number" and l.index > max_idx then
+                    max_idx = l.index
+                end
+            end
+            new_replica.index = max_idx + 1
+            
+            -- Insert after original
+            table.insert(ass_lines, original_pos + 1, new_replica)
+            
+            cleanup_actors()
+            rebuild_regions()
+            save_project_data(UI_STATE.last_project_id)
+            
+            table_selection = {}
+            table_selection[new_replica.index] = true
+            table_data_cache.state_count = -1
+            last_layout_state.state_count = -1
+            show_snackbar("Репліку продубльовано", "success")
+            return true
+        end
+        return false
+    end
+
     -- Keyboard Shortcuts
     if input_queue then
         for _, key in ipairs(input_queue) do
@@ -15058,10 +15182,22 @@ local function draw_table(input_queue)
                     delete_logic()
                 end
 
-                -- Ctrl+D (Deselect All)
+                -- Ctrl+D (Duplicate or Deselect All)
                 if key == 4 then
-                    table_selection = {}
-                    last_selected_row = nil
+                    local sel_count = 0
+                    local target_id = nil
+                    for idx, _ in pairs(table_selection) do
+                        sel_count = sel_count + 1
+                        target_id = idx
+                    end
+                    
+                    if sel_count == 1 and type(target_id) == "number" then
+                        duplicate_logic(target_id)
+                    else
+                        table_selection = {}
+                        last_selected_row = nil
+                        show_snackbar("Знято виділення з реплік", "info")
+                    end
                 end
 
                 -- Navigation: Up (30064), Down (1685026670)
@@ -15866,9 +16002,10 @@ local function draw_table(input_queue)
                         end
                         
                         if #sel_indices == 1 then
-                            table.insert(menu_items, "Видалити репліку")
+                            table.insert(menu_items, "Продублювати репліку")
+                            table.insert(menu_items, "|Видалити репліку")
                         else
-                            table.insert(menu_items, "Видалити вибрані репліки")
+                            table.insert(menu_items, "|Видалити вибрані репліки")
                         end
                         
                         local menu_str = table.concat(menu_items, "|")
@@ -15954,7 +16091,16 @@ local function draw_table(input_queue)
                                 show_snackbar("Репліки об'єднано (" .. #selected_entries .. ")", "success")
                             end
                         elseif (has_merge and ret == rename_end_idx + 2) or (not has_merge and ret == rename_end_idx + 1) then
-                            -- Delete Selected Replicas
+                            -- Duplicate or Delete Selected Replicas
+                            if #sel_indices == 1 and ret == rename_end_idx + 1 then
+                                -- Duplicate Logic
+                                duplicate_logic(sel_indices[1])
+                            else
+                                -- Delete Logic
+                                delete_logic()
+                            end
+                        elseif (has_merge and ret == rename_end_idx + 3) or (not has_merge and ret == rename_end_idx + 2) then
+                            -- Delete Selected Replicas (if it was offset by Duplicate)
                             delete_logic()
                         end
                     end -- End of selection type check
