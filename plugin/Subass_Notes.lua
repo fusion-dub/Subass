@@ -8361,7 +8361,7 @@ local function draw_dictionary_modal(input_queue)
                 
         if item.is_separator then
             -- Separator Layout
-            item.layout = { width = width, is_separator = true, total_h = S(30) }
+            item.layout = { width = width, is_separator = true, total_h = math.ceil(S(30)) }
         elseif type(item) == "table" and item.is_table then
             -- Table Layout (Pass 1)
             local col_w = width / item.cols
@@ -8421,7 +8421,7 @@ local function draw_dictionary_modal(input_queue)
                 running_y = running_y + row_heights[r_idx]
             end
             item.layout.row_y_pos = row_y_pos
-            item.layout.total_h = running_y + 48 -- + margin
+            item.layout.total_h = math.ceil(running_y + 48) -- + margin
             
         else
             -- Paragraph Layout
@@ -8442,10 +8442,11 @@ local function draw_dictionary_modal(input_queue)
             item.layout.wrapped = lines_to_draw
             item.layout.indent_x = indent_x
             item.layout.is_header = is_header
-            item.layout.total_h = #lines_to_draw * line_h + S(10) -- slight margin
+            local h_calc = #lines_to_draw * line_h + S(10) -- slight margin
             
             -- Headers have tighter spacing
-            if is_header then item.layout.total_h = item.layout.total_h + 4 else item.layout.total_h = item.layout.total_h + 12 end
+            if is_header then h_calc = h_calc + 4 else h_calc = h_calc + 12 end
+            item.layout.total_h = math.ceil(h_calc)
         end
     end
 
@@ -8454,9 +8455,8 @@ local function draw_dictionary_modal(input_queue)
         local s = dict_modal.selection
         if (s.start_x == s.end_x and s.start_y == s.end_y) then return "" end
        
-        -- Normalize selection: sy1 is top, sy2 is bottom (Convert to screen space)
-        local v_scroll = dict_modal.scroll_y or 0
-        local sy1, sy2 = s.start_y + v_scroll, s.end_y + v_scroll
+        -- Normalize selection: sy1 is top, sy2 is bottom (Use Absolute Content Space)
+        local sy1, sy2 = s.start_y, s.end_y
         local sx1, sx2 = s.start_x, s.end_x
         local iy1, ix1, iy2, ix2
         if (sy2 - sy1) > line_h * 0.5 or (math.abs(sy1 - sy2) < line_h * 0.5 and sx1 < sx2) then
@@ -8647,21 +8647,6 @@ local function draw_dictionary_modal(input_queue)
                 end
             end
         end
-    end
-    
-    -- Mouse wheel for scroll
-    if gfx.mouse_wheel ~= 0 then
-        dict_modal.target_scroll_y = dict_modal.target_scroll_y + (gfx.mouse_wheel > 0 and 1 or -1) * line_h * 2
-        gfx.mouse_wheel = 0
-    end
-    
-    -- Clamp scroll (Upper bound only, lower bound clamped after total_h is known)
-    if dict_modal.target_scroll_y > 0 then dict_modal.target_scroll_y = 0 end
-    
-    -- Smooth scroll
-    dict_modal.scroll_y = dict_modal.scroll_y + (dict_modal.target_scroll_y - dict_modal.scroll_y) * 0.8
-    if math.abs(dict_modal.target_scroll_y - dict_modal.scroll_y) < 0.5 then
-        dict_modal.scroll_y = dict_modal.target_scroll_y
     end
     
     local in_content_area = mouse_x >= content_x and mouse_x <= content_x + content_w and
@@ -8981,15 +8966,31 @@ local function draw_dictionary_modal(input_queue)
         end
     end
     
-    dict_modal.max_scroll = math.max(0, total_h - content_h)
+    dict_modal.max_scroll = math.ceil(math.max(0, total_h - content_h))
     
-    -- Clamp scroll AFTER layout is calculated
+    -- 1. Handle mouse wheel
+    if gfx.mouse_wheel ~= 0 then
+        dict_modal.target_scroll_y = dict_modal.target_scroll_y + (gfx.mouse_wheel > 0 and 1 or -1) * line_h * 2
+        gfx.mouse_wheel = 0
+    end
+
+    -- 2. Handle scrollbar (Update target only on drag)
+    local current_abs_scroll = -dict_modal.target_scroll_y
+    local new_abs_scroll = draw_scrollbar(box_x + box_w - S(10), content_y, S(10), content_h, total_h, content_h, current_abs_scroll)
+    
+    if (gfx.mouse_cap & 1 == 1) and math.abs(new_abs_scroll - current_abs_scroll) > 0.001 then
+        dict_modal.target_scroll_y = -new_abs_scroll
+    end
+    
+    -- 3. Final Clamping
     if dict_modal.target_scroll_y > 0 then dict_modal.target_scroll_y = 0 end
     if dict_modal.target_scroll_y < -dict_modal.max_scroll then dict_modal.target_scroll_y = -dict_modal.max_scroll end
 
-    -- Scrollbar
-    local abs_scroll = draw_scrollbar(box_x + box_w - S(10), content_y, S(10), content_h, total_h, content_h, -dict_modal.target_scroll_y)
-    dict_modal.target_scroll_y = -abs_scroll
+    -- 4. Smooth scroll interpolation (Apply to scroll_y for NEXT frame)
+    dict_modal.scroll_y = dict_modal.scroll_y + (dict_modal.target_scroll_y - dict_modal.scroll_y) * 0.8
+    if math.abs(dict_modal.target_scroll_y - dict_modal.scroll_y) < 0.5 then
+        dict_modal.scroll_y = dict_modal.target_scroll_y
+    end
     
     -- Bottom Buttons
     if btn(box_x + box_w - S(100), box_y + box_h - S(35), S(85), S(25), "Закрити") then
