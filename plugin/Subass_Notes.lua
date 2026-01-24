@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.3.3
+-- @version 4.4
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.3.3"
+local script_title = "Subass Notes v4.4"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
