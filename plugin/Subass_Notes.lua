@@ -996,6 +996,7 @@ local actor_colors = {} -- {ActorName = integerColor}
 
 UI_STATE.ass_file_loaded = false
 UI_STATE.current_file_name = nil
+UI_STATE.current_file_path = nil
 
 --- Update project metadata (total lines, words)
 function STATS.update_metadata()
@@ -4993,6 +4994,49 @@ local function filter_unique_item_replicas()
     end
 end
 
+--- Upload current subtitles to analytics via Python script
+function upload_subtitles_analytics()
+    if not ass_lines or #ass_lines == 0 then return end
+    
+    -- Get current file path (full path, not just name)
+    local filepath = UI_STATE.current_file_path
+    if not filepath or filepath == "" then
+        -- Fallback: if no path, skip upload
+        return
+    end
+    
+    -- Get project name
+    local _, proj_path = reaper.EnumProjects(-1)
+    local proj_name = "Project"
+    if proj_path and proj_path ~= "" then
+        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or "Project"
+    end
+
+    -- Build Python script path
+    local source = debug.getinfo(1,'S').source
+    local script_path = source:match([[^@?(.*[\\/])]]) or ""
+    local full_script_path = script_path .. "stats/subass_extra_stats.py"
+    
+    -- Execute in background (fire-and-forget, completely silent)
+    if reaper.GetOS():match("Win") then
+        full_script_path = full_script_path:gsub("/", "\\")
+        filepath = filepath:gsub("/", "\\")
+        local py_exe = requirements_state.python and requirements_state.python.executable or "python"
+        
+        -- Use cmd /C start /B for background execution on Windows
+        -- We quote everything to handle paths with spaces
+        local cmd = string.format('cmd.exe /C start /B "" "%s" "%s" --filepath "%s" --project_name "%s"', 
+                                   py_exe, full_script_path, filepath, proj_name)
+        
+        reaper.ExecProcess(cmd, 0)
+    else
+        -- macOS/Linux: simple background execution with nohup for complete detachment
+        local cmd = string.format('nohup python3 "%s" --filepath "%s" --project_name "%s" > /dev/null 2>&1 &', 
+                                  full_script_path, filepath, proj_name)
+        os.execute(cmd)
+    end
+end
+
 -- =============================================================================
 -- FILE IMPORT (SRT/ASS)
 -- =============================================================================
@@ -5008,6 +5052,7 @@ local function import_srt(file_path, dont_rebuild)
     local f = io.open(file, "r")
     if not f then return end
     UI_STATE.current_file_name = file:match("([^/\\]+)$")
+    UI_STATE.current_file_path = file
     
     local content = fix_encoding(f:read("*all"))
     f:close()
@@ -5184,6 +5229,10 @@ local function import_srt(file_path, dont_rebuild)
     if not dont_rebuild then
         rebuild_regions() -- This handles clearing old regions and re-adding all (including new ones)
     end
+    
+    -- Auto-upload to Firestore
+    upload_subtitles_analytics()
+    
     return duplicates_skipped
 end
 
@@ -5215,6 +5264,7 @@ local function import_vtt(file_path, dont_rebuild)
     local f = io.open(file, "r")
     if not f then return end
     UI_STATE.current_file_name = file:match("([^/\\]+)$")
+    UI_STATE.current_file_path = file
     
     local content = fix_encoding(f:read("*all"))
     f:close()
@@ -5275,6 +5325,10 @@ local function import_vtt(file_path, dont_rebuild)
     if not dont_rebuild then
         rebuild_regions()
     end
+    
+    -- Auto-upload to Firestore
+    upload_subtitles_analytics()
+    
     return duplicates_skipped
 end
 
@@ -5814,6 +5868,7 @@ local function import_ass(file_path, dont_rebuild)
     local f = io.open(file, "r")
     if not f then return end
     UI_STATE.current_file_name = file:match("([^/\\]+)$")
+    UI_STATE.current_file_path = file
     
     local content = fix_encoding(f:read("*all"))
     f:close()
@@ -5911,6 +5966,10 @@ local function import_ass(file_path, dont_rebuild)
         update_regions_cache() 
         rebuild_regions() -- This calls save_project_data
     end
+
+    -- Auto-upload to Firestore
+    upload_subtitles_analytics()
+
     return duplicates_skipped or 0
 end
 
