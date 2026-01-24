@@ -4771,9 +4771,10 @@ local function apply_item_coloring(reset)
     end
 end
 
---- Smart Normalization with Automatic Spectral Offset
---- Uses LUFS-S Max (Psychoacoustic) and ZCR (Sharpness detection)
-local function smart_normalize_replicas()
+--- Active Speech Gated Normalization (EBU R128 Style)
+--- Uses "Active Speech" gating to ignore silence and normalize only the vocal part.
+--- Includes a "De-Boomer" safety check (cuts only) for muddy voices.
+local function ebu_r128_replicas_normalize()
     local items = {}
     local sel_item_count = reaper.CountSelectedMediaItems(0)
     
@@ -4815,9 +4816,9 @@ local function smart_normalize_replicas()
     end
 
     local last_val = reaper.GetExtState(section_name, "smart_norm_target")
-    if last_val == "" then last_val = "-6.0" end
+    if last_val == "" then last_val = "-14.0" end
 
-    local ok, ret_val = reaper.GetUserInputs("Розумна нормалізація", 1, "Цільова гучність (24 до -24):,extrawidth=50", last_val)
+    local ok, ret_val = reaper.GetUserInputs("Нормалізація реплік (EBU Style)", 1, "Цільова гучність (24 до -24):,extrawidth=50", last_val)
     if not ok then return end
     
     local target_db = tonumber(ret_val)
@@ -4828,144 +4829,153 @@ local function smart_normalize_replicas()
     
     reaper.SetExtState(section_name, "smart_norm_target", tostring(target_db), true)
 
-    -- Helper: Bandpass Weighted Analysis (The "Intelligibility" Metric)
-    -- Instead of raw RMS, we measure energy ONLY in the presence range (> 500Hz).
-    -- This ignores the massive bass energy of close/deep voices, preventing them from bias.
-    local function get_bandpassed_rms(take)
+    -- Helper: Measures "Active Speech" Level (Dialogue Gated)
+    -- 1. Splits audio into 50ms chunks
+    -- 2. Finds the Peak Chunk
+    -- 3. Ignores everything that is > 20dB quieter than the peak (Gates out silence/breaths)
+    -- 4. Returns average level of the REMAINING "Active" chunks
+    local function measure_active_speech_stats(take)
         local source = reaper.GetMediaItemTake_Source(take)
         local samplerate = reaper.GetMediaSourceSampleRate(source)
         local accessor = reaper.CreateTakeAudioAccessor(take)
         local starttime = reaper.GetAudioAccessorStartTime(accessor)
         local endtime = reaper.GetAudioAccessorEndTime(accessor)
         local duration = endtime - starttime
-        if duration > 10 then duration = 10 end 
         
-        if duration <= 0 then 
-            reaper.DestroyAudioAccessor(accessor)
-            return -100
+        if duration > 15 then duration = 15 end -- Analyze max 15s to save time
+        if duration <= 0 then reaper.DestroyAudioAccessor(accessor); return -100, -100 end
+
+        local chunk_size_ms = 0.050 -- 50ms window
+        local samples_per_chunk = math.floor(samplerate * chunk_size_ms)
+        local buf = reaper.new_array(samples_per_chunk)
+        
+        local active_sum = 0
+        local active_count = 0
+        local chunk_rms_list = {}
+        local max_chunk_rms = 0
+        
+        -- Bandpass Filter State (for BP Analysis)
+        local xp, yp = 0, 0
+        local bp_sum = 0
+        local alpha = 0.93 -- ~500Hz HPF at 44.1k
+        
+        local total_chunks = math.floor(duration / chunk_size_ms)
+        for i = 0, total_chunks - 1 do
+            local t = i * chunk_size_ms
+            reaper.GetAudioAccessorSamples(accessor, samplerate, 1, t, samples_per_chunk, buf)
+            
+            local sum_sq = 0
+            local bp_chunk_sum = 0
+            
+            for j = 1, samples_per_chunk do
+                local x = buf[j]
+                sum_sq = sum_sq + (x * x)
+                
+                -- Parallel Bandpass Analysis (for de-booming)
+                -- Highpass
+                local y = x - xp + (alpha * yp)
+                xp, yp = x, y
+                bp_chunk_sum = bp_chunk_sum + (y*y)
+            end
+            
+            local rms = math.sqrt(sum_sq / samples_per_chunk)
+            local bp_rms = math.sqrt(bp_chunk_sum / samples_per_chunk)
+            
+            table.insert(chunk_rms_list, {full=rms, bp=bp_rms})
+            if rms > max_chunk_rms then max_chunk_rms = rms end
         end
-        
-        local samples_per_channel = math.floor(samplerate * duration)
-        local buf = reaper.new_array(samples_per_channel)
-        reaper.GetAudioAccessorSamples(accessor, samplerate, 1, 0, samples_per_channel, buf)
         reaper.DestroyAudioAccessor(accessor)
 
-        -- Simple One-Pole Highpass Filter @ ~500Hz
-        -- y[n] = x[n] - x[n-1] + 0.93 * y[n-1] (Approx for 44.1k)
-        -- Coeff calculation: alpha = dt / (RC + dt). Roughly 0.93 for 500Hz.
-        local y_prev = 0
-        local x_prev = 0
-        local coeff = 0.93 
-        
-        local sum_sq = 0
+        -- Dynamic Gate: Ignore anything 20dB below the PEAK active part
+        -- This ensures we only measure the "Meat" of the dialogue
+        local gate_thresh = max_chunk_rms * 0.1 -- (-20dB linear approx 0.1)
+        if gate_thresh < 0.001 then gate_thresh = 0.001 end -- Safety floor
+
+        local final_rms_sum = 0
+        local final_bp_sum = 0
         local count = 0
         
-        -- Adaptive Gate to ignore pure silence
-        local peak = 0
-        for j = 1, samples_per_channel do
-            local abs_v = math.abs(buf[j])
-            if abs_v > peak then peak = abs_v end
-        end
-        local gate = peak * 0.05 -- Higher gate (5%) to catch only active speech
-        
-        for j = 1, samples_per_channel do
-            local x = buf[j]
-            -- Highpass Filter
-            local y = x - x_prev + (coeff * y_prev)
-            
-            -- Update state
-            x_prev = x
-            y_prev = y
-            
-            -- Measure RMS only of the HIGH FREQUENCY content
-            if math.abs(x) > gate then
-                sum_sq = sum_sq + (y * y)
+        for _, c in ipairs(chunk_rms_list) do
+            if c.full >= gate_thresh then
+                final_rms_sum = final_rms_sum + (c.full * c.full) -- Sum energy
+                final_bp_sum = final_bp_sum + (c.bp * c.bp)
                 count = count + 1
             end
         end
         
-        local rms = (count > 0) and math.sqrt(sum_sq / count) or 0
-        local db = (rms > 0) and (20 * math.log(rms, 10)) or -100
-        return db
+        local final_db = -100
+        local final_bp_db = -100
+        
+        if count > 0 then
+            local avg_energy = final_rms_sum / count
+            final_db = 20 * math.log(math.sqrt(avg_energy), 10)
+            
+            local avg_bp_energy = final_bp_sum / count
+            final_bp_db = 20 * math.log(math.sqrt(avg_bp_energy), 10)
+        end
+
+        return final_db, final_bp_db
     end
 
     reaper.Undo_BeginBlock()
     
     local item_results = {}
-    local total_bp_rms_sum = 0
-    local valid_count = 0
+    local total_bp = 0
+    local valid_cnt = 0
     
-    -- PASS 1: Analyze "Presence Energy" (High-Passed RMS)
+    -- PASS 1: Analyze Active Levels
     for i = 1, #items do
         local item = items[i]
         local take = reaper.GetActiveTake(item)
         if take then
-            -- MANDATORY: Reset volume to 0dB (1.0) for stable analysis.
+            -- Reset Volume for Analysis
             local original_vol = reaper.GetMediaItemTakeInfo_Value(take, "D_VOL")
             reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", 1.0)
             
-            local lufs = -23.0 -- Fallback
-            if reaper.NF_AnalyzeTakeLoudness then
-                local ok, success, val = pcall(reaper.NF_AnalyzeTakeLoudness, take, true)
-                if ok and success then lufs = val end
-            end
+            local act_db, bp_db = measure_active_speech_stats(take)
             
-            -- Measure Bandpassed RMS (Intelligibility)
-            local bp_rms = get_bandpassed_rms(take)
-            
-            -- Restore volume
+            -- Restore Volume
             reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", original_vol)
             
-            total_bp_rms_sum = total_bp_rms_sum + bp_rms
-            valid_count = valid_count + 1
-            
-            table.insert(item_results, {
-                take = take,
-                lufs = lufs,
-                bp_rms = bp_rms
-            })
+            if act_db > -90 then
+                table.insert(item_results, {take=take, distinct_db=act_db, bp_db=bp_db})
+                total_bp = total_bp + bp_db
+                valid_cnt = valid_cnt + 1
+            end
         end
     end
     
-    -- Group Average "Presence Level"
-    local mean_bp_rms = (valid_count > 0) and (total_bp_rms_sum / valid_count) or -100
+    local mean_bp = (valid_cnt > 0) and (total_bp / valid_cnt) or -100
 
-    -- PASS 2: Normalize based on Intelligibility Matching
+    -- PASS 2: Apply Gain
     local normalized_count = 0
     for _, res in ipairs(item_results) do
-        -- 1. Standard LUFS Normalization first (gets us 90% there)
-        local base_gain = target_db - res.lufs
+        -- 1. Main Gain: Match Active Speech to Target
+        local gain_db = target_db - res.distinct_db
         
-        -- 2. "Presence Correction"
-        -- If my Bandpassed RMS is LOWER than average (Distant), I need EXTRA BOOST.
-        -- If my Bandpassed RMS is HIGHER than average (Close/Piercing), I need REDUCTION.
-        -- The difference is: (Target_BP - My_BP)
-        local presence_diff = mean_bp_rms - res.bp_rms
+        -- 2. De-Boomer (Bandpass Check)
+        -- We ONLY cut, we NEVER boost based on EQ difference anymore.
+        -- If my presence is lower than average, I am "distant", but we trust the Active Gate to handle level.
+        -- If my presence is higher (or bass is huge), this diff will be negative -> we cut.
+        local presence_diff = mean_bp - res.bp_db 
+        local correction = presence_diff * 0.15 
         
-        -- Apply 12% of the difference (Nano-Adjustment)
-        -- Reduced to 0.12. We barely touch adjustments now.
-        local correction = presence_diff * 0.12
-        
-        -- Asymmetric Safety Clamps
-        -- Max Boost: +1.0dB (Strict safety: prevent amplifying mumbles/breaths)
-        -- Max Cut: -6.0dB (Still allow full boominess reduction)
-        if correction > 1.0 then correction = 1.0 end
+        -- STRICT CLAMP: No boosting allowed from spectral match
+        if correction > 0 then correction = 0 end 
         if correction < -6.0 then correction = -6.0 end
-
-        local final_gain_db = base_gain + correction
-        local new_vol = 10 ^ (final_gain_db / 20)
         
-         -- Safety headroom check
-        if new_vol > 32.0 then new_vol = 32.0 end 
-        if new_vol < 0.01 then new_vol = 0.01 end
+        local final_vol = 10 ^ ((gain_db + correction) / 20)
         
-        reaper.SetMediaItemTakeInfo_Value(res.take, "D_VOL", new_vol)
+        if final_vol > 32.0 then final_vol = 32.0 end
+        if final_vol < 0.01 then final_vol = 0.01 end
+        
+        reaper.SetMediaItemTakeInfo_Value(res.take, "D_VOL", final_vol)
         normalized_count = normalized_count + 1
     end
 
     reaper.UpdateArrange()
-    reaper.Undo_EndBlock("Intelligibility Normalization", -1)
-    show_snackbar("Нормалізовано " .. normalized_count .. " айтемів до " .. target_db .. " dB (Intelligibility Weighted)", "success")
+    reaper.Undo_EndBlock("Active Speech Normalization", -1)
+    show_snackbar("Нормалізовано " .. normalized_count .. " айтемів (Active Speech Gate)", "success")
 end
 
 local function filter_unique_item_replicas()
@@ -15381,7 +15391,7 @@ local function draw_table(input_queue)
                 local director_label = (cfg.director_mode and "• " or "") .. "Режим Режисера"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Розумна нормалізація|<"
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     find_replace_state.show = true
@@ -15418,7 +15428,7 @@ local function draw_table(input_queue)
                 elseif ret == 9 then
                     filter_unique_item_replicas()
                 elseif ret == 10 then
-                    smart_normalize_replicas()
+                    ebu_r128_replicas_normalize()
                 end
             end
         end
