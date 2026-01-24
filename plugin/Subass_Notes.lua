@@ -4682,25 +4682,17 @@ local function apply_item_coloring(reset)
                 local track = reaper.GetSelectedTrack(0, i)
                 if not processed_tracks[track] then
                     processed_tracks[track] = true
-                    
-                    -- If it's a folder, find all its children
                     local depth = reaper.GetTrackDepth(track)
-                    -- IP_TRACKNUMBER is 1-based index in the track list
                     local track_idx = reaper.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER")
                     local total_tracks = reaper.CountTracks(0)
-                    
                     for j = track_idx, total_tracks - 1 do
                         local child = reaper.GetTrack(0, j)
                         if child and reaper.GetTrackDepth(child) > depth then
                             processed_tracks[child] = true
-                        else
-                            break
-                        end
+                        else break end
                     end
                 end
             end
-            
-            -- Collect all items from all identified tracks
             for tr in pairs(processed_tracks) do
                 local track_item_count = reaper.CountTrackMediaItems(tr)
                 for j = 0, track_item_count - 1 do
@@ -4713,6 +4705,15 @@ local function apply_item_coloring(reset)
     if #items == 0 then
         show_snackbar("Виберіть Media Item або Треки", "info")
         return
+    end
+
+    if not reset then
+        local msg = "Ця функція розфарбує айтеми на вибраних треках (включаючи дочірні).\n\n" ..
+                    "УВАГА: Розфарбовування працює тільки для айтемів у межах ВИДИМИХ регіонів.\n" ..
+                    "Приховані регіони (через фільтр акторів) будуть ігноруватися.\n\n" ..
+                    "Бажаєте продовжити?"
+        local res = reaper.MB(msg, "Розфарбувати за акторами", 1) -- 1 = OK/Cancel
+        if res ~= 1 then return end
     end
 
     local colored = 0
@@ -4735,18 +4736,18 @@ local function apply_item_coloring(reset)
                 for j = 0, total - 1 do
                     local _, isrgn, r_start, r_end, _, _, color = reaper.EnumProjectMarkers3(0, j)
                     if isrgn and color ~= 0 then
-                        -- Calculate intersection
-                        local overlap_start = math.max(item_start, r_start)
-                        local overlap_end = math.min(item_end, r_end)
-                        local overlap = overlap_end - overlap_start
-                        
-                        if overlap > max_overlap then
-                            max_overlap = overlap
-                            best_color = color
+                            -- Calculate intersection
+                            local overlap_start = math.max(item_start, r_start)
+                            local overlap_end = math.min(item_end, r_end)
+                            local overlap = overlap_end - overlap_start
+                            
+                            if overlap > max_overlap then
+                                max_overlap = overlap
+                                best_color = color
                         end
                     end
                 end
-
+                
                 local item_len = item_end - item_start
                 if best_color and max_overlap > 0 then
                     -- Higher precision thresholds:
@@ -4761,13 +4762,234 @@ local function apply_item_coloring(reset)
         end
     end
     
-    if colored > 0 then
-        reaper.UpdateArrange()
-        show_snackbar((reset and "Скинуто колір для " or "Розфарбовано ") .. colored .. " айтемів", "success")
+    reaper.UpdateArrange()
+    if not reset then
+        show_snackbar("Розфарбовано " .. colored .. " айтемів", "success")
     else
-        if not reset then
-            show_snackbar("Айтеми не знаходяться в межах регіонів акторів", "info")
+        show_snackbar("Розфарбування скинуто (" .. colored .. ")", "success")
+    end
+end
+
+local function filter_unique_item_replicas()
+    local track_count = reaper.CountSelectedTracks(0)
+    if track_count ~= 2 then
+        show_snackbar("Виберіть рівно 2 треки для порівняння", "error")
+        return
+    end
+
+    local tr1 = reaper.GetSelectedTrack(0, 0)
+    local tr2 = reaper.GetSelectedTrack(0, 1)
+    local _, tr1_name = reaper.GetTrackName(tr1)
+    local _, tr2_name = reaper.GetTrackName(tr2)
+
+    local msg = "ЯК ЦЕ ПРАЦЮЄ:\n" ..
+                "Ця функція порівняє форму хвилі (waveform) айтемів на двох вибраних треках.\n" ..
+                "Дублікати будуть автоматично видалені з ТАРГЕТ-треку, якщо вони збігаються з ОСНОВНИМ треком на 96% і більше.\n\n" ..
+                "Виберіть ОСНОВНИЙ (еталонний) трек:\n\n" ..
+                "YES: " .. tr1_name .. "\n" ..
+                "NO: " .. tr2_name .. "\n" ..
+                "CANCEL: Скасувати"
+    local ret = reaper.ShowMessageBox(msg, "Waveform Match: Вибір основного треку", 3)
+
+    local main_tr, target_tr
+    if ret == 6 then main_tr, target_tr = tr1, tr2
+    elseif ret == 7 then main_tr, target_tr = tr2, tr1
+    else return end
+
+    reaper.ClearConsole()
+    reaper.ShowConsoleMsg("Waveform Match Analysis (Track Mode)\n")
+    reaper.ShowConsoleMsg("Main: " .. (ret == 6 and tr1_name or tr2_name) .. "\n")
+    reaper.ShowConsoleMsg("Target: " .. (ret == 6 and tr2_name or tr1_name) .. "\n\n")
+
+    -- Version 1.0 Health Check: Project Params
+    local proj_sr = tonumber(reaper.format_timestr_pos(1, "", 4):match(".-(%d+)$")) or 44100
+    reaper.ShowConsoleMsg("HEALTH: Project Sample Rate ~" .. proj_sr .. "Hz\n")
+
+    -- Track Accessors
+    local main_aa = reaper.CreateTrackAudioAccessor(main_tr)
+    local target_aa = reaper.CreateTrackAudioAccessor(target_tr)
+    
+    if not main_aa or not target_aa then
+        reaper.ShowConsoleMsg("ERROR: Could not create Track Audio Accessors.\n")
+        if main_aa then reaper.DestroyAudioAccessor(main_aa) end
+        if target_aa then reaper.DestroyAudioAccessor(target_aa) end
+        return
+    end
+
+    local aa_start = reaper.GetAudioAccessorStartTime(main_aa)
+    local aa_end = reaper.GetAudioAccessorEndTime(main_aa)
+    reaper.ShowConsoleMsg("HEALTH: Track Accessor range: " .. string.format("%.1fs to %.1fs", aa_start, aa_end) .. "\n\n")
+
+    -- Helper: Read signature from Track Accessor
+    local function get_signature_from_track(aa, item, item_name)
+        local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+        local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+        if item_len < 0.1 then return nil end
+
+        local sr = 44100 -- Use standard SR for analysis (REAPER resamples)
+        local channels = 1 -- Mono analysis is sufficient for signatures
+        local sample_res = 0.01 -- 10ms intervals
+        
+        local raw_sig = {}
+        local all_rms = {}
+        local buf_samples = math.ceil(sample_res * sr)
+        local buffer = reaper.new_array(buf_samples) -- Mono buffer
+        
+        local total_samples_read = 0
+        local non_zero_chunks = 0
+
+        for t = item_pos, item_pos + item_len - sample_res, sample_res do
+            -- TrackAccessor reads in PROJECT time
+            local r = reaper.GetAudioAccessorSamples(aa, sr, channels, t, buf_samples, buffer)
+            
+            local rms = 0
+            if r > 0 then
+                total_samples_read = total_samples_read + r
+                local sum_sq = 0
+                for j = 1, buf_samples do
+                    local val = buffer[j]
+                    sum_sq = sum_sq + (val * val)
+                end
+                rms = math.sqrt(sum_sq / buf_samples)
+                if rms > 1e-7 then non_zero_chunks = non_zero_chunks + 1 end
+            end
+            table.insert(raw_sig, rms)
+            table.insert(all_rms, rms)
         end
+
+        if #all_rms == 0 or non_zero_chunks == 0 then 
+            reaper.ShowConsoleMsg("DEBUG: '" .. item_name .. "' is SILENT (Read: " .. total_samples_read .. " samples at " .. string.format("%.2f", item_pos) .. "s)\n")
+            return nil 
+        end
+        
+        -- Apply Version 3.3 Dynamic Noise Logic
+        local sorted_rms = {}
+        for i=1, #all_rms do sorted_rms[i] = all_rms[i] end
+        table.sort(sorted_rms)
+        
+        local floor_idx = math.max(1, math.floor(#sorted_rms * 0.1))
+        local noise_floor = sorted_rms[floor_idx] or 0
+        local max_rms = sorted_rms[#sorted_rms] or 0
+        
+        if max_rms <= noise_floor + 1e-6 then return nil end
+        
+        local range = max_rms - noise_floor
+        local threshold = noise_floor + range * 0.03
+        local start_idx, end_idx = 1, #raw_sig
+        while start_idx < #raw_sig and raw_sig[start_idx] < threshold do start_idx = start_idx + 1 end
+        while end_idx > start_idx and raw_sig[end_idx] < threshold do end_idx = end_idx - 1 end
+        
+        start_idx = math.max(1, start_idx - 2)
+        end_idx = math.min(#raw_sig, end_idx + 2)
+        
+        if end_idx - start_idx < 5 then return nil end
+        
+        local sig = {}
+        local trim_max = 0
+        for i = start_idx, end_idx do
+            local v = math.max(0, raw_sig[i] - noise_floor)
+            table.insert(sig, v)
+            if v > trim_max then trim_max = v end
+        end
+        
+        if trim_max > 0 then
+            for i = 1, #sig do sig[i] = sig[i] / trim_max end
+        end
+        
+        return sig
+    end
+
+    local function compare_signatures(sig1, sig2)
+        local n1, n2 = #sig1, #sig2
+        local s, l = sig1, sig2
+        if n1 > n2 then s, l = sig2, sig1 end
+        local sn, ln = #s, #l
+        if sn / ln < 0.2 then return 0 end
+
+        local max_sim = 0
+        local max_offset = ln - sn
+        for offset = 0, max_offset do
+            local dot, magS, magL = 0, 0, 0
+            for i = 1, sn do
+                local vS = s[i]
+                local vL = l[offset + i]
+                dot = dot + (vS * vL)
+                magS = magS + (vS * vS)
+                magL = magL + (vL * vL)
+            end
+            if magS > 1e-9 and magL > 1e-9 then
+                local sim = dot / (math.sqrt(magS) * math.sqrt(magL))
+                if sim > max_sim then max_sim = sim end
+                if max_sim > 0.99 then break end 
+            end
+        end
+        return max_sim
+    end
+
+    -- Process Main Track
+    show_snackbar("Аналіз основного треку... (Track AA)", "info")
+    local main_sigs = {}
+    local main_count = reaper.CountTrackMediaItems(main_tr)
+    for i = 0, main_count - 1 do
+        local item = reaper.GetTrackMediaItem(main_tr, i)
+        local _, name = reaper.GetSetMediaItemTakeInfo_String(reaper.GetActiveTake(item), "P_NAME", "", false)
+        local sig = get_signature_from_track(main_aa, item, name)
+        if sig then table.insert(main_sigs, {sig = sig, name = name, used = false}) end
+    end
+    reaper.ShowConsoleMsg("HEALTH: Loaded " .. #main_sigs .. " signatures from main track.\n\n")
+
+    -- Process Target Track
+    show_snackbar("Аналіз другорядного треку...", "info")
+    local to_delete = {}
+    local target_count = reaper.CountTrackMediaItems(target_tr)
+    local global_max_sim = 0
+    
+    for i = 0, target_count - 1 do
+        local item = reaper.GetTrackMediaItem(target_tr, i)
+        local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+        local _, name = reaper.GetSetMediaItemTakeInfo_String(reaper.GetActiveTake(item), "P_NAME", "", false)
+        local sig = get_signature_from_track(target_aa, item, name)
+        
+        if sig then
+            local max_item_sim = 0
+            local best_match_idx = -1
+            for idx, m in ipairs(main_sigs) do
+                if not m.used then
+                    local sim = compare_signatures(sig, m.sig)
+                    if sim > max_item_sim then 
+                        max_item_sim = sim 
+                        best_match_idx = idx
+                    end
+                    if sim > 0.96 then break end
+                end
+            end
+            
+            if max_item_sim > global_max_sim then global_max_sim = max_item_sim end
+            
+            local time_str = "[" .. format_timestamp(item_pos) .. "]"
+            if max_item_sim > 0.96 then
+                local m = main_sigs[best_match_idx]
+                reaper.ShowConsoleMsg("MATCH " .. time_str .. ": '" .. name .. "' (" .. math.floor(max_item_sim*100) .. "%) matches '" .. m.name .. "'\n")
+                m.used = true -- Consume the reference item (1-to-1 match)
+                table.insert(to_delete, item)
+            else
+                local best_name = best_match_idx ~= -1 and main_sigs[best_match_idx].name or "N/A"
+                reaper.ShowConsoleMsg("UNIQUE " .. time_str .. ": '" .. name .. "' (Best: " .. math.floor(max_item_sim*100) .. "% with '" .. best_name .. "')\n")
+            end
+        end
+    end
+
+    reaper.DestroyAudioAccessor(main_aa)
+    reaper.DestroyAudioAccessor(target_aa)
+
+    if #to_delete > 0 then
+        push_undo("Видалення дублікатів (Waveform Match)")
+        for _, item in ipairs(to_delete) do reaper.DeleteTrackMediaItem(target_tr, item) end
+        reaper.UpdateArrange()
+        show_snackbar("Видалено " .. #to_delete .. " дублікатів.", "success")
+    else
+        local pct = math.floor(global_max_sim * 100)
+        show_snackbar("Дублікатів не знайдено. (Найкраща схожість: " .. pct .. "%)", "info")
     end
 end
 
@@ -14903,7 +15125,7 @@ local function draw_table(input_queue)
                 local director_label = (cfg.director_mode and "• " or "") .. "Режим Режисера"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування|<"
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     find_replace_state.show = true
@@ -14937,6 +15159,8 @@ local function draw_table(input_queue)
                     apply_item_coloring(false) -- Colorize
                 elseif ret == 8 then
                     apply_item_coloring(true) -- Reset
+                elseif ret == 9 then
+                    filter_unique_item_replicas()
                 end
             end
         end
