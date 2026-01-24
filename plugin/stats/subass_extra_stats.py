@@ -72,7 +72,7 @@ def main():
         payload_subtitles = {
             "fields": {
                 "1_filename": {"stringValue": os.path.basename(args.filepath)},
-                "2_csv": {"stringValue": file_content}
+                "2_content": {"stringValue": file_content}
             }
         }
         
