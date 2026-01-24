@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.3.2
+-- @version 4.3.3
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.3.2"
+local script_title = "Subass Notes v4.3.3"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -14632,14 +14632,6 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         draw_x = panel_x + x -- Update draw X
     end
     
-    -- Add Actor Button
-    if draw_x + S(24) > limit_x then
-        x = padding
-        y = y + btn_h + S(5)
-        draw_x = panel_x + x
-        draw_y = panel_y + y
-    end
-    
     -- Check for recent notes visibility
     director_state.has_recent_notes = false
     for _, m in ipairs(ass_markers) do
@@ -14652,6 +14644,13 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     if not calc_only then
         -- Draw # Button (Recent Notes)
         if director_state.has_recent_notes then
+            if draw_x + S(24) > limit_x then
+                x = padding
+                y = y + btn_h + S(5)
+                draw_x = panel_x + x
+                draw_y = panel_y + y
+            end
+            
             if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "#", UI.C_ACCENT_N) then
                 -- Collect Unique Notes
                 local unique_notes = {}
@@ -14701,6 +14700,14 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             end
             draw_x = draw_x + S(24) + S(5)
             x = x + S(24) + S(5)
+        end
+
+        -- Check wrap for "+" button
+        if draw_x + S(24) > limit_x then
+            x = padding
+            y = y + btn_h + S(5)
+            draw_x = panel_x + x
+            draw_y = panel_y + y
         end
 
         if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "+", UI.C_ACCENT_N) then
@@ -15591,7 +15598,7 @@ local function draw_table(input_queue)
     gfx.dest = 98
     gfx.setimgdim(98, gfx.w, math.max(1, avail_h))
     set_color(UI.C_BG)
-    gfx.rect(0, 0, gfx.w, avail_h, 1)
+    gfx.rect(0, 0, avail_w, avail_h, 1)
     
     -- Find starting index based on UI_STATE.scroll_y and layout cache
     local start_idx = 1
@@ -15620,11 +15627,11 @@ local function draw_table(input_queue)
         -- Special background for markers
         if line.is_marker then
             set_color(UI.C_MARKER_BG) -- Dark reddish background for markers
-            gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
+            gfx.rect(0, buf_y, avail_w, row_h_dynamic, 1)
         else
             -- zebra
             if i % 2 == 0 then set_color(UI.C_ROW) else set_color(UI.C_ROW_ALT) end
-            gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
+            gfx.rect(0, buf_y, avail_w, row_h_dynamic, 1)
         end
             local actor = line.actor or ""
             local is_enabled = (line.enabled ~= false) -- Per-line enabled state
@@ -15645,17 +15652,17 @@ local function draw_table(input_queue)
                 else
                     set_color(UI.C_HILI_GREEN) -- Darker Green Selection
                 end
-                gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
+                gfx.rect(0, buf_y, avail_w, row_h_dynamic, 1)
             end
             
             -- Hover Effect
-            local row_hover = UI_STATE.window_focused and (gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and
+            local row_hover = UI_STATE.window_focused and (gfx.mouse_x >= 0 and gfx.mouse_x < avail_w and
                                  gfx.mouse_y >= screen_y and gfx.mouse_y < screen_y + row_h_dynamic and
                                  gfx.mouse_y >= content_y and gfx.mouse_y < content_y + avail_h)
             
             if row_hover then
                 set_color(UI.C_HILI_WHITE)
-                gfx.rect(0, buf_y, gfx.w, row_h_dynamic, 1)
+                gfx.rect(0, buf_y, avail_w, row_h_dynamic, 1)
             end
 
             if is_active_row then
@@ -16123,10 +16130,9 @@ local function draw_table(input_queue)
     -- Draw Director Panel
     if cfg.director_mode then
         if is_dir_right then
-            -- Right Layout
-            draw_director_panel(avail_w, content_y, w_director, avail_h + h_director, input_queue, false)
-            
-            -- Draw Vertical Separator Border (Already drawn by resize logic, but ensure it's clean)
+            -- Right Layout (Align with filters: S(35))
+            local dir_y = S(35)
+            draw_director_panel(avail_w, dir_y, w_director, gfx.h - dir_y, input_queue, false)
         else
             -- Bottom Layout
             local draw_y = gfx.h - h_director
@@ -16155,16 +16161,17 @@ local function draw_table(input_queue)
         
         -- Helper: Check if mouse is strictly inside window
         if is_dir_right then
+            local dir_y = S(35)
             local border_x = avail_w
             handle_w = grab_thick
             handle_h = grab_long
             handle_x = border_x - (handle_w / 2)
-            handle_y = content_y + (avail_h + h_director - handle_h) / 2
+            handle_y = dir_y + (gfx.h - dir_y - handle_h) / 2
             
             -- Draw Separator
-            is_hover = UI_STATE.inside_window and UI_STATE.window_focused and math.abs(gfx.mouse_x - border_x) <= resize_zone and (gfx.mouse_y >= content_y)
+            is_hover = UI_STATE.inside_window and UI_STATE.window_focused and math.abs(gfx.mouse_x - border_x) <= resize_zone and (gfx.mouse_y >= dir_y)
             set_color(is_hover and UI.C_HILI_WHITE_MID or UI.C_HILI_WHITE)
-            gfx.rect(border_x, content_y, strip_sz, avail_h + h_director, 1)
+            gfx.rect(border_x, dir_y, strip_sz, gfx.h - dir_y, 1)
 
             -- Logic
             if is_hover or director_resize_drag then
