@@ -1,4 +1,4 @@
-SUBASS NOTES v.4.3
+SUBASS NOTES v.4.4
 
 Інструмент для роботи з субтитрами в REAPER
 
