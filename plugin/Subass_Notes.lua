@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.4.1
+-- @version 4.4.2
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.4.1"
+local script_title = "Subass Notes v4.4.2"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -33,6 +33,11 @@ local cfg = {
     n_cr = get_set("n_cr", 0.17),
     n_cg = get_set("n_cg", 0.17),
     n_cb = get_set("n_cb", 0.17),
+
+    t_ar_r = get_set("t_ar_r", 0.2),
+    t_ar_g = get_set("t_ar_g", 0.9),
+    t_ar_b = get_set("t_ar_b", 0.2),
+    t_ar_alpha = get_set("t_ar_alpha", 0.1),
     
     next_attach = (get_set("next_attach", "0") == "1" or get_set("next_attach", 0) == 1),
     next_padding = get_set("next_padding", 30),
@@ -1119,7 +1124,6 @@ local UI = {
     C_GREEN = {0.2, 0.8, 0.2, 1},
     C_YELLOW = {1, 0.9, 0, 1},
     C_DARK_GREY = {0.15, 0.15, 0.15, 1},
-    C_GREEN_BRIGHT = {0.2, 0.9, 0.2, 1},
     C_BLUE_BRIGHT = {0.3, 0.6, 1, 1},
 
     -- === 8. Specialized Elements ===
@@ -1132,6 +1136,7 @@ local UI = {
 
     -- === 9. Dynamic Color Helpers ===
     -- Use these to get colors that react to user configuration (cfg.*)
+    GET_T_AR_COLOR = function(a) return {cfg.t_ar_r, cfg.t_ar_g, cfg.t_ar_b, a} end, -- Table active row Color
     GET_P_COLOR = function(a) return {cfg.p_cr, cfg.p_cg, cfg.p_cb, a} end, -- Prompter Color
     GET_N_COLOR = function(a) return {cfg.n_cr, cfg.n_cg, cfg.n_cb, a} end, -- Note Color
     GET_C_COLOR = function(a) return {cfg.c_cr, cfg.c_cg, cfg.c_cb, a} end, -- Correction Color
@@ -1285,6 +1290,11 @@ local function save_settings()
     reaper.SetExtState(section_name, "prmt_theme", cfg.prmt_theme, true)
     reaper.SetExtState(section_name, "ui_theme", cfg.ui_theme, true)
     reaper.SetExtState(section_name, "tts_voice", cfg.tts_voice, true)
+
+    reaper.SetExtState(section_name, "t_ar_r", tostring(cfg.t_ar_r), true)
+    reaper.SetExtState(section_name, "t_ar_g", tostring(cfg.t_ar_g), true)
+    reaper.SetExtState(section_name, "t_ar_b", tostring(cfg.t_ar_b), true)
+    reaper.SetExtState(section_name, "t_ar_alpha", tostring(cfg.t_ar_alpha), true)
 
     -- Invalidate prompter cache when settings change (like wrap length)
     if draw_prompter_cache then
@@ -14367,7 +14377,33 @@ local function draw_settings()
     y_cursor = y_cursor + S(40)
 
     -- ═══════════════════════════════════════════
-    -- 10. ЗАПИС ТА АВТО-ПІДРІЗАННЯ (Recording)
+    -- 10. ТАБЛИЦЯ
+    -- ═══════════════════════════════════════════
+    s_section(y_cursor, "ТАБЛИЦЯ")
+    y_cursor = y_cursor + S(35)
+
+    s_text(x_start, y_cursor, "Колір активної репліки:")
+    y_cursor = y_cursor + S(25)
+    y_cursor = y_cursor + draw_color_palette(x_start, {{0.2, 0.9, 0.2}, {1.0, 1.0, 0.0}}, cfg.t_ar_r, cfg.t_ar_g, cfg.t_ar_b, function(r, g, b)
+        cfg.t_ar_r, cfg.t_ar_g, cfg.t_ar_b = r, g, b
+        save_settings()
+    end)
+    y_cursor = y_cursor + S(20)
+
+    s_text(x_start, y_cursor, string.format("Прозорість: %.2f", cfg.t_ar_alpha))
+    if s_btn(x_start + S(155), y_cursor - S(10), S(30), S(30), "－") then
+        cfg.t_ar_alpha = math.max(0.05, cfg.t_ar_alpha - 0.05)
+        save_settings()
+    end
+    if s_btn(x_start + S(190), y_cursor - S(10), S(30), S(30), "＋") then
+        cfg.t_ar_alpha = math.min(0.8, cfg.t_ar_alpha + 0.05)
+        save_settings()
+    end
+
+    y_cursor = y_cursor + S(60)
+
+    -- ═══════════════════════════════════════════
+    -- 11. ЗАПИС ТА АВТО-ПІДРІЗАННЯ (Recording)
     -- ═══════════════════════════════════════════
     s_section(y_cursor, "ЗАПИС ТА АВТО-ПІДРІЗАННЯ")
     y_cursor = y_cursor + S(35)
@@ -14409,7 +14445,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(65)
     
     -- ═══════════════════════════════════════════
-    -- 11. ТЕКСТ У МОВУ (Text-to-Speech)
+    -- 12. ТЕКСТ У МОВУ (Text-to-Speech)
     -- ═══════════════════════════════════════════
     s_section(y_cursor, "ТЕКСТ У МОВУ")
     y_cursor = y_cursor + S(35)
@@ -16159,8 +16195,11 @@ local function draw_table(input_queue)
             end
 
             if is_active_row then
-                set_color(UI.C_GREEN_BRIGHT) -- Bright Green Border
+                set_color(UI.GET_T_AR_COLOR(1)) -- Bright Green Border
                 gfx.rect(0, buf_y, 5, row_h_dynamic, 1)
+
+                set_color(UI.GET_T_AR_COLOR(cfg.t_ar_alpha))
+                gfx.rect(0, buf_y, avail_w, row_h_dynamic, 1)
             end
             
             local chk_sz = S(16)
