@@ -16008,7 +16008,9 @@ local function draw_table(input_queue)
         local content_x_start = x_off[#x_off] or S(10)
         local max_w = avail_w - content_x_start - 30 -- padding + scrollbar (updated to use avail_w)
         
-        gfx.setfont(F[cfg.t_r_size])
+        -- Ensure font is set to the correct size for the NEW mode
+        local use_sz_layout = (cfg.reader_mode and tr_sizes_reader[cfg.t_r_size] or tr_sizes_normal[cfg.t_r_size]) or 16
+        gfx.setfont(F[cfg.t_r_size], cfg.p_font, S(use_sz_layout))
         local line_h = gfx.texth
         
         -- Dynamic min_row_h based on font
