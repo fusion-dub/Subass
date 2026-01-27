@@ -38,6 +38,7 @@ local cfg = {
     t_ar_g = get_set("t_ar_g", 0.9),
     t_ar_b = get_set("t_ar_b", 0.2),
     t_ar_alpha = get_set("t_ar_alpha", 0.1),
+    t_r_size = get_set("t_r_size", "tr_M"),
     
     next_attach = (get_set("next_attach", "0") == "1" or get_set("next_attach", 0) == 1),
     next_padding = get_set("next_padding", 30),
@@ -170,8 +171,13 @@ local F = {
     dict_bld_sm = 8, -- 16px
     tip = 9, -- 12px
     cor = 10, -- Corrections font
-    table_reader = 11, -- Dedicated slot for table scaling
-    tip_bld = 12 -- Bold tooltip font
+    tip_bld = 11, -- Bold tooltip font
+
+    -- Table fonts
+    tr_S = 12,
+    tr_M = 13,
+    tr_L = 14,
+    tr_XL = 15,
 }
 
 -- Prompter Rendering Cache (moved to global for invalidation on font change)
@@ -216,7 +222,10 @@ local function update_prompter_fonts()
     gfx.setfont(F.tip_bld, "Arial", S(12), string.byte('b'))
 
     -- Reader Mode Table Font
-    gfx.setfont(F.table_reader, cfg.p_font, S(20))
+    gfx.setfont(F.tr_S, cfg.p_font, S(18))
+    gfx.setfont(F.tr_M, cfg.p_font, S(20))
+    gfx.setfont(F.tr_L, cfg.p_font, S(24))
+    gfx.setfont(F.tr_XL, cfg.p_font, S(30))
 
     -- Force re-measuring of text layout by clearing cache
     if draw_prompter_cache then
@@ -1295,6 +1304,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "t_ar_g", tostring(cfg.t_ar_g), true)
     reaper.SetExtState(section_name, "t_ar_b", tostring(cfg.t_ar_b), true)
     reaper.SetExtState(section_name, "t_ar_alpha", tostring(cfg.t_ar_alpha), true)
+    reaper.SetExtState(section_name, "t_r_size", cfg.t_r_size, true)
 
     -- Invalidate prompter cache when settings change (like wrap length)
     if draw_prompter_cache then
@@ -14390,7 +14400,7 @@ local function draw_settings()
     end)
     y_cursor = y_cursor + S(20)
 
-    s_text(x_start, y_cursor, string.format("Прозорість: %.2f", cfg.t_ar_alpha))
+    s_text(x_start, y_cursor, string.format("Прозорість ар.: %.2f", cfg.t_ar_alpha))
     if s_btn(x_start + S(155), y_cursor - S(10), S(30), S(30), "－") then
         cfg.t_ar_alpha = math.max(0.05, cfg.t_ar_alpha - 0.05)
         save_settings()
@@ -14398,6 +14408,23 @@ local function draw_settings()
     if s_btn(x_start + S(190), y_cursor - S(10), S(30), S(30), "＋") then
         cfg.t_ar_alpha = math.min(0.8, cfg.t_ar_alpha + 0.05)
         save_settings()
+    end
+
+    y_cursor = y_cursor + S(45)
+
+    -- Alignment
+    s_text(x_start, y_cursor, "Розмір шрифту рядків:")
+    y_cursor = y_cursor + S(25)
+    local align_options = {"tr_S", "tr_M", "tr_L", "tr_XL"}
+    local align_labels = {"S", "M", "L", "XL"}
+    for i, opt in ipairs(align_options) do
+        local bx = x_start + ((i-1) * S(70))
+        local is_sel = (cfg.t_r_size == opt)
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
+        if s_btn(bx, y_cursor, S(60), S(30), align_labels[i], nil, btn_bg) then
+            cfg.t_r_size = opt
+            save_settings()
+        end
     end
 
     y_cursor = y_cursor + S(60)
@@ -15355,8 +15382,12 @@ local function draw_table(input_queue)
     local row_h = cfg.reader_mode and S(80) or S(24)
 
     -- DO NOT modify F.std/F.bld globally
-    -- Table Specific Font
-    gfx.setfont(F.table_reader, cfg.p_font, cfg.reader_mode and S(20) or S(16))
+    -- Table Specific Font Logic
+    local tr_sizes_reader = {tr_S=18, tr_M=20, tr_L=24, tr_XL=30}
+    local tr_sizes_normal = {tr_S=14, tr_M=16, tr_L=18, tr_XL=22}
+    local use_sz = (cfg.reader_mode and tr_sizes_reader[cfg.t_r_size] or tr_sizes_normal[cfg.t_r_size]) or 16
+    
+    gfx.setfont(F[cfg.t_r_size], cfg.p_font, S(use_sz))
 
     -- --- FILTER INPUT ---
     gfx.setfont(F.std) -- Use the (possibly locally scaled) standard font for global elements
@@ -15947,7 +15978,8 @@ local function draw_table(input_queue)
                             last_layout_state.col_w_end ~= cfg.col_w_end or
                             last_layout_state.col_w_cps ~= cfg.col_w_cps or
                             last_layout_state.col_w_actor ~= cfg.col_w_actor or
-                            last_layout_state.fr_show ~= find_replace_state.show)
+                            last_layout_state.fr_show ~= find_replace_state.show or
+                            last_layout_state.t_r_size ~= cfg.t_r_size)
 
     local x_off = last_layout_state.x_off or {S(10)}
     local col_keys = last_layout_state.col_keys or {}
@@ -15971,15 +16003,23 @@ local function draw_table(input_queue)
     if layout_changed then
         table_layout_cache = {}
         local current_y_offset = 0
-        local min_row_h = cfg.reader_mode and S(60) or S(24)
-        local padding_v = cfg.reader_mode and 20 or 8
         
         -- Calculate height for each row using the already prepared data_source
         local content_x_start = x_off[#x_off] or S(10)
         local max_w = avail_w - content_x_start - 30 -- padding + scrollbar (updated to use avail_w)
         
-        gfx.setfont(F.table_reader)
+        gfx.setfont(F[cfg.t_r_size])
         local line_h = gfx.texth
+        
+        -- Dynamic min_row_h based on font
+        local extra_pad = S(6)
+        if cfg.t_r_size == "tr_XL" then extra_pad = S(9)
+        elseif cfg.t_r_size == "tr_L" then extra_pad = S(8)
+        elseif cfg.t_r_size == "tr_M" then extra_pad = S(8)
+        else extra_pad = S(8) end
+
+        local min_row_h = cfg.reader_mode and S(60) or (line_h + extra_pad)
+        local padding_v = cfg.reader_mode and 20 or 8
 
         for i, line in ipairs(data_source) do
             local h = min_row_h
@@ -16015,7 +16055,8 @@ local function draw_table(input_queue)
             col_vis_end = cfg.col_table_end,
             col_vis_cps = cfg.col_table_cps,
             col_vis_actor = cfg.col_table_actor,
-            fr_show = find_replace_state.show
+            fr_show = find_replace_state.show,
+            t_r_size = cfg.t_r_size
         }
     end
 
@@ -16231,7 +16272,7 @@ local function draw_table(input_queue)
             end
             set_color(row_base_color)
             local buf_y_text = buf_y + (cfg.reader_mode and 10 or 4)
-            gfx.setfont(F.table_reader) -- Always use our dedicated slot for row content
+            gfx.setfont(F[cfg.t_r_size]) -- Always use our dedicated slot for row content
             
             -- Use original index if possible
             -- Helper to draw truncated text in cell
