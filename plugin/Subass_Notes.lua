@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.4.2
+-- @version 4.5
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.4.2"
+local script_title = "Subass Notes v4.5"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -1776,7 +1776,8 @@ local global_async_pool = {} -- { { id=str, out_file=str, done_file=str, callbac
 --- @param callback function Callback function(output) on completion
 --- @param is_silent boolean? If true, don't show "Loading..." loader
 --- @param loading_text string? Optional custom loading text
-local function run_async_command(shell_cmd, callback, is_silent, loading_text)
+--- @param is_visible boolean? If true, show system terminal
+local function run_async_command(shell_cmd, callback, is_silent, loading_text, is_visible)
     local id = tostring(os.time()) .. "_" .. math.random(1000,9999)
     local path = reaper.GetResourcePath() .. "/Scripts/"
     local out_file = path .. "async_out_" .. id .. ".tmp"
@@ -1796,40 +1797,70 @@ local function run_async_command(shell_cmd, callback, is_silent, loading_text)
 
         local bat_cmd = shell_cmd:gsub("%%", "%%%%")
 
-        if bat_cmd:find(">") then
-            f_bat:write(bat_cmd .. "\r\n")
-        else
+        if is_visible then
+            -- For visible terminal, we use 'tee' equivalent or just redirect for file but user won't see...
+            -- Actually, let's just run and then echo to file.
+            f_bat:write("echo [AI] Початок аналізу... \r\n")
             f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
+            f_bat:write('type "' .. out_file .. '"\r\n') -- Show output once done if visible
+        else
+            if bat_cmd:find(">") then
+                f_bat:write(bat_cmd .. "\r\n")
+            else
+                f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
+            end
         end
 
         f_bat:write('echo DONE > "' .. done_file .. '"\r\n')
+        
+        if is_visible then
+            f_bat:write("echo [AI] Аналіз завершено. Це вікно можна закрити.\r\n")
+            f_bat:write("pause\r\n")
+        end
 
         f_bat:write('set _self=%~f0\r\n')
         f_bat:write('cmd /c ping 127.0.0.1 -n 2 > NUL & del "%_self%"\r\n')
 
         f_bat:close()
 
+        local win_style = is_visible and "" or "-WindowStyle Hidden"
         local ps_cmd =
             'powershell -NoProfile -ExecutionPolicy Bypass ' ..
-            '-WindowStyle Hidden -Command "Start-Process ' ..
-            '\\\"' .. bat_file .. '\\\" -WindowStyle Hidden"'
+            win_style ..' -Command "Start-Process ' ..
+            '\\\"' .. bat_file .. '\\\" ' .. win_style .. '"'
 
         reaper.ExecProcess(ps_cmd, 0)
     else
-        -- Unix/Mac background execution: &
-        -- Use ';' to ensure done file created even on error
-        -- IMPORTANT: Wrap in parentheses (cmd ; touch) & to ensure the WHOLE sequence is backgrounded.
-        -- Otherwise 'cmd ; touch &' executes cmd in foreground!
-        -- NOTE: We don't add > out_file here if shell_cmd already has it (like on Mac tts call potentially?)
-        -- Actually play_tts_audio cmd doesn't have it, so we add it here.
-        local full_cmd
-        if shell_cmd:find(" > ") then
-            full_cmd = '( ' .. shell_cmd .. ' ; touch "' .. done_file .. '" ) &'
+        -- Unix/Mac background execution
+        if is_visible then
+            -- On Mac, we create a temporary .sh script and open it with Terminal.app.
+            -- This is more robust than osascript for complex commands with quotes.
+            local sh_file = path .. "async_exec_" .. id .. ".sh"
+            local f_sh = io.open(sh_file, "w")
+            if f_sh then
+                f_sh:write("#!/bin/bash\n")
+                f_sh:write('echo "[AI] Whisper Аналіз..." \n')
+                -- Capture both stdout and stderr while showing it to the user
+                f_sh:write(shell_cmd .. ' 2>&1 | tee "' .. out_file .. '"\n')
+                f_sh:write('echo DONE > "' .. done_file .. '"\n')
+                f_sh:write('echo ""\n')
+                f_sh:write('echo "[AI] Аналіз завершено. Це вікно можна закрити."\n')
+                f_sh:write('read -p "Натисніть Enter для виходу..."\n')
+                f_sh:write('rm "$0"\n') -- Self-delete script after execution
+                f_sh:close()
+                
+                os.execute('chmod +x "' .. sh_file .. '"')
+                os.execute('open -a Terminal "' .. sh_file .. '"')
+            end
         else
-            -- Capture both stdout and stderr
-            full_cmd = '( ' .. shell_cmd .. ' > "' .. out_file .. '" 2>&1 ; touch "' .. done_file .. '" ) &'
+            local full_cmd
+            if shell_cmd:find(" > ") then
+                full_cmd = '( ' .. shell_cmd .. ' ; touch "' .. done_file .. '" ) &'
+            else
+                full_cmd = '( ' .. shell_cmd .. ' > "' .. out_file .. '" 2>&1 ; touch "' .. done_file .. '" ) &'
+            end
+            os.execute(full_cmd)
         end
-        os.execute(full_cmd)
     end
     
     table.insert(global_async_pool, {
@@ -5269,7 +5300,7 @@ end
 -- =============================================================================
 
 --- Import SRT subtitle file
-local function import_srt(file_path, dont_rebuild)
+local function import_srt(file_path, dont_rebuild, forced_actor)
     local file = file_path
     if not file then
         local retval
@@ -5277,7 +5308,10 @@ local function import_srt(file_path, dont_rebuild)
         if not retval then return end
     end
     local f = io.open(file, "r")
-    if not f then return end
+    if not f then 
+        reaper.MB("Не вдалося відкрити файл для імпорту:\n" .. tostring(file), "Помилка імпорту", 0)
+        return 
+    end
     UI_STATE.current_file_name = file:match("([^/\\]+)$")
     UI_STATE.current_file_path = file
     
@@ -5289,8 +5323,8 @@ local function import_srt(file_path, dont_rebuild)
         content = content .. "\n\n"
     end
     
-    -- Derive Actor Name from Filename
-    local actor_name = UI_STATE.current_file_name:gsub("%.srt$", ""):gsub("%.SRT$", "")
+    -- Derive Actor Name from Filename or use forced_actor
+    local actor_name = forced_actor or UI_STATE.current_file_name:gsub("%.srt$", ""):gsub("%.SRT$", "")
     
     -- Ensure State Init
     if not ass_lines then ass_lines = {} end
@@ -5629,6 +5663,8 @@ local function export_as_srt()
         end
     end
 
+    table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
+
     if #out_lines == 0 then
         show_snackbar("Немає активних реплік для експорту", "info")
         return
@@ -5714,6 +5750,119 @@ local function export_as_srt()
         
         file:close()
         show_snackbar("Експортовано " .. #out_lines .. " реплік", "success")
+    end
+end
+
+local function export_as_ass()
+    if not reaper.JS_Dialog_BrowseForSaveFile then
+        local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
+        if not has_reapack then
+            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
+        else
+            msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
+        end
+        reaper.MB(msg, "Відсутні компоненти", 0)
+        return
+    end
+
+    -- Filter enabled lines
+    local out_lines = {}
+    local selected_actors = {}
+    
+    for _, l in ipairs(ass_lines) do
+        if l.enabled then
+            table.insert(out_lines, l)
+            if l.actor and l.actor ~= "" then
+                selected_actors[l.actor] = true
+            end
+        end
+    end
+
+    table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
+
+    if #out_lines == 0 then
+        show_snackbar("Немає активних реплік для експорту", "info")
+        return
+    end
+
+    -- Construct filename
+    local _, proj_path = reaper.EnumProjects(-1)
+    local proj_name = "Project"
+    if proj_path and proj_path ~= "" then
+        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
+    end
+
+    local actors_list = {}
+    for act in pairs(selected_actors) do
+        table.insert(actors_list, act)
+    end
+    table.sort(actors_list)
+    
+    local suffix = ""
+    if #actors_list > 0 then
+        local limit = 100
+        local parts = {}
+        for i = 1, math.min(#actors_list, limit) do
+            table.insert(parts, actors_list[i])
+        end
+        suffix = "_" .. table.concat(parts, "_")
+        if #actors_list > limit then
+            suffix = suffix .. "_etc"
+        end
+    else
+        suffix = "_All"
+    end
+    
+    -- Clean filename chars
+    suffix = suffix:gsub("[<>:\"/\\|?*]", "_")
+    
+    local default_filename = proj_name .. suffix .. ".ass"
+
+    -- Save Dialog
+    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Експорт в ASS", "", default_filename, "ASS files (.ass)\0*.ass\0All Files (*.*)\0*.*\0")
+    
+    if retval == 1 and filename ~= "" then
+        if not filename:match("%.ass$") then
+            filename = filename .. ".ass"
+        end
+        
+        local file = io.open(filename, "w")
+        if not file then
+            reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
+            return
+        end
+
+        local fmt_time = function(secs)
+            local h = math.floor(secs / 3600)
+            local m = math.floor((secs % 3600) / 60)
+            local s = math.floor(secs % 60)
+            local ms = math.floor((secs % 1) * 100) -- ASS uses 2 digits for ms (centiseconds)
+            return string.format("%d:%02d:%02d.%02d", h, m, s, ms)
+        end
+
+        file:write("[Script Info]\n")
+        file:write("Title: Subass Export\n")
+        file:write("ScriptType: v4.00+\n")
+        file:write("PlayResX: 1920\n")
+        file:write("PlayResY: 1080\n")
+        file:write("ScaledBorderAndShadow: yes\n\n")
+        
+        file:write("[V4+ Styles]\n")
+        file:write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+        file:write("Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
+        
+        file:write("[Events]\n")
+        file:write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+
+        for _, l in ipairs(out_lines) do
+            local actor = l.actor or "Default"
+            -- Convert newlines to ASS \N
+            local text = l.text:gsub("\n", "\\N")
+            file:write(string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s\n", fmt_time(l.t1), fmt_time(l.t2), actor, text))
+        end
+        
+        file:close()
+        show_snackbar("Експортовано " .. #out_lines .. " реплік в ASS", "success")
     end
 end
 
@@ -10869,7 +11018,7 @@ local function draw_file()
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "Видалити ВСІ регіони||Відкрити WEB-менеджер наголосів|Відкрити мою Статистику|Експортувати як SRT||" .. dock_check .. "Закріпити вікно (Dock)"
+        local menu = "Видалити ВСІ регіони||Відкрити WEB-менеджер наголосів|Відкрити мою Статистику|>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS|<|Аналіз/Пошук звуків (Експериментально!!)||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -10886,6 +11035,100 @@ local function draw_file()
             -- Export as SRT
             export_as_srt()
         elseif ret == 5 then
+            -- Export as ASS
+            export_as_ass()
+        elseif ret == 6 then
+            -- Whisper Analysis
+            local item = reaper.GetSelectedMediaItem(0, 0)
+            if not item then
+                reaper.MB("Будь ласка, оберіть аудіо-айтем на таймлайні для аналізу.", "Whisper AI", 0)
+                return
+            end
+            local take = reaper.GetActiveTake(item)
+            if not take then return end
+            local source = reaper.GetMediaItemTake_Source(take)
+            local path = reaper.GetMediaSourceFileName(source, "")
+            
+            if path == "" then
+                reaper.MB("Не вдалося знайти шлях до файлу.", "Whisper AI", 0)
+                return
+            end
+
+            local pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+            local it_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+            local offset = reaper.GetMediaItemTakeInfo_Value(take, "D_STARTOFFS")
+            local playrate = reaper.GetMediaItemTakeInfo_Value(take, "D_PLAYRATE")
+            
+            -- Adjust effective length and offset for playrate if needed
+            -- Whisper analysis will happen on the original source but we only crop the visible part
+            -- Source coords: offset to (offset + it_len * playrate)
+            local source_len = it_len * playrate
+
+            local script_dir = debug.getinfo(1, "S").source:match([[^@?(.*[\/])]])
+            local py_script = script_dir .. "stats/subass_whisper.py"
+            
+            local cmd = string.format('python3 "%s" "%s" --offset %.3f --length %.3f --start_time %.3f', 
+                                      py_script, path, offset, source_len, pos)
+
+            run_async_command(cmd, function(output)
+                if not output or output == "" then
+                    reaper.MB("Whisper AI: Отримано порожній результат або сталася помилка.", "Whisper AI", 0)
+                    return
+                end
+
+                -- Strip ANSI escape codes
+                output = output:gsub("[\27\155][][()#;?%d]*[A-PRZcf-ntqry=><~]", "")
+
+                -- Extract SRT path from output
+                local srt_path = output:match("[-][-][-]SRT_PATH_START[-][-][-][-]*%s*(.-)%s*[-][-][-][-]*SRT_PATH_END[-][-][-][-]*")
+                if not srt_path or srt_path == "" then
+                    reaper.MB("Whisper AI: Не вдалося знайти шлях до SRT файлу у відповіді.", "Whisper AI", 0)
+                    return
+                end
+
+                -- Trim any potential whitespace from path
+                srt_path = srt_path:match("^%s*(.-)%s*$")
+
+                -- Import the generated SRT silently first (dont_rebuild = true)
+                import_srt(srt_path, true, "Можливі звуки")
+                
+                -- Post-processing: Remove "Possible sounds" that overlap with existing speech
+                local sounds_actor = "Можливі звуки"
+                local removed_count = 0
+                
+                -- Iterate backwards to safely remove from table
+                for i = #ass_lines, 1, -1 do
+                    local line = ass_lines[i]
+                    if line.actor == sounds_actor then
+                        local overlaps = false
+                        for j, other in ipairs(ass_lines) do
+                            if i ~= j and other.actor ~= sounds_actor then
+                                -- Strict overlap check: if the sound is within or overlaps a speech block
+                                -- We add a small 100ms tolerance to favor existing text
+                                if not (line.t2 <= other.t1 + 0.1 or line.t1 >= other.t2 - 0.1) then
+                                    overlaps = true
+                                    break
+                                end
+                            end
+                        end
+                        
+                        if overlaps then
+                            table.remove(ass_lines, i)
+                            removed_count = removed_count + 1
+                        end
+                    end
+                end
+                
+                -- Now rebuild everything to sync with REAPER
+                rebuild_regions()
+                
+                if removed_count > 0 then
+                    show_snackbar(string.format("Whisper AI: Аналіз завершено. Додано звуки, %d дублікатів відфільтровано.", removed_count), "success")
+                else
+                    show_snackbar("Whisper AI: Аналіз завершено, звуки додано.", "success")
+                end
+            end, true, "Whisper аналіз...", true)
+        elseif ret == 6 then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
