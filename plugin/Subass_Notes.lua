@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.6
+-- @version 4.6.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.6"
+local script_title = "Subass Notes v4.6.1"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -2508,8 +2508,8 @@ DEADLINE.urgency_cache = {
 function DEADLINE.get_overall_urgency()
     local now = reaper.time_precise()
     
-    -- Return cached value if less than 1 second passed
-    if DEADLINE.urgency_cache.color and (now - DEADLINE.urgency_cache.last_check < 1.0) then
+    -- Return cached value if less than 10 second passed
+    if DEADLINE.urgency_cache.color and (now - DEADLINE.urgency_cache.last_check < 10.0) then
         return DEADLINE.urgency_cache.color
     end
 
