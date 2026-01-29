@@ -2472,6 +2472,9 @@ function DEADLINE.save_global(project_path, project_name, deadline_ts)
     -- Save as JSON
     local json_str = STATS.json_encode(data)
     reaper.SetExtState("Subass_Global", "project_deadlines", json_str, true)
+    
+    -- Invalidate urgency cache for immediate update
+    DEADLINE.urgency_cache.last_check = 0
 end
 
 --- Load all project deadlines from global storage
@@ -2497,14 +2500,26 @@ end
 
 --- Get overall urgency color for dashboard button
 --- @return number color constant
+DEADLINE.urgency_cache = {
+    color = nil,
+    last_check = 0
+}
+
 function DEADLINE.get_overall_urgency()
+    local now = reaper.time_precise()
+    
+    -- Return cached value if less than 1 second passed
+    if DEADLINE.urgency_cache.color and (now - DEADLINE.urgency_cache.last_check < 1.0) then
+        return DEADLINE.urgency_cache.color
+    end
+
     local data = DEADLINE.load_global()
     local highest_urgency = 0 -- 0: none, 1: orange, 2: red
-    local now = os.time()
+    local ts_now = os.time()
     
     for _, proj in pairs(data) do
         if proj.deadline then
-            local days = math.ceil((proj.deadline - now) / 86400)
+            local days = math.ceil((proj.deadline - ts_now) / 86400)
             if days <= 0 then
                 highest_urgency = 2
             elseif days == 1 and highest_urgency < 1 then
@@ -2513,9 +2528,14 @@ function DEADLINE.get_overall_urgency()
         end
     end
     
-    if highest_urgency == 2 then return UI.C_RED end
-    if highest_urgency == 1 then return UI.C_ORANGE end
-    return UI.C_TAB_INA
+    local final_col = UI.C_TAB_INA
+    if highest_urgency == 2 then final_col = UI.C_RED end
+    if highest_urgency == 1 then final_col = UI.C_ORANGE end
+    
+    DEADLINE.urgency_cache.color = final_col
+    DEADLINE.urgency_cache.last_check = now
+    
+    return final_col
 end
 
 --- Sync local project deadline with global storage on load
