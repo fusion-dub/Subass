@@ -178,6 +178,7 @@ local F = {
     tr_M = 13,
     tr_L = 14,
     tr_XL = 15,
+    title = 16,
 }
 
 -- Prompter Rendering Cache (moved to global for invalidation on font change)
@@ -210,6 +211,7 @@ local function update_prompter_fonts()
     -- UI Standard Fonts (Fixed but Scaled)
     gfx.setfont(F.std, "Arial", S(14))
     gfx.setfont(F.bld, "Arial", S(14), string.byte('b')) -- Reduced from 16
+    gfx.setfont(F.title, "Arial", S(22), string.byte('b'))
     
     -- Dictionary Fonts
     gfx.setfont(F.dict_std, "Arial", S(17))
@@ -248,6 +250,8 @@ local UI_STATE = {
     prompter_slider_y = 0,
     prompter_slider_target_y = 0,
     last_project_id = "",
+    dash_scroll_y = 0,
+    dash_target_scroll_y = 0,
     tab_scroll_y = {0, 0, 0, 0},
     tab_target_scroll_y = {0, 0, 0, 0},
     last_tracked_pos = 0,
@@ -285,6 +289,22 @@ local UI_STATE = {
     AUTO_UPDATE_INTERVAL = 86400, -- 24 hours
     last_update_check_time = 0,
     is_restarting = false
+}
+
+local DEADLINE = {
+    project_deadline = nil, -- Unix timestamp
+    modal = {
+        show = false,
+        year = 0,
+        month = 0,
+        selected_day = 0,
+        initial_date = nil, -- Store initial date for highlighting
+        callback = nil,
+        w = 340,
+        h = 320,
+        x = 0,
+        y = 0
+    }
 }
 
 local regions = {}
@@ -1131,6 +1151,7 @@ local UI = {
     C_BLACK = {0, 0, 0, 1},
     C_RED = {1, 0.3, 0.3, 1},
     C_GREEN = {0.2, 0.8, 0.2, 1},
+    C_ORANGE = {1, 0.5, 0, 1},
     C_YELLOW = {1, 0.9, 0, 1},
     C_DARK_GREY = {0.15, 0.15, 0.15, 1},
     C_BLUE_BRIGHT = {0.3, 0.6, 1, 1},
@@ -1683,6 +1704,47 @@ local function is_valid_utf8(str)
     return true
 end
 
+--- Fit text to width by truncating with ellipsis
+--- @param str string Text to fit
+--- @param max_w number Maximum width in pixels
+--- @return string Fitted text
+local function fit_text_width(str, max_w)
+    str = tostring(str or "")
+    
+    local is_valid = is_valid_utf8(str)
+    if is_valid then
+        if gfx.measurestr(str) <= max_w then return str end
+    end
+    
+    local dots = "..."
+    local dots_w = gfx.measurestr(dots)
+    
+    if dots_w > max_w then return dots end -- Not enough space even for dots
+    
+    local acc = ""
+    if is_valid then
+        -- Safe to use utf8.codes
+        for p, c in utf8.codes(str) do
+            local char = utf8.char(c)
+            if gfx.measurestr(acc .. char .. dots) > max_w then
+                return acc .. dots
+            end
+            acc = acc .. char
+        end
+    else
+        -- Fallback for invalid UTF-16/UTF-8: byte-by-byte
+        for i = 1, #str do
+            local char = str:sub(i, i)
+            if gfx.measurestr(acc .. char .. dots) > max_w then
+                return acc .. dots
+            end
+            acc = acc .. char
+        end
+    end
+    
+    return acc .. dots
+end
+
 --- Convert legacy CP1251 content to UTF-8 if not already UTF-8
 --- @param str string Input string
 --- @return string Fixed string
@@ -2062,17 +2124,20 @@ end
 --- @param text string Button label
 --- @param bg_col RGB color array
 --- @return boolean True if clicked
-local function btn(x, y, w, h, text, bg_col)
+local function btn(x, y, w, h, text, bg_col, txt_col)
     local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x+w and gfx.mouse_y >= y and gfx.mouse_y <= y+h)
     set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
     gfx.rect(x, y, w, h, 1)
-    set_color(UI.C_TXT)
+    set_color(txt_col or UI.C_TXT)
     gfx.setfont(F.std)
+    local margin = S(4)
+    local draw_txt = fit_text_width(text, w - margin * 2)
+    
     -- Center text roughly
-    local str_w, str_h = gfx.measurestr(text)
+    local str_w, str_h = gfx.measurestr(draw_txt)
     gfx.x = x + (w - str_w) / 2
     gfx.y = y + (h - str_h) / 2
-    gfx.drawstr(text)
+    gfx.drawstr(draw_txt)
     if hover and is_mouse_clicked() then return true end
     return false
 end
@@ -2238,6 +2303,657 @@ local function draw_snackbar()
     gfx.x = snack_x + padding
     gfx.y = snack_y + padding / 2
     gfx.drawstr(UI_STATE.snackbar_state.text)
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- DEADLINE MODULE - Methods
+-- ═══════════════════════════════════════════════════════════════
+
+--- Get project-wide deadline
+--- @return number|nil Project deadline as Unix timestamp
+function DEADLINE.get()
+    local retval, val = reaper.GetProjExtState(0, "Subass_Notes", "project_deadline")
+    if retval and val ~= "" then
+        return tonumber(val)
+    end
+    return nil
+end
+
+--- Set project-wide deadline
+--- @param timestamp number|nil Unix timestamp or nil to clear
+function DEADLINE.set(timestamp)
+    reaper.SetProjExtState(0, "Subass_Notes", "project_deadline", timestamp and tostring(timestamp) or "")
+    DEADLINE.project_deadline = timestamp
+    
+    -- Update global storage
+    local proj_path, proj_name = DEADLINE.get_project_info()
+    if proj_path then
+        DEADLINE.save_global(proj_path, proj_name, timestamp)
+    end
+end
+
+--- Get current project path and name
+--- @return string|nil, string|nil Project path and name, or nil if unsaved
+function DEADLINE.get_project_info()
+    local _, full_path = reaper.EnumProjects(-1)
+    if not full_path or full_path == "" then
+        return nil, nil -- Unsaved project
+    end
+    
+    local proj_name = reaper.GetProjectName(0)
+    if not proj_name or proj_name == "" then
+        proj_name = "Untitled"
+    end
+    
+    return full_path, proj_name
+end
+
+--- Normalize path for comparison (lower case, separators)
+--- @param path string
+--- @return string
+function DEADLINE.normalize_path(path)
+    if not path then return "" end
+    path = path:lower()
+    path = path:gsub("\\", "/")
+    path = path:gsub("^%s*(.-)%s*$", "%1") -- trim
+    return path
+end
+
+--- Smartly open a project: switch if open, else new tab.
+--- Handles missing files by asking user to locate them.
+--- @param proj_data table {path, name, deadline}
+function DEADLINE.open_project_smart(proj_data)
+    if not proj_data or not proj_data.path then return end
+    local target_path = proj_data.path
+    
+    -- Normalize target path for comparison
+    local norm_target = DEADLINE.normalize_path(target_path)
+    local target_filename = norm_target:match("([^/]+)$")
+    
+    -- PASS 1: Exact Path Match
+    local i = 0
+    while true do
+        local proj = reaper.EnumProjects(i, "")
+        if not proj then break end
+        
+        local _, path = reaper.EnumProjects(i, "")
+        if path and path ~= "" then
+            local norm_path = DEADLINE.normalize_path(path)
+            if norm_path == norm_target then
+                reaper.SelectProjectInstance(proj)
+                return
+            end
+        end
+        i = i + 1
+    end
+
+    -- PASS 2: Filename Match (Fallback)
+    if target_filename then
+        i = 0
+        while true do
+            local proj = reaper.EnumProjects(i, "")
+            if not proj then break end
+            
+            local _, path = reaper.EnumProjects(i, "")
+            if path and path ~= "" then
+                local norm_path = DEADLINE.normalize_path(path)
+                local filename = norm_path:match("([^/]+)$")
+                
+                if filename == target_filename then
+                    reaper.SelectProjectInstance(proj)
+                    return
+                end
+            end
+            i = i + 1
+        end
+    end
+    
+    -- PASS 3: Open New Tab (or Recover)
+    if reaper.file_exists(target_path) then
+        reaper.Main_OnCommand(40859, 0) -- New project tab
+        reaper.Main_openProject(target_path)
+    else
+        -- Smart Recovery: File not found
+        local result = reaper.MB("Файл проєкту не знайдено:\n" .. target_path .. "\n\nЗнайти файл вручну?", "Помилка відкриття", 4) -- 4 = Yes/No
+        if result == 6 then -- 6 = Yes
+            local retval, new_path = reaper.GetUserFileNameForRead(target_path, "Знайти проєкт " .. (proj_data.name or ""), "rpp")
+            if retval and new_path then
+                -- Open found file
+                reaper.Main_OnCommand(40859, 0)
+                reaper.Main_openProject(new_path)
+                
+                -- Update Database
+                DEADLINE.save_global(target_path, proj_data.name, nil) -- Delete old
+                DEADLINE.save_global(new_path, proj_data.name, proj_data.deadline) -- Save new
+                show_snackbar("Шлях оновлено та збережено!", "success")
+            end
+        end
+    end
+end
+
+--- Save deadline to global storage
+--- @param project_path string Full path to project file
+--- @param project_name string Project name
+--- @param deadline_ts number|nil Unix timestamp or nil to remove
+function DEADLINE.save_global(project_path, project_name, deadline_ts)
+    local data = DEADLINE.load_global()
+    
+    if deadline_ts then
+        -- Add or update deadline
+        data[project_path] = {
+            name = project_name,
+            deadline = deadline_ts
+        }
+    else
+        -- Remove deadline
+        data[project_path] = nil
+    end
+    
+    -- Save as JSON
+    local json_str = STATS.json_encode(data)
+    reaper.SetExtState("Subass_Global", "project_deadlines", json_str, true)
+end
+
+--- Load all project deadlines from global storage
+--- @return table Map of project_path -> {name, deadline}
+function DEADLINE.load_global()
+    local json_str = reaper.GetExtState("Subass_Global", "project_deadlines")
+    if not json_str or json_str == "" then
+        return {}
+    end
+    
+    -- Simple JSON decode (assumes valid format)
+    local data = {}
+    local success, result = pcall(function()
+        return STATS.json_decode(json_str)
+    end)
+    
+    if success and type(result) == "table" then
+        return result
+    end
+    
+    return {}
+end
+
+--- Get overall urgency color for dashboard button
+--- @return number color constant
+function DEADLINE.get_overall_urgency()
+    local data = DEADLINE.load_global()
+    local highest_urgency = 0 -- 0: none, 1: orange, 2: red
+    local now = os.time()
+    
+    for _, proj in pairs(data) do
+        if proj.deadline then
+            local days = math.ceil((proj.deadline - now) / 86400)
+            if days <= 0 then
+                highest_urgency = 2
+            elseif days == 1 and highest_urgency < 1 then
+                highest_urgency = 1
+            end
+        end
+    end
+    
+    if highest_urgency == 2 then return UI.C_RED end
+    if highest_urgency == 1 then return UI.C_ORANGE end
+    return UI.C_TAB_INA
+end
+
+--- Sync local project deadline with global storage on load
+function DEADLINE.sync_project()
+    local proj_path, _ = DEADLINE.get_project_info()
+    if not proj_path then return end
+    
+    local global_data = DEADLINE.load_global()
+    local global_entry = global_data[proj_path]
+    
+    if global_entry then
+        -- Sync local with global if different
+        if DEADLINE.project_deadline ~= global_entry.deadline then
+            reaper.SetProjExtState(0, "Subass_Notes", "project_deadline", global_entry.deadline and tostring(global_entry.deadline) or "")
+            DEADLINE.project_deadline = global_entry.deadline
+        end
+    else
+        -- If no global entry but we have a local one, maybe clear it? 
+        -- Or just update the cache variable if it was cleared globally.
+        if DEADLINE.project_deadline ~= nil then
+            local local_dl = DEADLINE.get()
+            if not local_dl then
+                DEADLINE.project_deadline = nil
+            end
+        end
+    end
+end
+-- Run sync on script start
+DEADLINE.sync_project()
+
+--- Sort projects by urgency: Passed -> Today -> Soon -> Later
+local function sort_deadlines(a, b)
+    local now = os.time()
+    
+    -- Helper to get days remaining
+    local function get_days(ts)
+        return math.ceil((ts - now) / 86400)
+    end
+    
+    local days_a = get_days(a.deadline)
+    local days_b = get_days(b.deadline)
+    
+    -- Priority 1: Passed deadlines (negative days)
+    if days_a < 0 and days_b >= 0 then return true end
+    if days_b < 0 and days_a >= 0 then return false end
+    
+    -- Priority 2: Today (0 days)
+    if days_a == 0 and days_b ~= 0 then return true end
+    if days_b == 0 and days_a ~= 0 then return false end
+    
+    -- Priority 3: Ascending order (sooner first)
+    return a.deadline < b.deadline
+end
+
+--- Draw Deadline Dashboard
+function DEADLINE.draw_dashboard(input_queue)
+    local pad = S(20)
+    
+    -- Background overlay
+    set_color(UI.C_BG, 0.98)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+    
+    -- Header measuring (for list_y)
+    gfx.setfont(F.title)
+    local title = "Мої Дедлайни"
+    local tw, th = gfx.measurestr(title)
+    local is_narrow = gfx.w < S(450)
+    local list_y = pad + th + S(12)
+
+    -- Load and Sort Data
+    local all_deadlines = DEADLINE.load_global()
+    local sorted_projects = {}
+    for path, data in pairs(all_deadlines) do
+        if data.deadline then
+            table.insert(sorted_projects, {
+                path = path,
+                name = data.name,
+                deadline = data.deadline
+            })
+        end
+    end
+    table.sort(sorted_projects, sort_deadlines)
+    
+    -- Scroll Configuration
+    local row_h = is_narrow and S(100) or S(60)
+    local avail_h = gfx.h - list_y - pad
+    local content_h = #sorted_projects * row_h
+    local max_scroll = math.max(0, content_h - avail_h)
+    
+    -- Mouse Wheel Handling
+    if gfx.mouse_wheel ~= 0 then
+        UI_STATE.dash_target_scroll_y = UI_STATE.dash_target_scroll_y - (gfx.mouse_wheel * 0.25)
+        gfx.mouse_wheel = 0
+    end
+    
+    -- Bound & Smooth Scroll
+    UI_STATE.dash_target_scroll_y = math.max(0, math.min(UI_STATE.dash_target_scroll_y, max_scroll))
+    local diff = UI_STATE.dash_target_scroll_y - UI_STATE.dash_scroll_y
+    if math.abs(diff) > 0.5 then
+        UI_STATE.dash_scroll_y = UI_STATE.dash_scroll_y + (diff * 0.8)
+    else
+        UI_STATE.dash_scroll_y = UI_STATE.dash_target_scroll_y
+    end
+
+    local function get_y(offset)
+        return list_y + offset - math.floor(UI_STATE.dash_scroll_y)
+    end
+
+    -- Column Config
+    local status_col_w = S(100)
+    local btn_col_w = S(150)
+    
+    local status_x = pad + S(5)
+    local btn_x = gfx.w - pad - btn_col_w
+    local name_x = status_x + status_col_w + S(2)
+    local name_col_w = btn_x - name_x - S(10)
+    
+    if is_narrow then
+        btn_col_w = (gfx.w - pad * 2 - S(10)) / 2
+        btn_x = pad
+    end
+    
+    -- Empty State
+    if #sorted_projects == 0 then
+        set_color(UI.C_TXT, 0.5)
+        gfx.setfont(F.std)
+        local msg = "Немає активних дедлайнів"
+        local mw, mh = gfx.measurestr(msg)
+        gfx.x, gfx.y = (gfx.w - mw)/2, list_y + S(50)
+        gfx.drawstr(msg)
+    else
+        -- Draw List
+        for i, proj in ipairs(sorted_projects) do
+            local y_offset = (i-1) * row_h
+            local row_y = get_y(y_offset)
+            
+            -- Only draw if visible
+            if row_y + row_h > list_y and row_y < gfx.h then
+                -- Separator line
+                set_color(UI.C_TAB_INA, 0.2)
+                gfx.line(pad, row_y + row_h - 1, gfx.w - pad, row_y + row_h - 1)
+                
+                -- Calculations
+                local days = math.ceil((proj.deadline - os.time()) / 86400)
+                local date_txt = os.date("%d.%m.%Y", proj.deadline)
+                local status_txt, status_col = "", UI.C_TXT
+                
+                if days < 0 then
+                    status_txt, status_col = "ПРОЙШОВ!", UI.C_SNACK_ERROR
+                elseif days == 0 then
+                    status_txt, status_col = "СЬОГОДНІ!", UI.C_RED
+                elseif days == 1 then
+                    status_txt, status_col = "Завтра", UI.C_ORANGE
+                else
+                    status_txt, status_col = "Активний", UI.C_SNACK_SUCCESS
+                end
+                
+                -- --- COLUMN 1: Status & Date ---
+                gfx.setfont(F.std)
+                local cur_y = row_y + S(10)
+                
+                local br_w = status_col_w - S(15)
+                if days <= 1 then
+                    local sw, sh = gfx.measurestr(status_txt)
+                    local dw, dh = gfx.measurestr(date_txt)
+                    local bh = sh + dh + S(6)
+                    
+                    set_color(status_col)
+                    gfx.rect(status_x - S(5), cur_y - S(2), br_w, bh, 1)
+                    
+                    local txt_col = UI.C_TXT
+                    if days < 0 and cfg.ui_theme == "Quartz" then txt_col = UI.C_WHITE end
+                    set_color(txt_col)
+                    
+                    gfx.x, gfx.y = status_x, cur_y
+                    gfx.drawstr(status_txt)
+                    gfx.x, gfx.y = status_x, cur_y + sh + S(2)
+                    gfx.drawstr(date_txt)
+                else
+                    set_color(status_col)
+                    gfx.x, gfx.y = status_x, cur_y
+                    gfx.drawstr(status_txt)
+                    set_color(UI.C_TXT, 0.7)
+                    gfx.x, gfx.y = status_x, cur_y + S(16)
+                    gfx.drawstr(date_txt)
+                end
+                
+                -- --- COLUMN 2: Name & Path ---
+                local nx = is_narrow and (status_x + br_w + S(10)) or name_x
+                local ny = cur_y
+                local nw = is_narrow and (gfx.w - nx - pad) or name_col_w
+                
+                set_color(UI.C_TXT)
+                gfx.setfont(F.bld)
+                gfx.x, gfx.y = nx, ny
+                local trunk_name = fit_text_width(proj.name, nw)
+                gfx.drawstr(trunk_name)
+                
+                set_color(UI.C_TXT, 0.5)
+                gfx.setfont(F.tip)
+                gfx.x, gfx.y = nx, ny + S(18)
+                local trunk_path = fit_text_width(proj.path, nw)
+                gfx.drawstr(trunk_path)
+                
+                -- --- COLUMN 3: Actions ---
+                local btn_w = is_narrow and btn_col_w or (btn_col_w / 2 - S(5))
+                local btn_h = S(28)
+                local bx = is_narrow and pad or btn_x
+                local by = is_narrow and (row_y + S(55)) or (row_y + (row_h - btn_h)/2)
+                
+                if btn(bx, by, btn_w, btn_h, "Змінити", UI.C_BTN, UI.C_TXT) then
+                    DEADLINE.open_picker(proj.deadline, function(new_ts)
+                        DEADLINE.save_global(proj.path, proj.name, new_ts)
+                        local cp_path, _ = DEADLINE.get_project_info()
+                        if cp_path == proj.path then
+                            DEADLINE.set(new_ts)
+                        end
+                    end)
+                end
+                
+                if btn(bx + btn_w + S(10), by, btn_w, btn_h, "Відкрити", UI.C_ROW, UI.C_TXT) then
+                    DEADLINE.open_project_smart(proj)
+                end
+            end
+        end
+        
+        -- Draw Scrollbar
+        if max_scroll > 0 then
+            local sb_w = S(4)
+            local sb_h = (avail_h / content_h) * avail_h
+            local sb_y = list_y + (UI_STATE.dash_scroll_y / content_h) * avail_h
+            set_color(UI.C_BTN, 0.3)
+            gfx.rect(gfx.w - sb_w - S(2), sb_y, sb_w, sb_h, 1)
+        end
+    end
+
+    -- --- HEADER OVERLAY (Mask scrolling rows) ---
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, list_y, 1)
+
+    -- Close button (Top Right)
+    local close_sz = S(24)
+    local cx = gfx.w - pad - close_sz
+    local cy = pad
+
+    -- --- HEADER CONTENTS ---
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT)
+    gfx.x, gfx.y = pad, pad
+    
+    -- Truncate title if it gets too close to the close button
+    local avail_tw = cx - pad - S(10)
+    local draw_title = fit_text_width(title, avail_tw)
+    gfx.drawstr(draw_title)
+    
+    local function close_dash()
+        DEADLINE.dashboard_show = false
+    end
+    
+    if btn(cx, cy, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+        close_dash()
+    end
+    
+    -- Escape key check
+    if input_queue then
+        for _, c in ipairs(input_queue) do
+            if c == 27 then -- ESC
+                close_dash()
+                break
+            end
+        end
+    end
+end
+
+--- Helper: Is leap year?
+function DEADLINE.is_leap_year(y)
+    return (y % 4 == 0 and y % 100 ~= 0) or (y % 400 == 0)
+end
+
+--- Helper: Get days in month
+function DEADLINE.get_days_in_month(m, y)
+    local days = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
+    if m == 2 and DEADLINE.is_leap_year(y) then return 29 end
+    return days[m] or 31
+end
+
+--- Open the date picker modal
+--- @param initial_ts number|nil Initial timestamp
+--- @param callback function Function to call on select(timestamp)
+function DEADLINE.open_picker(initial_ts, callback)
+    local now = os.date("*t")
+    local t = initial_ts and os.date("*t", initial_ts) or now
+    
+    DEADLINE.modal.year = t.year
+    DEADLINE.modal.month = t.month
+    DEADLINE.modal.selected_day = t.day
+    DEADLINE.modal.initial_date = initial_ts and os.date("*t", initial_ts) or nil
+    DEADLINE.modal.callback = callback
+    DEADLINE.modal.show = true
+end
+
+--- Draw the Date Picker Modal
+function DEADLINE.draw_picker(input_queue)
+    if not DEADLINE.modal.show then return end
+    
+    UI_STATE.mouse_handled = true -- Block interaction with background
+    
+    local w, h = S(DEADLINE.modal.w), S(DEADLINE.modal.h)
+    local x, y = (gfx.w - w) / 2, (gfx.h - h) / 2
+    
+    -- Dim background
+    set_color({0, 0, 0, 0.5})
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+    
+    -- Modal Background
+    set_color(UI.C_BG)
+    gfx.rect(x, y, w, h, 1)
+    set_color(UI.C_MEDIUM_GREY)
+    gfx.rect(x, y, w, h, 0)
+    
+    -- Header (Month Year)
+    local month_names = {"Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень", 
+                         "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"}
+    local title = month_names[DEADLINE.modal.month] .. " " .. DEADLINE.modal.year
+    gfx.setfont(F.dict_bld)
+    set_color(UI.C_TXT)
+    local tw, th = gfx.measurestr(title)
+    gfx.x, gfx.y = x + (w - tw) / 2, y + S(15)
+    gfx.drawstr(title)
+    
+    -- Month Navigation
+    if btn(x + S(10), y + S(12), S(30), S(25), "<", UI.C_ROW) then
+        DEADLINE.modal.month = DEADLINE.modal.month - 1
+        if DEADLINE.modal.month < 1 then
+            DEADLINE.modal.month = 12
+            DEADLINE.modal.year = DEADLINE.modal.year - 1
+        end
+    end
+    
+    if btn(x + w - S(40), y + S(12), S(30), S(25), ">", UI.C_ROW) then
+        DEADLINE.modal.month = DEADLINE.modal.month + 1
+        if DEADLINE.modal.month > 12 then
+            DEADLINE.modal.month = 1
+            DEADLINE.modal.year = DEADLINE.modal.year + 1
+        end
+    end
+    
+    -- Weekdays Header
+    local wd_names = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"}
+    gfx.setfont(F.dict_std_sm)
+    local cell_w = (w - S(20)) / 7
+    for i, wd in ipairs(wd_names) do
+        set_color(i > 5 and UI.C_RED or UI.C_MEDIUM_GREY)
+        local wdw = gfx.measurestr(wd)
+        gfx.x = x + S(10) + (i - 1) * cell_w + (cell_w - wdw) / 2
+        gfx.y = y + S(50)
+        gfx.drawstr(wd)
+    end
+    
+    -- Calendar Grid
+    local first_day_t = os.time({year=DEADLINE.modal.year, month=DEADLINE.modal.month, day=1})
+    local first_wd = tonumber(os.date("%w", first_day_t)) -- 0=Sun
+    first_wd = (first_wd == 0) and 7 or first_wd -- Map to 1=Mon...7=Sun
+    
+    local days_in_month = DEADLINE.get_days_in_month(DEADLINE.modal.month, DEADLINE.modal.year)
+    local day_cursor = 1
+    local row = 0
+    local now = os.date("*t")
+    
+    while day_cursor <= days_in_month do
+        for col = 1, 7 do
+            local current_wd_idx = row * 7 + col
+            if current_wd_idx >= first_wd and day_cursor <= days_in_month then
+                local cx = x + S(10) + (col - 1) * cell_w
+                local cy = y + S(75) + row * S(30)
+                
+                -- Highlight if it matches the current set deadline
+                local cur_dl = DEADLINE.modal.initial_date
+                local is_highlighted = cur_dl and cur_dl.day == day_cursor and cur_dl.month == DEADLINE.modal.month and cur_dl.year == DEADLINE.modal.year
+                
+                local is_today = (day_cursor == now.day and DEADLINE.modal.month == now.month and DEADLINE.modal.year == now.year)
+                
+                -- Cell Background
+                if is_highlighted then
+                    set_color(UI.C_GREEN)
+                    gfx.rect(cx + 2, cy + 2, cell_w - 4, S(26), 1)
+                elseif is_today then
+                    set_color(UI.C_RED) -- Use a distinct color for today
+                    gfx.rect(cx + 2, cy + 2, cell_w - 4, S(26), 0) -- Outline
+                end
+                
+                -- Click
+                if is_mouse_clicked() and gfx.mouse_x >= cx and gfx.mouse_x < cx + cell_w and
+                   gfx.mouse_y >= cy and gfx.mouse_y < cy + S(30) then
+                    local new_ts = os.time({year=DEADLINE.modal.year, month=DEADLINE.modal.month, day=day_cursor, hour=0, min=0, sec=0})
+                    if DEADLINE.modal.callback then DEADLINE.modal.callback(new_ts) end
+                    DEADLINE.modal.show = false
+                end
+                
+                -- Day Number
+                set_color(is_highlighted and UI.C_BLACK or UI.C_TXT)
+                local ds = tostring(day_cursor)
+                local dw, dh = gfx.measurestr(ds)
+                gfx.x = cx + (cell_w - dw) / 2
+                gfx.y = cy + (S(30) - dh) / 2
+                gfx.drawstr(ds)
+                
+                day_cursor = day_cursor + 1
+            end
+        end
+        row = row + 1
+    end
+    
+    -- Bottom Buttons
+    local b_w = (w - S(30)) / 2
+    local b_y = y + h - S(45)
+    
+    if btn(x + S(10), b_y, b_w, S(30), "Видалити Дедлайн") then
+        if DEADLINE.modal.callback then DEADLINE.modal.callback(nil) end
+        DEADLINE.modal.show = false
+    end
+    
+    if btn(x + S(20) + b_w, b_y, b_w, S(30), "Закрити", UI.C_ROW) then
+        DEADLINE.modal.show = false
+    end
+
+    -- Escape key check
+    if input_queue then
+        for _, c in ipairs(input_queue) do
+            if c == 27 then -- ESC
+                DEADLINE.modal.show = false
+                break
+            end
+        end
+    end
+end
+
+--- Parse deadline from name (e.g. [15.02.2026] or [15.02])
+--- @param name string Text to parse
+--- @return number|nil Unix timestamp of start of day
+function DEADLINE.parse_from_name(name)
+    -- Pattern: [DD.MM.YYYY] or [DD.MM]
+    local d, m, y = name:match("%[(%d%d)%.(%d%d)%.?(%d?%d?%d?%d?)%]")
+    if d and m then
+        d, m = tonumber(d), tonumber(m)
+        y = tonumber(y)
+        local now = os.date("*t")
+        if not y or y == 0 then
+            y = now.year
+        elseif y < 100 then
+            y = 2000 + y
+        end
+        
+        -- Return start of day (00:00:00)
+        local success, res = pcall(os.time, {day=d, month=m, year=y, hour=0, min=0, sec=0})
+        if success then return res end
+    end
+    return nil
 end
 
 -- =============================================================================
@@ -3981,47 +4697,6 @@ local function parse_prompter_to_lines(str)
     return lines
 end
 
---- Fit text to width by truncating with ellipsis
---- @param str string Text to fit
---- @param max_w number Maximum width in pixels
---- @return string Fitted text
-local function fit_text_width(str, max_w)
-    str = tostring(str or "")
-    
-    local is_valid = is_valid_utf8(str)
-    if is_valid then
-        if gfx.measurestr(str) <= max_w then return str end
-    end
-    
-    local dots = "..."
-    local dots_w = gfx.measurestr(dots)
-    
-    if dots_w > max_w then return dots end -- Not enough space even for dots
-    
-    local acc = ""
-    if is_valid then
-        -- Safe to use utf8.codes
-        for p, c in utf8.codes(str) do
-            local char = utf8.char(c)
-            if gfx.measurestr(acc .. char .. dots) > max_w then
-                return acc .. dots
-            end
-            acc = acc .. char
-        end
-    else
-        -- Fallback for invalid UTF-16/UTF-8: byte-by-byte
-        for i = 1, #str do
-            local char = str:sub(i, i)
-            if gfx.measurestr(acc .. char .. dots) > max_w then
-                return acc .. dots
-            end
-            acc = acc .. char
-        end
-    end
-    
-    return acc .. dots
-end
-
 -- Serialization Helpers
 local function serialize_table(val, name, skipnewlines, depth)
     skipnewlines = skipnewlines or false
@@ -5326,6 +6001,10 @@ local function import_srt(file_path, dont_rebuild, forced_actor)
     -- Derive Actor Name from Filename or use forced_actor
     local actor_name = forced_actor or UI_STATE.current_file_name:gsub("%.srt$", ""):gsub("%.SRT$", "")
     
+    -- Check for deadline in filename
+    local dl = DEADLINE.parse_from_name(UI_STATE.current_file_name)
+    if dl then DEADLINE.set(dl) end
+    
     -- Ensure State Init
     if not ass_lines then ass_lines = {} end
     if not ass_actors then ass_actors = {} end
@@ -5526,6 +6205,10 @@ local function import_vtt(file_path, dont_rebuild)
     if not f then return end
     UI_STATE.current_file_name = file:match("([^/\\]+)$")
     UI_STATE.current_file_path = file
+    
+    -- Check for deadline in filename
+    local dl = DEADLINE.parse_from_name(UI_STATE.current_file_name)
+    if dl then DEADLINE.set(dl) end
     
     local content = fix_encoding(f:read("*all"))
     f:close()
@@ -6245,6 +6928,10 @@ local function import_ass(file_path, dont_rebuild)
     if not f then return end
     UI_STATE.current_file_name = file:match("([^/\\]+)$")
     UI_STATE.current_file_path = file
+    
+    -- Check for deadline in filename
+    local dl = DEADLINE.parse_from_name(UI_STATE.current_file_name)
+    if dl then DEADLINE.set(dl) end
     
     local content = fix_encoding(f:read("*all"))
     f:close()
@@ -10268,15 +10955,41 @@ end
 --- Draw main navigation UI_STATE.tabs
 local function draw_tabs()
     local btn_scan_w = S(30)
+    local btn_dash_w = S(30) -- New "D" button width
     local gap_w = 1 -- 1 pixel gap
-    local total_tab_w = gfx.w - btn_scan_w - gap_w
-    local tab_w = total_tab_w / #UI_STATE.tabs
+    
+    -- Calculate available width for main tabs
+    -- Total = Dashboard + gap + Tabs + gap + Scan
+    local total_tab_w = gfx.w - btn_scan_w - btn_dash_w - (gap_w * 2)
+    local tab_w_base = total_tab_w / #UI_STATE.tabs
     local h = S(25)
+    
+    -- 1. Dashboard Button ("Д")
+    local d_x = 0
+    local dash_col = DEADLINE.get_overall_urgency()
+    set_color(dash_col)
+    gfx.rect(d_x, 0, btn_dash_w, h, 1)
+    
+    set_color(UI.C_TXT)
+    gfx.setfont(F.std)
+    local dw, dh = gfx.measurestr("Д")
+    gfx.x = d_x + (btn_dash_w - dw)/2
+    gfx.y = (h - dh)/2
+    gfx.drawstr("Д")
+    
+    if is_mouse_clicked() and not dict_modal.show then
+        if gfx.mouse_x >= d_x and gfx.mouse_x < d_x + btn_dash_w and gfx.mouse_y >= 0 and gfx.mouse_y <= h then
+            DEADLINE.dashboard_show = true
+        end
+    end
+    
+    -- 2. Main Tabs
+    local tabs_start_x = btn_dash_w + gap_w
     
     for i, name in ipairs(UI_STATE.tabs) do
         -- Integer calculation to prevent gaps
-        local x_start = math.floor((i - 1) * total_tab_w / #UI_STATE.tabs)
-        local x_end = math.floor(i * total_tab_w / #UI_STATE.tabs)
+        local x_start = tabs_start_x + math.floor((i - 1) * total_tab_w / #UI_STATE.tabs)
+        local x_end = tabs_start_x + math.floor(i * total_tab_w / #UI_STATE.tabs)
         local tab_w = x_end - x_start
         local x = x_start
         
@@ -10291,7 +11004,7 @@ local function draw_tabs()
         local display_name = fit_text_width(name, tab_w - S(10))
         local str_w, str_h = gfx.measurestr(display_name)
         gfx.x = x + (tab_w - str_w) / 2
-        gfx.y = (h - str_h) / 2
+        gfx.y = (h - dh) / 2 -- Use same vertical centering
         gfx.drawstr(display_name)
         
         -- Click
@@ -10309,8 +11022,8 @@ local function draw_tabs()
         end
     end
     
-    -- Jump to Region Button (Small Tab at the end)
-    local btn_x = total_tab_w + gap_w
+    -- 3. Jump to Region Button (Small Tab at the end)
+    local btn_x = tabs_start_x + total_tab_w + gap_w
     
     set_color(UI.C_TAB_INA) -- Use inactive tab color
     gfx.rect(btn_x, 0, btn_scan_w, h, 1)
@@ -10377,28 +11090,27 @@ local function draw_tabs()
     end
 end
 
-
 --- Tabs Views ---
 --- Draw the detailed file view with import buttons and actor stats
 local function draw_file()
     -- PRE-CALCULATE CONTENT HEIGHT FOR SCROLLING
-    local is_narrow = gfx.w < S(420)
+    local is_narrow = gfx.w < S(470)
     local content_h = 0
     
-    -- 1. First row (Buttons)
-    if is_narrow then 
-        content_h = content_h + S(50) 
+    -- 1. Action Buttons Height
+    if is_narrow then
+        content_h = content_h + S(40) + S(5) + S(40) -- Two rows
+    else
+        content_h = content_h + S(40) -- One row
     end
     
     -- 2. Filename display row
     if UI_STATE.ass_file_loaded and UI_STATE.current_file_name then
-        if is_narrow then 
-            content_h = content_h + S(45) + S(15) 
-        end
+        content_h = content_h + S(25)
     end
     
     -- 3. Spacer before filter
-    content_h = content_h + (is_narrow and S(30) or S(80))
+    content_h = content_h + S(60)
     
     -- 4. Actor Filter Section
     if UI_STATE.ass_file_loaded then
@@ -10457,16 +11169,30 @@ local function draw_file()
     local function get_y(offset)
         return start_y + offset - math.floor(UI_STATE.scroll_y)
     end
+
+    -- Action Buttons Layout
+    local padding = S(20)
+    local spacing = S(5)
+    local btn_h = S(40)
     
-    -- Content
     local y_cursor = 0
+    local cur_y = get_y(y_cursor)
     
-    -- Import Button (unified for .srt, .ass, and .vtt)
-    local b_y = get_y(y_cursor)
-    local sub_btn_w = is_narrow and (gfx.w - S(40)) or S(230)
+    -- Calculate widths based on mode
+    local import_w, notes_w, deadline_w
+    if is_narrow then
+        import_w = gfx.w - padding * 2
+        notes_w = (gfx.w - padding * 2 - spacing) / 2
+        deadline_w = notes_w
+    else
+        import_w = S(230)
+        notes_w = S(80)
+        deadline_w = S(105)
+    end
     
-    if b_y + S(40) > start_y and b_y < gfx.h then
-        if btn(S(20), b_y, sub_btn_w, S(40), fit_text_width("Імпорт субтитрів (.srt/.ass/.vtt)", sub_btn_w - S(10))) then
+    -- 1. Import Button
+    if cur_y + btn_h > start_y and cur_y < gfx.h then
+        if btn(padding, cur_y, import_w, btn_h, fit_text_width("Імпорт субтитрів (.srt/.ass/.vtt)", import_w - S(10))) then
             local retval, file_list
             if reaper.JS_Dialog_BrowseForOpenFiles then
                 retval, file_list = reaper.JS_Dialog_BrowseForOpenFiles("Імпорт субтитрів", "", "", "Subtitle files (*.srt;*.ass;*.vtt)\0*.srt;*.ass;*.vtt\0All files\0*\0", true)
@@ -10478,8 +11204,6 @@ local function draw_file()
                 push_undo("Імпорт субтитрів")
                 local files = {}
                 if reaper.JS_Dialog_BrowseForOpenFiles then
-                    -- JS_Dialog_BrowseForOpenFiles returns a null-separated string
-                    -- Format: Directory\0File1\0File2\0\0
                     local dir = file_list:match("^(.-)\0")
                     if dir then
                         for f in file_list:gmatch("\0([^\0]+)") do
@@ -10529,56 +11253,82 @@ local function draw_file()
         end
     end
     
+    -- Positions for the remaining buttons
+    local nx, dx, ny
     if is_narrow then
-        y_cursor = y_cursor + S(50)
-        b_y = get_y(y_cursor)
+        -- Wrap to second row (Full Width distribution)
+        y_cursor = y_cursor + btn_h + S(5)
+        ny = get_y(y_cursor)
+        nx = padding
+        dx = padding + notes_w + spacing
+    else
+        -- Same row, align right
+        ny = cur_y
+        dx = gfx.w - padding - deadline_w
+        nx = dx - spacing - notes_w
     end
     
-    -- Import Notes Button (Top-right corner OR stacked)
-    local notes_btn_w = is_narrow and (gfx.w - S(40)) or S(80)
-    local notes_btn_x = is_narrow and S(20) or (gfx.w - notes_btn_w - S(20))
-    
-    if b_y + S(40) > start_y and b_y < gfx.h then
-        if btn(notes_btn_x, b_y, notes_btn_w, S(40), fit_text_width("Правки", notes_btn_w - S(10))) then
+    -- 2. Notes Button
+    if ny + btn_h > start_y and ny < gfx.h then
+        if btn(nx, ny, notes_w, btn_h, fit_text_width("Правки", notes_w - S(10))) then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu("Імпорт з тексту|Імпорт з файлу (CSV)")
-            if ret == 1 then
-                import_notes()
-            elseif ret == 2 then
-                import_notes_from_csv()
-            end
+            if ret == 1 then import_notes()
+            elseif ret == 2 then import_notes_from_csv() end
         end
     end
     
-    -- Filename Display
-    if UI_STATE.ass_file_loaded and UI_STATE.current_file_name then
-        if is_narrow then
-            y_cursor = y_cursor + S(45)
-            local fn_y = get_y(y_cursor)
-            if fn_y + S(20) > start_y and fn_y < gfx.h then
-                gfx.setfont(F.std)
-                set_color(UI.C_HILI_GREY_HIGH)
-                local str = "Обрано: " .. UI_STATE.current_file_name
-                str = fit_text_width(str, gfx.w - S(40))
-                gfx.x = S(20)
-                gfx.y = fn_y
-                gfx.drawstr(str)
+    -- 3. Deadline Button
+    if ny + btn_h > start_y and ny < gfx.h then
+        local dl_text = "Дедлайн"
+        local dl_bg = UI.C_ROW
+        local dl_txt = nil -- Use default text color
+        if DEADLINE.project_deadline then
+            local days = math.ceil((DEADLINE.project_deadline - os.time()) / 86400)
+            if days < 0 then
+                dl_text = "ПРОЙШОВ!"
+                dl_bg = UI.C_SNACK_ERROR
+                dl_txt = UI.C_WHITE
+            elseif days == 0 then
+                dl_text = "СЬОГОДНІ!"
+                dl_bg = UI.C_RED
+            else
+                dl_text = os.date("%d.%m", DEADLINE.project_deadline) .. " (" .. days .. "д)"
+                if days == 1 then
+                    dl_bg = UI.C_ORANGE
+                else
+                    dl_bg = UI.C_SNACK_SUCCESS
+                    dl_txt = UI.C_WHITE
+                end
             end
-            y_cursor = y_cursor + S(15)
-        else
-            gfx.setfont(F.std)
-            set_color(UI.C_TXT)
-            -- Vertical center relative to button
+        end
+        
+        if btn(dx, ny, deadline_w, btn_h, fit_text_width(dl_text, deadline_w - S(10)), dl_bg, dl_txt) then
+            DEADLINE.open_picker(DEADLINE.project_deadline, function(ts)
+                DEADLINE.set(ts)
+                show_snackbar(ts and ("Дедлайн встановлено: " .. os.date("%d.%m.%Y", ts)) or "Дедлайн скасовано", "info")
+            end)
+        end
+    end
+    
+    y_cursor = y_cursor + btn_h + S(10)
+    
+    -- Filename Display Row
+    if UI_STATE.ass_file_loaded and UI_STATE.current_file_name then
+        local fn_y = get_y(y_cursor)
+        if fn_y + S(20) > start_y and fn_y < gfx.h then
+            gfx.setfont(F.tip)
+            set_color(UI.C_MEDIUM_GREY)
             local str = "Обрано: " .. UI_STATE.current_file_name
-            local max_width = notes_btn_x - S(265) - S(10)
-            str = fit_text_width(str, max_width)
-            gfx.x = S(265)
-            gfx.y = b_y + (S(40) - gfx.texth) / 2
+            str = fit_text_width(str, gfx.w - padding * 2)
+            gfx.x = padding
+            gfx.y = fn_y
             gfx.drawstr(str)
         end
+        y_cursor = y_cursor + S(25)
     end
     
-    y_cursor = y_cursor + (is_narrow and S(30) or S(80))
+    y_cursor = y_cursor + S(25)
     
     -- Actor Filter (if loaded)
     if UI_STATE.ass_file_loaded then
@@ -17798,6 +18548,13 @@ end
 local function main()
     if UI_STATE.is_restarting then return end
     
+    -- Initial project state load (if first run)
+    if UI_STATE.last_project_id == "" then
+        local proj, filename = reaper.EnumProjects(-1)
+        UI_STATE.last_project_id = proj and (tostring(proj) .. "_" .. (filename or "unsaved")) or "none"
+        DEADLINE.project_deadline = DEADLINE.get()
+    end
+    
     -- Heartbeat for Lionzz
     reaper.gmem_write(100, reaper.time_precise())
     handle_remote_commands()
@@ -17827,6 +18584,8 @@ local function main()
         -- Reset and load
         load_project_data()
         load_session_state(current_project_id)
+        DEADLINE.sync_project() -- Synchronize local state with global registry
+        DEADLINE.project_deadline = DEADLINE.get()
         
         -- Immediate cache update after loading
         update_regions_cache()
@@ -17912,7 +18671,11 @@ local function main()
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
     
     -- Main Drawing Logic
-    if dict_modal.show then
+    if DEADLINE.modal.show then 
+        DEADLINE.draw_picker(input_queue)
+    elseif DEADLINE.dashboard_show then
+        DEADLINE.draw_dashboard(input_queue)
+    elseif dict_modal.show then
         draw_dictionary_modal(input_queue)
     elseif text_editor_state.active then
         draw_text_editor(input_queue)
