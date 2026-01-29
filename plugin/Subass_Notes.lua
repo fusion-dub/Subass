@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.5
+-- @version 4.6
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.5"
+local script_title = "Subass Notes v4.6"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -2335,9 +2335,11 @@ end
 --- Get current project path and name
 --- @return string|nil, string|nil Project path and name, or nil if unsaved
 function DEADLINE.get_project_info()
-    local _, full_path = reaper.EnumProjects(-1)
+    local proj, full_path = reaper.EnumProjects(-1)
     if not full_path or full_path == "" then
-        return nil, nil -- Unsaved project
+        -- Return project pointer as a stable ID for unsaved tabs
+        local ptr_id = "PTR:" .. tostring(proj)
+        return ptr_id, "Без назви (unsaved)"
     end
     
     local proj_name = reaper.GetProjectName(0)
@@ -2366,6 +2368,24 @@ function DEADLINE.open_project_smart(proj_data)
     if not proj_data or not proj_data.path then return end
     local target_path = proj_data.path
     
+    -- PASS 0: Project Pointer Match (for unsaved projects)
+    if target_path:match("^PTR:") then
+        local target_ptr = target_path:gsub("^PTR:", "")
+        local i = 0
+        while true do
+            local proj = reaper.EnumProjects(i, "")
+            if not proj then break end
+            if tostring(proj) == target_ptr then
+                reaper.SelectProjectInstance(proj)
+                return
+            end
+            i = i + 1
+        end
+        -- If we are here, the unsaved project tab was closed
+        reaper.MB("Тимчасовий проєкт більше не відкритий.", "Помилка", 0)
+        return
+    end
+
     -- Normalize target path for comparison
     local norm_target = DEADLINE.normalize_path(target_path)
     local target_filename = norm_target:match("([^/]+)$")
@@ -2500,27 +2520,48 @@ end
 
 --- Sync local project deadline with global storage on load
 function DEADLINE.sync_project()
-    local proj_path, _ = DEADLINE.get_project_info()
+    local proj_path, proj_name = DEADLINE.get_project_info()
     if not proj_path then return end
     
     local global_data = DEADLINE.load_global()
-    local global_entry = global_data[proj_path]
+    local changed = false
     
+    -- MIGRATION: Check if we have an entry for this project as "unsaved" (via pointer)
+    local proj_ptr, _ = reaper.EnumProjects(-1)
+    local ptr_id = "PTR:" .. tostring(proj_ptr)
+    local ptr_entry = global_data[ptr_id]
+    
+    if ptr_entry and not proj_path:match("^PTR:") then
+        -- Move deadline from temporary pointer ID to the real project path
+        global_data[proj_path] = {
+            name = proj_name or "Untitled",
+            deadline = ptr_entry.deadline
+        }
+        global_data[ptr_id] = nil
+        changed = true
+    end
+
+    local global_entry = global_data[proj_path]
     if global_entry then
         -- Sync local with global if different
         if DEADLINE.project_deadline ~= global_entry.deadline then
-            reaper.SetProjExtState(0, "Subass_Notes", "project_deadline", global_entry.deadline and tostring(global_entry.deadline) or "")
+            reaper.SetProjExtState(0, "Subass_Notes", "project_deadline", tostring(global_entry.deadline))
             DEADLINE.project_deadline = global_entry.deadline
         end
     else
-        -- If no global entry but we have a local one, maybe clear it? 
-        -- Or just update the cache variable if it was cleared globally.
+        -- If no global entry but we have a local one, maybe clear it or update cache
         if DEADLINE.project_deadline ~= nil then
             local local_dl = DEADLINE.get()
             if not local_dl then
                 DEADLINE.project_deadline = nil
             end
         end
+    end
+    
+    if changed then
+        -- Save the migrated data
+        local json_str = STATS.json_encode(global_data)
+        reaper.SetExtState("Subass_Global", "project_deadlines", json_str, true)
     end
 end
 -- Run sync on script start
@@ -2706,7 +2747,7 @@ function DEADLINE.draw_dashboard(input_queue)
                 local bx = is_narrow and pad or btn_x
                 local by = is_narrow and (row_y + S(55)) or (row_y + (row_h - btn_h)/2)
                 
-                if btn(bx, by, btn_w, btn_h, "Змінити", UI.C_BTN, UI.C_TXT) then
+                if btn(bx, by, btn_w, btn_h, "Змінити", UI.C_BTN, UI.C_TXT) and gfx.mouse_y > list_y then
                     DEADLINE.open_picker(proj.deadline, function(new_ts)
                         DEADLINE.save_global(proj.path, proj.name, new_ts)
                         local cp_path, _ = DEADLINE.get_project_info()
@@ -2716,7 +2757,7 @@ function DEADLINE.draw_dashboard(input_queue)
                     end)
                 end
                 
-                if btn(bx + btn_w + S(10), by, btn_w, btn_h, "Відкрити", UI.C_ROW, UI.C_TXT) then
+                if btn(bx + btn_w + S(10), by, btn_w, btn_h, "Відкрити", UI.C_ROW, UI.C_TXT) and gfx.mouse_y > list_y then
                     DEADLINE.open_project_smart(proj)
                 end
             end
@@ -18551,7 +18592,8 @@ local function main()
     -- Initial project state load (if first run)
     if UI_STATE.last_project_id == "" then
         local proj, filename = reaper.EnumProjects(-1)
-        UI_STATE.last_project_id = proj and (tostring(proj) .. "_" .. (filename or "unsaved")) or "none"
+        local id_fname = (not filename or filename == "") and "unsaved" or filename
+        UI_STATE.last_project_id = proj and (tostring(proj) .. "_" .. id_fname) or "none"
         DEADLINE.project_deadline = DEADLINE.get()
     end
     
@@ -18576,7 +18618,8 @@ local function main()
     UI_STATE.mouse_handled = false
     -- Check if project changed (tab switch)
     local proj, filename = reaper.EnumProjects(-1)
-    local current_project_id = proj and (tostring(proj) .. "_" .. (filename or "unsaved")) or "none"
+    local id_fname = (not filename or filename == "") and "unsaved" or filename
+    local current_project_id = proj and (tostring(proj) .. "_" .. id_fname) or "none"
     if current_project_id ~= UI_STATE.last_project_id then
         save_session_state(UI_STATE.last_project_id)
         UI_STATE.last_project_id = current_project_id
