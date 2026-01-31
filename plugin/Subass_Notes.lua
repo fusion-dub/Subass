@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.6.2
+-- @version 4.7.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.6.2"
+local script_title = "Subass Notes v4.7.1"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -5570,10 +5570,25 @@ local function apply_item_coloring(reset)
     end
 end
 
---- Active Speech Gated Normalization (EBU R128 Style)
---- Uses "Active Speech" gating to ignore silence and normalize only the vocal part.
---- Includes a "De-Boomer" safety check (cuts only) for muddy voices.
+--- LUFS Normalization (ITU-R BS.1770-4 via SWS Extension)
+--- Uses true LUFS measurement with K-weighting and integrated gating.
+--- Includes "De-Boomer" spectral correction (cuts only) for muddy voices.
+--- 
+--- ADAPTIVE GAIN LIMITING:
+--- Short clips naturally measure lower LUFS (less integration time).
+--- To prevent over-amplification, gain is limited relative to LONG CLIPS median (>=2s):
+---   - <0.5s clips: max 120% of long clips median gain
+---   - 0.5-2s clips: max 150% of long clips median gain  
+---   - >2s clips: max 250% of long clips median gain
+--- This uses dialogue as baseline, preventing short clips from skewing the reference.
 local function ebu_r128_replicas_normalize()
+    -- Check SWS Extension availability
+    if not reaper.APIExists("NF_AnalyzeTakeLoudness_IntegratedOnly") then
+        show_snackbar("SWS Extension потрібен для LUFS нормалізації", "error")
+        reaper.MB("Ця функція потребує SWS Extension.\n\nЗавантажте та встановіть з:\nhttps://www.sws-extension.org/", "SWS Extension не знайдено", 0)
+        return
+    end
+
     local items = {}
     local sel_item_count = reaper.CountSelectedMediaItems(0)
     
@@ -5614,26 +5629,23 @@ local function ebu_r128_replicas_normalize()
         return
     end
 
-    local last_val = reaper.GetExtState(section_name, "smart_norm_target")
-    if last_val == "" then last_val = "-14.0" end
+    local last_val = reaper.GetExtState(section_name, "lufs_norm_target")
+    if last_val == "" then last_val = "-18.0" end
 
-    local ok, ret_val = reaper.GetUserInputs("Нормалізація реплік (EBU Style)", 1, "Цільова гучність (24 до -24):,extrawidth=50", last_val)
+    local ok, ret_val = reaper.GetUserInputs("Нормалізація реплік (LUFS)", 1, "Цільова гучність LUFS (-5 до -40):,extrawidth=50", last_val)
     if not ok then return end
     
-    local target_db = tonumber(ret_val)
-    if not target_db or target_db > 24 or target_db < -24 then
-        show_snackbar("Будь ласка, введіть число від 24 до -24", "error")
+    local target_lufs = tonumber(ret_val)
+    if not target_lufs or target_lufs > -5 or target_lufs < -40 then
+        show_snackbar("Будь ласка, введіть число від -5 до -40 LUFS", "error")
         return
     end
     
-    reaper.SetExtState(section_name, "smart_norm_target", tostring(target_db), true)
+    reaper.SetExtState(section_name, "lufs_norm_target", tostring(target_lufs), true)
 
-    -- Helper: Measures "Active Speech" Level (Dialogue Gated)
-    -- 1. Splits audio into 50ms chunks
-    -- 2. Finds the Peak Chunk
-    -- 3. Ignores everything that is > 20dB quieter than the peak (Gates out silence/breaths)
-    -- 4. Returns average level of the REMAINING "Active" chunks
-    local function measure_active_speech_stats(take)
+    -- Helper: Measures spectral balance for De-Boomer correction
+    -- Analyzes highpass-filtered content to detect bass-heavy voices
+    local function measure_spectral_balance(take)
         local source = reaper.GetMediaItemTake_Source(take)
         local samplerate = reaper.GetMediaSourceSampleRate(source)
         local accessor = reaper.CreateTakeAudioAccessor(take)
@@ -5642,78 +5654,45 @@ local function ebu_r128_replicas_normalize()
         local duration = endtime - starttime
         
         if duration > 15 then duration = 15 end -- Analyze max 15s to save time
-        if duration <= 0 then reaper.DestroyAudioAccessor(accessor); return -100, -100 end
+        if duration <= 0 then reaper.DestroyAudioAccessor(accessor); return -100 end
 
         local chunk_size_ms = 0.050 -- 50ms window
         local samples_per_chunk = math.floor(samplerate * chunk_size_ms)
         local buf = reaper.new_array(samples_per_chunk)
         
-        local active_sum = 0
-        local active_count = 0
-        local chunk_rms_list = {}
-        local max_chunk_rms = 0
-        
-        -- Bandpass Filter State (for BP Analysis)
+        -- Highpass Filter State (for presence analysis)
         local xp, yp = 0, 0
-        local bp_sum = 0
         local alpha = 0.93 -- ~500Hz HPF at 44.1k
+        
+        local bp_energy_sum = 0
+        local chunk_count = 0
         
         local total_chunks = math.floor(duration / chunk_size_ms)
         for i = 0, total_chunks - 1 do
             local t = i * chunk_size_ms
             reaper.GetAudioAccessorSamples(accessor, samplerate, 1, t, samples_per_chunk, buf)
             
-            local sum_sq = 0
             local bp_chunk_sum = 0
             
             for j = 1, samples_per_chunk do
                 local x = buf[j]
-                sum_sq = sum_sq + (x * x)
-                
-                -- Parallel Bandpass Analysis (for de-booming)
-                -- Highpass
+                -- Highpass filter
                 local y = x - xp + (alpha * yp)
                 xp, yp = x, y
                 bp_chunk_sum = bp_chunk_sum + (y*y)
             end
             
-            local rms = math.sqrt(sum_sq / samples_per_chunk)
-            local bp_rms = math.sqrt(bp_chunk_sum / samples_per_chunk)
-            
-            table.insert(chunk_rms_list, {full=rms, bp=bp_rms})
-            if rms > max_chunk_rms then max_chunk_rms = rms end
+            bp_energy_sum = bp_energy_sum + bp_chunk_sum
+            chunk_count = chunk_count + 1
         end
         reaper.DestroyAudioAccessor(accessor)
 
-        -- Dynamic Gate: Ignore anything 20dB below the PEAK active part
-        -- This ensures we only measure the "Meat" of the dialogue
-        local gate_thresh = max_chunk_rms * 0.1 -- (-20dB linear approx 0.1)
-        if gate_thresh < 0.001 then gate_thresh = 0.001 end -- Safety floor
-
-        local final_rms_sum = 0
-        local final_bp_sum = 0
-        local count = 0
+        if chunk_count == 0 then return -100 end
         
-        for _, c in ipairs(chunk_rms_list) do
-            if c.full >= gate_thresh then
-                final_rms_sum = final_rms_sum + (c.full * c.full) -- Sum energy
-                final_bp_sum = final_bp_sum + (c.bp * c.bp)
-                count = count + 1
-            end
-        end
+        local avg_bp_energy = bp_energy_sum / (chunk_count * samples_per_chunk)
+        local bp_db = 20 * math.log(math.sqrt(avg_bp_energy), 10)
         
-        local final_db = -100
-        local final_bp_db = -100
-        
-        if count > 0 then
-            local avg_energy = final_rms_sum / count
-            final_db = 20 * math.log(math.sqrt(avg_energy), 10)
-            
-            local avg_bp_energy = final_bp_sum / count
-            final_bp_db = 20 * math.log(math.sqrt(avg_bp_energy), 10)
-        end
-
-        return final_db, final_bp_db
+        return bp_db
     end
 
     reaper.Undo_BeginBlock()
@@ -5722,7 +5701,7 @@ local function ebu_r128_replicas_normalize()
     local total_bp = 0
     local valid_cnt = 0
     
-    -- PASS 1: Analyze Active Levels
+    -- PASS 1: Analyze LUFS and Spectral Balance
     for i = 1, #items do
         local item = items[i]
         local take = reaper.GetActiveTake(item)
@@ -5731,31 +5710,95 @@ local function ebu_r128_replicas_normalize()
             local original_vol = reaper.GetMediaItemTakeInfo_Value(take, "D_VOL")
             reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", 1.0)
             
-            local act_db, bp_db = measure_active_speech_stats(take)
+            -- Measure LUFS using SWS Extension
+            local retval, lufs = reaper.NF_AnalyzeTakeLoudness_IntegratedOnly(take)
+            
+            -- Measure spectral balance for De-Boomer
+            local bp_db = measure_spectral_balance(take)
             
             -- Restore Volume
             reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", original_vol)
             
-            if act_db > -90 then
-                table.insert(item_results, {take=take, distinct_db=act_db, bp_db=bp_db})
+            if retval and lufs and lufs > -100 then
+                table.insert(item_results, {take=take, lufs=lufs, bp_db=bp_db})
                 total_bp = total_bp + bp_db
                 valid_cnt = valid_cnt + 1
             end
         end
     end
     
-    local mean_bp = (valid_cnt > 0) and (total_bp / valid_cnt) or -100
+    if valid_cnt == 0 then
+        reaper.Undo_EndBlock("LUFS Normalization", -1)
+        show_snackbar("Не вдалося проаналізувати жоден айтем", "error")
+        return
+    end
+    
+    local mean_bp = total_bp / valid_cnt
 
-    -- PASS 2: Apply Gain
+    -- Calculate median gain for adaptive limiting
+    -- Use ONLY long clips (>=2s) as reference baseline (dialogue)
+    -- Short clips naturally measure lower LUFS, so they shouldn't affect the median
+    local long_clip_gains = {}
+    for _, res in ipairs(item_results) do
+        local item = reaper.GetMediaItemTake_Item(res.take)
+        local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+        if item_len >= 2.0 then
+            table.insert(long_clip_gains, target_lufs - res.lufs)
+        end
+    end
+    
+    -- Fallback: if no long clips, use all clips
+    local reference_gains = (#long_clip_gains > 0) and long_clip_gains or {}
+    if #reference_gains == 0 then
+        for _, res in ipairs(item_results) do
+            table.insert(reference_gains, target_lufs - res.lufs)
+        end
+    end
+    
+    table.sort(reference_gains)
+    local median_gain = reference_gains[math.floor(#reference_gains / 2) + 1] or 0
+    
+    -- PASS 2: Apply LUFS Normalization + De-Boomer Correction + Adaptive Limiting
     local normalized_count = 0
     for _, res in ipairs(item_results) do
-        -- 1. Main Gain: Match Active Speech to Target
-        local gain_db = target_db - res.distinct_db
+        -- Get item duration
+        local item = reaper.GetMediaItemTake_Item(res.take)
+        local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
         
-        -- 2. De-Boomer (Bandpass Check)
-        -- We ONLY cut, we NEVER boost based on EQ difference anymore.
-        -- If my presence is lower than average, I am "distant", but we trust the Active Gate to handle level.
-        -- If my presence is higher (or bass is huge), this diff will be negative -> we cut.
+        -- 1. Main Gain: Match LUFS to Target
+        local gain_db = target_lufs - res.lufs
+        
+        -- 2. Adaptive Gain Limiting (based on duration and median)
+        -- Works with both positive (boost) and negative (cut) median gains
+        -- Uses absolute values to prevent inverted logic with negative numbers
+        local max_gain_multiplier
+        if item_len < 0.5 then
+            -- Very short (<0.5s): max 120% of median gain magnitude
+            max_gain_multiplier = 1.2
+        elseif item_len < 2.0 then
+            -- Short (0.5-2s): max 150% of median gain magnitude
+            max_gain_multiplier = 1.5
+        else
+            -- Normal (>2s): max 250% of median gain magnitude (very permissive)
+            max_gain_multiplier = 2.5
+        end
+        
+        -- Apply adaptive limit using absolute values to handle negative gains correctly
+        local abs_gain = math.abs(gain_db)
+        local abs_median = math.abs(median_gain)
+        
+        if abs_gain > abs_median then
+            local max_allowed_abs_gain = abs_median * max_gain_multiplier
+            if abs_gain > max_allowed_abs_gain then
+                -- Preserve the sign (boost or cut direction)
+                gain_db = max_allowed_abs_gain * (gain_db >= 0 and 1 or -1)
+            end
+        end
+        
+        -- 3. De-Boomer (Spectral Correction)
+        -- ONLY cut, NEVER boost based on spectral difference
+        -- If presence is lower than average -> voice is "distant" (no correction)
+        -- If presence is higher -> voice is "boomy" (cut by up to -6dB)
         local presence_diff = mean_bp - res.bp_db 
         local correction = presence_diff * 0.15 
         
@@ -5765,6 +5808,7 @@ local function ebu_r128_replicas_normalize()
         
         local final_vol = 10 ^ ((gain_db + correction) / 20)
         
+        -- Safety limits
         if final_vol > 32.0 then final_vol = 32.0 end
         if final_vol < 0.01 then final_vol = 0.01 end
         
@@ -5773,8 +5817,8 @@ local function ebu_r128_replicas_normalize()
     end
 
     reaper.UpdateArrange()
-    reaper.Undo_EndBlock("Active Speech Normalization", -1)
-    show_snackbar("Нормалізовано " .. normalized_count .. " айтемів (Active Speech Gate)", "success")
+    reaper.Undo_EndBlock("LUFS Normalization", -1)
+    show_snackbar("Нормалізовано " .. normalized_count .. " айтемів до " .. string.format("%.1f", target_lufs) .. " LUFS", "success")
 end
 
 local function filter_unique_item_replicas()
