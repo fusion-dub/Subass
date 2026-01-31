@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.1.4
+-- @version 0.1.5
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -259,10 +259,32 @@ local function get_words_and_separators(text)
 end
 
 local assimilation_rules = {
-    {"ться", "цця"}, {"зш", "шш"}, {"сш", "шш"}, {"зч", "чч"}, {"стч", "шч"},
-    {"сч", "чч"}, {"тч", "чч"}, {"дч", "чч"}, {"шся", "сся"}, {"чся", "цся"},
-    {"зж", "жж"}, {"чці", "цці"}, {"жці", "зці"}, {"стд", "зд"}, {"стці", "сці"},
-    {"нтст", "нст"}, {"стськ", "сськ"}, {"нтськ", "нськ"}, {"стс", "сс"}, {"тс", "ц"}
+    -- 1. Найдовші ланцюжки та специфічні спрощення (4 та 3 літери)
+    {"ться", "цця"},
+    {"стськ", "сськ"},
+    {"нтськ", "нськ"},
+    {"нтст", "нст"},
+    {"стці", "сці"},
+    {"стч", "шч"},
+    {"стд", "зд"},
+    {"стс", "сс"},
+
+    -- 2. Специфічні випадки дієслів (3 літери)
+    {"шся", "сся"},
+    {"чся", "цся"},
+
+    -- 3. Подвійні приголосні на межі (2 літери)
+    {"жці", "зці"},
+    {"чці", "цці"},
+    {"тці", "цці"},
+    {"зж", "жж"},
+    {"зш", "шш"},
+    {"сш", "шш"},
+    {"зч", "жч"},
+    {"сч", "шч"},
+    {"тч", "чч"},
+    {"дч", "чч"},
+    {"тс", "ц"} 
 }
 
 local function apply_assimilation_recursive(text, offset)
@@ -777,7 +799,7 @@ local function draw_context_menu()
             handle_repeat("-", new_value, -1)
             
             reaper.ImGui_SameLine(ctx, nil, 2)
-            reaper.ImGui_SetNextItemWidth(ctx, 150)
+            reaper.ImGui_SetNextItemWidth(ctx, 160)
             local s_changed, s_val = reaper.ImGui_SliderInt(ctx, "##s", value, min, max)
             if s_changed then 
                 new_value = s_val
