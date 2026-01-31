@@ -315,7 +315,8 @@ local DUBBERS = {
         assignments = {} -- Map of dubber_name -> { actor1 = true, actor2 = true }
     },
     scroll_y = 0,
-    target_scroll_y = 0
+    target_scroll_y = 0,
+    last_project_id = "" -- Track project changes
 }
 
 local regions = {}
@@ -6204,7 +6205,25 @@ function DUBBERS.export_as_ass(deadline_str)
         end
 
         file:write("[Script Info]\n")
-        local json_meta = STATS.json_encode(DUBBERS.data.assignments):gsub("\r", ""):gsub("\n", ""):gsub("%s%s+", " ")
+        
+        -- Filter assignments to only include dubbers with at least one assigned actor
+        -- AND only include actors that exist in the current project (ass_actors)
+        local filtered_assignments = {}
+        for dubber_name, actors in pairs(DUBBERS.data.assignments) do
+            local filtered_actors = {}
+            for actor, is_assigned in pairs(actors) do
+                -- Only include if assigned AND exists in current project
+                if is_assigned and ass_actors[actor] ~= nil then
+                    filtered_actors[actor] = true
+                end
+            end
+            -- Only add dubber if they have at least one valid actor
+            if next(filtered_actors) then
+                filtered_assignments[dubber_name] = filtered_actors
+            end
+        end
+        
+        local json_meta = STATS.json_encode(filtered_assignments):gsub("\r", ""):gsub("\n", ""):gsub("%s%s+", " ")
         file:write("Title: Subass Dubber Distribution\n")
         file:write("ScriptType: v4.00+\n")
         file:write("PlayResX: 1920\n")
@@ -12224,11 +12243,13 @@ local function draw_file()
                 
                 -- Label (Truncate if too long)
                 set_color(UI.C_TXT)
+                gfx.setfont(F.std)  -- Explicitly set font to prevent jumping
                 gfx.x, gfx.y = x_pos + S(25), chk_y + S(2)
                 
                 local max_txt_w = item_w - S(30) -- padding
                 local display_act = fit_text_width(act, max_txt_w)
                 
+                gfx.setfont(F.std)  -- Re-set after fit_text_width in case it changed
                 gfx.drawstr(display_act, 4 | 256, x_pos + item_w - S(5), chk_y + S(20))
 
                 -- Tooltip Logic
@@ -19245,6 +19266,8 @@ local function main()
         local id_fname = (not filename or filename == "") and "unsaved" or filename
         UI_STATE.last_project_id = proj and (tostring(proj) .. "_" .. id_fname) or "none"
         DEADLINE.project_deadline = DEADLINE.get()
+        DUBBERS.load() -- Load dubber data for initial project
+        DUBBERS.last_project_id = UI_STATE.last_project_id
     end
     
     -- Heartbeat for Lionzz
@@ -19279,6 +19302,8 @@ local function main()
         load_session_state(current_project_id)
         DEADLINE.sync_project() -- Synchronize local state with global registry
         DEADLINE.project_deadline = DEADLINE.get()
+        DUBBERS.load() -- Reload dubber data for this project
+        DUBBERS.last_project_id = current_project_id
         
         -- Immediate cache update after loading
         update_regions_cache()
