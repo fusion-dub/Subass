@@ -5121,395 +5121,6 @@ local function get_actor_color(actor)
     return native_col
 end
 
--- ═══════════════════════════════════════════════════════════════
--- DUBBERS MODULE - Methods
--- ═══════════════════════════════════════════════════════════════
-
---- Format seconds as M:SS
-function DUBBERS.format_duration(s)
-    if not s or s < 0 then return "0:00" end
-    local m = math.floor(s / 60)
-    local sec = math.floor(s % 60)
-    return string.format("%d:%02d", m, sec)
-end
-
---- Get statistics for a specific actor
-function DUBBERS.get_actor_stats(actor_name)
-    local stats = { replicas = 0, words = 0, time = 0 }
-    if not ass_lines then return stats end
-    
-    for _, line in ipairs(ass_lines) do
-        if line.actor == actor_name then
-            stats.replicas = stats.replicas + 1
-            stats.time = stats.time + (line.t2 - line.t1)
-            
-            -- Word count logic from draw_file
-            local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
-            local _, count = clean:gsub("%S+", "")
-            stats.words = stats.words + count
-        end
-    end
-    return stats
-end
-
---- Get statistics for a dubber (sum of assigned actors)
-function DUBBERS.get_dubber_stats(dubber_name)
-    local total = { replicas = 0, words = 0, time = 0, actors_count = 0 }
-    local assigned = DUBBERS.data.assignments[dubber_name]
-    if not assigned then return total end
-    
-    for act_name, is_on in pairs(assigned) do
-        if is_on then
-            total.actors_count = total.actors_count + 1
-            local s = DUBBERS.get_actor_stats(act_name)
-            total.replicas = total.replicas + s.replicas
-            total.words = total.words + s.words
-            total.time = total.time + s.time
-        end
-    end
-    return total
-end
-
---- Load dubber data from project extented state
-function DUBBERS.load()
-    local retval, json_str = reaper.GetProjExtState(0, "Subass_Notes", "dubber_data")
-    if retval and json_str ~= "" then
-        local success, result = pcall(function() return STATS.json_decode(json_str) end)
-        if success and type(result) == "table" then
-            DUBBERS.data = result
-            return
-        end
-    end
-    -- Default/Empty state if not found
-    DUBBERS.data = {
-        names = {},
-        assignments = {} -- dubber_name -> { actor1 = true, ... }
-    }
-end
-
---- Save dubber data to project extented state
-function DUBBERS.save()
-    local json_str = STATS.json_encode(DUBBERS.data)
-    reaper.SetProjExtState(0, "Subass_Notes", "dubber_data", json_str)
-end
-
---- Copy distribution result to clipboard
---- @param extended boolean if true, adds per-actor stats and totals
-function DUBBERS.copy_to_clipboard(extended)
-    local lines = {}
-    for _, name in ipairs(DUBBERS.data.names) do
-        local assigned = DUBBERS.data.assignments[name] or {}
-        local actors = {}
-        for act, is_assigned in pairs(assigned) do
-            if is_assigned then table.insert(actors, act) end
-        end
-        table.sort(actors)
-        
-        if not extended then
-            -- Short mode
-            if #actors > 0 then
-                table.insert(lines, name .. ": " .. table.concat(actors, ", "))
-            else
-                table.insert(lines, name .. ": (порожньо)")
-            end
-        else
-            -- Extended mode
-            local dubber_block = { "【 " .. name .. " 】" }
-            if #actors > 0 then
-                for _, act in ipairs(actors) do
-                    local s = DUBBERS.get_actor_stats(act)
-                    table.insert(dubber_block, string.format("  • %s: %d репл. | %d сл. | %s", act, s.replicas, s.words, DUBBERS.format_duration(s.time)))
-                end
-                
-                -- Add total for dubber
-                local ts = DUBBERS.get_dubber_stats(name)
-                table.insert(dubber_block, string.format("  Всього: %d акт. | %d репл. | %d сл. | %s", ts.actors_count, ts.replicas, ts.words, DUBBERS.format_duration(ts.time)))
-            else
-                table.insert(dubber_block, "  (немає призначених акторів)")
-            end
-            table.insert(lines, table.concat(dubber_block, "\n"))
-        end
-    end
-    
-    if #lines == 0 then
-        show_snackbar("Список даберів порожній", "error")
-        return
-    end
-    
-    local out = table.concat(lines, "\n\n")
-    set_clipboard(out)
-    show_snackbar("Розподіл скопійовано в буфер", "success")
-end
-
---- Draw Dubber Distribution Dashboard
---- @param input_queue table Queue of character/keyboard inputs
---- Draw Dubber Distribution Dashboard
---- @param input_queue table Queue of character/keyboard inputs
-function DUBBERS.draw_dashboard(input_queue)
-    local pad = S(20)
-    UI_STATE.mouse_handled = true -- Block interaction with background
-    
-    -- Background overlay
-    set_color(UI.C_BG, 0.98)
-    gfx.rect(0, 0, gfx.w, gfx.h, 1)
-    
-    -- --- DIMENSIONS & MEASUREMENTS ---
-    gfx.setfont(F.title)
-    local title = "Розподіл по даберам"
-    local tw, th = gfx.measurestr(title)
-    local header_h = pad + th + S(15)
-    
-    local dubber_item_h = S(50)
-    local actor_item_h = S(55)
-    local section_gap = S(30)
-    local grid_w = gfx.w - pad*2
-    local actor_col_w = S(220)
-    local cols = math.floor(grid_w / actor_col_w)
-    if cols < 1 then cols = 1 end
-    
-    -- --- DATA PREP ---
-    local sorted_actors = {}
-    for act in pairs(ass_actors) do table.insert(sorted_actors, act) end
-    table.sort(sorted_actors)
-    
-    local actor_to_dubbers = {}
-    for _, d_name in ipairs(DUBBERS.data.names) do
-        local assigned = DUBBERS.data.assignments[d_name] or {}
-        for act, is_on in pairs(assigned) do
-            if is_on then
-                if not actor_to_dubbers[act] then actor_to_dubbers[act] = {} end
-                table.insert(actor_to_dubbers[act], d_name)
-            end
-        end
-    end
-    
-    -- Content Height Calculation
-    local d_cols = 3
-    local d_col_w = grid_w / d_cols
-    local d_rows = math.ceil(#DUBBERS.data.names / d_cols)
-    local dubbers_h = (d_rows * dubber_item_h) + S(75) -- + Title & Add button room
-    
-    local actors_start_relative = dubbers_h + section_gap
-    local rows = math.ceil(#sorted_actors / cols)
-    local actors_h = rows * actor_item_h
-    local total_content_h = actors_start_relative + actors_h + pad + S(40) -- EXTRA PADDING AT BOTTOM
-    
-    local view_h = gfx.h - header_h
-    local max_scroll = math.max(0, total_content_h - view_h)
-    
-    -- SCROLL CONTROL
-    if gfx.mouse_wheel ~= 0 then
-        DUBBERS.target_scroll_y = math.max(0, math.min(DUBBERS.target_scroll_y - (gfx.mouse_wheel * 0.25), max_scroll))
-        gfx.mouse_wheel = 0
-    end
-    local diff = DUBBERS.target_scroll_y - DUBBERS.scroll_y
-    if math.abs(diff) > 0.5 then DUBBERS.scroll_y = DUBBERS.scroll_y + (diff * 0.8) else DUBBERS.scroll_y = DUBBERS.target_scroll_y end
-    
-    -- --- SCROLLABLE CONTENT ---
-    local function get_y(rel_y) return header_h + rel_y - math.floor(DUBBERS.scroll_y) end
-    
-    -- 1. Dubbers Section
-    local dy = get_y(0)
-    if dy + S(25) > header_h then
-        set_color(UI.C_TXT, 0.6)
-        gfx.setfont(F.bld)
-        gfx.x, gfx.y = pad, dy
-        gfx.drawstr("ДАБЕРИ")
-    end
-    
-    dy = dy + S(25)
-    
-    -- Add Dubber Button
-    local add_w = S(120)
-    if dy + S(25) > header_h and dy < gfx.h then
-        if btn(pad, dy, add_w, S(25), "+ Додати дабера", UI.C_BTN, UI.C_TXT) then
-            local ok, name = reaper.GetUserInputs("Новий дабер", 1, "Ім'я дабера:", "")
-            if ok and name ~= "" then
-                table.insert(DUBBERS.data.names, name)
-                DUBBERS.save()
-            end
-        end
-    end
-    
-    dy = dy + S(35)
-    
-    for i, name in ipairs(DUBBERS.data.names) do
-        local col = (i-1) % d_cols
-        local row = math.floor((i-1) / d_cols)
-        local dx = pad + col * d_col_w
-        local item_y = dy + row * dubber_item_h
-        
-        local is_active = (i == DUBBERS.active_dubber_idx)
-        
-        if item_y + dubber_item_h > header_h and item_y < gfx.h then
-            local bg = is_active and UI.C_ACCENT_N or UI.C_ROW
-            local txt_c = is_active and UI.C_WHITE or UI.C_TXT
-            
-            -- Draw Row Background
-            set_color(bg, is_active and 0.9 or 0.3)
-            gfx.rect(dx, item_y, d_col_w - S(5), dubber_item_h - S(4), 1)
-            
-            -- Selection Logic
-            if is_mouse_clicked() and gfx.mouse_x >= dx and gfx.mouse_x <= dx + d_col_w and
-               gfx.mouse_y >= item_y and gfx.mouse_y <= item_y + dubber_item_h and gfx.mouse_y > header_h then
-                DUBBERS.active_dubber_idx = i
-            end
-            
-            -- ПКМ: Rename/Delete
-            if is_mouse_clicked(2) and gfx.mouse_x >= dx and gfx.mouse_x <= dx + d_col_w and
-               gfx.mouse_y >= item_y and gfx.mouse_y <= item_y + dubber_item_h and gfx.mouse_y > header_h then
-                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local ret = gfx.showmenu("Перейменувати|Видалити")
-                if ret == 1 then
-                    local ok, n_name = reaper.GetUserInputs("Rename", 1, "New name:", name)
-                    if ok and n_name ~= "" then
-                        DUBBERS.data.assignments[n_name] = DUBBERS.data.assignments[name]
-                        DUBBERS.data.assignments[name] = nil
-                        DUBBERS.data.names[i] = n_name
-                        DUBBERS.save()
-                    end
-                elseif ret == 2 then
-                    if reaper.MB("Видалити '"..name.."'?", "Confirm", 4) == 6 then
-                        table.remove(DUBBERS.data.names, i); DUBBERS.data.assignments[name] = nil
-                        DUBBERS.active_dubber_idx = math.max(1, math.min(DUBBERS.active_dubber_idx, #DUBBERS.data.names))
-                        DUBBERS.save()
-                    end
-                end
-            end
-            
-            -- Labels
-            gfx.setfont(F.bld)
-            set_color(txt_c)
-            gfx.x, gfx.y = dx + S(15), item_y + S(8)
-            gfx.drawstr(fit_text_width(name, d_col_w - S(25)))
-            
-            local s = DUBBERS.get_dubber_stats(name)
-            local meta = string.format("%d репл. | %d сл. | %s | %d акт.", s.replicas, s.words, DUBBERS.format_duration(s.time), s.actors_count)
-            gfx.setfont(F.tip)
-            set_color(txt_c, 0.7)
-            gfx.x, gfx.y = dx + S(15), item_y + S(28)
-            gfx.drawstr(fit_text_width(meta, d_col_w - S(25)))
-        end
-    end
-    
-    -- 2. Actors Section
-    local ay = get_y(actors_start_relative)
-    local active_dubber = DUBBERS.data.names[DUBBERS.active_dubber_idx]
-    
-    if ay + S(40) > header_h and ay < gfx.h then
-        set_color(UI.C_TXT, 0.6)
-        gfx.setfont(F.bld)
-        gfx.x, gfx.y = pad, ay
-        local a_title = "АКТОРИ"
-        if active_dubber then a_title = a_title .. " (Призначення для: " .. active_dubber .. ")" end
-        gfx.drawstr(a_title)
-    end
-    
-    ay = ay + S(30)
-    
-    for i, act in ipairs(sorted_actors) do
-        local col = (i-1) % cols
-        local row = math.floor((i-1) / cols)
-        local ax = pad + col * actor_col_w
-        local cur_ay = ay + row * actor_item_h
-        
-        if cur_ay + actor_item_h > header_h and cur_ay < gfx.h then
-            local is_assigned = active_dubber and DUBBERS.data.assignments[active_dubber] and DUBBERS.data.assignments[active_dubber][act]
-            local dbs = actor_to_dubbers[act]
-            local has_any_assignment = (dbs and #dbs > 0)
-            local fade = has_any_assignment and 1.0 or 0.4 -- Pale if no dubber assigned at all
-            
-            -- Card BG
-            if is_assigned then
-                set_color(UI.C_GREEN, 0.15) -- User preferred value
-            else
-                set_color(UI.C_ROW, 0.2 * fade)
-            end
-            gfx.rect(ax, cur_ay, actor_col_w - S(5), actor_item_h - S(5), 1)
-            
-            -- Light Border for assigned actors
-            if has_any_assignment then
-                set_color(UI.C_GREEN, 0.15)
-                gfx.rect(ax, cur_ay, actor_col_w - S(5), actor_item_h - S(5), 0)
-            end
-            
-            -- Checkbox / Assignment
-            local a_col = get_actor_color(act)
-            local r, g, b = reaper.ColorFromNative(a_col & 0xFFFFFF)
-            
-            if is_assigned then
-                set_color({r/255, g/255, b/255})
-                gfx.rect(ax + S(8), cur_ay + S(11), S(18), S(18), 1)
-                set_color(UI.C_BLACK)
-                gfx.line(ax + S(11), cur_ay + S(20), ax + S(15), cur_ay + S(25))
-                gfx.line(ax + S(15), cur_ay + S(25), ax + S(22), cur_ay + S(14))
-            else
-                set_color(UI.C_BTN, fade)
-                gfx.rect(ax + S(8), cur_ay + S(11), S(18), S(18), 0)
-                set_color({r/255, g/255, b/255}, 0.3 * fade)
-                gfx.rect(ax + S(13), cur_ay + S(16), S(8), S(8), 1)
-            end
-            
-            -- Actor Name + Dubbers
-            local label = act
-            if has_any_assignment then label = label .. " [" .. table.concat(dbs, ", ") .. "]" end
-            
-            set_color(UI.C_TXT, fade)
-            gfx.setfont(F.bld)
-            gfx.x, gfx.y = ax + S(32), cur_ay + S(8)
-            gfx.drawstr(fit_text_width(label, actor_col_w - S(40)))
-            
-            local s = DUBBERS.get_actor_stats(act)
-            local meta = string.format("%d репл. | %d сл. | %s", s.replicas, s.words, DUBBERS.format_duration(s.time))
-            gfx.setfont(F.tip)
-            set_color(UI.C_TXT, 0.6 * fade)
-            gfx.x, gfx.y = ax + S(32), cur_ay + S(28)
-            gfx.drawstr(fit_text_width(meta, actor_col_w - S(40)))
-            
-            -- Click logic
-            if is_mouse_clicked() and gfx.mouse_x >= ax and gfx.mouse_x <= ax + actor_col_w and
-               gfx.mouse_y >= cur_ay and gfx.mouse_y <= cur_ay + actor_item_h and gfx.mouse_y > header_h then
-                if active_dubber then
-                    if not DUBBERS.data.assignments[active_dubber] then DUBBERS.data.assignments[active_dubber] = {} end
-                    DUBBERS.data.assignments[active_dubber][act] = not is_assigned
-                    DUBBERS.save()
-                else
-                    show_snackbar("Оберіть дабера зверху", "info")
-                end
-            end
-        end
-    end
-    
-    -- --- FIXED HEADER OVERLAY (Drawn last to stay on top) ---
-    set_color(UI.C_BG, 1.0)
-    gfx.rect(0, 0, gfx.w, header_h, 1)
-    
-    set_color(UI.C_TXT)
-    gfx.setfont(F.title)
-    gfx.x, gfx.y = pad, pad
-    gfx.drawstr(fit_text_width(title, gfx.w - pad*2 - S(250)))
-    
-    local function close_dash() DUBBERS.show_dashboard = false end
-    local close_sz = S(24)
-    if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then close_dash() end
-    
-    local copy_w = S(180)
-    if btn(gfx.w - pad - close_sz - S(10) - copy_w, pad, copy_w, close_sz, "Копіювати результат", UI.C_TAB_INA, UI.C_TXT) then
-        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-        local ret = gfx.showmenu("Короткий (тільки імена)|Розширений (з аналітикою)")
-        if ret == 1 then
-            DUBBERS.copy_to_clipboard(false)
-        elseif ret == 2 then
-            DUBBERS.copy_to_clipboard(true)
-        end
-    end
-    
-    -- ESC key to close
-    if input_queue then
-        for _, c in ipairs(input_queue) do if c == 27 then close_dash() break end end
-    end
-end
-
 --- Sync ass_actors with current ass_lines (Remove actors with 0 replicas)
 --- Identify used actors and remove unused ones from list
 local function cleanup_actors()
@@ -6428,6 +6039,529 @@ function upload_subtitles_analytics()
         local cmd = string.format('nohup python3 "%s" --filepath "%s" --project_name "%s" > /dev/null 2>&1 &', 
                                   full_script_path, filepath, proj_name)
         os.execute(cmd)
+    end
+end
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- DUBBERS MODULE - Methods
+-- ═══════════════════════════════════════════════════════════════
+
+--- Format seconds as M:SS
+function DUBBERS.format_duration(s)
+    if not s or s < 0 then return "0:00" end
+    local m = math.floor(s / 60)
+    local sec = math.floor(s % 60)
+    return string.format("%d:%02d", m, sec)
+end
+
+--- Get statistics for a specific actor
+function DUBBERS.get_actor_stats(actor_name)
+    local stats = { replicas = 0, words = 0, time = 0 }
+    if not ass_lines then return stats end
+    
+    for _, line in ipairs(ass_lines) do
+        if line.actor == actor_name then
+            stats.replicas = stats.replicas + 1
+            stats.time = stats.time + (line.t2 - line.t1)
+            
+            -- Word count logic from draw_file
+            local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+            local _, count = clean:gsub("%S+", "")
+            stats.words = stats.words + count
+        end
+    end
+    return stats
+end
+
+--- Get statistics for a dubber (sum of assigned actors)
+function DUBBERS.get_dubber_stats(dubber_name)
+    local total = { replicas = 0, words = 0, time = 0, actors_count = 0 }
+    local assigned = DUBBERS.data.assignments[dubber_name]
+    if not assigned then return total end
+    
+    for act_name, is_on in pairs(assigned) do
+        if is_on then
+            total.actors_count = total.actors_count + 1
+            local s = DUBBERS.get_actor_stats(act_name)
+            total.replicas = total.replicas + s.replicas
+            total.words = total.words + s.words
+            total.time = total.time + s.time
+        end
+    end
+    return total
+end
+
+--- Load dubber data from project extented state
+function DUBBERS.load()
+    local retval, json_str = reaper.GetProjExtState(0, "Subass_Notes", "dubber_data")
+    if retval and json_str ~= "" then
+        local success, result = pcall(function() return STATS.json_decode(json_str) end)
+        if success and type(result) == "table" then
+            DUBBERS.data = result
+            return
+        end
+    end
+    -- Default/Empty state if not found
+    DUBBERS.data = {
+        names = {},
+        assignments = {} -- dubber_name -> { actor1 = true, ... }
+    }
+end
+
+--- Save dubber data to project extented state
+function DUBBERS.save()
+    local json_str = STATS.json_encode(DUBBERS.data)
+    reaper.SetProjExtState(0, "Subass_Notes", "dubber_data", json_str)
+end
+
+--- Copy distribution result to clipboard
+--- @param extended boolean if true, adds per-actor stats and totals
+function DUBBERS.copy_to_clipboard(extended)
+    local lines = {}
+    for _, name in ipairs(DUBBERS.data.names) do
+        local assigned = DUBBERS.data.assignments[name] or {}
+        local actors = {}
+        for act, is_assigned in pairs(assigned) do
+            if is_assigned then table.insert(actors, act) end
+        end
+        table.sort(actors)
+        
+        if not extended then
+            -- Short mode
+            if #actors > 0 then
+                table.insert(lines, name .. ": " .. table.concat(actors, ", "))
+            else
+                table.insert(lines, name .. ": (порожньо)")
+            end
+        else
+            -- Extended mode
+            local dubber_block = { "【 " .. name .. " 】" }
+            if #actors > 0 then
+                for _, act in ipairs(actors) do
+                    local s = DUBBERS.get_actor_stats(act)
+                    table.insert(dubber_block, string.format("  • %s: %d репл. | %d сл. | %s", act, s.replicas, s.words, DUBBERS.format_duration(s.time)))
+                end
+                
+                -- Add total for dubber
+                local ts = DUBBERS.get_dubber_stats(name)
+                table.insert(dubber_block, string.format("  Всього: %d акт. | %d репл. | %d сл. | %s", ts.actors_count, ts.replicas, ts.words, DUBBERS.format_duration(ts.time)))
+            else
+                table.insert(dubber_block, "  (немає призначених акторів)")
+            end
+            table.insert(lines, table.concat(dubber_block, "\n"))
+        end
+    end
+    
+    if #lines == 0 then
+        show_snackbar("Список даберів порожній", "error")
+        return
+    end
+    
+    local out = table.concat(lines, "\n\n")
+    set_clipboard(out)
+    show_snackbar("Розподіл скопійовано в буфер", "success")
+end
+
+--- Export distibution as ASS with embedded metadata
+--- @param deadline_str string|nil Optional deadline prefix like "[31.01.26]"
+function DUBBERS.export_as_ass(deadline_str)
+    if not ass_lines then 
+        show_snackbar("Немає реплік для експорту", "error")
+        return 
+    end
+
+    -- Construct filename
+    local _, proj_path = reaper.EnumProjects(-1)
+    local proj_name = "Project"
+    if proj_path and proj_path ~= "" then
+        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
+    end
+    
+    local default_filename = proj_name .. "_Distribution.ass"
+    if deadline_str then
+        default_filename = deadline_str .. " " .. default_filename
+    end
+
+    -- Save Dialog
+    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Експорт розподілу в ASS", "", default_filename, "ASS files (.ass)\0*.ass\0All Files (*.*)\0*.*\0")
+    
+    if retval == 1 and filename ~= "" then
+        if not filename:match("%.ass$") then filename = filename .. ".ass" end
+        
+        local file = io.open(filename, "w")
+        if not file then
+            reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
+            return
+        end
+
+        local fmt_time = function(secs)
+            local h = math.floor(secs / 3600)
+            local m = math.floor((secs % 3600) / 60)
+            local s = math.floor(secs % 60)
+            local ms = math.floor((secs % 1) * 100)
+            return string.format("%d:%02d:%02d.%02d", h, m, s, ms)
+        end
+
+        file:write("[Script Info]\n")
+        local json_meta = STATS.json_encode(DUBBERS.data.assignments):gsub("\r", ""):gsub("\n", ""):gsub("%s%s+", " ")
+        file:write("Title: Subass Dubber Distribution\n")
+        file:write("ScriptType: v4.00+\n")
+        file:write("PlayResX: 1920\n")
+        file:write("PlayResY: 1080\n")
+        file:write("ScaledBorderAndShadow: yes\n\n")
+        
+        file:write("[V4+ Styles]\n")
+        file:write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+        file:write("Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
+        
+        file:write("[Events]\n")
+        file:write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+
+        -- Metadata Dialogue line (for persistence across external editors)
+        file:write(string.format("Dialogue: 0,0:00:00.00,0:00:00.00,Default,SubassMetadata,0,0,0,,%s\n", json_meta))
+
+        local out_lines = {}
+        for _, l in ipairs(ass_lines) do
+            table.insert(out_lines, l)
+        end
+        table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
+
+        local export_count = 0
+        for _, l in ipairs(out_lines) do
+            local actor = l.actor or "Unknown"
+            if actor == "" then actor = "Unknown" end
+            
+            local text = l.text:gsub("\n", "\\N")
+            file:write(string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s\n", fmt_time(l.t1), fmt_time(l.t2), actor, text))
+            export_count = export_count + 1
+        end
+        
+        file:close()
+        show_snackbar("Експортовано " .. export_count .. " реплік з метаданими", "success")
+    end
+end
+
+--- Draw Dubber Distribution Dashboard
+--- @param input_queue table Queue of character/keyboard inputs
+--- Draw Dubber Distribution Dashboard
+--- @param input_queue table Queue of character/keyboard inputs
+function DUBBERS.draw_dashboard(input_queue)
+    local pad = S(20)
+    UI_STATE.mouse_handled = true -- Block interaction with background
+    
+    -- Background overlay
+    set_color(UI.C_BG, 0.98)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+    
+    -- --- DIMENSIONS & MEASUREMENTS ---
+    gfx.setfont(F.title)
+    local title = "Розподіл по даберам"
+    local tw, th = gfx.measurestr(title)
+    local header_h = pad + th + S(15)
+    
+    local dubber_item_h = S(50)
+    local actor_item_h = S(55)
+    local section_gap = S(30)
+    local grid_w = gfx.w - pad*2
+    local actor_col_w = S(220)
+    local cols = math.floor(grid_w / actor_col_w)
+    if cols < 1 then cols = 1 end
+    
+    -- --- DATA PREP ---
+    local sorted_actors = {}
+    for act in pairs(ass_actors) do table.insert(sorted_actors, act) end
+    table.sort(sorted_actors)
+    
+    local actor_to_dubbers = {}
+    for _, d_name in ipairs(DUBBERS.data.names) do
+        local assigned = DUBBERS.data.assignments[d_name] or {}
+        for act, is_on in pairs(assigned) do
+            if is_on then
+                if not actor_to_dubbers[act] then actor_to_dubbers[act] = {} end
+                table.insert(actor_to_dubbers[act], d_name)
+            end
+        end
+    end
+    
+    -- Content Height Calculation
+    local d_cols = 3
+    local d_col_w = grid_w / d_cols
+    local d_rows = math.ceil(#DUBBERS.data.names / d_cols)
+    local dubbers_h = (d_rows * dubber_item_h) + S(75) -- + Title & Add button room
+    
+    local actors_start_relative = dubbers_h + section_gap
+    local rows = math.ceil(#sorted_actors / cols)
+    local actors_h = rows * actor_item_h
+    local total_content_h = actors_start_relative + actors_h + pad + S(40) -- EXTRA PADDING AT BOTTOM
+    
+    local view_h = gfx.h - header_h
+    local max_scroll = math.max(0, total_content_h - view_h)
+    
+    -- SCROLL CONTROL
+    if gfx.mouse_wheel ~= 0 then
+        DUBBERS.target_scroll_y = math.max(0, math.min(DUBBERS.target_scroll_y - (gfx.mouse_wheel * 0.25), max_scroll))
+        gfx.mouse_wheel = 0
+    end
+    local diff = DUBBERS.target_scroll_y - DUBBERS.scroll_y
+    if math.abs(diff) > 0.5 then DUBBERS.scroll_y = DUBBERS.scroll_y + (diff * 0.8) else DUBBERS.scroll_y = DUBBERS.target_scroll_y end
+    
+    -- --- SCROLLABLE CONTENT ---
+    local function get_y(rel_y) return header_h + rel_y - math.floor(DUBBERS.scroll_y) end
+    
+    -- 1. Dubbers Section
+    local dy = get_y(0)
+    if dy + S(25) > header_h then
+        set_color(UI.C_TXT, 0.6)
+        gfx.setfont(F.bld)
+        gfx.x, gfx.y = pad, dy
+        gfx.drawstr("ДАБЕРИ")
+    end
+    
+    dy = dy + S(25)
+    
+    -- Add Dubber Button
+    local add_w = S(120)
+    if dy + S(25) > header_h and dy < gfx.h then
+        if btn(pad, dy, add_w, S(25), "+ Додати дабера", UI.C_BTN, UI.C_TXT) then
+            local ok, name = reaper.GetUserInputs("Новий дабер", 1, "Ім'я дабера:", "")
+            if ok and name ~= "" then
+                table.insert(DUBBERS.data.names, name)
+                DUBBERS.save()
+            end
+        end
+    end
+    
+    dy = dy + S(35)
+    
+    for i, name in ipairs(DUBBERS.data.names) do
+        local col = (i-1) % d_cols
+        local row = math.floor((i-1) / d_cols)
+        local dx = pad + col * d_col_w
+        local item_y = dy + row * dubber_item_h
+        
+        local is_active = (i == DUBBERS.active_dubber_idx)
+        
+        if item_y + dubber_item_h > header_h and item_y < gfx.h then
+            local bg = is_active and UI.C_ACCENT_N or UI.C_ROW
+            local txt_c = is_active and UI.C_WHITE or UI.C_TXT
+            
+            -- Draw Row Background
+            set_color(bg, is_active and 0.9 or 0.3)
+            gfx.rect(dx, item_y, d_col_w - S(5), dubber_item_h - S(4), 1)
+            
+            -- Selection Logic
+            if is_mouse_clicked() and gfx.mouse_x >= dx and gfx.mouse_x <= dx + d_col_w and
+               gfx.mouse_y >= item_y and gfx.mouse_y <= item_y + dubber_item_h and gfx.mouse_y > header_h then
+                DUBBERS.active_dubber_idx = i
+            end
+            
+            -- ПКМ: Rename/Delete
+            if is_mouse_clicked(2) and gfx.mouse_x >= dx and gfx.mouse_x <= dx + d_col_w and
+               gfx.mouse_y >= item_y and gfx.mouse_y <= item_y + dubber_item_h and gfx.mouse_y > header_h then
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local ret = gfx.showmenu("Вибрати цього дабера||Перейменувати|Видалити")
+                if ret == 1 then
+                    -- Select dubber logic: Filter main list by this dubber's actors
+                    local assigned_actors = DUBBERS.data.assignments[name] or {}
+                    
+                    -- Reset all filters
+                    for k in pairs(ass_actors) do ass_actors[k] = false end
+                    if ass_lines then
+                        for _, l in ipairs(ass_lines) do l.enabled = false end
+                    end
+                    
+                    -- Apply assignments from this dubber
+                    local found_any = false
+                    for act, is_on in pairs(assigned_actors) do
+                        if is_on and ass_actors[act] ~= nil then
+                            ass_actors[act] = true
+                            found_any = true
+                        end
+                    end
+                    
+                    -- Sync lines enabled state
+                    if ass_lines then
+                        for _, l in ipairs(ass_lines) do
+                            if assigned_actors[l.actor] then
+                                l.enabled = true
+                            end
+                        end
+                    end
+                    
+                    rebuild_regions()
+                    if found_any then
+                        show_snackbar("Вибрано акторів дабера: " .. name, "success")
+                    else
+                        show_snackbar("У дабера '" .. name .. "' немає призначених акторів у цьому проекті", "warning")
+                    end
+                    
+                elseif ret == 2 then
+                    local ok, n_name = reaper.GetUserInputs("Rename", 1, "New name:", name)
+                    if ok and n_name ~= "" then
+                        DUBBERS.data.assignments[n_name] = DUBBERS.data.assignments[name]
+                        DUBBERS.data.assignments[name] = nil
+                        DUBBERS.data.names[i] = n_name
+                        DUBBERS.save()
+                    end
+                elseif ret == 3 then
+                    if reaper.MB("Видалити '"..name.."'?", "Confirm", 4) == 6 then
+                        table.remove(DUBBERS.data.names, i); DUBBERS.data.assignments[name] = nil
+                        DUBBERS.active_dubber_idx = math.max(1, math.min(DUBBERS.active_dubber_idx, #DUBBERS.data.names))
+                        DUBBERS.save()
+                    end
+                end
+            end
+            
+            -- Labels
+            gfx.setfont(F.bld)
+            set_color(txt_c)
+            gfx.x, gfx.y = dx + S(15), item_y + S(8)
+            gfx.drawstr(fit_text_width(name, d_col_w - S(25)))
+            
+            local s = DUBBERS.get_dubber_stats(name)
+            local meta = string.format("%d репл. | %d сл. | %s | %d акт.", s.replicas, s.words, DUBBERS.format_duration(s.time), s.actors_count)
+            gfx.setfont(F.tip)
+            set_color(txt_c, 0.7)
+            gfx.x, gfx.y = dx + S(15), item_y + S(28)
+            gfx.drawstr(fit_text_width(meta, d_col_w - S(25)))
+        end
+    end
+    
+    -- 2. Actors Section
+    local ay = get_y(actors_start_relative)
+    local active_dubber = DUBBERS.data.names[DUBBERS.active_dubber_idx]
+    
+    if ay + S(40) > header_h and ay < gfx.h then
+        set_color(UI.C_TXT, 0.6)
+        gfx.setfont(F.bld)
+        gfx.x, gfx.y = pad, ay
+        local a_title = "АКТОРИ"
+        if active_dubber then a_title = a_title .. " (Призначення для: " .. active_dubber .. ")" end
+        gfx.drawstr(a_title)
+    end
+    
+    ay = ay + S(30)
+    
+    for i, act in ipairs(sorted_actors) do
+        local col = (i-1) % cols
+        local row = math.floor((i-1) / cols)
+        local ax = pad + col * actor_col_w
+        local cur_ay = ay + row * actor_item_h
+        
+        if cur_ay + actor_item_h > header_h and cur_ay < gfx.h then
+            local is_assigned = active_dubber and DUBBERS.data.assignments[active_dubber] and DUBBERS.data.assignments[active_dubber][act]
+            local dbs = actor_to_dubbers[act]
+            local has_any_assignment = (dbs and #dbs > 0)
+            local fade = has_any_assignment and 1.0 or 0.4 -- Pale if no dubber assigned at all
+            
+            -- Card BG
+            if is_assigned then
+                set_color(UI.C_GREEN, 0.15) -- User preferred value
+            else
+                set_color(UI.C_ROW, 0.2 * fade)
+            end
+            gfx.rect(ax, cur_ay, actor_col_w - S(5), actor_item_h - S(5), 1)
+            
+            -- Light Border for assigned actors
+            if has_any_assignment then
+                set_color(UI.C_GREEN, 0.15)
+                gfx.rect(ax, cur_ay, actor_col_w - S(5), actor_item_h - S(5), 0)
+            end
+            
+            -- Checkbox / Assignment
+            local a_col = get_actor_color(act)
+            local r, g, b = reaper.ColorFromNative(a_col & 0xFFFFFF)
+            
+            if is_assigned then
+                set_color({r/255, g/255, b/255})
+                gfx.rect(ax + S(8), cur_ay + S(11), S(18), S(18), 1)
+                set_color(UI.C_BLACK)
+                gfx.line(ax + S(11), cur_ay + S(20), ax + S(15), cur_ay + S(25))
+                gfx.line(ax + S(15), cur_ay + S(25), ax + S(22), cur_ay + S(14))
+            else
+                set_color(UI.C_BTN, fade)
+                gfx.rect(ax + S(8), cur_ay + S(11), S(18), S(18), 0)
+                set_color({r/255, g/255, b/255}, 0.3 * fade)
+                gfx.rect(ax + S(13), cur_ay + S(16), S(8), S(8), 1)
+            end
+            
+            -- Actor Name + Dubbers
+            local label = act
+            if has_any_assignment then label = label .. " [" .. table.concat(dbs, ", ") .. "]" end
+            
+            set_color(UI.C_TXT, fade)
+            gfx.setfont(F.bld)
+            gfx.x, gfx.y = ax + S(32), cur_ay + S(8)
+            gfx.drawstr(fit_text_width(label, actor_col_w - S(40)))
+            
+            local s = DUBBERS.get_actor_stats(act)
+            local meta = string.format("%d репл. | %d сл. | %s", s.replicas, s.words, DUBBERS.format_duration(s.time))
+            gfx.setfont(F.tip)
+            set_color(UI.C_TXT, 0.6 * fade)
+            gfx.x, gfx.y = ax + S(32), cur_ay + S(28)
+            gfx.drawstr(fit_text_width(meta, actor_col_w - S(40)))
+            
+            -- Click logic
+            if is_mouse_clicked() and gfx.mouse_x >= ax and gfx.mouse_x <= ax + actor_col_w and
+               gfx.mouse_y >= cur_ay and gfx.mouse_y <= cur_ay + actor_item_h and gfx.mouse_y > header_h then
+                if active_dubber then
+                    if not DUBBERS.data.assignments[active_dubber] then DUBBERS.data.assignments[active_dubber] = {} end
+                    DUBBERS.data.assignments[active_dubber][act] = not is_assigned
+                    DUBBERS.save()
+                else
+                    show_snackbar("Оберіть дабера зверху", "info")
+                end
+            end
+        end
+    end
+    
+    -- --- FIXED HEADER OVERLAY (Drawn last to stay on top) ---
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, header_h, 1)
+    
+    local close_sz = S(24)
+    local copy_w = S(100)
+    local export_w = S(170)
+    local right_edge = gfx.w - pad - close_sz - S(10)
+    
+    set_color(UI.C_TXT)
+    gfx.setfont(F.title)
+    gfx.x, gfx.y = pad, pad
+    local reserved_w = close_sz + copy_w + export_w + S(50)
+    gfx.drawstr(fit_text_width(title, gfx.w - pad - reserved_w))
+    
+    local function close_dash() DUBBERS.show_dashboard = false end
+    if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then close_dash() end
+    
+    if btn(right_edge - copy_w, pad, copy_w, close_sz, "Копіювати", UI.C_TAB_INA, UI.C_TXT) then
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local ret = gfx.showmenu("Короткий (тільки імена)|Розширений (з аналітикою)")
+        if ret == 1 then
+            DUBBERS.copy_to_clipboard(false)
+        elseif ret == 2 then
+            DUBBERS.copy_to_clipboard(true)
+        end
+    end
+
+    if btn(right_edge - copy_w - S(10) - export_w, pad, export_w, close_sz, "Експортувати як ASS", UI.C_TAB_INA, UI.C_TXT) then
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local ret = gfx.showmenu("Просто експорт||Експорт з дедлайном")
+        if ret == 1 then
+            DUBBERS.export_as_ass()
+        elseif ret == 2 then
+            DEADLINE.open_picker(nil, function(ts)
+                if not ts then return end
+                local dt = os.date("*t", ts)
+                local d_str = string.format("[%02d.%02d.%02d]", dt.day, dt.month, dt.year % 100)
+                DUBBERS.export_as_ass(d_str)
+            end)
+        end
+    end
+    
+    -- ESC key to close
+    if input_queue then
+        for _, c in ipairs(input_queue) do if c == 27 then close_dash() break end end
     end
 end
 
@@ -7415,6 +7549,56 @@ local function import_ass(file_path, dont_rebuild)
     local in_events = false
     local format_def = nil
     
+    -- Dubber metadata detection
+    local metadata_str = content:match("; SubassDubbers: ([^\n]+)")
+    
+    -- If not found in comments, scan Dialogue lines for SubassMetadata
+    if not metadata_str then
+        metadata_str = content:match("Dialogue:[^,]+,[^,]+,[^,]+,[^,]+,SubassMetadata,[^,]+,[^,]+,[^,]+,,([^\n]+)")
+    end
+
+    local selected_dubber_actors = nil
+    if metadata_str then
+        local success, assignments = pcall(function() return STATS.json_decode(metadata_str) end)
+        if success and type(assignments) == "table" then
+            -- Sync with DUBBERS data
+            if DUBBERS and DUBBERS.load then
+                DUBBERS.load() -- Ensure latest data
+                local dubber_names_map = {}
+                for _, n in ipairs(DUBBERS.data.names) do dubber_names_map[n] = true end
+                
+                for name, assigned_actors in pairs(assignments) do
+                    if not dubber_names_map[name] then
+                        table.insert(DUBBERS.data.names, name)
+                        dubber_names_map[name] = true
+                    end
+                    if not DUBBERS.data.assignments[name] then
+                        DUBBERS.data.assignments[name] = {}
+                    end
+                    for actor, is_on in pairs(assigned_actors) do
+                        DUBBERS.data.assignments[name][actor] = is_on
+                    end
+                end
+                DUBBERS.save()
+            end
+
+            local dubber_names = {}
+            for name in pairs(assignments) do table.insert(dubber_names, name) end
+            table.sort(dubber_names)
+            
+            if #dubber_names > 0 then
+                local menu_str = "Відкрити весь скрипт|" .. table.concat(dubber_names, "|")
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local ret = gfx.showmenu(menu_str)
+                if ret > 1 then
+                    local chosen = dubber_names[ret - 1]
+                    selected_dubber_actors = assignments[chosen] or {}
+                    show_snackbar("Режим дабера: " .. chosen, "info")
+                end
+            end
+        end
+    end
+
     for line in content:gmatch("([^\n]*)\n?") do
         if line:match("^%[Events%]") then in_events = true 
         elseif line:match("^%[.*%]") then in_events = false end
@@ -7432,6 +7616,9 @@ local function import_ass(file_path, dont_rebuild)
                     end
                 end
             elseif line:match("^Dialogue:") and format_def then
+                -- Skip metadata line if it's in the actual event list
+                if line:match(",SubassMetadata,") then goto next_line end
+
                 local body = line:match("^Dialogue:%s*(.*)")
                 local fields = {}
                 local max_field_idx = 0
@@ -7465,19 +7652,32 @@ local function import_ass(file_path, dont_rebuild)
                     text = text:gsub("\\N", "\n"):gsub("\\n", "\n")
                     
                     if not is_duplicate_replica(actor, t1, t2, text) then
+                        local is_enabled = true
+                        if selected_dubber_actors then
+                            is_enabled = selected_dubber_actors[actor] == true
+                        end
+
                         table.insert(ass_lines, {
-                            t1=t1, t2=t2, text=text, actor=actor, enabled=true,
+                            t1=t1, t2=t2, text=text, actor=actor, enabled=is_enabled,
                             index = line_idx_counter
                         })
                         line_idx_counter = line_idx_counter + 1
                         
-                        if ass_actors[actor] == nil then ass_actors[actor] = true end
+                        if ass_actors[actor] == nil then 
+                            ass_actors[actor] = is_enabled 
+                        else
+                            -- If actor already exists, we only enable it if it's assigned to us
+                            if selected_dubber_actors then
+                                ass_actors[actor] = ass_actors[actor] or (selected_dubber_actors[actor] == true)
+                            end
+                        end
                     else
                         duplicates_skipped = duplicates_skipped + 1
                     end
                 end
             end
         end
+        ::next_line::
     end
 
     -- Push undo if single import
@@ -12229,7 +12429,7 @@ local function draw_file()
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "Видалити ВСІ регіони||Відкрити WEB-менеджер наголосів|Відкрити мою Статистику|Розділення по Даберам|Відкрити мої Дедлайни|>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS|<|Аналіз/Пошук звуків (Експериментально!!)||" .. dock_check .. "Закріпити вікно (Dock)"
+        local menu = "Видалити ВСІ регіони||Відкрити WEB-менеджер наголосів|Відкрити мою Статистику||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS|<|Аналіз/Пошук звуків (Експериментально!!)||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -16939,7 +17139,7 @@ local function draw_table(input_queue)
                 local director_label = (cfg.director_mode and "• " or "") .. "Режим Режисера"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)|<"
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     find_replace_state.show = true
@@ -16970,12 +17170,15 @@ local function draw_table(input_queue)
                     end
                     save_settings()
                 elseif ret == 7 then
-                    apply_item_coloring(false) -- Colorize
+                    DUBBERS.show_dashboard = true
+                    DUBBERS.load()
                 elseif ret == 8 then
-                    apply_item_coloring(true) -- Reset
+                    apply_item_coloring(false) -- Colorize
                 elseif ret == 9 then
-                    filter_unique_item_replicas()
+                    apply_item_coloring(true) -- Reset
                 elseif ret == 10 then
+                    filter_unique_item_replicas()
+                elseif ret == 11 then
                     ebu_r128_replicas_normalize()
                 end
             end
