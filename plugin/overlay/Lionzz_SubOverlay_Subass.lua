@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.1.5
+-- @version 0.1.6
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -2423,7 +2423,7 @@ local function loop()
                 -- Center in window
                 local cx, cy = (win_w - tw)/2, (win_h - th)/2
                 
-                -- FORCE POSITION (User Request Fixes)
+                -- FORCE POSITION
                 if layout_total_height > 0 then
                     if (align_vertical or align_bottom) then
                         -- CENTER/BOTTOM ALIGN:
@@ -2483,14 +2483,14 @@ local function loop()
                 local ax = win_X + btn_x + 25
                 local ay = win_Y + btn_y + btn_h / 2
                 local sz = 25
-                -- Use text color, brighter if hover, half-transparent otherwise
-                local arrow_alpha_factor = (hover and 0.8 or 0.5) -- 0.8 or 0.5
-                local col = apply_alpha(text_rgb, arrow_alpha_factor * alpha_factor)
+                -- Use same transparency as timer when not hovered, brighter when hovered
+                local current_alpha = hover and 0.8 or alpha
+                local col = apply_alpha(text_color | 0xFF, current_alpha * alpha_factor)
                 local thick = 3
                 
                 -- Shadow parameters
                 local s_off = 2
-                local s_col = apply_alpha(0x00000000, arrow_alpha_factor * alpha_factor)
+                local s_col = apply_alpha(0x000000FF, current_alpha * alpha_factor)
                 
                 -- Arrow 1 Shadow
                 reaper.ImGui_DrawList_AddLine(dl, ax + s_off, ay - sz + s_off, ax + sz + s_off, ay + s_off, s_col, thick)
