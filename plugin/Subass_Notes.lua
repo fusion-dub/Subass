@@ -5644,19 +5644,17 @@ local function ebu_r128_replicas_normalize()
     reaper.SetExtState(section_name, "lufs_norm_target", tostring(target_lufs), true)
 
     -- Helper: Measures spectral balance for De-Boomer AND robust RMS for peak handling
-    -- Analyzes content to detect bass-heavy voices and "peaky" dynamic range
     local function analyze_take_structure(take)
         local source = reaper.GetMediaItemTake_Source(take)
+        if not source then return -100, -100 end
         local samplerate = reaper.GetMediaSourceSampleRate(source)
+        if not samplerate or samplerate < 1 then return -100, -100 end
         local accessor = reaper.CreateTakeAudioAccessor(take)
         local starttime = reaper.GetAudioAccessorStartTime(accessor)
         local endtime = reaper.GetAudioAccessorEndTime(accessor)
         local duration = endtime - starttime
         
         if duration <= 0 then reaper.DestroyAudioAccessor(accessor); return -100, -100 end
-
-        -- Limit analysis to avoiding freezing on huge files, but allow enough for long replicas
-        -- 60s is usually enough for any dubbing replica.
         if duration > 60 then duration = 60 end 
 
         local chunk_size_ms = 0.050 -- 50ms window
@@ -5669,11 +5667,9 @@ local function ebu_r128_replicas_normalize()
         
         local bp_energy_sum = 0
         local chunk_count = 0
-        
         local rms_list = {}
         local total_chunks = math.floor(duration / chunk_size_ms)
         
-        -- Pre-flight check: ensure we can read
         if total_chunks < 1 then reaper.DestroyAudioAccessor(accessor); return -100, -100 end
 
         for i = 0, total_chunks - 1 do
@@ -5682,14 +5678,10 @@ local function ebu_r128_replicas_normalize()
             
             local bp_chunk_sum = 0
             local raw_chunk_sum = 0
-            
             for j = 1, samples_per_chunk do
                 local x = buf[j]
-                
-                -- 1. Broadband Energy (Raw)
                 raw_chunk_sum = raw_chunk_sum + (x*x)
-
-                -- 2. Highpass Energy (Presence)
+                -- Highpass Energy (Presence)
                 local y = x - xp + (alpha * yp)
                 xp, yp = x, y
                 bp_chunk_sum = bp_chunk_sum + (y*y)
@@ -5698,10 +5690,8 @@ local function ebu_r128_replicas_normalize()
             bp_energy_sum = bp_energy_sum + bp_chunk_sum
             chunk_count = chunk_count + 1
             
-            -- Calculate RMS for this chunk
             local rms = math.sqrt(raw_chunk_sum / samples_per_chunk)
-            -- Simple Gate: Ignore silence < -60dB (approx 0.001)
-            if rms > 0.001 then
+            if rms > 0.001 then -- Gate -60dB
                 table.insert(rms_list, 20 * math.log(rms, 10))
             end
         end
@@ -5709,167 +5699,136 @@ local function ebu_r128_replicas_normalize()
 
         if chunk_count == 0 then return -100, -100 end
         
-        -- 1. Spectral Balance (De-Boomer)
         local avg_bp_energy = bp_energy_sum / (chunk_count * samples_per_chunk)
         local bp_db = 20 * math.log(math.sqrt(avg_bp_energy), 10)
         
-        -- 2. Median RMS (Robust Level)
         local median_rms = -100
         if #rms_list > 0 then
             table.sort(rms_list)
-            median_rms = rms_list[math.ceil(#rms_list * 0.5)] -- 50th percentile
+            median_rms = rms_list[math.ceil(#rms_list * 0.5)]
         end
-        
         return bp_db, median_rms
     end
 
     reaper.Undo_BeginBlock()
     
-    local item_results = {}
-    local total_bp = 0
-    local valid_cnt = 0
+    -- PASS 1: Group items by TRACK and Analyze
+    local track_groups = {}
+    local normalized_count = 0
     
-    -- PASS 1: Analyze LUFS and Structure
     for i = 1, #items do
         local item = items[i]
         local take = reaper.GetActiveTake(item)
         if take then
+            local track = reaper.GetMediaItem_Track(item)
+            if not track_groups[track] then track_groups[track] = { items = {}, bp_sum = 0, bp_cnt = 0 } end
+            
             -- Reset Volume for Analysis
             local original_vol = reaper.GetMediaItemTakeInfo_Value(take, "D_VOL")
             reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", 1.0)
             
-            -- Measure LUFS using SWS Extension
             local retval, lufs = reaper.NF_AnalyzeTakeLoudness_IntegratedOnly(take)
-            
-            -- Measure structure (Spectral Balance + RMS)
             local bp_db, median_rms = analyze_take_structure(take)
             
-            -- Restore Volume
             reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", original_vol)
             
             if retval and lufs and lufs > -100 then
-                table.insert(item_results, {take=take, lufs=lufs, bp_db=bp_db, med_rms=median_rms})
-                total_bp = total_bp + bp_db
-                valid_cnt = valid_cnt + 1
+                local item_data = {
+                    take = take,
+                    item = item,
+                    lufs = lufs, 
+                    bp_db = bp_db, 
+                    med_rms = median_rms,
+                    len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                }
+                table.insert(track_groups[track].items, item_data)
+                
+                track_groups[track].bp_sum = track_groups[track].bp_sum + bp_db
+                track_groups[track].bp_cnt = track_groups[track].bp_cnt + 1
             end
         end
     end
     
-    if valid_cnt == 0 then
-        reaper.Undo_EndBlock("LUFS Normalization", -1)
-        show_snackbar("Не вдалося проаналізувати жоден айтем", "error")
-        return
-    end
-    
-    local mean_bp = total_bp / valid_cnt
-
-    -- PASS 2 Preparation: Calculate "Peakiness" Baseline
-    -- Peakiness = Difference between Integrated LUFS and Median RMS
-    -- High peakiness means the Integrated LUFS might be skewing high due to loud bursts
-    local peak_deltas = {}
-    for _, res in ipairs(item_results) do
-        if res.med_rms > -90 then
-            table.insert(peak_deltas, res.lufs - res.med_rms)
-        end
-    end
-    table.sort(peak_deltas)
-    
-    -- If we have enough data (>2 items), use median delta of the batch.
-    -- Otherwise assume a standard offset of ~3dB for speech (Integrated is usually ~3dB > RMS)
-    local baseline_peakiness = (#peak_deltas >= 3) and peak_deltas[math.ceil(#peak_deltas * 0.5)] or 3.0
-
-    -- Calculate median gain for adaptive limiting (using standard LUFS as baseline)
-    -- This ensures we don't skew the general "loudness target" based on outliers
-    local long_clip_gains = {}
-    for _, res in ipairs(item_results) do
-        local item = reaper.GetMediaItemTake_Item(res.take)
-        local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
-        if item_len >= 2.0 then
-            table.insert(long_clip_gains, target_lufs - res.lufs)
-        end
-    end
-    
-    local reference_gains = (#long_clip_gains > 0) and long_clip_gains or {}
-    if #reference_gains == 0 then
-        for _, res in ipairs(item_results) do
-            table.insert(reference_gains, target_lufs - res.lufs)
-        end
-    end
-    table.sort(reference_gains)
-    local median_gain = reference_gains[math.floor(#reference_gains / 2) + 1] or 0
-    
-    -- PASS 3: Apply Normalization
-    local normalized_count = 0
-    for _, res in ipairs(item_results) do
-        local item = reaper.GetMediaItemTake_Item(res.take)
-        local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+    -- PROCESS PER TRACK
+    for track, group in pairs(track_groups) do
+        local mean_bp = group.bp_cnt > 0 and (group.bp_sum / group.bp_cnt) or -100
         
-        -- Detect Peakiness
-        local effective_lufs = res.lufs
-        local is_peaky_corrected = false
+        -- A. Calculate "Anchor Gain" for this track (Median gain of LONG clips)
+        local long_clip_gains = {}
+        for _, res in ipairs(group.items) do
+            if res.len >= 2.0 then
+                table.insert(long_clip_gains, target_lufs - res.lufs)
+            end
+        end
         
-        if res.med_rms > -90 then
-            local item_peakiness = res.lufs - res.med_rms
-            local anomaly = item_peakiness - baseline_peakiness
+        -- Fallback: if no long clips, use median of ALL clips
+        if #long_clip_gains == 0 then
+            for _, res in ipairs(group.items) do
+                table.insert(long_clip_gains, target_lufs - res.lufs)
+            end
+        end
+        
+        table.sort(long_clip_gains)
+        local track_median_gain = long_clip_gains[math.floor(#long_clip_gains / 2) + 1] or 0
+        
+        -- B. Apply Normalization with Relative Logic
+        for _, res in ipairs(group.items) do
+            local gain_db = 0
+            local classification = "Normal"
             
-            -- If anomaly > 2.5dB, it means the Integrated LUFS is suspiciously high vs Median
-            -- (Likely due to a short loud peak in an otherwise quiet line)
-            if anomaly > 2.5 then
-                -- Synthesize a "corrected" LUFS that represents the body of the speech
-                effective_lufs = res.med_rms + baseline_peakiness
-                is_peaky_corrected = true
+            -- STRATEGY:
+            -- 1. Very Short (< 0.5s): Likely breath/noise. Use TRACK MEDIAN GAIN directly (preserve relative quietness).
+            -- 2. Medium (0.5s - 2.0s): Hybrid. Blend between Target and Median.
+            -- 3. Long (> 2.0s): Full normalization to Target.
+            
+            if res.len < 0.5 then
+                -- Pure Relative Mode (Anchor)
+                gain_db = track_median_gain
+                classification = "Breath/SFX (Relative)"
+            elseif res.len < 2.0 then
+                -- Hybrid Mode: Trust the measurement but limit deviation from anchor
+                local strict_gain = target_lufs - res.lufs
+                -- Allow maximum +/- 3dB deviation from the "Anchor"
+                local deviation = strict_gain - track_median_gain
+                if deviation > 4.0 then strict_gain = track_median_gain + 4.0 end
+                if deviation < -4.0 then strict_gain = track_median_gain - 4.0 end
+                
+                gain_db = strict_gain
+                classification = "Short Line (Hybrid)"
+            else
+                -- Strict Mode
+                gain_db = target_lufs - res.lufs
+                classification = "Full Line (Strict)"
             end
-        end
-        
-        -- 1. Main Gain
-        local gain_db = target_lufs - effective_lufs
-        
-        -- 2. Adaptive Gain Limiting
-        local max_gain_multiplier
-        if item_len < 0.5 then
-            max_gain_multiplier = 1.2
-        elseif item_len < 2.0 then
-            max_gain_multiplier = 1.5
-        else
-            max_gain_multiplier = 2.5
-        end
-        
-        -- Relax limiter for robustly corrected peaky items
-        if is_peaky_corrected then 
-            max_gain_multiplier = 4.0 
-        end
-        
-        local abs_gain = math.abs(gain_db)
-        local abs_median = math.abs(median_gain)
-        
-        if abs_gain > abs_median then
-            local max_allowed_abs_gain = abs_median * max_gain_multiplier
-            -- Even with fix, we apply *some* safety limit, but it's much wider
-            if abs_gain > max_allowed_abs_gain then
-                gain_db = max_allowed_abs_gain * (gain_db >= 0 and 1 or -1)
+
+            -- De-Boomer (Spectral Correction)
+            -- Only apply if item is boomier than track average
+            local presence_diff = mean_bp - res.bp_db 
+            local correction = 0
+            if presence_diff > 0 then
+                correction = presence_diff * 0.15 -- Gentle cut for boomy items
+                if correction < -6.0 then correction = -6.0 end
             end
+            
+            local final_vol = 10 ^ ((gain_db - correction) / 20)
+            
+            -- Safety limits
+            if final_vol > 32.0 then final_vol = 32.0 end
+            if final_vol < 0.01 then final_vol = 0.01 end
+            
+            reaper.SetMediaItemTakeInfo_Value(res.take, "D_VOL", final_vol)
+            normalized_count = normalized_count + 1
         end
-        
-        -- 3. De-Boomer (Spectral Correction)
-        local presence_diff = mean_bp - res.bp_db 
-        local correction = presence_diff * 0.15 
-        
-        if correction > 0 then correction = 0 end 
-        if correction < -6.0 then correction = -6.0 end
-        
-        local final_vol = 10 ^ ((gain_db + correction) / 20)
-        
-        -- Safety limits
-        if final_vol > 32.0 then final_vol = 32.0 end
-        if final_vol < 0.01 then final_vol = 0.01 end
-        
-        reaper.SetMediaItemTakeInfo_Value(res.take, "D_VOL", final_vol)
-        normalized_count = normalized_count + 1
     end
 
     reaper.UpdateArrange()
-    reaper.Undo_EndBlock("LUFS Normalization", -1)
-    show_snackbar("Нормалізовано " .. normalized_count .. " айтемів до " .. string.format("%.1f", target_lufs) .. " LUFS" .. ( (#peak_deltas > 0) and " (Hybrid)" or ""), "success")
+    reaper.Undo_EndBlock("LUFS Normalization (Track-Smart)", -1)
+    
+    if normalized_count > 0 then
+        show_snackbar("Нормалізовано " .. normalized_count .. " айтемів (Smart Track Mode)", "success")
+    else
+        show_snackbar("Помилка: нічого не оброблено", "error")
+    end
 end
 
 local function filter_unique_item_replicas()
