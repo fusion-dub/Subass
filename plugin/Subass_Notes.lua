@@ -5713,6 +5713,9 @@ local function ebu_r128_replicas_normalize()
     end
 
     reaper.Undo_BeginBlock()
+    reaper.ShowConsoleMsg("═══════════════════════════════════════════\n")
+    reaper.ShowConsoleMsg("[LUFS Normalization] Press ESC to ABORT\n")
+    reaper.ShowConsoleMsg("═══════════════════════════════════════════\n\n")
     
     -- PASS 1: Group items by TRACK and Analyze
     local track_groups = {}
@@ -5730,11 +5733,30 @@ local function ebu_r128_replicas_normalize()
             reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", 1.0)
             
             local retval, lufs = reaper.NF_AnalyzeTakeLoudness_IntegratedOnly(take)
-            local bp_db, median_rms = analyze_take_structure(take)
             
+            -- Check for cancellation (ESC or SWS Cancel)
+            local abort = false
+            if not retval then abort = true end -- SWS window cancelled
+            
+            local char = gfx.getchar() 
+            if char == 27 or char == -1 then abort = true end
+            
+            if not abort and reaper.JS_VKeys_GetState then
+                local state = reaper.JS_VKeys_GetState(0)
+                if state:byte(28) ~= 0 then abort = true end
+            end
+
+            if abort then
+                reaper.ShowConsoleMsg("\n⚠️ ABORTED BY USER.\n")
+                show_snackbar("Нормалізацію перервано користувачем", "error")
+                reaper.Undo_EndBlock("LUFS Normalization (Aborted)", -1)
+                return
+            end
+
+            local bp_db, median_rms = analyze_take_structure(take)
             reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", original_vol)
             
-            if retval and lufs and lufs > -100 then
+            if lufs and lufs > -100 then
                 local item_data = {
                     take = take,
                     item = item,
@@ -5747,6 +5769,9 @@ local function ebu_r128_replicas_normalize()
                 
                 track_groups[track].bp_sum = track_groups[track].bp_sum + bp_db
                 track_groups[track].bp_cnt = track_groups[track].bp_cnt + 1
+
+                local progress_pct = (i / #items) * 100
+                reaper.ShowConsoleMsg(string.format("Processed %d/%d (%.3f%%) - LUFS: %.1f\n", i, #items, progress_pct, lufs))
             end
         end
     end
