@@ -5643,6 +5643,8 @@ local function ebu_r128_replicas_normalize()
     
     reaper.SetExtState(section_name, "lufs_norm_target", tostring(target_lufs), true)
 
+    local start_time = reaper.time_precise()
+
     -- Helper: Measures spectral balance for De-Boomer AND robust RMS for peak handling
     local function analyze_take_structure(take)
         local source = reaper.GetMediaItemTake_Source(take)
@@ -5881,7 +5883,8 @@ local function ebu_r128_replicas_normalize()
         reaper.ShowConsoleMsg(string.format("TRACK: %s\n  Normalized: %d\n  Avg Gain: %s%.1fdB\n  Ignored (Noise): %d\n  De-Boomed: %d\n-----------------------\n", tr_name, track_stats.norm, avg_sign, avg_gain, track_stats.noise, track_stats.boom))
     end
     
-    reaper.ShowConsoleMsg("DONE.\n")
+    local elapsed = reaper.time_precise() - start_time
+    reaper.ShowConsoleMsg(string.format("═══════════════════════\nTOTAL: %d items normalized in %.2f seconds.\n", normalized_count, elapsed))
     reaper.UpdateArrange()
     reaper.Undo_EndBlock("LUFS Normalization (Track-Smart)", -1)
     
