@@ -1,12 +1,12 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.7.1
+-- @version 4.7.2
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.7.1"
+local script_title = "Subass Notes v4.7.2"
 local section_name = "Subass_Notes"
 
 local last_dock_state = reaper.GetExtState(section_name, "dock")
@@ -9074,6 +9074,9 @@ local function play_tts_audio(text, save_to_timeline)
             end
         else
             show_snackbar("Помилка генерації TTS", "error")
+            reaper.ShowConsoleMsg("\n══════════ TTS ERROR REPORT ══════════\n")
+            reaper.ShowConsoleMsg(output or "No output available")
+            reaper.ShowConsoleMsg("\n══════════════════════════════════════\n")
         end
     end)
 end
