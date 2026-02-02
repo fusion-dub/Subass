@@ -5753,45 +5753,76 @@ local function ebu_r128_replicas_normalize()
     for track, group in pairs(track_groups) do
         local mean_bp = group.bp_cnt > 0 and (group.bp_sum / group.bp_cnt) or -100
         
-        -- A. Calculate "Anchor Gain" for this track (Median gain of LONG clips)
-        local long_clip_gains = {}
+        -- A. Pre-calculate gains for ALL items to allow fast lookups
+        -- structure: { pos = number, len = number, gain_needed = number, is_anchor = boolean }
+        local item_gains = {}
         for _, res in ipairs(group.items) do
-            if res.len >= 2.0 then
-                table.insert(long_clip_gains, target_lufs - res.lufs)
-            end
+            local gain = target_lufs - res.lufs
+            -- Identify "Anchors" (Long reliable clips > 2.0s)
+            local is_anchor = (res.len >= 2.0)
+            table.insert(item_gains, {
+                pos = reaper.GetMediaItemInfo_Value(res.item, "D_POSITION"),
+                len = res.len,
+                gain_needed = gain,
+                is_anchor = is_anchor
+            })
         end
         
-        -- Fallback: if no long clips, use median of ALL clips
-        if #long_clip_gains == 0 then
-            for _, res in ipairs(group.items) do
-                table.insert(long_clip_gains, target_lufs - res.lufs)
+        -- Helper: Find Median Gain of ANCHORS within time window
+        local function get_local_anchor_gain(center_pos, window_sec)
+            local local_gains = {}
+            for _, d in ipairs(item_gains) do
+                if d.is_anchor then
+                    local dist = math.abs(d.pos - center_pos)
+                    if dist <= window_sec then
+                        table.insert(local_gains, d.gain_needed)
+                    end
+                end
             end
+            
+            if #local_gains == 0 then return nil end
+            table.sort(local_gains)
+            return local_gains[math.floor(#local_gains * 0.5) + 1]
         end
-        
-        table.sort(long_clip_gains)
-        local track_median_gain = long_clip_gains[math.floor(#long_clip_gains / 2) + 1] or 0
+
+        -- Fallback: Calculate Global Median of anchors (for when no local neighbors exist)
+        local global_gains = {}
+        for _, d in ipairs(item_gains) do
+            if d.is_anchor then table.insert(global_gains, d.gain_needed) end
+        end
+        table.sort(global_gains)
+        local global_median = global_gains[math.floor(#global_gains * 0.5) + 1] or 0
+
         
         -- B. Apply Normalization with Relative Logic
-        for _, res in ipairs(group.items) do
+        for i, res in ipairs(group.items) do
             local gain_db = 0
             local classification = "Normal"
             
-            -- STRATEGY:
-            -- 1. Very Short (< 0.5s): Likely breath/noise. Use TRACK MEDIAN GAIN directly (preserve relative quietness).
-            -- 2. Medium (0.5s - 2.0s): Hybrid. Blend between Target and Median.
-            -- 3. Long (> 2.0s): Full normalization to Target.
+            -- Find Local Context (Window +/- 60s)
+            local item_pos = reaper.GetMediaItemInfo_Value(res.item, "D_POSITION")
+            local anchor_gain = get_local_anchor_gain(item_pos, 60.0)
             
-            if res.len < 0.5 then
+            -- If no local context, try wider window (120s), then fallback to global
+            if not anchor_gain then anchor_gain = get_local_anchor_gain(item_pos, 120.0) end
+            if not anchor_gain then anchor_gain = global_median end
+            
+            -- SAFETY GATE: If item is too quiet (<-42 LUFS), it's likely noise/roomtone.
+            -- Don't boost it.
+            if res.lufs < -42.0 then
+                gain_db = 0.0
+                classification = "Ignored (Noise Floor)"
+            elseif res.len < 0.5 then
                 -- Pure Relative Mode (Anchor)
-                gain_db = track_median_gain
+                gain_db = anchor_gain
                 classification = "Breath/SFX (Relative)"
             elseif res.len < 2.0 then
                 -- Hybrid Mode: Trust the measurement but limit deviation from anchor
                 local strict_gain = target_lufs - res.lufs
                 -- Allow maximum +/- 3dB deviation from the "Anchor"
-                local deviation = strict_gain - track_median_gain
-                if deviation > 4.0 then strict_gain = track_median_gain + 4.0 end
-                if deviation < -4.0 then strict_gain = track_median_gain - 4.0 end
+                local deviation = strict_gain - anchor_gain
+                if deviation > 4.0 then strict_gain = anchor_gain + 4.0 end
+                if deviation < -4.0 then strict_gain = anchor_gain - 4.0 end
                 
                 gain_db = strict_gain
                 classification = "Short Line (Hybrid)"
