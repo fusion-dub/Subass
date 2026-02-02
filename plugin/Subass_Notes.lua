@@ -5630,7 +5630,7 @@ local function ebu_r128_replicas_normalize()
     end
 
     local last_val = reaper.GetExtState(section_name, "lufs_norm_target")
-    if last_val == "" then last_val = "-18.0" end
+    if last_val == "" then last_val = "-16.0" end
 
     local ok, ret_val = reaper.GetUserInputs("Нормалізація реплік (LUFS)", 1, "Цільова гучність LUFS (-5 до -40):,extrawidth=50", last_val)
     if not ok then return end
@@ -5751,10 +5751,8 @@ local function ebu_r128_replicas_normalize()
     
     -- PROCESS PER TRACK
     for track, group in pairs(track_groups) do
-        local mean_bp = group.bp_cnt > 0 and (group.bp_sum / group.bp_cnt) or -100
-        
         -- A. Pre-calculate gains for ALL items to allow fast lookups
-        -- structure: { pos = number, len = number, gain_needed = number, is_anchor = boolean }
+        -- structure: { pos = number, len = number, gain_needed = number, bp_db = number, is_anchor = boolean }
         local item_gains = {}
         for _, res in ipairs(group.items) do
             local gain = target_lufs - res.lufs
@@ -5764,84 +5762,109 @@ local function ebu_r128_replicas_normalize()
                 pos = reaper.GetMediaItemInfo_Value(res.item, "D_POSITION"),
                 len = res.len,
                 gain_needed = gain,
+                bp_db = res.bp_db,
                 is_anchor = is_anchor
             })
         end
         
-        -- Helper: Find Median Gain of ANCHORS within time window
-        local function get_local_anchor_gain(center_pos, window_sec)
+        -- Helper: Find Median Gain AND Mean BP (Spectral) of ANCHORS within time window
+        local function get_local_context(center_pos, window_sec)
             local local_gains = {}
+            local local_bp_sum = 0
+            local local_bp_cnt = 0
+            
             for _, d in ipairs(item_gains) do
                 if d.is_anchor then
                     local dist = math.abs(d.pos - center_pos)
                     if dist <= window_sec then
                         table.insert(local_gains, d.gain_needed)
+                        if d.bp_db > -100 then
+                            local_bp_sum = local_bp_sum + d.bp_db
+                            local_bp_cnt = local_bp_cnt + 1
+                        end
                     end
                 end
             end
             
-            if #local_gains == 0 then return nil end
+            if #local_gains == 0 then return nil, nil end
             table.sort(local_gains)
-            return local_gains[math.floor(#local_gains * 0.5) + 1]
+            local median_gain = local_gains[math.floor(#local_gains * 0.5) + 1]
+            local mean_bp = (local_bp_cnt > 0) and (local_bp_sum / local_bp_cnt) or -100
+            
+            return median_gain, mean_bp
         end
 
-        -- Fallback: Calculate Global Median of anchors (for when no local neighbors exist)
+        -- Fallback: Global context
         local global_gains = {}
+        local global_bp_sum = 0
+        local global_bp_cnt = 0
         for _, d in ipairs(item_gains) do
-            if d.is_anchor then table.insert(global_gains, d.gain_needed) end
+            if d.is_anchor then 
+                table.insert(global_gains, d.gain_needed)
+                if d.bp_db > -100 then
+                    global_bp_sum = global_bp_sum + d.bp_db
+                    global_bp_cnt = global_bp_cnt + 1
+                end
+            end
         end
         table.sort(global_gains)
         local global_median = global_gains[math.floor(#global_gains * 0.5) + 1] or 0
+        local global_mean_bp = (global_bp_cnt > 0) and (global_bp_sum / global_bp_cnt) or -100
 
         
         -- B. Apply Normalization with Relative Logic
+        local track_stats = { norm=0, noise=0, boom=0, gain_sum=0 }
+        
         for i, res in ipairs(group.items) do
             local gain_db = 0
             local classification = "Normal"
+            local correction_db = 0
             
             -- Find Local Context (Window +/- 60s)
             local item_pos = reaper.GetMediaItemInfo_Value(res.item, "D_POSITION")
-            local anchor_gain = get_local_anchor_gain(item_pos, 60.0)
+            local anchor_gain, anchor_bp = get_local_context(item_pos, 60.0)
             
-            -- If no local context, try wider window (120s), then fallback to global
-            if not anchor_gain then anchor_gain = get_local_anchor_gain(item_pos, 120.0) end
-            if not anchor_gain then anchor_gain = global_median end
+            -- Fallbacks
+            if not anchor_gain then anchor_gain, anchor_bp = get_local_context(item_pos, 120.0) end
+            if not anchor_gain then anchor_gain, anchor_bp = global_median, global_mean_bp end
             
             -- SAFETY GATE: If item is too quiet (<-42 LUFS), it's likely noise/roomtone.
-            -- Don't boost it.
             if res.lufs < -42.0 then
                 gain_db = 0.0
                 classification = "Ignored (Noise Floor)"
-            elseif res.len < 0.5 then
-                -- Pure Relative Mode (Anchor)
-                gain_db = anchor_gain
-                classification = "Breath/SFX (Relative)"
-            elseif res.len < 2.0 then
-                -- Hybrid Mode: Trust the measurement but limit deviation from anchor
-                local strict_gain = target_lufs - res.lufs
-                -- Allow maximum +/- 3dB deviation from the "Anchor"
-                local deviation = strict_gain - anchor_gain
-                if deviation > 4.0 then strict_gain = anchor_gain + 4.0 end
-                if deviation < -4.0 then strict_gain = anchor_gain - 4.0 end
-                
-                gain_db = strict_gain
-                classification = "Short Line (Hybrid)"
+                track_stats.noise = track_stats.noise + 1
             else
-                -- Strict Mode
-                gain_db = target_lufs - res.lufs
-                classification = "Full Line (Strict)"
+                -- Gain Logic
+                if res.len < 0.5 then
+                    gain_db = anchor_gain
+                    classification = "Breath (Rel)"
+                elseif res.len < 2.0 then
+                    local strict_gain = target_lufs - res.lufs
+                    local deviation = strict_gain - anchor_gain
+                    if deviation > 4.0 then strict_gain = anchor_gain + 4.0 end
+                    if deviation < -4.0 then strict_gain = anchor_gain - 4.0 end
+                    gain_db = strict_gain
+                    classification = "Short (Hyb)"
+                else
+                    gain_db = target_lufs - res.lufs
+                    classification = "Long (Strict)"
+                end
+                
+                -- De-Boomer (Local Context)
+                if anchor_bp and anchor_bp > -100 then
+                    local presence_diff = anchor_bp - res.bp_db 
+                    if presence_diff > 0 then
+                        correction_db = presence_diff * 0.15 
+                        if correction_db < -6.0 then correction_db = -6.0 end
+                        if correction_db < -0.5 then track_stats.boom = track_stats.boom + 1 end
+                    end
+                end
+                
+                track_stats.norm = track_stats.norm + 1
+                track_stats.gain_sum = track_stats.gain_sum + (gain_db - correction_db)
             end
 
-            -- De-Boomer (Spectral Correction)
-            -- Only apply if item is boomier than track average
-            local presence_diff = mean_bp - res.bp_db 
-            local correction = 0
-            if presence_diff > 0 then
-                correction = presence_diff * 0.15 -- Gentle cut for boomy items
-                if correction < -6.0 then correction = -6.0 end
-            end
-            
-            local final_vol = 10 ^ ((gain_db - correction) / 20)
+            local final_vol = 10 ^ ((gain_db - correction_db) / 20)
             
             -- Safety limits
             if final_vol > 32.0 then final_vol = 32.0 end
@@ -5850,13 +5873,20 @@ local function ebu_r128_replicas_normalize()
             reaper.SetMediaItemTakeInfo_Value(res.take, "D_VOL", final_vol)
             normalized_count = normalized_count + 1
         end
+        
+        -- Print Track Report
+        local _, tr_name = reaper.GetTrackName(track)
+        local avg_gain = (track_stats.norm > 0) and (track_stats.gain_sum / track_stats.norm) or 0
+        local avg_sign = (avg_gain >= 0) and "+" or ""
+        reaper.ShowConsoleMsg(string.format("TRACK: %s\n  Normalized: %d\n  Avg Gain: %s%.1fdB\n  Ignored (Noise): %d\n  De-Boomed: %d\n-----------------------\n", tr_name, track_stats.norm, avg_sign, avg_gain, track_stats.noise, track_stats.boom))
     end
-
+    
+    reaper.ShowConsoleMsg("DONE.\n")
     reaper.UpdateArrange()
     reaper.Undo_EndBlock("LUFS Normalization (Track-Smart)", -1)
     
     if normalized_count > 0 then
-        show_snackbar("Нормалізовано " .. normalized_count .. " айтемів (Smart Track Mode)", "success")
+        show_snackbar("Оброблено " .. normalized_count .. " айтемів. Див. консоль.", "success")
     else
         show_snackbar("Помилка: нічого не оброблено", "error")
     end
