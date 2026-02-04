@@ -1,16 +1,19 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.7.2
+-- @version 4.8
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
 -- Clear force close signal for other scripts on startup
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
-local script_title = "Subass Notes v4.7.2"
 local section_name = "Subass_Notes"
 
-local last_dock_state = reaper.GetExtState(section_name, "dock")
-if last_dock_state == "" then last_dock_state = 0 else last_dock_state = tonumber(last_dock_state) end
+local GL = {
+    script_title = "Subass Notes v4.8",
+    last_dock_state = reaper.GetExtState(section_name, "dock"),
+}
+
+if GL.last_dock_state == "" then GL.last_dock_state = 0 else GL.last_dock_state = tonumber(GL.last_dock_state) end
 
 -- Persisted Settings
 local function get_set(key, default)
@@ -120,29 +123,30 @@ local cfg = {
         "ElevenLabs: Ярослава (Yaroslava)",
         "ElevenLabs: Антон (Anton)",
         "Системний"
+    },
+    search_item_path = get_set("search_item_path", ""),
+}
+
+local OTHER = {
+    col_resize = {
+        dragging = false,
+        key = nil,
+        start_x = 0,
+        start_w = 0
+    },
+    rec_state = {
+        show = false,
+        checked = false,
+        checking = false, -- New flag for async check status
+        sws = false,
+        reapack = false,
+        js_api = false,
+        reaimgui = false,
+        python = { ok = false, version = "N/A", executable = "python" },
+        all_ok = false,
+        scroll_y = 0,
+        target_scroll_y = 0
     }
-}
-
-local col_resize = {
-    dragging = false,
-    key = nil,
-    start_x = 0,
-    start_w = 0
-}
-
--- Requirements Check State
-local requirements_state = {
-    show = false,
-    checked = false,
-    checking = false, -- New flag for async check status
-    sws = false,
-    reapack = false,
-    js_api = false,
-    reaimgui = false,
-    python = { ok = false, version = "N/A", executable = "python" },
-    all_ok = false,
-    scroll_y = 0,
-    target_scroll_y = 0
 }
 
 -- Global Scale Helper
@@ -154,10 +158,9 @@ cfg.w_director = get_set("w_director", S(300))
 cfg.h_director = get_set("h_director", S(120))
 
 -- OS Detection for hybrid stress mark rendering
-local os_name = reaper.GetOS()
-local is_windows = os_name:match("Win") ~= nil
+local is_windows = reaper.GetOS():match("Win") ~= nil
 
-gfx.init(script_title, 600, 400, last_dock_state)
+gfx.init(GL.script_title, 600, 400, GL.last_dock_state)
 local F = {
     std = 1,
     lrg = 2,
@@ -1319,7 +1322,7 @@ local text_palette = {
 --- Save current settings to REAPER ExtState (persistent storage)
 local function save_settings()
     reaper.SetExtState(section_name, "last_tab", tostring(UI_STATE.current_tab), true)
-    reaper.SetExtState(section_name, "dock", tostring(last_dock_state), true)
+    reaper.SetExtState(section_name, "dock", tostring(GL.last_dock_state), true)
     
     reaper.SetExtState(section_name, "p_fsize", tostring(cfg.p_fsize), true)
     reaper.SetExtState(section_name, "p_cr", tostring(cfg.p_cr), true)
@@ -1332,6 +1335,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "prmt_theme", cfg.prmt_theme, true)
     reaper.SetExtState(section_name, "ui_theme", cfg.ui_theme, true)
     reaper.SetExtState(section_name, "tts_voice", cfg.tts_voice, true)
+    reaper.SetExtState(section_name, "search_item_path", cfg.search_item_path or "", true)
 
     reaper.SetExtState(section_name, "t_ar_r", tostring(cfg.t_ar_r), true)
     reaper.SetExtState(section_name, "t_ar_g", tostring(cfg.t_ar_g), true)
@@ -1522,7 +1526,7 @@ function UTILS.launch_python_script(script_relative_path)
     local os_name = reaper.GetOS()
     
     if os_name:match("Win") then
-        local py_exe = requirements_state.python.executable or "python"
+        local py_exe = OTHER.rec_state.python.executable or "python"
         py_script = py_script:gsub("/", "\\")
         reaper.ExecProcess('cmd.exe /C start "" "' .. py_exe .. '" "' .. py_script .. '"', -1)
     elseif os_name:match("OSX") or os_name:match("macOS") then
@@ -6170,7 +6174,7 @@ function upload_subtitles_analytics()
     if reaper.GetOS():match("Win") then
         full_script_path = full_script_path:gsub("/", "\\")
         filepath = filepath:gsub("/", "\\")
-        local py_exe = requirements_state.python and requirements_state.python.executable or "python"
+        local py_exe = OTHER.rec_state.python and OTHER.rec_state.python.executable or "python"
         
         -- Use cmd /C start /B for background execution on Windows
         -- We quote everything to handle paths with spaces
@@ -8131,7 +8135,7 @@ apply_stress_marks_async = function()
                         in_p = in_p:gsub("/", "\\")
                         out_p = out_p:gsub("/", "\\")
                         log_file = log_file:gsub("/", "\\")
-                        local py_exe = requirements_state.python.executable or "python"
+                        local py_exe = OTHER.rec_state.python.executable or "python"
                         cmd_to_run = string.format('%s "%s" "%s" -o "%s" > "%s" 2>&1', py_exe, tool_p, in_p, out_p, log_file)
                     else
                         -- Mac/Linux: Assume python3
@@ -8368,15 +8372,15 @@ local function check_for_updates(is_silent)
     local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
     local py_script = script_path .. "subass_autoupdate.py"
     
-    local py_exe = requirements_state.python.executable or (reaper.GetOS():match("Win") and "python" or "python3")
+    local py_exe = OTHER.rec_state.python.executable or (reaper.GetOS():match("Win") and "python" or "python3")
     local is_windows = reaper.GetOS():match("Win")
     
     local cmd
     if is_windows then
         py_script = py_script:gsub("/", "\\")
-        cmd = string.format('%s "%s" "%s"', py_exe, py_script, script_title)
+        cmd = string.format('%s "%s" "%s"', py_exe, py_script, GL.script_title)
     else
-        cmd = string.format("'%s' '%s' '%s'", py_exe, py_script, script_title)
+        cmd = string.format("'%s' '%s' '%s'", py_exe, py_script, GL.script_title)
     end
 
     run_async_command(cmd, function(output)
@@ -9003,13 +9007,13 @@ local function play_tts_audio(text, save_to_timeline)
         tts_script = tts_script:gsub("/", "\\")
         
         -- Use configured python executable from requirements state if available
-        local py_exe = requirements_state.python.executable or "python"
+        local py_exe = OTHER.rec_state.python.executable or "python"
         
         -- Pass text via file to avoid shell expansion/multiline issues
         cmd = string.format('%s "%s" --file "%s" %s %s', py_exe, tts_script, tts_input_file, voice_arg, key_arg)
     else
         -- Use detected python or fallback
-        local py_exe = requirements_state.python.executable or "python3"
+        local py_exe = OTHER.rec_state.python.executable or "python3"
         -- Pass text via file for consistency and robustness
         cmd = string.format("'%s' '%s' --file '%s' %s %s", py_exe, tts_script, tts_input_file, voice_arg, key_arg)
     end
@@ -10013,6 +10017,649 @@ local function draw_text_editor(input_queue)
     draw_ai_modal(false)
     
     return true
+end
+
+-- --- Search Item Modal ---
+
+local SEARCH_ITEM = {
+    show = false,
+    input = { text = "", focus = false, cursor = 1, anchor = 1, scroll = 0 },
+    results = nil,
+    loading = false,
+    scroll_y = 0,
+    target_scroll_y = 0,
+    last_query = "",
+    -- Player State
+    current_preview = nil,
+    current_item = nil,
+    preview_length = 0,
+    player_paused = false,
+    pause_pos = 0
+}
+
+function SEARCH_ITEM.open()
+    SEARCH_ITEM.show = true
+    SEARCH_ITEM.input.focus = false
+    SEARCH_ITEM.results = nil
+    
+    local play_state = reaper.GetPlayState()
+    local cur_pos = (play_state & 1 == 1) and reaper.GetPlayPosition() or reaper.GetCursorPosition()
+    
+    for _, rgn in ipairs(regions) do
+        if cur_pos >= rgn.pos and cur_pos < rgn.rgnend then
+            local t = rgn.name:gsub("{.-}", ""):gsub("\\n", " "):gsub("\n", " "):gsub("  +", " "):gsub("^%s+", ""):gsub("%s+$", "")
+            SEARCH_ITEM.input.text = t
+            local l = utf8.len(t) or #t
+            SEARCH_ITEM.input.cursor = l + 1
+            SEARCH_ITEM.input.anchor = l + 1
+            break
+        end
+    end
+end
+
+function SEARCH_ITEM.pick_folder(callback)
+    if reaper.JS_Dialog_BrowseForFolder then
+        local retval, folder = reaper.JS_Dialog_BrowseForFolder("Виберіть папку для пошуку проектів", cfg.search_item_path or "")
+        if retval == 1 and folder ~= "" then
+            cfg.search_item_path = folder
+            save_settings()
+            if callback then callback() end
+            return true
+        end
+    else
+        show_snackbar("Потрібен JS_API для вибору папки", "error")
+    end
+    return false
+end
+
+function SEARCH_ITEM.perform_search()
+    local q = SEARCH_ITEM.input.text
+    if q == "" then return end
+
+    if not cfg.search_item_path or cfg.search_item_path == "" then
+        SEARCH_ITEM.pick_folder(function()
+            SEARCH_ITEM.perform_search()
+        end)
+        return
+    end
+
+    SEARCH_ITEM.last_query = q
+    SEARCH_ITEM.loading = true
+    
+    local separator = package.config:sub(1,1)
+    local info = debug.getinfo(1, 'S')
+    local path = info.source:match("@?(.*)")
+    local dir = path:match("(.*" .. (separator == "\\" and "\\\\" or separator) .. ")")
+    local python_tool = dir .. "stats" .. separator .. "subass_search.py"
+    local search_item_path = cfg.search_item_path
+    
+    local is_windows = reaper.GetOS():match("Win") ~= nil
+    local py_exe = is_windows and (OTHER.rec_state.python.executable or "python") or "python3"
+    
+    local cmd = string.format('%s "%s" "%s" "%s"', py_exe, python_tool, q:gsub('"', '\\"'), search_item_path)
+    
+    run_async_command(cmd, function(out)
+        SEARCH_ITEM.loading = false
+        if out and out ~= "" then
+            local status, data = pcall(function() return STATS.json_decode(out) end)
+            if status and type(data) == "table" then
+                SEARCH_ITEM.results = data
+            else
+                SEARCH_ITEM.results = {}
+            end
+        else
+            SEARCH_ITEM.results = {}
+        end
+        SEARCH_ITEM.scroll_y = 0
+        SEARCH_ITEM.target_scroll_y = 0
+    end, false, "Пошук...")
+end
+
+function SEARCH_ITEM.play_item(item, from_pos)
+    -- Cleanup any leftover hidden track from the failed experiment
+    local tr_count = reaper.CountTracks(0)
+    for i = tr_count - 1, 0, -1 do
+        local tr = reaper.GetTrack(0, i)
+        local _, name = reaper.GetSetMediaTrackInfo_String(tr, "P_NAME", "", false)
+        if name == "Subass Preview" then reaper.DeleteTrack(tr) end
+    end
+
+    if SEARCH_ITEM.current_preview and reaper.CF_Preview_Stop then
+        reaper.CF_Preview_Stop(SEARCH_ITEM.current_preview)
+        SEARCH_ITEM.current_preview = nil
+    end
+    
+    if not item or not item.file_path then 
+        SEARCH_ITEM.current_item = nil
+        SEARCH_ITEM.player_paused = false
+        SEARCH_ITEM.pause_pos = 0
+        SEARCH_ITEM.play_start_time = nil
+        return 
+    end
+    
+    local clean_path = item.file_path:gsub("\\", "/")
+    
+    -- Verify path
+    local f = io.open(clean_path, "r")
+    if not f then
+        show_snackbar("Файл не знайдено", "error")
+        return
+    end
+    f:close()
+
+    local pcm_source = reaper.PCM_Source_CreateFromFile(clean_path)
+    if not pcm_source then
+        show_snackbar("Не вдалося відкрити аудіо джерело", "error")
+        return
+    end
+
+    if reaper.CF_CreatePreview and reaper.CF_Preview_Play then
+        local preview = reaper.CF_CreatePreview(pcm_source)
+        if preview then
+            local start_pos = from_pos or item.pos or 0
+            local length = item.length or reaper.GetMediaSourceLength(pcm_source)
+            
+            -- Simplest possible approach: just play
+            reaper.CF_Preview_Play(preview)
+            
+            local fname = clean_path:match("([^/\\]+)$")
+            
+            SEARCH_ITEM.current_preview = preview
+            SEARCH_ITEM.current_source = pcm_source
+            SEARCH_ITEM.current_item = item
+            SEARCH_ITEM.segment_start = 0  -- Always from start for now
+            SEARCH_ITEM.preview_length = length
+            SEARCH_ITEM.player_paused = false
+            SEARCH_ITEM.wait_frames = 0
+            SEARCH_ITEM.last_tracked_pos = -1
+            SEARCH_ITEM.play_start_time = reaper.time_precise()  -- Track time manually
+            SEARCH_ITEM.open_time = reaper.time_precise() -- Track open time for debounce
+        end
+    end
+end
+
+function SEARCH_ITEM.toggle_pause()
+    if not SEARCH_ITEM.current_item then return end
+    
+    if SEARCH_ITEM.player_paused then
+        -- Resume
+        SEARCH_ITEM.play_item(SEARCH_ITEM.current_item, SEARCH_ITEM.pause_pos)
+    else
+        -- Pause
+        if reaper.CF_Preview_GetValue then
+            local val = reaper.CF_Preview_GetValue(SEARCH_ITEM.current_preview, "D_POSITION")
+            SEARCH_ITEM.pause_pos = type(val) == "number" and val or 0
+        end
+        if SEARCH_ITEM.current_preview and reaper.CF_Preview_Stop then
+            reaper.CF_Preview_Stop(SEARCH_ITEM.current_preview)
+        end
+        SEARCH_ITEM.current_preview = nil
+        SEARCH_ITEM.player_paused = true
+    end
+end
+
+function SEARCH_ITEM.draw_mini_player()
+    if not SEARCH_ITEM.current_item and not SEARCH_ITEM.player_paused then return end
+    
+    local h = S(60)  -- Reduced height
+    local x, y, w = S(20), gfx.h - h - S(20), gfx.w - S(40)
+    
+    -- Background
+    set_color(UI.C_BG, 0.98)
+    gfx.rect(x, y, w, h, 1)
+    set_color(UI.C_TXT, 0.2)
+    gfx.rect(x, y, w, h, 0) -- border
+    
+    local pad = S(10)
+    local btn_sz = S(40)
+    local btn_x = x + pad
+    local btn_y = y + pad
+    
+    -- Play/Pause Button
+    local label = SEARCH_ITEM.player_paused and "▶" or "Ⅱ"
+    if btn(btn_x, btn_y, btn_sz, btn_sz, label, UI.C_BTN, UI.C_TXT) then
+        -- Debounce: prevent immediate interaction if player just opened
+        if reaper.time_precise() - (SEARCH_ITEM.open_time or 0) > 0.3 then
+            SEARCH_ITEM.toggle_pause()
+        end
+        UI_STATE.mouse_handled = true
+    end
+    
+    -- File name
+    local name_x = btn_x + btn_sz + pad
+    local item = SEARCH_ITEM.current_item
+    local name = item.item or item.file_path:match("([^/\\]+)$")
+    gfx.setfont(F.bld)
+    set_color(UI.C_TXT)
+    local avail_nw = w - (name_x - x) - S(120)  -- Space for close and menu buttons
+    local draw_name = fit_text_width(name, avail_nw)
+    gfx.x, gfx.y = name_x, y + pad - S(2) -- Slightly higher
+    gfx.drawstr(draw_name)
+    
+    -- Calculate playback position
+    local abs_pos = 0 
+    if SEARCH_ITEM.player_paused then
+        abs_pos = SEARCH_ITEM.pause_pos or 0
+    elseif SEARCH_ITEM.current_preview then
+        if not SEARCH_ITEM.play_start_time then
+            SEARCH_ITEM.play_start_time = reaper.time_precise()
+        end
+        
+        local elapsed = reaper.time_precise() - SEARCH_ITEM.play_start_time
+        abs_pos = elapsed
+        
+        -- Auto-stop at end (but keep player open)
+        if abs_pos >= (SEARCH_ITEM.preview_length or 0) then
+            if SEARCH_ITEM.current_preview and reaper.CF_Preview_Stop then
+                reaper.CF_Preview_Stop(SEARCH_ITEM.current_preview)
+            end
+            SEARCH_ITEM.current_preview = nil
+            SEARCH_ITEM.player_paused = true
+            SEARCH_ITEM.pause_pos = SEARCH_ITEM.preview_length or 0
+            abs_pos = SEARCH_ITEM.pause_pos
+        end
+    end
+    
+    local cur_pos = math.max(0, abs_pos - (SEARCH_ITEM.segment_start or 0))
+    local display_length = SEARCH_ITEM.preview_length or 0
+    
+    -- Progress Bar (below file name)
+    local pb_x = name_x
+    local pb_y = y + pad + S(22)  -- Below file name (increased spacing)
+    local pb_w = w - (pb_x - x) - S(120)
+    local pb_h = S(4)
+    
+    set_color(UI.C_TXT, 0.2)
+    gfx.rect(pb_x, pb_y, pb_w, pb_h, 1)
+    
+    if display_length > 0 then
+        local prog = math.min(1, math.max(0, cur_pos / display_length))
+        set_color(UI.C_ORANGE)
+        gfx.rect(pb_x, pb_y, pb_w * prog, pb_h, 1)
+    end
+    
+    -- Timer (below progress bar)
+    local raw_timer = string.format("%s / %s", format_timestamp(cur_pos), format_timestamp(display_length))
+    local timer_text = fit_text_width(raw_timer, pb_w)
+    gfx.setfont(F.tip)
+    set_color(UI.C_TXT, 0.5)
+    gfx.x, gfx.y = pb_x, pb_y + S(8)
+    gfx.drawstr(timer_text)
+    
+    -- Menu Button (≡)
+    local menu_sz = S(30)
+    local menu_x = x + w - pad - menu_sz - S(40)  -- Space for close button
+    local menu_y = y + pad
+    if btn(menu_x, menu_y, menu_sz, menu_sz, "≡", UI.C_BTN, UI.C_TXT) then
+        local menu_str = "Вставити аудіо на доріжку||Відкрити проєкт з цим аудіо"
+        local ret = gfx.showmenu(menu_str)
+        
+        if ret == 1 then
+            -- Insert audio
+            if item and item.file_path then
+                reaper.InsertMedia(item.file_path, 0)
+                show_snackbar("Аудіо додано", "success")
+            end
+        elseif ret == 2 then
+            -- Open project
+            if item and item.project_path then
+                local target_path = item.project_path
+                local target_pos = item.pos
+                local target_track = item.track
+
+                -- Definition of function to jump to position
+                local function jump_to_pos()
+                    if target_pos then
+                        reaper.SetEditCurPos(target_pos, true, false)
+                        
+                        -- Try to find track and scroll to it
+                        if target_track and target_track ~= "" then
+                            local tr_count = reaper.CountTracks(0)
+                            for i = 0, tr_count - 1 do
+                                local tr = reaper.GetTrack(0, i)
+                                local _, tr_name = reaper.GetSetMediaTrackInfo_String(tr, "P_NAME", "", false)
+                                if tr_name == target_track then
+                                    reaper.SetOnlyTrackSelected(tr)
+                                    reaper.Main_OnCommand(40913, 0) -- Track: Vertical scroll to selected tracks
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+
+                if reaper.file_exists(target_path) then
+                    -- Check if project is already open
+                    local found_proj = nil
+                    local i = 0
+                    while true do
+                        local proj, projfn = reaper.EnumProjects(i, "")
+                        if not proj then break end
+                        if projfn and projfn:gsub("\\", "/") == target_path:gsub("\\", "/") then
+                            found_proj = proj
+                            break
+                        end
+                        i = i + 1
+                    end
+
+                    if found_proj then
+                        reaper.SelectProjectInstance(found_proj)
+                        show_snackbar("Переключено на відкритий проєкт", "success")
+                    else
+                        reaper.Main_OnCommand(40859, 0) -- New project tab
+                        reaper.Main_openProject(target_path)
+                        show_snackbar("Проєкт відкрито", "success")
+                    end
+                    
+                    jump_to_pos()
+                else
+                    local result = reaper.MB("Файл проєкту не знайдено:\n" .. target_path .. "\n\nЗнайти файл вручну?", "Помилка відкриття", 4)
+                    if result == 6 then -- Yes
+                        local retval, new_path = reaper.GetUserFileNameForRead(target_path, "Знайти проєкт", "rpp")
+                        if retval and new_path then
+                            -- Check if project is already open
+                            local found_proj = nil
+                            local i = 0
+                            while true do
+                                local proj, projfn = reaper.EnumProjects(i, "")
+                                if not proj then break end
+                                if projfn and projfn:gsub("\\", "/") == new_path:gsub("\\", "/") then
+                                    found_proj = proj
+                                    break
+                                end
+                                i = i + 1
+                            end
+
+                            if found_proj then
+                                reaper.SelectProjectInstance(found_proj)
+                                show_snackbar("Переключено на відкритий проєкт", "success")
+                            else
+                                reaper.Main_OnCommand(40859, 0)
+                                reaper.Main_openProject(new_path)
+                                show_snackbar("Проєкт відкрито", "success")
+                            end
+                            
+                            jump_to_pos()
+                        end
+                    end
+                end
+            else
+                show_snackbar("Шлях до проєкту не знайдено", "error")
+            end
+        end
+        UI_STATE.mouse_handled = true
+    end
+    
+    -- Close Button (×)
+    local close_sz = S(30)
+    local close_x = x + w - pad - close_sz
+    local close_y = y + pad
+    if btn(close_x, close_y, close_sz, close_sz, "x", UI.C_BTN, UI.C_TXT) then
+        SEARCH_ITEM.play_item(nil)  -- Close player
+        UI_STATE.mouse_handled = true
+    end
+end
+
+function SEARCH_ITEM.show_item_menu(items)
+    local menu_str = ""
+    for i, item in ipairs(items) do
+        local name = item.item or item.file_path:match("([^/\\]+)$")
+        local track = item.track or ""
+        local display = string.format("%s (Tr: %s)", name, track)
+        menu_str = menu_str .. (i > 1 and "|" or "") .. display
+    end
+    
+    local ret = gfx.showmenu(menu_str)
+    if ret > 0 then
+        SEARCH_ITEM.play_item(items[ret])
+    end
+end
+
+
+function SEARCH_ITEM.draw_window(input_queue)
+    if not SEARCH_ITEM.show then return end
+    
+    -- Block clicks on player area FIRST (before processing any other UI elements)
+    if SEARCH_ITEM.current_item or SEARCH_ITEM.player_paused then
+        local player_h = S(70)
+        local player_x = S(20)
+        local player_y = gfx.h - player_h - S(20)
+        local player_w = gfx.w - S(40)
+        
+        if gfx.mouse_x >= player_x and gfx.mouse_x <= player_x + player_w and 
+           gfx.mouse_y >= player_y and gfx.mouse_y <= player_y + player_h then
+            if gfx.mouse_cap & 1 == 1 then  -- Left click
+                UI_STATE.mouse_handled = true
+            end
+        end
+    end
+    
+    -- Background overlay (Full Screen)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+    
+    local pad = S(20)
+    
+    -- 1. Calculate Header Height and res_y
+    local th = S(30) -- Title height
+    local input_h = S(32)
+    local path_h = (cfg.search_item_path and cfg.search_item_path ~= "") and (S(14) + S(4)) or 0
+    local header_h = pad + th + S(15) + input_h + S(4) + path_h + S(10)
+    
+    local res_y = header_h
+    local res_h = gfx.h - res_y - pad
+    
+    -- 2. Draw Background
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+    -- 3. Draw Results List
+    
+    if SEARCH_ITEM.results then
+        local rect_x, rect_y, rect_w, rect_h = pad, res_y, gfx.w - pad*2, res_h
+        
+        -- Measure total height
+        local total_h = 0
+        for _, proj in ipairs(SEARCH_ITEM.results) do
+            total_h = total_h + S(30) -- Project title
+            for _, m in ipairs(proj.matches) do
+                total_h = total_h + S(45) -- Match row
+            end
+            total_h = total_h + S(10) -- Padding per project
+        end
+        
+        -- Add bottom padding if player is visible
+        if SEARCH_ITEM.current_item or SEARCH_ITEM.player_paused then
+            total_h = total_h + S(90)  -- Player height (70) + spacing (20)
+        end
+        
+        local max_scroll = math.max(0, total_h - res_h)
+        if gfx.mouse_x >= rect_x and gfx.mouse_x <= rect_x + rect_w and gfx.mouse_y >= rect_y and gfx.mouse_y <= rect_y + rect_h then
+            if gfx.mouse_wheel ~= 0 then
+                SEARCH_ITEM.target_scroll_y = math.max(0, math.min(max_scroll, SEARCH_ITEM.target_scroll_y - gfx.mouse_wheel * 0.5))
+                gfx.mouse_wheel = 0
+            end
+        end
+        SEARCH_ITEM.scroll_y = SEARCH_ITEM.scroll_y + (SEARCH_ITEM.target_scroll_y - SEARCH_ITEM.scroll_y) * 0.3
+        
+        -- Draw List with Clipping
+        local draw_y = res_y - math.floor(SEARCH_ITEM.scroll_y)
+        
+        for _, proj in ipairs(SEARCH_ITEM.results) do
+            if draw_y + S(30) > res_y and draw_y < res_y + res_h then
+                set_color(UI.C_TXT, 0.4)
+                gfx.setfont(F.std)
+                gfx.x, gfx.y = rect_x, draw_y + S(5)
+                gfx.drawstr(proj.project_name:upper())
+            end
+            draw_y = draw_y + S(30)
+            
+            for _, m in ipairs(proj.matches) do
+                if draw_y + S(45) > res_y and draw_y < res_y + res_h then
+                    local row_y = draw_y
+                    -- Background for row
+                    set_color(UI.C_TXT, 0.05)
+                    gfx.rect(rect_x, row_y, rect_w, S(40), 1)
+                    
+                    -- Play button
+                    local p_btn_sz = S(30)
+                    local p_btn_x = rect_x + S(5)
+                    local p_btn_y = row_y + S(5)
+                    if btn(p_btn_x, p_btn_y, p_btn_sz, p_btn_sz, "▶", UI.C_BTN, UI.C_ORANGE) and not UI_STATE.mouse_handled then
+                        if m.items and #m.items > 0 then
+                            -- Inject project path into items
+                            for _, it in ipairs(m.items) do
+                                it.project_path = proj.project_path
+                            end
+
+                            if #m.items == 1 then
+                                SEARCH_ITEM.play_item(m.items[1])
+                            else
+                                SEARCH_ITEM.show_item_menu(m.items)
+                            end
+                        else
+                            show_snackbar("Немає аудіо для цього фрагмента", "error")
+                        end
+                        UI_STATE.mouse_handled = true
+                    end
+                    
+                    local content_start_x = p_btn_x + p_btn_sz + S(10)
+                    
+                    set_color(UI.C_ORANGE)
+                    gfx.setfont(F.bld)
+                    gfx.x, gfx.y = content_start_x, row_y + S(5)
+                    local actor_name = m.actor
+                    if #actor_name > 30 then 
+                        -- Simple byte truncation for now as requested
+                        actor_name = actor_name:sub(1, 27) .. "..." 
+                    end
+                    local disp_actor = actor_name .. ": "
+                    gfx.drawstr(disp_actor)
+                    
+                    local actor_w = gfx.measurestr(disp_actor)
+                    set_color(UI.C_TXT)
+                    gfx.setfont(F.std)
+                    local avail_tw = rect_w - (content_start_x - rect_x) - actor_w - S(10)
+                    local clean_text = m.text:gsub("[\n\r]+", " ")
+                    local draw_text = fit_text_width(clean_text, avail_tw)
+                    gfx.drawstr(draw_text)
+                    
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = content_start_x, row_y + S(22)
+                    gfx.setfont(F.tip)
+                    gfx.drawstr(string.format("%.2f s", m.time))
+                end
+                draw_y = draw_y + S(45)
+            end
+            draw_y = draw_y + S(10)
+        end
+        
+        -- Draw Scrollbar
+        if max_scroll > 0 then
+            local sb_w = S(6)
+            local sb_x = gfx.w - pad/2 - sb_w
+            local sb_track_h = res_h
+            local sb_h = math.max(S(20), (res_h / total_h) * sb_track_h)
+            local sb_y = res_y + (SEARCH_ITEM.scroll_y / max_scroll) * (sb_track_h - sb_h)
+            set_color(UI.C_TXT, 0.1)
+            gfx.rect(sb_x, res_y, sb_w, sb_track_h, 1)
+            set_color(UI.C_TXT, 0.3)
+            gfx.rect(sb_x, sb_y, sb_w, sb_h, 1)
+        end
+        
+    elseif SEARCH_ITEM.loading then
+        set_color(UI.C_TXT, 0.5)
+        gfx.setfont(F.std)
+        local s = "Шукаю у всіх проектах..."
+        local sw, sh = gfx.measurestr(s)
+        gfx.x, gfx.y = pad + (gfx.w - pad*2 - sw)/2, res_y + (res_h - sh)/2
+        gfx.drawstr(s)
+    elseif SEARCH_ITEM.last_query ~= "" then
+        set_color(UI.C_TXT, 0.5)
+        gfx.setfont(F.std)
+        local s = "Нічого не знайдено"
+        local sw, sh = gfx.measurestr(s)
+        gfx.x, gfx.y = pad + (gfx.w - pad*2 - sw)/2, res_y + (res_h - sh)/2
+        gfx.drawstr(s)
+    end
+
+    -- 4. Draw Header Overlay (draw ON TOP of results)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, res_y, 1) -- Opaque background to hide results behind it
+    
+    -- Close button (Top Right)
+    local close_sz = S(24)
+    local close_x, close_y = gfx.w - pad - close_sz, pad
+    local function close_search()
+        SEARCH_ITEM.show = false
+        UI_STATE.mouse_handled = true
+        SEARCH_ITEM.play_item(nil) -- Stop preview
+    end
+    if btn(close_x, close_y, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+        close_search()
+    end
+
+    -- Title
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT)
+    local title = "Глобальний пошук реплік"
+    local avail_tw = close_x - pad - S(10)
+    local draw_title = fit_text_width(title, avail_tw)
+    gfx.x, gfx.y = pad, pad
+    gfx.drawstr(draw_title)
+    
+    local content_y = pad + th + S(15)
+    
+    -- Search Input + Buttons
+    local f_btn_sz = S(32)
+    local s_btn_w = S(80) 
+    local spacing = S(8)
+    local input_w = gfx.w - pad*2 - s_btn_w - f_btn_sz - spacing*2
+    
+    ui_text_input(pad, content_y, input_w, input_h, SEARCH_ITEM.input, "Введіть текст для пошуку...", input_queue)
+    
+    -- Search Button next to input
+    local s_btn_x = pad + input_w + spacing
+    if btn(s_btn_x, content_y, s_btn_w, input_h, "Шукати", UI.C_SNACK_SUCCESS, UI.C_TXT) then
+        SEARCH_ITEM.perform_search()
+        UI_STATE.mouse_handled = true
+    end
+
+    -- Folder Button next to search
+    local f_btn_x = s_btn_x + s_btn_w + spacing
+    if btn(f_btn_x, content_y, f_btn_sz, input_h, "≡", UI.C_BTN, UI.C_TXT) then
+        SEARCH_ITEM.pick_folder()
+        UI_STATE.mouse_handled = true
+    end
+
+    -- Tooltip for folder button
+    if gfx.mouse_x >= f_btn_x and gfx.mouse_x <= f_btn_x + f_btn_sz and gfx.mouse_y >= content_y and gfx.mouse_y <= content_y + input_h then
+        UI_STATE.tooltip = "Вибрати папку для пошуку проектів: " .. (cfg.search_item_path or "Не вибрано")
+    end
+    
+    if input_queue then
+        for _, char in ipairs(input_queue) do
+            if char == 13 and SEARCH_ITEM.input.focus then -- Enter
+                SEARCH_ITEM.perform_search()
+            elseif char == 27 then -- Esc
+                close_search()
+            end
+        end
+    end
+    
+    -- Path info
+    if cfg.search_item_path and cfg.search_item_path ~= "" then
+        local path_y = content_y + input_h + S(4)
+        set_color(UI.C_TXT, 0.4)
+        gfx.setfont(F.tip)
+        local p_text = "Папка: " .. cfg.search_item_path
+        local avail_pw = gfx.w - pad*2
+        local draw_path = fit_text_width(p_text, avail_pw)
+        gfx.x, gfx.y = pad, path_y
+        gfx.drawstr(draw_path)
+    end
+    
+    SEARCH_ITEM.draw_mini_player()
 end
 
 --- Draw dictionary modal with definitions and synonyms, ГОРОХ
@@ -11214,27 +11861,27 @@ local function get_py_ver()
         
         local function try_next_cmd(idx)
             if idx > #cmds then
-                requirements_state.python.version = "N/A"
-                requirements_state.python.ok = false
-                requirements_state.checking = false -- Check finished
+                OTHER.rec_state.python.version = "N/A"
+                OTHER.rec_state.python.ok = false
+                OTHER.rec_state.checking = false -- Check finished
                 return
             end
             
             run_async_command(cmds[idx].cmd, function(output)
                 local success, version = extract_ver(output)
                 if success ~= nil then
-                    requirements_state.python.ok = success
-                    requirements_state.python.version = version
-                    requirements_state.python.executable = cmds[idx].exe
+                    OTHER.rec_state.python.ok = success
+                    OTHER.rec_state.python.version = version
+                    OTHER.rec_state.python.executable = cmds[idx].exe
                     -- Updates state if success
-                    if requirements_state.python.ok then
-                        requirements_state.all_ok = (requirements_state.sws and requirements_state.reapack and 
-                                                    requirements_state.js_api and requirements_state.reaimgui and 
-                                                    requirements_state.python.ok)
+                    if OTHER.rec_state.python.ok then
+                        OTHER.rec_state.all_ok = (OTHER.rec_state.sws and OTHER.rec_state.reapack and 
+                                                    OTHER.rec_state.js_api and OTHER.rec_state.reaimgui and 
+                                                    OTHER.rec_state.python.ok)
                         -- If everything became OK, we can potentially hide window or re-layout
-                        if requirements_state.all_ok then requirements_state.show = false end
+                        if OTHER.rec_state.all_ok then OTHER.rec_state.show = false end
                     end
-                    requirements_state.checking = false -- Check finished
+                    OTHER.rec_state.checking = false -- Check finished
                 else
                     try_next_cmd(idx + 1)
                 end
@@ -11242,8 +11889,8 @@ local function get_py_ver()
         end
             
         -- Start async chain
-        requirements_state.python.version = "Checking..."
-        requirements_state.checking = true -- checking started
+        OTHER.rec_state.python.version = "Checking..."
+        OTHER.rec_state.checking = true -- checking started
         try_next_cmd(1)
         
         -- Return pending state
@@ -11272,7 +11919,7 @@ local function get_py_ver()
                 if cmd:find("/bin/sh -c") then
                     exe = "python3" -- Fallback for the complex shell command
                 end
-                requirements_state.python.executable = exe
+                OTHER.rec_state.python.executable = exe
                 return success, version 
             end
         end
@@ -11289,7 +11936,7 @@ local function get_py_ver()
                     local exe = cmd:match("^/bin/sh %-c \".-([%w%d/._-]+) %-%-version")
                     if not exe then exe = cmd:match("^%S+") end
                     if cmd:find("/bin/sh -c") and not exe then exe = "python3" end
-                    requirements_state.python.executable = exe
+                    OTHER.rec_state.python.executable = exe
                     return success, version 
                 end
             end
@@ -11301,7 +11948,7 @@ local function get_py_ver()
             local file = io.open(path, "rb")
             if file then
                 file:close()
-                requirements_state.python.executable = path
+                OTHER.rec_state.python.executable = path
                 local _, output = reaper.ExecProcess(path .. " --version 2>&1", 2000)
                 local success, version = extract_ver(output)
                 if success ~= nil then return success, version end
@@ -11314,32 +11961,32 @@ end
 
 --- Perform requirements check
 local function do_check()
-    requirements_state.sws = (reaper.CF_SetClipboard ~= nil)
-    requirements_state.reapack = (reaper.ReaPack_GetOwner ~= nil)
-    requirements_state.js_api = (reaper.JS_Window_Find ~= nil)
-    requirements_state.reaimgui = (reaper.ImGui_CreateContext ~= nil)
+    OTHER.rec_state.sws = (reaper.CF_SetClipboard ~= nil)
+    OTHER.rec_state.reapack = (reaper.ReaPack_GetOwner ~= nil)
+    OTHER.rec_state.js_api = (reaper.JS_Window_Find ~= nil)
+    OTHER.rec_state.reaimgui = (reaper.ImGui_CreateContext ~= nil)
 
     local py_ok, py_ver = get_py_ver()
     
     -- If sync check returned definitive result (or for non-Windows), set it. 
     -- For Windows async, 'py_ver' will be "Checking..." initially.
     if py_ver ~= "Checking..." or not reaper.GetOS():match("Win") then
-        requirements_state.python.ok = py_ok
-        requirements_state.python.version = py_ver
+        OTHER.rec_state.python.ok = py_ok
+        OTHER.rec_state.python.version = py_ver
     end
 
-    requirements_state.all_ok = (requirements_state.sws and requirements_state.reapack and 
-                                requirements_state.js_api and requirements_state.reaimgui and 
-                                requirements_state.python.ok)
-    if not requirements_state.all_ok then requirements_state.show = true end
-    requirements_state.checked = true
+    OTHER.rec_state.all_ok = (OTHER.rec_state.sws and OTHER.rec_state.reapack and 
+                                OTHER.rec_state.js_api and OTHER.rec_state.reaimgui and 
+                                OTHER.rec_state.python.ok)
+    if not OTHER.rec_state.all_ok then OTHER.rec_state.show = true end
+    OTHER.rec_state.checked = true
 end
 
 local function draw_requirements_window()
-    if not requirements_state.checked then do_check() end
+    if not OTHER.rec_state.checked then do_check() end
 
     -- STARTUP LOADING SCREEN (Prevent flash)
-    if requirements_state.checking then
+    if OTHER.rec_state.checking then
         -- Backdrop
         gfx.set(0, 0, 0, 0.7)
         gfx.rect(0, 0, gfx.w, gfx.h, 1)
@@ -11354,7 +12001,7 @@ local function draw_requirements_window()
         return
     end
 
-    if not requirements_state.show then return end
+    if not OTHER.rec_state.show then return end
 
     -- Backdrop
     gfx.set(0, 0, 0, 0.7)
@@ -11398,30 +12045,30 @@ local function draw_requirements_window()
     local items = {
         { 
             name = "SWS Extension", 
-            ok = requirements_state.sws, 
+            ok = OTHER.rec_state.sws, 
             info = "Необхідно для роботи з буфером обміну.\n\n**КРОК 1:** Натисніть на посилання [sws-extension.org](https://www.sws-extension.org/) і завантажте версію для вашої ОС.\n\n**КРОК 2 (WINDOWS):** Запустіть завантажений інсталятор і слідуйте інструкціям.\n\n**КРОК 2 (macOS):** Відкрийте .dmg файл. У REAPER натисніть **Options** -> **Show REAPER resource path**. Відкрийте папку **UserPlugins**. Перетягніть файл `reaper_sws...dylib` з .dmg у цю папку.\n\n**КРОК 3:** Після встановлення **ОБОВ'ЯЗКОВО** перезапустіть REAPER." 
         },
         { 
             name = "ReaPack", 
-            ok = requirements_state.reapack, 
+            ok = OTHER.rec_state.reapack, 
             info = "Менеджер розширень для REAPER.\n\n**КРОК 1:** Натисніть на посилання [reapack.com](https://reapack.com/) і завантажте файл для вашої ОС.\n\n**КРОК 2:** У REAPER відкрийте меню **'Options'** (вгорі) і виберіть **'Show REAPER resource path in explorer/finder'**.\n\n**КРОК 3:** У відкритій папці знайдіть або створіть папку **'UserPlugins'**.\n\n**КРОК 4:** Скопіюйте завантажений файл ReaPack (.dll для Windows або .dylib для macOS) у цю папку 'UserPlugins'.\n\n**КРОК 5:** Перезапустіть REAPER.\n\n**КРОК 6:** Перевірте, що в меню 'Extensions' з'явився пункт 'ReaPack'." 
         },
         { 
             name = "JS_ReaScriptAPI", 
-            ok = requirements_state.js_api, 
+            ok = OTHER.rec_state.js_api, 
             reapack_search = "js_ReaScriptAPI: API functions for ReaScripts",
             info = "Розширений API для скриптів.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack (див. вище)!\n\n**КРОК 1:** У REAPER відкрийте меню **'Extensions'** (вгорі).\n\n**КРОК 2:** Виберіть **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 3:** У вікні що відкрилося, у полі пошуку вгорі введіть **'js_ReaScriptAPI'**.\n\n**КРОК 4:** Знайдіть пакет 'js_ReaScriptAPI' у списку, клацніть по ньому **ПРАВОЮ кнопкою миші**.\n\n**КРОК 5:** У меню виберіть **'Install'**.\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** натисніть кнопку **'Apply'** внизу вікна ReaPack.\n\n**КРОК 7:** Дочекайтеся завершення встановлення (з'явиться повідомлення)." 
         },
         { 
             name = "ReaImGui", 
-            ok = requirements_state.reaimgui, 
+            ok = OTHER.rec_state.reaimgui, 
             reapack_search = "ReaImGui: ReaScript binding for Dear ImGui",
             info = "Графічний движок для інтерфейсу оверлея.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack!\n\n**КРОК 1:** Відкрийте **'Extensions'** → **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 2:** У полі пошуку введіть **'ReaImGui'** (без пробілів).\n\n**КРОК 3:** Знайдіть пакет 'ReaImGui' від 'cfillion' у списку результатів.\n\n**КРОК 4:** Клацніть по ньому **ПРАВОЮ кнопкою миші** і виберіть **'Install'**.\n\n**КРОК 5:** Натисніть кнопку **'Apply'** внизу вікна ReaPack (почекайте встановлення).\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** перезапустіть REAPER (навіть якщо не просить)." 
         },
         {
             name = "Python (>= 3.9)", 
-            ok = requirements_state.python.ok, 
-            info = "Поточна версія: " .. requirements_state.python.version .. ". Мова програмування для зупуску ШІ наголосів.\n\n**КРОК 1:** Натисніть [python.org](https://www.python.org/downloads/) і завантажте Python 3.11+.\n\n**КРОК 2 (WINDOWS):** Під час встановлення **ОБОВ'ЯЗКОВО** поставте галочку **'Add Python to PATH'**!\n\n**КРОК 2 (macOS):** Запустіть інсталятор і слідуйте інструкціям.\n\n**КРОК 3:** Перезапустіть REAPER.\n\n**КРОК 4:** Перевірка (не обов'язково): у терміналі введіть **'python --version'** (або **'python3 --version'**). Має бути 3.9+." 
+            ok = OTHER.rec_state.python.ok, 
+            info = "Поточна версія: " .. OTHER.rec_state.python.version .. ". Мова програмування для зупуску ШІ наголосів.\n\n**КРОК 1:** Натисніть [python.org](https://www.python.org/downloads/) і завантажте Python 3.11+.\n\n**КРОК 2 (WINDOWS):** Під час встановлення **ОБОВ'ЯЗКОВО** поставте галочку **'Add Python to PATH'**!\n\n**КРОК 2 (macOS):** Запустіть інсталятор і слідуйте інструкціям.\n\n**КРОК 3:** Перезапустіть REAPER.\n\n**КРОК 4:** Перевірка (не обов'язково): у терміналі введіть **'python --version'** (або **'python3 --version'**). Має бути 3.9+." 
         }
     }
     
@@ -11547,7 +12194,7 @@ local function draw_requirements_window()
             local text_h = #item.render_lines * S(22)
             
             -- Extra space for ReaPack button if available
-            if requirements_state.reapack and item.reapack_search then
+            if OTHER.rec_state.reapack and item.reapack_search then
                 text_h = text_h + S(35)
             end
             
@@ -11561,27 +12208,27 @@ local function draw_requirements_window()
     
     if gfx.mouse_x >= bx and gfx.mouse_x <= bx + bw and gfx.mouse_y >= by and gfx.mouse_y <= by + bh then
         if gfx.mouse_wheel ~= 0 then
-            requirements_state.target_scroll_y = requirements_state.target_scroll_y - (gfx.mouse_wheel * 0.25)
-            if requirements_state.target_scroll_y < 0 then requirements_state.target_scroll_y = 0 end
-            if requirements_state.target_scroll_y > max_scroll then requirements_state.target_scroll_y = max_scroll end
+            OTHER.rec_state.target_scroll_y = OTHER.rec_state.target_scroll_y - (gfx.mouse_wheel * 0.25)
+            if OTHER.rec_state.target_scroll_y < 0 then OTHER.rec_state.target_scroll_y = 0 end
+            if OTHER.rec_state.target_scroll_y > max_scroll then OTHER.rec_state.target_scroll_y = max_scroll end
             gfx.mouse_wheel = 0
         end
     end
     
     -- Interpolate scroll position
-    local diff = requirements_state.target_scroll_y - requirements_state.scroll_y
+    local diff = OTHER.rec_state.target_scroll_y - OTHER.rec_state.scroll_y
     if math.abs(diff) > 0.5 then
-        requirements_state.scroll_y = requirements_state.scroll_y + (diff * 0.8)
+        OTHER.rec_state.scroll_y = OTHER.rec_state.scroll_y + (diff * 0.8)
     else
-        requirements_state.scroll_y = requirements_state.target_scroll_y
+        OTHER.rec_state.scroll_y = OTHER.rec_state.target_scroll_y
     end
     
     -- Clamp scroll
-    if requirements_state.scroll_y < 0 then requirements_state.scroll_y = 0 end
-    if requirements_state.scroll_y > max_scroll then requirements_state.scroll_y = max_scroll end
+    if OTHER.rec_state.scroll_y < 0 then OTHER.rec_state.scroll_y = 0 end
+    if OTHER.rec_state.scroll_y > max_scroll then OTHER.rec_state.scroll_y = max_scroll end
 
     -- Draw content with scroll offset (clipped to view area)
-    local draw_y = view_y - math.floor(requirements_state.scroll_y)
+    local draw_y = view_y - math.floor(OTHER.rec_state.scroll_y)
 
     for _, item in ipairs(items) do
         -- Use cached height from layout calculation
@@ -11671,7 +12318,7 @@ local function draw_requirements_window()
                 end
                 
                 -- Draw "Open in ReaPack" button
-                if requirements_state.reapack and item.reapack_search and not item.ok then
+                if OTHER.rec_state.reapack and item.reapack_search and not item.ok then
                     local btn_y = line_y + S(5)
                     local btn_h = S(24)
                     local btn_w = S(180)
@@ -11706,7 +12353,7 @@ local function draw_requirements_window()
     if over_close then
         set_color(UI.C_HILI_RED_BRIGHT)
         if is_mouse_clicked() then
-            requirements_state.show = false
+            OTHER.rec_state.show = false
             return
         end
     else
@@ -11733,7 +12380,7 @@ local function draw_requirements_window()
         set_color(UI.C_MEDIUM_GREY)
         local sbw = S(8)  -- Increased from S(4)
         local sbx = bx + bw - sbw - S(4)
-        local progress = requirements_state.scroll_y / max_scroll
+        local progress = OTHER.rec_state.scroll_y / max_scroll
         local sb_track_h = view_h - S(10)
         local sbh = math.max(S(20), (view_h / total_h) * sb_track_h)
         local sby = view_y + progress * (sb_track_h - sbh)
@@ -13920,7 +14567,7 @@ local function handle_prompter_context_menu()
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
         local slider_check = cfg.prompter_slider_mode and "• " or ""
-        local menu = "Відобразити SubOverlay від Lionzz||Знайти нове слово в ГОРОСі|Відобразити Словник|" .. slider_check .. "Режим Слайдера||" .. dock_check .. "Закріпити вікно (Dock)"
+        local menu = "Відобразити SubOverlay від Lionzz||Знайти нове слово в ГОРОСі|Відобразити Словник|" .. slider_check .. "Режим Слайдера||Глобальний пошук реплік||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -13938,6 +14585,8 @@ local function handle_prompter_context_menu()
             cfg.prompter_slider_mode = not cfg.prompter_slider_mode
             save_settings()
         elseif ret == 5 then
+            if SEARCH_ITEM.open then SEARCH_ITEM.open() end
+        elseif ret == 6 then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
@@ -17822,7 +18471,7 @@ local function draw_table(input_queue)
                             last_layout_state.col_vis_end ~= cfg.col_table_end or
                             last_layout_state.col_vis_cps ~= cfg.col_table_cps or
                             last_layout_state.col_vis_actor ~= cfg.col_table_actor or
-                            col_resize.dragging or
+                            OTHER.col_resize.dragging or
                             last_layout_state.col_w_enabled ~= cfg.col_w_enabled or
                             last_layout_state.col_w_index ~= cfg.col_w_index or
                             last_layout_state.col_w_start ~= cfg.col_w_start or
@@ -18602,9 +19251,9 @@ local function draw_table(input_queue)
             -- Logic
             if is_hover or director_resize_drag then
                 reaper.SetCursorContext(2, 0)
-                if is_hover and gfx.mouse_cap == 1 and not col_resize.dragging then
+                if is_hover and gfx.mouse_cap == 1 and not OTHER.col_resize.dragging then
                     director_resize_drag = true
-                    col_resize.key = nil
+                    OTHER.col_resize.key = nil
                 end
             end
             
@@ -18632,7 +19281,7 @@ local function draw_table(input_queue)
 
             if is_hover or director_resize_drag then
                 reaper.SetCursorContext(1, 0)
-                if is_hover and gfx.mouse_cap == 1 and not col_resize.dragging then
+                if is_hover and gfx.mouse_cap == 1 and not OTHER.col_resize.dragging then
                     director_resize_drag = true
                 end
             end
@@ -18705,9 +19354,9 @@ local function draw_table(input_queue)
         end
 
         -- Handle Resizing
-        if col_resize.dragging and col_resize.key == resize_key then
-            local delta = gfx.mouse_x - col_resize.start_x
-            local new_w = col_resize.start_w + delta
+        if OTHER.col_resize.dragging and OTHER.col_resize.key == resize_key then
+            local delta = gfx.mouse_x - OTHER.col_resize.start_x
+            local new_w = OTHER.col_resize.start_w + delta
             if new_w < S(25) then new_w = S(25) end -- Minimum width (S(25) like 1st col)
             
             -- Store unscaled
@@ -18715,21 +19364,21 @@ local function draw_table(input_queue)
             
             -- Force refresh next frame? (implicit via loop)
         elseif is_resize_hover and is_mouse_clicked() then
-            col_resize.dragging = true
-            col_resize.key = resize_key
-            col_resize.start_x = gfx.mouse_x
-            col_resize.start_w = cell_w
+            OTHER.col_resize.dragging = true
+            OTHER.col_resize.key = resize_key
+            OTHER.col_resize.start_x = gfx.mouse_x
+            OTHER.col_resize.start_w = cell_w
         end
         
         -- Stop dragging
-        if col_resize.dragging and gfx.mouse_cap & 1 == 0 then
-            col_resize.dragging = false
-            col_resize.key = nil
+        if OTHER.col_resize.dragging and gfx.mouse_cap & 1 == 0 then
+            OTHER.col_resize.dragging = false
+            OTHER.col_resize.key = nil
             save_settings()
         end
 
         if is_hover then
-            if not mouse_in_menu and not col_resize.dragging then -- Checks if custom menus are open
+            if not mouse_in_menu and not OTHER.col_resize.dragging then -- Checks if custom menus are open
                 set_color(UI.C_HILI_HEADER)
                 gfx.rect(x, y, cell_w, h_header, 1)
                 
@@ -18745,7 +19394,7 @@ local function draw_table(input_queue)
         end
         
         -- Draw resize handle highlight
-        if is_resize_hover or (col_resize.dragging and col_resize.key == resize_key) then
+        if is_resize_hover or (OTHER.col_resize.dragging and OTHER.col_resize.key == resize_key) then
             set_color(UI.C_RESIZE_HDL)
             gfx.rect(next_x - S(2), y, S(4), h_header, 1)
         end
@@ -18976,7 +19625,7 @@ reaper.gmem_attach("SubassSync")
 local function focus_plugin_window()
     if reaper.JS_Window_Find then
         -- Non-exact match (false) is more robust
-        local hwnd = reaper.JS_Window_Find(script_title, false)
+        local hwnd = reaper.JS_Window_Find(GL.script_title, false)
         if hwnd then
             reaper.JS_Window_SetForeground(hwnd) -- Grab OS focus
             reaper.JS_Window_SetFocus(hwnd) -- Set internal focus
@@ -19472,7 +20121,7 @@ local function main()
     -- If JS_API is available, we can check if REAPER or our window is actually in foreground
     if reaper.JS_Window_GetForeground then
         local fg_hwnd = reaper.JS_Window_GetForeground()
-        local my_hwnd = reaper.JS_Window_Find(script_title, true)
+        local my_hwnd = reaper.JS_Window_Find(GL.script_title, true)
         local main_hwnd = reaper.GetMainHwnd()
         
         if fg_hwnd then
@@ -19480,7 +20129,7 @@ local function main()
             if fg_hwnd ~= my_hwnd and fg_hwnd ~= main_hwnd then
                 -- One extra check: is it another REAPER window (like MIDI editor)?
                 local title = reaper.JS_Window_GetTitle(fg_hwnd) or ""
-                if not title:match("REAPER") and not title:match(script_title) then
+                if not title:match("REAPER") and not title:match(GL.script_title) then
                     has_focus = false
                 end
             end
@@ -19541,6 +20190,8 @@ local function main()
         DUBBERS.draw_dashboard(input_queue)
     elseif DEADLINE.dashboard_show then
         DEADLINE.draw_dashboard(input_queue)
+    elseif SEARCH_ITEM.show then
+        if SEARCH_ITEM.draw_window then SEARCH_ITEM.draw_window(input_queue) end
     elseif dict_modal.show then
         draw_dictionary_modal(input_queue)
     elseif text_editor_state.active then
@@ -19566,7 +20217,7 @@ local function main()
             if ret == 1 then
                 local target_dock = dock_state > 0 and 0 or 1
                 gfx.dock(target_dock)
-                last_dock_state = gfx.dock(-1) -- Get the actual new index
+                GL.last_dock_state = gfx.dock(-1) -- Get the actual new index
                 save_settings()
             end
         end
@@ -19579,14 +20230,14 @@ local function main()
     draw_requirements_window()
 
     local cur_dock = gfx.dock(-1)
-    if cur_dock > 0 and cur_dock ~= last_dock_state then
-        last_dock_state = cur_dock
-        reaper.SetExtState(section_name, "dock", tostring(last_dock_state), true)
-    elseif cur_dock == 0 and last_dock_state ~= 0 then
+    if cur_dock > 0 and cur_dock ~= GL.last_dock_state then
+        GL.last_dock_state = cur_dock
+        reaper.SetExtState(section_name, "dock", tostring(GL.last_dock_state), true)
+    elseif cur_dock == 0 and GL.last_dock_state ~= 0 then
         -- Only set to 0 if the window is actually floating and NOT closing
         -- This is a bit tricky, but checking if char != -1 helps
         if gfx.getchar() ~= -1 then
-            last_dock_state = 0
+            GL.last_dock_state = 0
             reaper.SetExtState(section_name, "dock", "0", true)
         end
     end
