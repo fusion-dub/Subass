@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.8
+-- @version 4.8.2
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v4.8",
+    script_title = "Subass Notes v4.8.2",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -10086,10 +10086,17 @@ function SEARCH_ITEM.perform_search()
     SEARCH_ITEM.last_query = q
     SEARCH_ITEM.loading = true
     
-    local separator = package.config:sub(1,1)
     local info = debug.getinfo(1, 'S')
     local path = info.source:match("@?(.*)")
-    local dir = path:match("(.*" .. (separator == "\\" and "\\\\" or separator) .. ")")
+    local dir = path:match("(.*[/\\])")
+    
+    if not dir then
+        show_snackbar("Помилка шляху: " .. tostring(path), "error")
+        SEARCH_ITEM.loading = false
+        return
+    end
+
+    local separator = package.config:sub(1,1)
     local python_tool = dir .. "stats" .. separator .. "subass_search.py"
     local search_item_path = cfg.search_item_path
     
@@ -10547,7 +10554,7 @@ function SEARCH_ITEM.draw_window(input_queue)
                     set_color(UI.C_TXT, 0.5)
                     gfx.x, gfx.y = content_start_x, row_y + S(22)
                     gfx.setfont(F.tip)
-                    gfx.drawstr(string.format("%.2f s", m.time))
+                    gfx.drawstr(string.format("%.2f s", m.time / 1000))
                 end
                 draw_y = draw_y + S(45)
             end
