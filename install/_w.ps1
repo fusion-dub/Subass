@@ -303,15 +303,20 @@ if (Test-Path $scriptSource) {
     }
     if (Test-Path $dictionarySource) {
         $dictionaryTarget = Join-Path $scriptsPath "dictionary"
-        # Preserve data folder during update
-        if (Test-Path $dictionaryTarget) {
-            Get-ChildItem $dictionarySource | Where-Object { 
-                $_.Name -ne "data" 
-            } | ForEach-Object {
-                Copy-Item $_.FullName $dictionaryTarget -Recurse -Force
-            }
-        } else {
-            Copy-Item $dictionarySource $scriptsPath -Recurse -Force
+        if (-not (Test-Path $dictionaryTarget)) { New-Item -ItemType Directory $dictionaryTarget | Out-Null }
+        
+        # 1. Update everything EXCEPT data
+        Get-ChildItem $dictionarySource | Where-Object { 
+            $_.Name -ne "data" 
+        } | ForEach-Object {
+            Copy-Item $_.FullName $dictionaryTarget -Recurse -Force
+        }
+        
+        # 2. Copy data ONLY if missing in destination
+        $dataTarget = Join-Path $dictionaryTarget "data"
+        $dataSource = Join-Path $dictionarySource "data"
+        if ((-not (Test-Path $dataTarget)) -and (Test-Path $dataSource)) {
+             Copy-Item $dataSource $dictionaryTarget -Recurse -Force
         }
     }
     if (Test-Path $statsSource) {
