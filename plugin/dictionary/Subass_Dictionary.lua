@@ -204,6 +204,7 @@ end
 local add_entry_pending = nil
 local edit_entry_idx = nil
 local edit_entry_data = {}
+local open_edit_popup = false
 local current_preview_source = nil
 local current_preview_name = ""
 local current_preview_file = ""
@@ -892,7 +893,7 @@ local function loop()
                                         tags = entry.tags,
                                         desc = entry.desc
                                     }
-                                    reaper.ImGui_OpenPopup(ctx, "EditGlossary")
+                                    open_edit_popup = true
                                 end
                                 
                                 -- Delete
@@ -920,6 +921,10 @@ local function loop()
                     reaper.ImGui_EndChild(ctx) -- Close glossary list child
 
                     -- Modals (Moved outside child)
+                    if open_edit_popup then
+                        reaper.ImGui_OpenPopup(ctx, "EditGlossary")
+                        open_edit_popup = false
+                    end
                     if reaper.ImGui_BeginPopupModal(ctx, "GlossaryMetadata", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
                         reaper.ImGui_Text(ctx, "Налаштування нового звуку:")
                         reaper.ImGui_Dummy(ctx, 0, 5)
