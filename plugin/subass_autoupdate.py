@@ -156,6 +156,12 @@ def perform_update(zip_url):
                                     shutil.copytree(sub_s, sub_d)
                                 else:
                                     shutil.copy2(sub_s, sub_d)
+                        
+                        # Copy data ONLY if missing in destination
+                        data_s = os.path.join(s, "data")
+                        data_d = os.path.join(d, "data")
+                        if os.path.isdir(data_s) and not os.path.exists(data_d):
+                            shutil.copytree(data_s, data_d)
                     elif item == "stats":
                         # Preserve existing json data, update python code
                         if not os.path.exists(d): os.makedirs(d)
