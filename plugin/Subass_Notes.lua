@@ -128,12 +128,14 @@ local cfg = {
 }
 
 local OTHER = {
+    -- Column resize state
     col_resize = {
         dragging = false,
         key = nil,
         start_x = 0,
         start_w = 0
     },
+    -- Requirements state
     rec_state = {
         show = false,
         checked = false,
@@ -146,6 +148,29 @@ local OTHER = {
         all_ok = false,
         scroll_y = 0,
         target_scroll_y = 0
+    },
+    -- Find and Replace State
+    find_replace_state = {
+        show = false,
+        find = {text = "", cursor = 0, anchor = 0, focus = true},
+        replace = {text = "", cursor = 0, anchor = 0, focus = false},
+        case_sensitive = false,
+        bounds = {x=0, y=0, w=0, h=0}
+    },
+    -- Column Visibility Menu State
+    col_vis_menu = {
+        show = false,
+        x = 0,
+        y = 0,
+        w = 180,
+        h = 0 -- Calculated dynamically
+    },
+    time_shift_menu = {
+        show = false,
+        x = 0,
+        y = 0,
+        w = 280,
+        only_selected = false
     }
 }
 
@@ -289,7 +314,7 @@ local UI_STATE = {
     last_is_recording = false,
     window_focused = true, -- Track if window is focused
     inside_window = false, -- Track if mouse is within window bounds
-    AUTO_UPDATE_INTERVAL = 86400, -- 24 hours
+    AUTO_UPDATE_INTERVAL = 21600, -- 6 hours
     last_update_check_time = 0,
     is_restarting = false
 }
@@ -427,6 +452,23 @@ local word_trigger = {
     hit_y = 0,
     hit_w = 0,
     hit_h = 0
+}
+
+-- --- Search Item Modal ---
+local SEARCH_ITEM = {
+    show = false,
+    input = { text = "", focus = false, cursor = 1, anchor = 1, scroll = 0 },
+    results = nil,
+    loading = false,
+    scroll_y = 0,
+    target_scroll_y = 0,
+    last_query = "",
+    -- Player State
+    current_preview = nil,
+    current_item = nil,
+    preview_length = 0,
+    player_paused = false,
+    pause_pos = 0
 }
 
 -- Prompter Drawer State
@@ -652,7 +694,6 @@ function STATS.json_decode(str)
     return res
 end
 
-
 --- Generate unique project ID from project path
 function STATS.get_project_id()
     local proj_path = reaper.GetProjectPath("") .. "/" .. reaper.GetProjectName(0, "")
@@ -844,7 +885,6 @@ function STATS.increment_outside()
     STATS.dirty = true
 end
 
-
 --- Increment recorded lines counter
 function STATS.increment_recorded(actor_name)
     local proj = STATS.get_project()
@@ -889,7 +929,6 @@ end
 --- Initialize stats on script load
 STATS.load()
 
-
 --- Update the global marker cache used by both drawer and prompter
 local function update_marker_cache()
     local state_count = reaper.GetProjectStateChangeCount(0)
@@ -913,32 +952,6 @@ local function update_marker_cache()
 end
 
 math.random(); math.random(); math.random() -- Warm up
-
--- Find and Replace State
-local find_replace_state = {
-    show = false,
-    find = {text = "", cursor = 0, anchor = 0, focus = true},
-    replace = {text = "", cursor = 0, anchor = 0, focus = false},
-    case_sensitive = false,
-    bounds = {x=0, y=0, w=0, h=0}
-}
- 
--- Column Visibility Menu State
-local col_vis_menu = {
-    show = false,
-    x = 0,
-    y = 0,
-    w = 180,
-    h = 0 -- Calculated dynamically
-}
-
-local time_shift_menu = {
-    show = false,
-    x = 0,
-    y = 0,
-    w = 280,
-    only_selected = false
-}
 
 -- Session Management (Isolate UI state per project tab)
 local session_states = {}
@@ -970,7 +983,7 @@ local function save_session_state(id)
         dict_modal_show = dict_modal.show,
         -- Table state
         table_filter_state = deep_copy(table_filter_state),
-        find_replace_state = deep_copy(find_replace_state),
+        find_replace_state = deep_copy(OTHER.find_replace_state),
         table_selection = deep_copy(table_selection),
         table_sort = deep_copy(table_sort),
         last_selected_row = last_selected_row,
@@ -1004,7 +1017,7 @@ local function load_session_state(id)
         if dict_modal then dict_modal.show = state.dict_modal_show or false end
         -- Table
         if state.table_filter_state then table_filter_state = deep_copy(state.table_filter_state) end
-        if state.find_replace_state then find_replace_state = deep_copy(state.find_replace_state) end
+        if state.find_replace_state then OTHER.find_replace_state = deep_copy(state.find_replace_state) end
         if state.table_selection then table_selection = deep_copy(state.table_selection) end
         if state.table_sort then table_sort = deep_copy(state.table_sort) end
         last_selected_row = state.last_selected_row
@@ -2107,9 +2120,10 @@ local function is_any_text_input_focused()
     if table_filter_state and table_filter_state.focus then return true end
     if prompter_drawer and prompter_drawer.filter and prompter_drawer.filter.focus then return true end
     if director_state and director_state.input and director_state.input.focus then return true end
-    if find_replace_state and find_replace_state.show then
-        if find_replace_state.find and find_replace_state.find.focus then return true end
-        if find_replace_state.replace and find_replace_state.replace.focus then return true end
+    if SEARCH_ITEM and SEARCH_ITEM.show and SEARCH_ITEM.input and SEARCH_ITEM.input.focus then return true end
+    if OTHER.find_replace_state and OTHER.find_replace_state.show then
+        if OTHER.find_replace_state.find and OTHER.find_replace_state.find.focus then return true end
+        if OTHER.find_replace_state.replace and OTHER.find_replace_state.replace.focus then return true end
     end
     return false
 end
@@ -2523,9 +2537,8 @@ DEADLINE.urgency_cache = {
 
 function DEADLINE.get_overall_urgency()
     local now = reaper.time_precise()
-    
-    -- Return cached value if less than 10 second passed
-    if DEADLINE.urgency_cache.color and (now - DEADLINE.urgency_cache.last_check < 10.0) then
+    -- Return cached value if less than 3 second passed
+    if DEADLINE.urgency_cache.color and (now - DEADLINE.urgency_cache.last_check < 3.0) then
         return DEADLINE.urgency_cache.color
     end
 
@@ -10021,22 +10034,6 @@ end
 
 -- --- Search Item Modal ---
 
-local SEARCH_ITEM = {
-    show = false,
-    input = { text = "", focus = false, cursor = 1, anchor = 1, scroll = 0 },
-    results = nil,
-    loading = false,
-    scroll_y = 0,
-    target_scroll_y = 0,
-    last_query = "",
-    -- Player State
-    current_preview = nil,
-    current_item = nil,
-    preview_length = 0,
-    player_paused = false,
-    pause_pos = 0
-}
-
 function SEARCH_ITEM.open()
     SEARCH_ITEM.show = true
     SEARCH_ITEM.input.focus = false
@@ -10422,7 +10419,6 @@ function SEARCH_ITEM.show_item_menu(items)
     end
 end
 
-
 function SEARCH_ITEM.draw_window(input_queue)
     if not SEARCH_ITEM.show then return end
     
@@ -10461,8 +10457,7 @@ function SEARCH_ITEM.draw_window(input_queue)
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
 
     -- 3. Draw Results List
-    
-    if SEARCH_ITEM.results then
+    if SEARCH_ITEM.results and #SEARCH_ITEM.results > 0 then
         local rect_x, rect_y, rect_w, rect_h = pad, res_y, gfx.w - pad*2, res_h
         
         -- Measure total height
@@ -10588,6 +10583,33 @@ function SEARCH_ITEM.draw_window(input_queue)
         local sw, sh = gfx.measurestr(s)
         gfx.x, gfx.y = pad + (gfx.w - pad*2 - sw)/2, res_y + (res_h - sh)/2
         gfx.drawstr(s)
+    else
+        -- Initial State
+        set_color(UI.C_TXT, 0.5)
+        gfx.setfont(F.std)
+        local s1 = "Введіть текст для пошуку в папці:"
+        local s2 = cfg.search_item_path ~= "" and cfg.search_item_path or "(Папка не вибрана)"
+        
+        local sw1, sh1 = gfx.measurestr(s1)
+        local sw2, sh2 = gfx.measurestr(s2)
+        
+        local total_h = sh1 + sh2 + S(10)
+        local start_y = res_y + (res_h - total_h)/2
+        
+        gfx.x, gfx.y = pad + (gfx.w - pad*2 - sw1)/2, start_y
+        gfx.drawstr(s1)
+        
+        gfx.x, gfx.y = pad + (gfx.w - pad*2 - sw2)/2, start_y + sh1 + S(10)
+        
+        -- Truncate path if too long
+        local avail_w = gfx.w - pad*2
+        if sw2 > avail_w then
+            s2 = fit_text_width(s2, avail_w)
+            sw2 = gfx.measurestr(s2)
+            gfx.x = pad + (gfx.w - pad*2 - sw2)/2
+        end
+        
+        gfx.drawstr(s2)
     end
 
     -- 4. Draw Header Overlay (draw ON TOP of results)
@@ -17880,7 +17902,7 @@ end
 local function draw_table(input_queue)
     local show_actor = UI_STATE.ass_file_loaded
     local start_y = S(65)
-    col_vis_menu.handled = false -- Reset per frame
+    OTHER.col_vis_menu.handled = false -- Reset per frame
     
     local h_header = cfg.reader_mode and 0 or S(25)
     local row_h = cfg.reader_mode and S(80) or S(24)
@@ -17918,29 +17940,29 @@ local function draw_table(input_queue)
 
     -- Case Sensitive Toggle (Aa) - Always visible
     local chk_x = filter_x + filter_w + gap
-    local case_col = find_replace_state.case_sensitive and UI.C_ACCENT_G or UI.C_BTN
+    local case_col = OTHER.find_replace_state.case_sensitive and UI.C_ACCENT_G or UI.C_BTN
     if draw_btn_inline(chk_x, filter_y, chk_w, filter_h, "Aa", case_col) then
-        find_replace_state.case_sensitive = not find_replace_state.case_sensitive
+        OTHER.find_replace_state.case_sensitive = not OTHER.find_replace_state.case_sensitive
     end
 
     -- Options / Close Toggle Button
     local btn_x = chk_x + chk_w + gap
     
     local mouse_in_menu = false
-    if col_vis_menu.show then
+    if OTHER.col_vis_menu.show then
         local m_h = 4 * S(24) + S(10) -- 4 items * 24h
-        mouse_in_menu = gfx.mouse_x >= col_vis_menu.x and gfx.mouse_x <= col_vis_menu.x + col_vis_menu.w and
-                        gfx.mouse_y >= col_vis_menu.y and gfx.mouse_y <= col_vis_menu.y + m_h
-    elseif time_shift_menu.show then
+        mouse_in_menu = gfx.mouse_x >= OTHER.col_vis_menu.x and gfx.mouse_x <= OTHER.col_vis_menu.x + OTHER.col_vis_menu.w and
+                        gfx.mouse_y >= OTHER.col_vis_menu.y and gfx.mouse_y <= OTHER.col_vis_menu.y + m_h
+    elseif OTHER.time_shift_menu.show then
         local m_h = S(125) -- Matches the visual height
-        mouse_in_menu = gfx.mouse_x >= time_shift_menu.x and gfx.mouse_x <= time_shift_menu.x + time_shift_menu.w and
-                        gfx.mouse_y >= time_shift_menu.y and gfx.mouse_y <= time_shift_menu.y + m_h
+        mouse_in_menu = gfx.mouse_x >= OTHER.time_shift_menu.x and gfx.mouse_x <= OTHER.time_shift_menu.x + OTHER.time_shift_menu.w and
+                        gfx.mouse_y >= OTHER.time_shift_menu.y and gfx.mouse_y <= OTHER.time_shift_menu.y + m_h
     end
 
-    if find_replace_state.show then
+    if OTHER.find_replace_state.show then
         -- CLOSE BUTTON (Reddish)
         if draw_btn_inline(btn_x, filter_y, opt_btn_w, filter_h, "X", UI.C_BTN_ERROR) then
-            find_replace_state.show = false
+            OTHER.find_replace_state.show = false
         end
     else
         -- MENU BUTTON (Standard)
@@ -17948,12 +17970,12 @@ local function draw_table(input_queue)
             -- Clear input focus on menu click
             director_state.input.focus = false
             table_filter_state.focus = false
-            find_replace_state.find.focus = false
-            find_replace_state.replace.focus = false
+            OTHER.find_replace_state.find.focus = false
+            OTHER.find_replace_state.replace.focus = false
             
-            if col_vis_menu.show or time_shift_menu.show then
-                col_vis_menu.show = false
-                time_shift_menu.show = false
+            if OTHER.col_vis_menu.show or OTHER.time_shift_menu.show then
+                OTHER.col_vis_menu.show = false
+                OTHER.time_shift_menu.show = false
             else
                 local any_hidden = not (cfg.col_table_index and cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
                 local col_label = (any_hidden and "• " or "") .. "Колонки..."
@@ -17965,7 +17987,7 @@ local function draw_table(input_queue)
                 local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
-                    find_replace_state.show = true
+                    OTHER.find_replace_state.show = true
                     show_snackbar("'Знайти та замінити' працює лише для колонки 'Репліка'", "info")
                 elseif ret == 2 then
                     cfg.reader_mode = not cfg.reader_mode
@@ -17976,13 +17998,13 @@ local function draw_table(input_queue)
                     save_settings()
                     update_prompter_fonts()
                 elseif ret == 3 then
-                    col_vis_menu.show = true
-                    col_vis_menu.x = (btn_x + opt_btn_w) - S(180)
-                    col_vis_menu.y = filter_y + filter_h + gap
+                    OTHER.col_vis_menu.show = true
+                    OTHER.col_vis_menu.x = (btn_x + opt_btn_w) - S(180)
+                    OTHER.col_vis_menu.y = filter_y + filter_h + gap
                 elseif ret == 4 then
-                    time_shift_menu.show = true
-                    time_shift_menu.x = (btn_x + opt_btn_w) - S(280)
-                    time_shift_menu.y = filter_y + filter_h + gap
+                    OTHER.time_shift_menu.show = true
+                    OTHER.time_shift_menu.x = (btn_x + opt_btn_w) - S(280)
+                    OTHER.time_shift_menu.y = filter_y + filter_h + gap
                 elseif ret == 5 then
                     cfg.show_markers_in_table = not cfg.show_markers_in_table
                     save_settings()
@@ -18020,7 +18042,7 @@ local function draw_table(input_queue)
     end
     
     -- INLINE FIND/REPLACE UI
-    if find_replace_state.show then
+    if OTHER.find_replace_state.show then
         local fr_y = filter_y + filter_h + S(5)
         local fr_h = S(25)
         
@@ -18028,14 +18050,14 @@ local function draw_table(input_queue)
         local btn_apply_w = S(80)
         local rep_w = gfx.w - S(20) - btn_apply_w - gap
         
-        ui_text_input(filter_x, fr_y, rep_w, fr_h, find_replace_state.replace, "Замінити на...", input_queue)
+        ui_text_input(filter_x, fr_y, rep_w, fr_h, OTHER.find_replace_state.replace, "Замінити на...", input_queue)
 
         -- Apply Button
         local apply_x = filter_x + rep_w + gap
         if draw_btn_inline(apply_x, fr_y, btn_apply_w, fr_h, "Замінити", UI.C_BTN) then
             local search = table_filter_state.text -- Use filter as search text
-            local replace = find_replace_state.replace.text
-            local case = find_replace_state.case_sensitive
+            local replace = OTHER.find_replace_state.replace.text
+            local case = OTHER.find_replace_state.case_sensitive
             
             if #search > 0 then
                 push_undo("Знайти та замінити")
@@ -18088,9 +18110,9 @@ local function draw_table(input_queue)
                 table_filter_state.text = ""
                 table_filter_state.cursor = 0
                 table_filter_state.anchor = 0
-                find_replace_state.replace.text = ""
-                find_replace_state.replace.cursor = 0
-                find_replace_state.replace.anchor = 0
+                OTHER.find_replace_state.replace.text = ""
+                OTHER.find_replace_state.replace.cursor = 0
+                OTHER.find_replace_state.replace.anchor = 0
                 table_data_cache.state_count = -1
                 last_layout_state.state_count = -1
             else
@@ -18239,8 +18261,8 @@ local function draw_table(input_queue)
     if input_queue then
         for _, key in ipairs(input_queue) do
             -- Verify we are not typing in a text field
-            if not table_filter_state.focus and not find_replace_state.find.focus and 
-               not find_replace_state.replace.focus and not director_state.input.focus then
+            if not table_filter_state.focus and not OTHER.find_replace_state.find.focus and 
+               not OTHER.find_replace_state.replace.focus and not director_state.input.focus then
                 -- Ctrl+A (Select All Filtered)
                 if key == 1 then
                     table_selection = {}
@@ -18328,8 +18350,8 @@ local function draw_table(input_queue)
                            table_data_cache.sort_col ~= table_sort.col or
                            table_data_cache.sort_dir ~= table_sort.dir or
                            table_data_cache.show_markers ~= cfg.show_markers_in_table or
-                           table_data_cache.case_sensitive ~= find_replace_state.case_sensitive or
-                           table_data_cache.fr_show ~= find_replace_state.show)
+                           table_data_cache.case_sensitive ~= OTHER.find_replace_state.case_sensitive or
+                           table_data_cache.fr_show ~= OTHER.find_replace_state.show)
 
     if cache_invalid then
         local raw_data = {}
@@ -18355,7 +18377,7 @@ local function draw_table(input_queue)
         local query = table_filter_state.text
         local query_lower = utf8_lower(query)
         local query_clean = strip_accents(query_lower)
-        local use_case = find_replace_state.case_sensitive
+        local use_case = OTHER.find_replace_state.case_sensitive
 
         for _, line in ipairs(raw_data) do
             local target_text = line.text or line.name or "" -- Robust text selection
@@ -18388,7 +18410,7 @@ local function draw_table(input_queue)
                 index_match = tostring(line.index or ""):lower():find(query_clean, 1, true)
             end
 
-            if query == "" or text_match or (not find_replace_state.show and (actor_match or index_match)) then
+            if query == "" or text_match or (not OTHER.find_replace_state.show and (actor_match or index_match)) then
                 line.h_text = h_text -- Store pre-calculated highlight
                 line.h_actor = h_actor
                 
@@ -18445,7 +18467,7 @@ local function draw_table(input_queue)
         table_data_cache.sort_dir = table_sort.dir
         table_data_cache.show_markers = cfg.show_markers_in_table
         table_data_cache.case_sensitive = use_case
-        table_data_cache.fr_show = find_replace_state.show
+        table_data_cache.fr_show = OTHER.find_replace_state.show
         
         -- Cleanup selection of stale marker indices (only those not in current raw_data)
         -- We do NOT cleanup based on 'filtered' as that would wipe selection during search
@@ -18485,7 +18507,7 @@ local function draw_table(input_queue)
                             last_layout_state.col_w_end ~= cfg.col_w_end or
                             last_layout_state.col_w_cps ~= cfg.col_w_cps or
                             last_layout_state.col_w_actor ~= cfg.col_w_actor or
-                            last_layout_state.fr_show ~= find_replace_state.show or
+                            last_layout_state.fr_show ~= OTHER.find_replace_state.show or
                             last_layout_state.t_r_size ~= cfg.t_r_size)
 
     local x_off = last_layout_state.x_off or {S(10)}
@@ -18564,7 +18586,7 @@ local function draw_table(input_queue)
             col_vis_end = cfg.col_table_end,
             col_vis_cps = cfg.col_table_cps,
             col_vis_actor = cfg.col_table_actor,
-            fr_show = find_replace_state.show,
+            fr_show = OTHER.find_replace_state.show,
             t_r_size = cfg.t_r_size
         }
     end
@@ -18853,7 +18875,7 @@ local function draw_table(input_queue)
                         
                         if #query > 0 and not first_match_done then
                             local s_start, s_end
-                            if find_replace_state.case_sensitive then
+                            if OTHER.find_replace_state.case_sensitive then
                                 s_start, s_end = line_str:find(query, 1, true)
                             else
                                 s_start, s_end = utf8_find_accent_blind(line_str, query)
@@ -18887,7 +18909,7 @@ local function draw_table(input_queue)
             
             -- Click logic
             -- FIX: Check bit 1 (Left Mouse) regardless of other flags
-            if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and not mouse_in_menu and not col_vis_menu.handled then
+            if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and not mouse_in_menu and not OTHER.col_vis_menu.handled then
                 -- Safety check: click must be within both the visible content area AND the row itself
                 -- Also check horizontal bounds to prevent clicks in Director Panel (when docked right)
                 if gfx.mouse_x < avail_w and
@@ -18901,8 +18923,8 @@ local function draw_table(input_queue)
                         -- Clear input focus on checkbox click
                         director_state.input.focus = false
                         table_filter_state.focus = false
-                        find_replace_state.find.focus = false
-                        find_replace_state.replace.focus = false
+                        OTHER.find_replace_state.find.focus = false
+                        OTHER.find_replace_state.replace.focus = false
                         local new_state = not is_enabled
                         
                         if is_selected then
@@ -18957,8 +18979,8 @@ local function draw_table(input_queue)
                             -- Clear input focus on row click
                             director_state.input.focus = false
                             table_filter_state.focus = false
-                            find_replace_state.find.focus = false
-                            find_replace_state.replace.focus = false
+                            OTHER.find_replace_state.find.focus = false
+                            OTHER.find_replace_state.replace.focus = false
                             
                             -- Navigate logic
                             local replica_x_start = cfg.reader_mode and 0 or x_off[#x_off]
@@ -19448,9 +19470,9 @@ local function draw_table(input_queue)
     end
 
     -- --- COLUMN VISIBILITY FLOATING MENU ---
-    if col_vis_menu.show then
+    if OTHER.col_vis_menu.show then
         local m_w = S(180)
-        local m_x, m_y = col_vis_menu.x, col_vis_menu.y
+        local m_x, m_y = OTHER.col_vis_menu.x, OTHER.col_vis_menu.y
         local item_h = S(24)
         local items = {
             {label = "#", key = "col_table_index"},
@@ -19504,7 +19526,7 @@ local function draw_table(input_queue)
                 gfx.drawstr(label)
                 
                 if hover and is_mouse_clicked() then
-                    col_vis_menu.handled = true
+                    OTHER.col_vis_menu.handled = true
                     if item.action then
                         item.action()
                         update_prompter_fonts()
@@ -19525,18 +19547,18 @@ local function draw_table(input_queue)
         
         -- Close if clicked outside
         if is_mouse_clicked() and not (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= m_y and gfx.mouse_y <= m_y + m_h) then
-             -- BUT check if it was the menu button itself (to avoid immediate close-reopen)
-             if not (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + opt_btn_w and 
-                     gfx.mouse_y >= filter_y and gfx.mouse_y <= filter_y + filter_h) then
-                 col_vis_menu.show = false
-             end
+            -- BUT check if it was the menu button itself (to avoid immediate close-reopen)
+            if not (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + opt_btn_w and 
+                    gfx.mouse_y >= filter_y and gfx.mouse_y <= filter_y + filter_h) then
+                OTHER.col_vis_menu.show = false
+            end
         end
     end
 
     -- --- TIME SHIFT FLOATING MENU ---
-    if time_shift_menu.show then
+    if OTHER.time_shift_menu.show then
         local m_w = S(280)
-        local m_x, m_y = time_shift_menu.x, time_shift_menu.y
+        local m_x, m_y = OTHER.time_shift_menu.x, OTHER.time_shift_menu.y
         local m_h = S(125)
         
         -- Background with shadow
@@ -19557,7 +19579,7 @@ local function draw_table(input_queue)
         
         set_color(UI.C_ED_GUTTER)
         gfx.rect(chk_x, iy + S(4), chk_sz, chk_sz, 0)
-        if time_shift_menu.only_selected then
+        if OTHER.time_shift_menu.only_selected then
             set_color(UI.C_TXT)
             gfx.line(chk_x+S(3), iy+S(11), chk_x+S(6), iy+S(14))
             gfx.line(chk_x+S(6), iy+S(14), chk_x+S(11), iy+S(7))
@@ -19568,7 +19590,7 @@ local function draw_table(input_queue)
         gfx.drawstr("Лише для вибраних")
         
         if hover_chk and is_mouse_clicked() then
-            time_shift_menu.only_selected = not time_shift_menu.only_selected
+            OTHER.time_shift_menu.only_selected = not OTHER.time_shift_menu.only_selected
         end
         
         -- Buttons Grid (2 Rows)
@@ -19591,7 +19613,7 @@ local function draw_table(input_queue)
                     push_undo("Здвиг часу (" .. off .. "s)")
                     local affected = 0
                     for _, line in ipairs(ass_lines) do
-                        if not time_shift_menu.only_selected or table_selection[line.index or 0] then
+                        if not OTHER.time_shift_menu.only_selected or table_selection[line.index or 0] then
                             line.t1 = line.t1 + off
                             line.t2 = line.t2 + off
                             affected = affected + 1
@@ -19613,10 +19635,10 @@ local function draw_table(input_queue)
         
         -- Close if clicked outside
         if is_mouse_clicked() and not (gfx.mouse_x >= m_x and gfx.mouse_x <= m_x + m_w and gfx.mouse_y >= m_y and gfx.mouse_y <= m_y + m_h) then
-             if not (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + opt_btn_w and 
-                     gfx.mouse_y >= filter_y and gfx.mouse_y <= filter_y + filter_h) then
-                 time_shift_menu.show = false
-             end
+            if not (gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + opt_btn_w and 
+                    gfx.mouse_y >= filter_y and gfx.mouse_y <= filter_y + filter_h) then
+                OTHER.time_shift_menu.show = false
+            end
         end
     end
 
