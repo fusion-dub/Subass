@@ -184,11 +184,13 @@ if [ -f "$SCRIPT_SOURCE" ]; then
         cp -f "$STATS_SOURCE"/*.py "$SCRIPTS_PATH/stats/" 2>/dev/null
     fi
     if [ -d "$DICTIONARY_SOURCE" ]; then
-        # Preserve dictionary data folder during update
-        if [ -d "$SCRIPTS_PATH/dictionary" ]; then
-            rsync -av --exclude='data' "$DICTIONARY_SOURCE/" "$SCRIPTS_PATH/dictionary/"
-        else
-            cp -R "$DICTIONARY_SOURCE" "$SCRIPTS_PATH/"
+        # 1. Update everything EXCEPT data (preserve user data)
+        mkdir -p "$SCRIPTS_PATH/dictionary"
+        rsync -av --exclude='data' "$DICTIONARY_SOURCE/" "$SCRIPTS_PATH/dictionary/"
+        
+        # 2. Extract default data ONLY if missing in destination
+        if [ ! -d "$SCRIPTS_PATH/dictionary/data" ] && [ -d "$DICTIONARY_SOURCE/data" ]; then
+            cp -R "$DICTIONARY_SOURCE/data" "$SCRIPTS_PATH/dictionary/"
         fi
     fi
     if [ -d "$TTS_SOURCE" ]; then
