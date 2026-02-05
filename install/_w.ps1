@@ -302,7 +302,17 @@ if (Test-Path $scriptSource) {
         Copy-Item $autoupdateSource $scriptsPath -Force
     }
     if (Test-Path $dictionarySource) {
-        Copy-Item $dictionarySource $scriptsPath -Recurse -Force
+        $dictionaryTarget = Join-Path $scriptsPath "dictionary"
+        # Preserve data folder during update
+        if (Test-Path $dictionaryTarget) {
+            Get-ChildItem $dictionarySource | Where-Object { 
+                $_.Name -ne "data" 
+            } | ForEach-Object {
+                Copy-Item $_.FullName $dictionaryTarget -Recurse -Force
+            }
+        } else {
+            Copy-Item $dictionarySource $scriptsPath -Recurse -Force
+        }
     }
     if (Test-Path $statsSource) {
         $statsTarget = Join-Path $scriptsPath "stats"
