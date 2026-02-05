@@ -144,6 +144,18 @@ def perform_update(zip_url):
                                     shutil.copytree(sub_s, sub_d)
                                 else:
                                     shutil.copy2(sub_s, sub_d)
+                    elif item == "dictionary":
+                        # Preserve data (glossary and audio)
+                        if not os.path.exists(d): os.makedirs(d)
+                        for sub_item in os.listdir(s):
+                            if sub_item != "data":
+                                sub_s = os.path.join(s, sub_item)
+                                sub_d = os.path.join(d, sub_item)
+                                if os.path.isdir(sub_s):
+                                    if os.path.exists(sub_d): shutil.rmtree(sub_d)
+                                    shutil.copytree(sub_s, sub_d)
+                                else:
+                                    shutil.copy2(sub_s, sub_d)
                     elif item == "stats":
                         # Preserve existing json data, update python code
                         if not os.path.exists(d): os.makedirs(d)
