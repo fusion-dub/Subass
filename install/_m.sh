@@ -184,7 +184,12 @@ if [ -f "$SCRIPT_SOURCE" ]; then
         cp -f "$STATS_SOURCE"/*.py "$SCRIPTS_PATH/stats/" 2>/dev/null
     fi
     if [ -d "$DICTIONARY_SOURCE" ]; then
-        cp -R "$DICTIONARY_SOURCE" "$SCRIPTS_PATH/"
+        # Preserve dictionary data folder during update
+        if [ -d "$SCRIPTS_PATH/dictionary" ]; then
+            rsync -av --exclude='data' "$DICTIONARY_SOURCE/" "$SCRIPTS_PATH/dictionary/"
+        else
+            cp -R "$DICTIONARY_SOURCE" "$SCRIPTS_PATH/"
+        fi
     fi
     if [ -d "$TTS_SOURCE" ]; then
         # Preserve history folder during update
