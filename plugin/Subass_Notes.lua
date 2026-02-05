@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.8.5
+-- @version 4.9
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v4.8.5",
+    script_title = "Subass Notes v4.9",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -16406,7 +16406,7 @@ local function draw_settings()
         {name = "Розділення по Даберам", tip = "Спеціальний інструмент для автоматичного або ручного розподілу реплік/ролей між даберами. Дозволяє бачити навантаження кожного дабера.", action = function() DUBBERS.show_dashboard = true DUBBERS.load() end},
         {name = "WEB-менеджер наголосів", tip = "Пошук та виправлення складних наголосів за допомогою онлайн-бази. Працює у браузері для зручного редагування.", action = function() UTILS.launch_python_script("stress/ukrainian_stress_tool.py") end},
         {name = "Глобальний пошук реплік", tip = "Наскрізний пошук будь-якого тексту чи слова по всіх ваших проектах Subass. Допомагає знайти, де вже зустрічалася певна фраза.", action = function() SEARCH_ITEM.show = true SEARCH_ITEM.input.focus = true end},
-        {name = "Відкрити Словник", tip = "Словник з корисною інформацією, сленги, асиміляція, відмінки, лайка, тощо.", action = function() run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end}, 
+        {name = "Відкрити Словник", tip = "Словник з корисною інформацією, сленги, асиміляція, відмінки, лайка, тощо. А також Звуковий Глосарій", action = function() run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end}, 
         {name = "Відкрити SubOverlay від Lionzz", tip = "Допоміжне вікно поверх усього відео (Overlay), що відображає текст поточної репліки прямо перед очима під час запису.", action = function() run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end},
         {name = "Знайти слово в ГОРОСі", tip = "Швидкий пошук слова у найбільшій лексикографічній базі Goroh.pp.ua (тлумачення, словозміна, синоніми, фразеологія, слововживання).", action = function() 
             local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
