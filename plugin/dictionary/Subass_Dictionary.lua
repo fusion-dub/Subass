@@ -12,6 +12,10 @@ reaper.ImGui_Attach(ctx, font_tabs)
 -- Initial window size
 local WIN_W, WIN_H = 600, 500
 
+-- Tab Persistence
+local last_tab = tonumber(reaper.GetExtState("Subass_Dictionary", "last_tab")) or 0
+local restore_tab = true
+
 -- Load dictionary data
 local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
 -- Global ImGui Style
@@ -594,7 +598,12 @@ local function loop()
 
         if tabs_visible then
             -- Reference Tab
-            if reaper.ImGui_BeginTabItem(ctx, "Довідник") then
+            local ref_flags = (restore_tab and last_tab == 0) and reaper.ImGui_TabItemFlags_SetSelected() or 0
+            if reaper.ImGui_BeginTabItem(ctx, "Довідник", nil, ref_flags) then
+                if not restore_tab and last_tab ~= 0 then
+                    last_tab = 0
+                    reaper.SetExtState("Subass_Dictionary", "last_tab", "0", true)
+                end
                 reaper.ImGui_PopFont(ctx)
                 reaper.ImGui_PopStyleVar(ctx)
 
@@ -638,7 +647,12 @@ local function loop()
             end
 
             -- Glossary Tab
-            if reaper.ImGui_BeginTabItem(ctx, "Звуковий Глосарій") then
+            local glos_flags = (restore_tab and last_tab == 1) and reaper.ImGui_TabItemFlags_SetSelected() or 0
+            if reaper.ImGui_BeginTabItem(ctx, "Звуковий Глосарій", nil, glos_flags) then
+                if not restore_tab and last_tab ~= 1 then
+                    last_tab = 1
+                    reaper.SetExtState("Subass_Dictionary", "last_tab", "1", true)
+                end
                 reaper.ImGui_PopFont(ctx)
                 reaper.ImGui_PopStyleVar(ctx)
 
@@ -978,6 +992,7 @@ local function loop()
             end
 
             reaper.ImGui_EndTabBar(ctx)
+            restore_tab = false
         end
         reaper.ImGui_PopStyleVar(ctx)
         reaper.ImGui_PopFont(ctx)
