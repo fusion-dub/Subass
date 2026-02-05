@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.8.2
+-- @version 4.8.5
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v4.8.2",
+    script_title = "Subass Notes v4.8.5",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -16391,7 +16391,55 @@ local function draw_settings()
     end
     
     -- ═══════════════════════════════════════════
-    -- 0. API КЛЮЧІ
+    -- 0. ІНСТРУМЕНТИ (Tools)
+    -- ═══════════════════════════════════════════
+    s_section(y_cursor, "ІНСТРУМЕНТИ")
+    y_cursor = y_cursor + S(35)
+    
+    local col_count = gfx.w < S(450) and 1 or 2
+    local btn_w = (gfx.w - x_start * 2 - (col_count - 1) * S(10)) / col_count
+    local btn_h = S(40)
+    
+    local tools = {
+        {name = "Моя Статистика", tip = "Детальна персональна аналітика: кількість записаних реплік, слів, час роботи та прогрес по проектах у зручному веб-інтерфейсі.", action = function() UTILS.launch_python_script("stats/subass_stats.py") end},
+        {name = "Мої Дедлайни", tip = "Календар та список термінів здачі проектів. Допомагає планувати черговість роботи та не пропускати дедлайни.", action = function() DEADLINE.dashboard_show = true end},
+        {name = "Розділення по Даберам", tip = "Спеціальний інструмент для автоматичного або ручного розподілу реплік/ролей між даберами. Дозволяє бачити навантаження кожного дабера.", action = function() DUBBERS.show_dashboard = true DUBBERS.load() end},
+        {name = "WEB-менеджер наголосів", tip = "Пошук та виправлення складних наголосів за допомогою онлайн-бази. Працює у браузері для зручного редагування.", action = function() UTILS.launch_python_script("stress/ukrainian_stress_tool.py") end},
+        {name = "Глобальний пошук реплік", tip = "Наскрізний пошук будь-якого тексту чи слова по всіх ваших проектах Subass. Допомагає знайти, де вже зустрічалася певна фраза.", action = function() SEARCH_ITEM.show = true SEARCH_ITEM.input.focus = true end},
+        {name = "Відкрити Словник", tip = "Словник з корисною інформацією, сленги, асиміляція, відмінки, лайка, тощо.", action = function() run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end}, 
+        {name = "Відкрити SubOverlay від Lionzz", tip = "Допоміжне вікно поверх усього відео (Overlay), що відображає текст поточної репліки прямо перед очима під час запису.", action = function() run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end},
+        {name = "Знайти слово в ГОРОСі", tip = "Швидкий пошук слова у найбільшій лексикографічній базі Goroh.pp.ua (тлумачення, словозміна, синоніми, фразеологія, слововживання).", action = function() 
+            local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
+            if ok and input ~= "" then
+                trigger_dictionary_lookup(input)
+            end
+        end},
+        {name = "Режим Режисера", tip = "Перемикає інтерфейс у режим перегляду для режисера: вкладка реплік з активним режимом контролю та зауважень.", color = cfg.director_mode and UI.C_BTN_MEDIUM or nil, action = function() 
+            UI_STATE.current_tab = 2 
+            cfg.director_mode = not cfg.director_mode 
+            save_settings() 
+        end},
+        {name = "Режим Слайдера", tip = "Перемикає інтерфейс на вкладку суфлера та перемкне режим плавного прокручування (Slider Mode) для комфортного читання.", color = cfg.prompter_slider_mode and UI.C_BTN_MEDIUM or nil, action = function() 
+            UI_STATE.current_tab = 3 
+            cfg.prompter_slider_mode = not cfg.prompter_slider_mode 
+            save_settings() 
+        end},
+        {name = "Видалити ВСІ регіони", tip = "Видаляє всі регіони з проекту REAPER. Дія незворотна!", color = UI.C_BTN_ERROR, action = function() delete_all_regions() end},
+        {name = "Перевірити оновлення", tip = "Перевірити наявність нових версій Subass на сервері.", color = UI.C_SEL_BG, action = function() check_for_updates() end}
+    }
+    
+    for i, t in ipairs(tools) do
+        local r = math.floor((i-1)/col_count)
+        local c = (i-1)%col_count
+        local bx = x_start + c * (btn_w + S(10))
+        if s_btn(bx, y_cursor + r*(btn_h + S(10)), btn_w, btn_h, t.name, t.tip, t.color) then
+            t.action()
+        end
+    end
+    y_cursor = y_cursor + math.ceil(#tools/col_count) * (btn_h + S(10)) + S(15)
+
+    -- ═══════════════════════════════════════════
+    -- 1. API КЛЮЧІ
     -- ═══════════════════════════════════════════
     s_section(y_cursor, "API КЛЮЧІ")
     y_cursor = y_cursor + S(35)
@@ -16430,22 +16478,6 @@ local function draw_settings()
         end
     end
 
-    y_cursor = y_cursor + S(60)
-    -- ═══════════════════════════════════════════
-    -- 1. ГЛОБАЛЬНІ ДІЇ
-    -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ГЛОБАЛЬНІ ДІЇ")
-    y_cursor = y_cursor + S(35)
-
-    -- Delete regions (Danger Zone)
-    if s_btn(x_start, y_cursor, S(200), S(30), "Видалити ВСІ регіони", "Видаляє всі регіони з проекту REAPER.\nДія незворотна!", UI.C_BTN_ERROR) then
-        delete_all_regions()
-    end
-
-    -- Update Check
-    if s_btn(x_start + S(220), y_cursor, S(200), S(30), "Перевірити оновлення", "Перевірити наявність нових версій Subass на сервері.") then
-        check_for_updates()
-    end
     y_cursor = y_cursor + S(60)
 
     -- ═══════════════════════════════════════════
