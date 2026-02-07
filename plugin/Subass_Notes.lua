@@ -5268,8 +5268,9 @@ end
 --- @param t1 number Start time
 --- @param t2 number End time
 --- @param text string Replica text
+--- @param metadata table|nil Metadata table (optional)
 --- @return boolean True if duplicate found
-local function is_duplicate_replica(actor, t1, t2, text)
+local function is_duplicate_replica(actor, t1, t2, text, metadata)
     if not ass_lines then return false end
     for _, l in ipairs(ass_lines) do
         -- Compare with small epsilon for timing
@@ -5277,7 +5278,35 @@ local function is_duplicate_replica(actor, t1, t2, text)
            math.abs(l.t1 - t1) < 0.005 and 
            math.abs(l.t2 - t2) < 0.005 and 
            l.text == text then
-            return true
+            
+            -- If metadata is provided, all fields must match
+            if metadata and l.metadata then
+                local all_match = true
+                -- Check all fields in incoming metadata
+                for k, v in pairs(metadata) do
+                    if l.metadata[k] ~= v then
+                        all_match = false
+                        break
+                    end
+                end
+                -- Also check if existing line has extra fields
+                if all_match then
+                    for k, v in pairs(l.metadata) do
+                        if metadata[k] ~= v then
+                            all_match = false
+                            break
+                        end
+                    end
+                end
+                
+                if all_match then return true end
+            elseif not metadata and not (l.metadata and next(l.metadata)) then
+                -- Both lack metadata (or existing as an empty table)
+                return true
+            elseif not metadata or not (l.metadata and next(l.metadata)) then
+                -- One has metadata and the other doesn't -> not a duplicate
+                -- (We allow empty metadata tables to count as "no metadata")
+            end
         end
     end
     return false
@@ -8062,19 +8091,20 @@ local function import_ass(file_path, dont_rebuild)
                     actor = actor:match("^%s*(.-)%s*$") -- Clean
                     if actor == "" then actor = "Unknown" end
 
+                    -- Extract all metadata fields for duplicate check and storage
+                    local line_metadata = {}
+                    for field, f_idx in pairs(ASS.ass_format_def) do
+                        if field ~= "Start" and field ~= "End" and field ~= "Text" and field ~= "Name" and field ~= "Actor" then
+                            line_metadata[field] = fields[f_idx]
+                        end
+                    end
+
                     text = text:gsub("\\N", "\n"):gsub("\\n", "\n")
                     
-                    if not is_duplicate_replica(actor, t1, t2, text) then
+                    if not is_duplicate_replica(actor, t1, t2, text, line_metadata) then
                         local is_enabled = true
                         if selected_dubber_actors then
                             is_enabled = selected_dubber_actors[actor] == true
-                        end
-
-                        local line_metadata = {}
-                        for field, f_idx in pairs(ASS.ass_format_def) do
-                            if field ~= "Start" and field ~= "End" and field ~= "Text" and field ~= "Name" and field ~= "Actor" then
-                                line_metadata[field] = fields[f_idx]
-                            end
                         end
 
                         table.insert(ass_lines, {
