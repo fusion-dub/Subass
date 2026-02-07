@@ -75,11 +75,16 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
     try:
         base_chunks = {}
         tracks = []
+        sws_subs = []
+        marker_times = {} # id -> [times]
         current_track = None
         current_item = None
         
         in_bin_block = None
         in_extstate = False
+        in_sws_sub = False
+        sws_id = None
+        current_sws_txt = []
         track_depth = 0
         item_depth = 0
         
@@ -91,6 +96,27 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
                 if in_bin_block is not None:
                     if line_str == ">": in_bin_block = None
                     else: base_chunks[in_bin_block] += line_str
+                    continue
+
+                if in_sws_sub:
+                    if line_str == ">":
+                        in_sws_sub = False
+                        full_txt = "".join(current_sws_txt).strip()
+                        if full_txt and sws_id is not None:
+                            # Map ID to timing
+                            lookup_id = sws_id
+                            if lookup_id >= 1073741824: lookup_id -= 1073741824
+                            
+                            times = marker_times.get(lookup_id, [0])
+                            times.sort()
+                            t1 = times[0]
+                            t2 = times[1] if len(times) > 1 else t1 + 0.1
+                            sws_subs.append({"t1": t1, "t2": t2, "actor": "SWS Subtitle", "text": full_txt})
+                        current_sws_txt = []
+                        sws_id = None
+                    else:
+                        if line_str.startswith("|"):
+                            current_sws_txt.append(line_str[1:] + "\n")
                     continue
 
                 if line_str.startswith('<BIN'):
@@ -113,6 +139,25 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
                     if m:
                         idx = int(m.group(1))
                         base_chunks[idx] = m.group(2)
+                    continue
+
+                if line_str.startswith('<S&M_SUBTITLE'):
+                    in_sws_sub = True
+                    current_sws_txt = []
+                    # Extract ID: <S&M_SUBTITLE 1073741825
+                    parts = line_str.split()
+                    if len(parts) > 1:
+                        try: sws_id = int(parts[1])
+                        except: sws_id = None
+                    continue
+
+                if line_str.startswith("MARKER "):
+                    # MARKER 1 161.541...
+                    m = re.match(r'MARKER\s+(\d+)\s+([\d.-]+)', line_str)
+                    if m:
+                        m_idx = int(m.group(1))
+                        m_pos = float(m.group(2))
+                        marker_times.setdefault(m_idx, []).append(m_pos)
                     continue
 
                 if line_str.startswith("<TRACK"):
@@ -169,21 +214,27 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
                         track_depth -= 1
                         if track_depth == 0: current_track = None
 
-        if not base_chunks: return None
-        sorted_indices = sorted(base_chunks.keys())
-        full_content = "".join(base_chunks[i] for i in sorted_indices)
-        
-        try:
-            # Try base64 first (old format), then raw (new format)
+        ass_lines = []
+        if base_chunks:
+            sorted_indices = sorted(base_chunks.keys())
+            full_content = "".join(base_chunks[i] for i in sorted_indices)
+            
             try:
-                decoded_bytes = base64.b64decode(full_content)
-                decoded_data = decoded_bytes.decode('utf-8', errors='ignore')
-            except Exception:
-                decoded_data = full_content
-                
-            ass_lines = [parse_ass_line(l) for l in decoded_data.split('\n') if l.strip()]
-            ass_lines = [l for l in ass_lines if l is not None]
-        except Exception: return None
+                # Try base64 first (old format), then raw (new format)
+                try:
+                    decoded_bytes = base64.b64decode(full_content)
+                    decoded_data = decoded_bytes.decode('utf-8', errors='ignore')
+                except Exception:
+                    decoded_data = full_content
+                    
+                ass_lines = [parse_ass_line(l) for l in decoded_data.split('\n') if l.strip()]
+                ass_lines = [l for l in ass_lines if l is not None]
+            except Exception: pass
+        
+        # Add SWS subtitles to the list
+        ass_lines.extend(sws_subs)
+        
+        if not ass_lines: return None
 
         # 4. Global Heuristics (Zero-Cost)
         source_stats = {} # path -> {"max_reach": float, "is_skipped": bool, "overlaps": set}
@@ -234,7 +285,7 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
                                 "file_path": path
                             })
                 
-                if overlapping_items:
+                if overlapping_items or line_data.get("actor") == "SWS Subtitle":
                     prev_line = ass_lines[i-1] if i > 0 else None
                     next_line = ass_lines[i+1] if i < len(ass_lines)-1 else None
                     similarity = get_similarity(query_norm, text_norm)
