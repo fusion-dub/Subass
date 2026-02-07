@@ -13273,8 +13273,26 @@ local function draw_file()
         -- Calculate rows needed
         local row_count = math.ceil(#sorted_actors / cols)
         
-        -- Pre-calculate stats per actor for tooltips
+        -- Pre-calculate stats per actor and dubber assignments for tooltips
         local actor_tooltips = {}
+        local actor_to_dubber = {}
+        
+        -- Get dubber assignments
+        if DUBBERS and DUBBERS.data and DUBBERS.data.assignments then
+            for d_name, assigned in pairs(DUBBERS.data.assignments) do
+                for actor_name, is_on in pairs(assigned) do
+                    if is_on then
+                        -- Store as string, handle multiple dubbers if assigned (rare but possible)
+                        if actor_to_dubber[actor_name] then
+                            actor_to_dubber[actor_name] = actor_to_dubber[actor_name] .. ", " .. d_name
+                        else
+                            actor_to_dubber[actor_name] = d_name
+                        end
+                    end
+                end
+            end
+        end
+
         for _, line in ipairs(ass_lines) do
             local act = line.actor or "Default"
             if not actor_tooltips[act] then actor_tooltips[act] = {replicas = 0, words = 0} end
@@ -13365,7 +13383,9 @@ local function draw_file()
                    gfx.mouse_y >= chk_y - S(2) and gfx.mouse_y <= chk_y + S(22) then
                     
                     local stats = actor_tooltips[act] or {replicas = 0, words = 0}
-                    local tooltip = string.format("%s\nРеплік: %d\nСлів: %d", act, stats.replicas, stats.words)
+                    local assigned_dubber = actor_to_dubber[act]
+                    local dubber_info = assigned_dubber and ("\n—\nДабер: " .. assigned_dubber) or "\n—\n"
+                    local tooltip = string.format("%s%s\nРеплік: %d\nСлів: %d", act, dubber_info, stats.replicas, stats.words)
                     
                     local tip_id = "actor_tip_" .. act
                     if UI_STATE.tooltip_state.hover_id ~= tip_id then
