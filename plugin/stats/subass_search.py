@@ -33,15 +33,32 @@ def get_similarity(s1, s2):
 def parse_ass_line(line_str):
     """
     Parses a single line from the decoded ass_lines state.
+    Supports 5, 6, 7, and 8-field formats.
     """
     parts = line_str.strip().split('|')
-    if len(parts) < 7: return None
+    if len(parts) < 5: return None
     try:
         t1, t2 = float(parts[0]), float(parts[1])
         actor = parts[2]
-        text = "|".join(parts[6:]).replace("\\n", "\n")
+        
+        # Determine text field based on format version
+        if len(parts) >= 8:
+            # New 8-field format: t1|t2|actor|enabled|rgn_idx|index|text|metadata
+            text = parts[6]
+        elif len(parts) == 7:
+            # 7-field format: t1|t2|actor|enabled|rgn_idx|index|text
+            text = parts[6]
+        elif len(parts) == 6:
+            # 6-field format: t1|t2|actor|enabled|rgn_idx|text
+            text = parts[5]
+        else:
+            # 5-field format: t1|t2|actor|enabled|text
+            text = parts[4]
+            
+        # Unescape and clean
+        text = text.replace("\\p", "|").replace("\\n", "\n")
         return {"t1": t1, "t2": t2, "actor": actor, "text": text}
-    except: return None
+    except Exception: return None
 
 def is_extension_allowed(file_path):
     if not file_path: return False
@@ -56,12 +73,13 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
     matches = []
     
     try:
-        base64_chunks = {}
+        base_chunks = {}
         tracks = []
         current_track = None
         current_item = None
         
         in_bin_block = None
+        in_extstate = False
         track_depth = 0
         item_depth = 0
         
@@ -72,15 +90,29 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
 
                 if in_bin_block is not None:
                     if line_str == ">": in_bin_block = None
-                    else: base64_chunks[in_bin_block] += line_str
+                    else: base_chunks[in_bin_block] += line_str
                     continue
 
                 if line_str.startswith('<BIN'):
-                    m = re.search(r'ASS_LINES_CHUNK_(\d+)', line_str)
+                    m = re.search(r'ass_lines_chunk_(\d+)', line_str, re.IGNORECASE)
                     if m:
                         idx = int(m.group(1))
                         in_bin_block = idx
-                        base64_chunks[idx] = ""
+                        base_chunks[idx] = ""
+                    continue
+
+                if line_str.startswith('<EXTSTATE'):
+                    in_extstate = True
+                    continue
+                
+                if in_extstate:
+                    if line_str == ">":
+                        in_extstate = False
+                        continue
+                    m = re.search(r'ass_lines_chunk_(\d+)\s+"(.*?)"', line_str, re.IGNORECASE)
+                    if m:
+                        idx = int(m.group(1))
+                        base_chunks[idx] = m.group(2)
                     continue
 
                 if line_str.startswith("<TRACK"):
@@ -137,14 +169,20 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
                         track_depth -= 1
                         if track_depth == 0: current_track = None
 
-        if not base64_chunks: return None
-        sorted_indices = sorted(base64_chunks.keys())
-        full_b64 = "".join(base64_chunks[i] for i in sorted_indices)
+        if not base_chunks: return None
+        sorted_indices = sorted(base_chunks.keys())
+        full_content = "".join(base_chunks[i] for i in sorted_indices)
         
         try:
-            decoded_bytes = base64.b64decode(full_b64)
-            decoded_data = decoded_bytes.decode('utf-8', errors='ignore')
+            # Try base64 first (old format), then raw (new format)
+            try:
+                decoded_bytes = base64.b64decode(full_content)
+                decoded_data = decoded_bytes.decode('utf-8', errors='ignore')
+            except Exception:
+                decoded_data = full_content
+                
             ass_lines = [parse_ass_line(l) for l in decoded_data.split('\n') if l.strip()]
+            ass_lines = [l for l in ass_lines if l is not None]
         except Exception: return None
 
         # 4. Global Heuristics (Zero-Cost)
