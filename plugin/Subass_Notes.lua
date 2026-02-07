@@ -12930,6 +12930,11 @@ local function draw_file()
     -- 5. Drop zone area
     content_h = content_h + S(80)
 
+    -- Fixed jitter: Use the real height from the previous frame to stabilize clamping
+    if last_file_h and last_file_h > 0 then
+        content_h = last_file_h
+    end
+
     local start_y = S(50)
     local avail_h = gfx.h - start_y
     local max_scroll = math.max(0, content_h - avail_h)
