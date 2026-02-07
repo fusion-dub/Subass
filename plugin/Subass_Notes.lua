@@ -6421,8 +6421,44 @@ function DUBBERS.export_as_ass(deadline_str)
     end
 end
 
+--- Select a dubber and filter the project to their assigned actors
+--- @param name string Name of the dubber to select
+function DUBBERS.select_dubber(name)
+    local assigned_actors = DUBBERS.data.assignments[name] or {}
+    
+    -- Reset all filters
+    for k in pairs(ass_actors) do ass_actors[k] = false end
+    if ass_lines then
+        for _, l in ipairs(ass_lines) do l.enabled = false end
+    end
+    
+    -- Apply assignments from this dubber
+    local found_any = false
+    for act, is_on in pairs(assigned_actors) do
+        if is_on and ass_actors[act] ~= nil then
+            ass_actors[act] = true
+            found_any = true
+        end
+    end
+    
+    -- Sync lines enabled state
+    if ass_lines then
+        for _, l in ipairs(ass_lines) do
+            if assigned_actors[l.actor] then
+                l.enabled = true
+            end
+        end
+    end
+    
+    rebuild_regions()
+    if found_any then
+        show_snackbar("Вибрано акторів дабера: " .. name, "success")
+    else
+        show_snackbar("У дабера '" .. name .. "' немає призначених акторів у цьому проекті", "warning")
+    end
+end
+
 --- Draw Dubber Distribution Dashboard
---- @param input_queue table Queue of character/keyboard inputs
 --- Draw Dubber Distribution Dashboard
 --- @param input_queue table Queue of character/keyboard inputs
 function DUBBERS.draw_dashboard(input_queue)
@@ -6541,40 +6577,7 @@ function DUBBERS.draw_dashboard(input_queue)
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                 local ret = gfx.showmenu("Вибрати цього дабера||Перейменувати|Видалити")
                 if ret == 1 then
-                    -- Select dubber logic: Filter main list by this dubber's actors
-                    local assigned_actors = DUBBERS.data.assignments[name] or {}
-                    
-                    -- Reset all filters
-                    for k in pairs(ass_actors) do ass_actors[k] = false end
-                    if ass_lines then
-                        for _, l in ipairs(ass_lines) do l.enabled = false end
-                    end
-                    
-                    -- Apply assignments from this dubber
-                    local found_any = false
-                    for act, is_on in pairs(assigned_actors) do
-                        if is_on and ass_actors[act] ~= nil then
-                            ass_actors[act] = true
-                            found_any = true
-                        end
-                    end
-                    
-                    -- Sync lines enabled state
-                    if ass_lines then
-                        for _, l in ipairs(ass_lines) do
-                            if assigned_actors[l.actor] then
-                                l.enabled = true
-                            end
-                        end
-                    end
-                    
-                    rebuild_regions()
-                    if found_any then
-                        show_snackbar("Вибрано акторів дабера: " .. name, "success")
-                    else
-                        show_snackbar("У дабера '" .. name .. "' немає призначених акторів у цьому проекті", "warning")
-                    end
-                    
+                    DUBBERS.select_dubber(name)
                 elseif ret == 2 then
                     local ok, n_name = reaper.GetUserInputs("Rename", 1, "New name:", name)
                     if ok and n_name ~= "" then
@@ -13298,18 +13301,27 @@ local function draw_file()
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "Видалити ВСІ регіони||Відкрити WEB-менеджер наголосів|Відкрити мою Статистику||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS|<|Аналіз/Пошук звуків (Експериментально!!)||" .. dock_check .. "Закріпити вікно (Dock)"
+        local menu = "Видалити ВСІ регіони||Відкрити WEB-менеджер наголосів|Відкрити мою Статистику||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS|<"
+        
+        -- Add "Change Dubber" submenu if dubbers exist
+        local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
+        if has_dubbers then
+            menu = menu .. "|>Змінити дабера|" .. table.concat(DUBBERS.data.names, "|") .. "|<"
+        end
+        
+        menu = menu .. "||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
         
+        -- Mapping logic for dynamic menu
+        local dubber_count = has_dubbers and #DUBBERS.data.names or 0
+        
         if ret == 1 then
             delete_all_regions()
         elseif ret == 2 then
-            -- Open web-based stress manager
             UTILS.launch_python_script("stress/ukrainian_stress_tool.py")
         elseif ret == 3 then
-            -- Open web-based STATS manager
             UTILS.launch_python_script("stats/subass_stats.py")
         elseif ret == 4 then
             DUBBERS.show_dashboard = true
@@ -13317,103 +13329,14 @@ local function draw_file()
         elseif ret == 5 then
             DEADLINE.dashboard_show = true
         elseif ret == 6 then
-            -- Export as SRT
             export_as_srt()
         elseif ret == 7 then
-            -- Export as ASS
             export_as_ass()
-        elseif ret == 8 then
-            -- Whisper Analysis
-            local item = reaper.GetSelectedMediaItem(0, 0)
-            if not item then
-                reaper.MB("Будь ласка, оберіть аудіо-айтем на таймлайні для аналізу.", "Whisper AI", 0)
-                return
-            end
-            local take = reaper.GetActiveTake(item)
-            if not take then return end
-            local source = reaper.GetMediaItemTake_Source(take)
-            local path = reaper.GetMediaSourceFileName(source, "")
-            
-            if path == "" then
-                reaper.MB("Не вдалося знайти шлях до файлу.", "Whisper AI", 0)
-                return
-            end
-
-            local pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
-            local it_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
-            local offset = reaper.GetMediaItemTakeInfo_Value(take, "D_STARTOFFS")
-            local playrate = reaper.GetMediaItemTakeInfo_Value(take, "D_PLAYRATE")
-            
-            -- Adjust effective length and offset for playrate if needed
-            -- Whisper analysis will happen on the original source but we only crop the visible part
-            -- Source coords: offset to (offset + it_len * playrate)
-            local source_len = it_len * playrate
-
-            local script_dir = debug.getinfo(1, "S").source:match([[^@?(.*[\/])]])
-            local py_script = script_dir .. "stats/subass_whisper.py"
-            
-            local cmd = string.format('python3 "%s" "%s" --offset %.3f --length %.3f --start_time %.3f', 
-                                      py_script, path, offset, source_len, pos)
-
-            run_async_command(cmd, function(output)
-                if not output or output == "" then
-                    reaper.MB("Whisper AI: Отримано порожній результат або сталася помилка.", "Whisper AI", 0)
-                    return
-                end
-
-                -- Strip ANSI escape codes
-                output = output:gsub("[\27\155][][()#;?%d]*[A-PRZcf-ntqry=><~]", "")
-
-                -- Extract SRT path from output
-                local srt_path = output:match("[-][-][-]SRT_PATH_START[-][-][-][-]*%s*(.-)%s*[-][-][-][-]*SRT_PATH_END[-][-][-][-]*")
-                if not srt_path or srt_path == "" then
-                    reaper.MB("Whisper AI: Не вдалося знайти шлях до SRT файлу у відповіді.", "Whisper AI", 0)
-                    return
-                end
-
-                -- Trim any potential whitespace from path
-                srt_path = srt_path:match("^%s*(.-)%s*$")
-
-                -- Import the generated SRT silently first (dont_rebuild = true)
-                import_srt(srt_path, true, "Можливі звуки")
-                
-                -- Post-processing: Remove "Possible sounds" that overlap with existing speech
-                local sounds_actor = "Можливі звуки"
-                local removed_count = 0
-                
-                -- Iterate backwards to safely remove from table
-                for i = #ass_lines, 1, -1 do
-                    local line = ass_lines[i]
-                    if line.actor == sounds_actor then
-                        local overlaps = false
-                        for j, other in ipairs(ass_lines) do
-                            if i ~= j and other.actor ~= sounds_actor then
-                                -- Strict overlap check: if the sound is within or overlaps a speech block
-                                -- We add a small 100ms tolerance to favor existing text
-                                if not (line.t2 <= other.t1 + 0.1 or line.t1 >= other.t2 - 0.1) then
-                                    overlaps = true
-                                    break
-                                end
-                            end
-                        end
-                        
-                        if overlaps then
-                            table.remove(ass_lines, i)
-                            removed_count = removed_count + 1
-                        end
-                    end
-                end
-                
-                -- Now rebuild everything to sync with REAPER
-                rebuild_regions()
-                
-                if removed_count > 0 then
-                    show_snackbar(string.format("Whisper AI: Аналіз завершено. Додано звуки, %d дублікатів відфільтровано.", removed_count), "success")
-                else
-                    show_snackbar("Whisper AI: Аналіз завершено, звуки додано.", "success")
-                end
-            end, true, "Whisper аналіз...", true)
-        elseif ret == 6 then
+        elseif has_dubbers and ret >= 8 and ret <= 7 + dubber_count then
+            -- Handle Dubber Selection
+            local selected_name = DUBBERS.data.names[ret - 7]
+            DUBBERS.select_dubber(selected_name)
+        elseif ret == 8 + dubber_count then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
