@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.1.6
+-- @version 0.1.7
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -1428,20 +1428,34 @@ local function sync_external_data()
     if l_dump ~= "" then
         for line in l_dump:gmatch("([^\n]*)\n?") do
             if line ~= "" then
-                -- Формат: t1|t2|actor|enabled|rgn_idx|index|text
-                local t1, t2, act, en, r_idx, idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
-                if not t1 then
-                    -- Старий формат: t1|t2|actor|enabled|rgn_idx|text
-                    t1, t2, act, en, r_idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
+                local matched = false
+                local t1, t2, act, en, r_idx, idx, txt, meta
+
+                -- 1. Try 8 fields: t1|t2|actor|enabled|rgn_idx|index|text|meta_json
+                t1, t2, act, en, r_idx, idx, txt, meta = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
+                if t1 and meta then matched = true end
+
+                -- 2. Try 7 fields: t1|t2|actor|enabled|rgn_idx|index|text
+                if not matched then
+                    t1, t2, act, en, r_idx, idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
+                    if t1 and idx then matched = true end
                 end
-                if not t1 then
-                    -- Ще старіший: t1|t2|actor|enabled|text
+
+                -- 3. Try 6 fields: t1|t2|actor|enabled|rgn_idx|text
+                if not matched then
+                    t1, t2, act, en, r_idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
+                    if t1 and r_idx then matched = true end
+                end
+
+                -- 4. Try 5 fields: t1|t2|actor|enabled|text
+                if not matched then
                     t1, t2, act, en, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.*)$")
+                    if t1 and en then matched = true end
                 end
 
                 if t1 then
-                    -- Unescape newlines from Subass_Notes format
-                    local decoded_text = (txt or ""):gsub("\\n", "\n")
+                    -- Unescape newlines and | from Subass_Notes format
+                    local decoded_text = (txt or ""):gsub("\\p", "|"):gsub("\\n", "\n")
                     
                     table.insert(new_lines, {
                         t1 = tonumber(t1) or 0,
@@ -1449,7 +1463,8 @@ local function sync_external_data()
                         actor = act or "",
                         text = decoded_text,
                         enabled = (en == "1"), -- Store enabled flag
-                        rgn_idx = tonumber(r_idx)
+                        rgn_idx = tonumber(r_idx),
+                        metadata = meta -- Store raw JSON metadata
                     })
                 end
             end
