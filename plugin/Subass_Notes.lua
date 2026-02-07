@@ -6450,6 +6450,7 @@ function DUBBERS.export_as_ass(deadline_str)
     end
 
     -- Construct filename
+    local export_count = 0
     local _, proj_path = reaper.EnumProjects(-1)
     local proj_name = "Project"
     if proj_path and proj_path ~= "" then
@@ -6467,6 +6468,7 @@ function DUBBERS.export_as_ass(deadline_str)
     if retval == 1 and filename ~= "" then
         if not filename:match("%.ass$") then filename = filename .. ".ass" end
         
+        local json_meta = STATS.json_encode(DUBBERS.data.assignments or {})
         local file = io.open(filename, "w")
         if not file then
             reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
@@ -6484,7 +6486,8 @@ function DUBBERS.export_as_ass(deadline_str)
         local function format_dialogue(l)
             if not ASS.ass_format_order or #ASS.ass_format_order == 0 then
                 -- Default fallback
-                local text = l.text:gsub("\n", "\\N")
+                local txt = l.text or ""
+                local text = txt:gsub("\n", "\\N")
                 return string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s", 
                     fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text)
             end
@@ -6497,7 +6500,8 @@ function DUBBERS.export_as_ass(deadline_str)
                 elseif field == "End" then
                     val = fmt_time_ass(l.t2)
                 elseif field == "Text" then
-                    val = l.text:gsub("\n", "\\N")
+                    local txt = l.text or ""
+                    val = txt:gsub("\n", "\\N")
                 elseif field == "Name" or field == "Actor" then
                     val = l.actor or "Default"
                 elseif field == "Style" then
@@ -6533,6 +6537,7 @@ function DUBBERS.export_as_ass(deadline_str)
                     
                     for _, l in ipairs(out_lines) do
                         file:write(format_dialogue(l) .. "\n")
+                        export_count = export_count + 1
                     end
                 end
             end
@@ -6548,9 +6553,8 @@ function DUBBERS.export_as_ass(deadline_str)
             for _, l in ipairs(ass_lines) do table.insert(out_lines, l) end
             table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
             for _, l in ipairs(out_lines) do
-                local text = l.text:gsub("\n", "\\N")
-                file:write(string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s\n", 
-                    fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text))
+                file:write(format_dialogue(l) .. "\n")
+                export_count = export_count + 1
             end
         end
         
