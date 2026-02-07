@@ -7977,6 +7977,7 @@ local function import_ass(file_path, dont_rebuild)
 
     local selected_dubber_actors = nil
     if metadata_str then
+        metadata_str = metadata_str:gsub("\\N", "\n"):gsub("\\n", "\n")
         local success, assignments = pcall(function() return STATS.json_decode(metadata_str) end)
         if success and type(assignments) == "table" then
             -- Sync with DUBBERS data
@@ -7986,22 +7987,30 @@ local function import_ass(file_path, dont_rebuild)
                 for _, n in ipairs(DUBBERS.data.names) do dubber_names_map[n] = true end
                 
                 for name, assigned_actors in pairs(assignments) do
-                    if not dubber_names_map[name] then
-                        table.insert(DUBBERS.data.names, name)
-                        dubber_names_map[name] = true
-                    end
-                    if not DUBBERS.data.assignments[name] then
-                        DUBBERS.data.assignments[name] = {}
-                    end
-                    for actor, is_on in pairs(assigned_actors) do
-                        DUBBERS.data.assignments[name][actor] = is_on
+                    if type(name) == "string" and type(assigned_actors) == "table" then
+                        if not dubber_names_map[name] then
+                            table.insert(DUBBERS.data.names, name)
+                            dubber_names_map[name] = true
+                        end
+                        if not DUBBERS.data.assignments[name] then
+                            DUBBERS.data.assignments[name] = {}
+                        end
+                        for actor, is_on in pairs(assigned_actors) do
+                            if type(actor) == "string" then
+                                DUBBERS.data.assignments[name][actor] = (is_on == true)
+                            end
+                        end
                     end
                 end
                 DUBBERS.save()
             end
 
             local dubber_names = {}
-            for name in pairs(assignments) do table.insert(dubber_names, name) end
+            for name, val in pairs(assignments) do 
+                if type(name) == "string" and type(val) == "table" then
+                    table.insert(dubber_names, name) 
+                end
+            end
             table.sort(dubber_names)
             
             if #dubber_names > 0 then
