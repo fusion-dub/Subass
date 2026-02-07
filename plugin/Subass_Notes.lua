@@ -269,6 +269,8 @@ update_prompter_fonts()
 
 -- Grouped State (to fix Lua local variable limit)
 local UI_STATE = {
+    script_start_time = reaper.time_precise(),
+    auto_startup_checked = false,
     tabs = {"Файл", "Репліки", "Суфлер", "Налаштування"},
     current_tab = get_set("last_tab", 1),
     last_mouse_cap = 0,
@@ -19663,7 +19665,34 @@ end
 -- --- Main Loop ---
 reaper.gmem_attach("SubassSync")
 
-local function focus_plugin_window()
+function OTHER.show_auto_startup_suggestion()
+    -- Check for auto-startup suggestion with delay (approx 3 seconds)
+    if not UI_STATE.auto_startup_checked and reaper.time_precise() - UI_STATE.script_start_time > 3.0 then
+        UI_STATE.auto_startup_checked = true
+        local has_offered_startup = reaper.GetExtState(section_name, "offered_auto_startup_for_user") == "1"
+
+        -- re-trigger auto start file
+        if cfg.auto_startup then
+            toggle_reaper_startup(true)
+        end
+
+        if not cfg.auto_startup and not has_offered_startup then
+            local title = "Subass Notes: Автозапуск"
+            local msg = "Бажаєте активувати автоматичний запуск плагіна при старті REAPER?\n\nЦе дозволить плагіну завжди бути готовим до роботи без необхідності запускати його вручну."
+            
+            local ret = reaper.MB(msg, title, 4) -- 4 = Yes/No
+            if ret == 6 then -- 6 = Yes
+                cfg.auto_startup = true
+                reaper.SetExtState(section_name, "auto_startup", "1", true)
+                toggle_reaper_startup(true)
+                show_snackbar("Автозапуск активовано!", "success")
+            end
+            reaper.SetExtState(section_name, "offered_auto_startup_for_user", "1", true)
+        end
+    end
+end
+
+function OTHER.focus_plugin_window()
     if reaper.JS_Window_Find then
         -- Non-exact match (false) is more robust
         local hwnd = reaper.JS_Window_Find(GL.script_title, false)
@@ -19674,7 +19703,7 @@ local function focus_plugin_window()
     end
 end
 
-local function handle_remote_commands()
+function OTHER.handle_remote_commands()
     local cmd_id = reaper.gmem_read(0)
     if cmd_id == 0 then return end
     
@@ -19690,7 +19719,7 @@ local function handle_remote_commands()
             if pos >= r.pos and pos < r.rgnend then
                 for i, line in ipairs(ass_lines) do
                     if math.abs(line.t1 - r.pos) < 0.01 and math.abs(line.t2 - r.rgnend) < 0.01 then
-                        focus_plugin_window()
+                        OTHER.focus_plugin_window()
                         open_text_editor(line.text, function(new_text)
                             push_undo("Редагування тексту (Remote)")
                             line.text = new_text
@@ -19720,7 +19749,7 @@ local function handle_remote_commands()
             local next_rgn = regions[current_rgn_idx + 1]
              for i, line in ipairs(ass_lines) do
                 if math.abs(line.t1 - next_rgn.pos) < 0.01 and math.abs(line.t2 - next_rgn.rgnend) < 0.01 then
-                    focus_plugin_window()
+                    OTHER.focus_plugin_window()
                     open_text_editor(line.text, function(new_text)
                         push_undo("Редагування тексту (Remote Next)")
                         line.text = new_text
@@ -19760,7 +19789,7 @@ local function handle_remote_commands()
 
                 if matches then
                     found_match = true
-                    focus_plugin_window()
+                    OTHER.focus_plugin_window()
                     open_text_editor(m_name, function(new_text)
                         push_undo("Редагування правки (Remote Overlay)")
                         -- Знаходимо індекс знову (бо він міг змінитись)
@@ -19801,7 +19830,7 @@ local function handle_remote_commands()
         if not looks_like_marker and target_id and target_id ~= -1 then
             for i, line in ipairs(ass_lines) do
                 if line.rgn_idx == target_id then
-                    focus_plugin_window()
+                    OTHER.focus_plugin_window()
                     open_text_editor(line.text, function(new_text)
                         push_undo("Редагування тексту (Remote Specific)")
                         line.text = new_text
@@ -19815,7 +19844,7 @@ local function handle_remote_commands()
         -- Fallback to time-based matching (safe because t1==t2 vs t1<t2)
         for i, line in ipairs(ass_lines) do
             if not looks_like_marker and math.abs(line.t1 - t1) < 0.01 and math.abs(line.t2 - t2) < 0.01 then
-                focus_plugin_window()
+                OTHER.focus_plugin_window()
                 open_text_editor(line.text, function(new_text)
                     push_undo("Редагування тексту (Remote Specific)")
                     line.text = new_text
@@ -19839,7 +19868,7 @@ local function handle_remote_commands()
                 end
 
                 if matches then
-                    focus_plugin_window()
+                    OTHER.focus_plugin_window()
                     open_text_editor(m_name, function(new_text)
                         push_undo("Редагування правки (Remote Overlay)")
                         -- Знаходимо індекс знову (бо він міг змінитись)
@@ -19875,7 +19904,7 @@ local function handle_remote_commands()
 end
 
 --- Automatically trim start/end and check for clipping of newly recorded items
-local function process_post_recording()
+function OTHER.process_post_recording()
     local play_state = reaper.GetPlayState()
     local is_recording = (play_state & 4) == 4
     
@@ -20095,6 +20124,8 @@ end
 
 local function main()
     if UI_STATE.is_restarting then return end
+
+    OTHER.show_auto_startup_suggestion()
     
     -- Initial project state load (if first run)
     if UI_STATE.last_project_id == "" then
@@ -20108,7 +20139,7 @@ local function main()
     
     -- Heartbeat for Lionzz
     reaper.gmem_write(100, reaper.time_precise())
-    handle_remote_commands()
+    OTHER.handle_remote_commands()
     
     -- Save statistics every 1 minute
     local now = reaper.time_precise()
@@ -20118,7 +20149,7 @@ local function main()
 
     -- Persistently nudge focus if requested (to overcome OS race conditions)
     if text_editor_state.needs_focus_nudge and text_editor_state.needs_focus_nudge > 0 then
-        focus_plugin_window()
+        OTHER.focus_plugin_window()
         text_editor_state.needs_focus_nudge = text_editor_state.needs_focus_nudge - 1
     end
 
@@ -20297,7 +20328,7 @@ local function main()
 
     draw_loader()
     
-    process_post_recording()
+    OTHER.process_post_recording()
 
     gfx.update()
 
