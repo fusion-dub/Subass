@@ -8522,7 +8522,25 @@ local function delete_all_regions()
     -- Clear project data
     ass_lines = {}
     ass_actors = {}
+    
+    -- Clear ASS metadata & styles
+    ASS.actor_colors = {}
+    ASS.ass_header_sections = {}
+    ASS.ass_header_order = {}
+    ASS.ass_events_header_lines = {}
+    ASS.ass_format_def = nil
+    ASS.ass_format_order = {}
+
+    -- Clear Dubber data
+    DUBBERS.data = {
+        names = {},
+        assignments = {}
+    }
+    DUBBERS.active_dubber_idx = 1
+
     UI_STATE.ass_file_loaded = false
+    UI_STATE.current_file_name = nil
+    UI_STATE.current_file_path = nil
 
     -- Clear undo/redo history
     undo_stack = {}
@@ -8530,6 +8548,7 @@ local function delete_all_regions()
 
     rebuild_regions()
     save_project_data()
+    DUBBERS.save()
 
     if show_snackbar then
         show_snackbar("Всі дані та регіони видалено", "error")
