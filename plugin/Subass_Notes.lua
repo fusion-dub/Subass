@@ -536,7 +536,7 @@ function STATS.json_encode(val, indent)
         if is_array and count ~= max_idx then is_array = false end
         if count == 0 then
             -- Heuristic: if key is 'duration' or 'actors' (when array), it might be an array
-            return "[]" 
+            return "[]"
         end
         
         local spacing = string.rep("  ", indent)
@@ -609,10 +609,11 @@ function STATS.json_decode(str)
     
     local function decode_number()
         local start = pos
-        while pos <= #str and str:sub(pos, pos):match("[%d%.%-eE]") do
+        while pos <= #str and str:sub(pos, pos):match("[%d%.%-%+eE]") do
             pos = pos + 1
         end
-        return tonumber(str:sub(start, pos - 1))
+        local num_str = str:sub(start, pos - 1)
+        return tonumber(num_str) or 0
     end
     
     local function decode_array()
@@ -648,11 +649,15 @@ function STATS.json_decode(str)
         while pos <= #str do
             skip_whitespace()
             local key = decode_value()
+            if key == nil then break end -- Robustness: stop if key is invalid
+            
             skip_whitespace()
             if str:sub(pos, pos) == ":" then
                 pos = pos + 1
             end
-            res[key] = decode_value()
+            skip_whitespace()
+            res[tostring(key)] = decode_value()
+            
             skip_whitespace()
             local char = str:sub(pos, pos)
             if char == "}" then
@@ -660,6 +665,8 @@ function STATS.json_decode(str)
                 return res
             elseif char == "," then
                 pos = pos + 1
+            else
+                break -- Something is wrong, stop to avoid infinite loop
             end
         end
         return res
@@ -689,9 +696,9 @@ function STATS.json_decode(str)
     end
     
     local ok, res = pcall(decode_value)
-    if not ok then 
+    if not ok then
         reaper.ShowConsoleMsg("JSON Decode Error: " .. tostring(res) .. " at pos " .. pos .. "\n")
-        return {} 
+        return {}
     end
     return res
 end
@@ -1056,7 +1063,15 @@ end
 local ass_lines = {}
 local ass_actors = {}
 local ass_markers = {} -- { {pos, name, markindex, color}, ... }
-local actor_colors = {} -- {ActorName = integerColor}
+
+local ASS = {
+  actor_colors = {}, -- {ActorName = integerColor}
+  ass_header_sections = {}, -- { [SectionName] = {line1, line2, ...}, ... }
+  ass_header_order = {}, -- {SectionName1, SectionName2, ...}
+  ass_events_header_lines = {}, -- { "Format: ...", "; Comment", ... }
+  ass_format_def = nil, -- { ["Start"] = 1, ... }
+  ass_format_order = {}, -- { "Layer", "Start", ... }
+}
 
 UI_STATE.ass_file_loaded = false
 UI_STATE.current_file_name = nil
@@ -1066,7 +1081,7 @@ UI_STATE.current_file_path = nil
 function STATS.update_metadata()
     local proj = STATS.get_project()
     if not proj then return end
-    
+
     local total_lines = 0
     local total_words = 0
     local selected_lines = 0
@@ -4819,8 +4834,9 @@ end
 
 --- Save subtitle data to project extended state
 local function save_project_data()
-    -- Chunked saving to avoid 64KB limit
-    local CHUNK_SIZE = 60000 
+    -- Chunked saving to avoid project state limits (usually ~64KB per key)
+    -- We use a safer limit of 16KB to prevent truncation in some REAPER versions
+    local CHUNK_SIZE = 16000 
     
     local function save_chunked(base_key, data_tbl)
         local full_str = table.concat(data_tbl)
@@ -4847,7 +4863,10 @@ local function save_project_data()
         local en = (l.enabled == nil or l.enabled) and "1" or "0"
         local r_idx = l.rgn_idx or -1
         local index = l.index or i
-        table.insert(dump_tbl, string.format("%.3f|%.3f|%s|%s|%d|%d|%s\n", l.t1, l.t2, l.actor, en, r_idx, index, l.text:gsub("\n","\\n")))
+        local meta_json = l.metadata and STATS.json_encode(l.metadata):gsub("\n", "") or ""
+        -- Escape | as \p to prevent column misalignment
+        local escaped_text = l.text:gsub("|", "\\p"):gsub("\n","\\n")
+        table.insert(dump_tbl, string.format("%.3f|%.3f|%s|%s|%d|%d|%s|%s\n", l.t1, l.t2, l.actor, en, r_idx, index, escaped_text, meta_json))
     end
     save_chunked("ass_lines", dump_tbl)
     
@@ -4860,7 +4879,7 @@ local function save_project_data()
     reaper.SetProjExtState(0, section_name, "dir_actors", table.concat(director_actors, "|"))
     
     local col_tbl = {}
-    for k,v in pairs(actor_colors) do
+    for k,v in pairs(ASS.actor_colors) do
         table.insert(col_tbl, k .. "|" .. tostring(v) .. "\n")
     end
     reaper.SetProjExtState(0, section_name, "actor_colors", table.concat(col_tbl))
@@ -4868,6 +4887,20 @@ local function save_project_data()
     reaper.SetProjExtState(0, section_name, "ass_loaded", UI_STATE.ass_file_loaded and "1" or "0")
     if UI_STATE.current_file_name then
         reaper.SetProjExtState(0, section_name, "ass_fname", UI_STATE.current_file_name)
+    end
+
+    -- Save ASS Headers/Styles
+    if ASS.ass_header_order and #ASS.ass_header_order > 0 then
+        local header_data = {
+            order = ASS.ass_header_order,
+            sections = ASS.ass_header_sections,
+            events_header = ASS.ass_events_header_lines,
+            format_order = ASS.ass_format_order
+        }
+        local json_h = STATS.json_encode(header_data)
+        save_chunked("ass_headers", {json_h})
+    else
+        reaper.SetProjExtState(0, section_name, "ass_headers_count", "0")
     end
     
     -- Track edit in statistics
@@ -4959,8 +4992,12 @@ local function load_project_data()
     -- ALWAYS reset state first
     ass_lines = {}
     ass_actors = {}
-    actor_colors = {}
+    ASS.actor_colors = {}
     ass_markers = {} -- Added explicit reset
+    ASS.ass_header_sections = {}
+    ASS.ass_header_order = {}
+    ASS.ass_events_header_lines = {}
+    ASS.ass_format_order = {}
     UI_STATE.ass_file_loaded = false
     UI_STATE.current_file_name = nil
     
@@ -4995,9 +5032,11 @@ local function load_project_data()
         if l_dump ~= "" then
             for line in l_dump:gmatch("([^\n]*)\n?") do
                 if line ~= "" then
-                    -- Try new sync format: t1|t2|actor|enabled|rgn_idx|index|text
-                    local t1, t2, act, en, r_idx, idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
-                    if t1 and idx then
+                    local matched = false
+                    
+                    -- 1. Try metadata format (8 fields): t1|t2|actor|enabled|rgn_idx|index|text|metadata
+                    local t1, t2, act, en, r_idx, idx, txt, meta = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
+                    if t1 and meta then
                         table.insert(ass_lines, {
                             t1 = tonumber(t1),
                             t2 = tonumber(t2),
@@ -5005,10 +5044,31 @@ local function load_project_data()
                             enabled = (en == "1"),
                             rgn_idx = tonumber(r_idx),
                             index = tonumber(idx),
-                            text = txt:gsub("\\n", "\n")
+                            text = txt:gsub("\\p", "|"):gsub("\\n", "\n"),
+                            metadata = (meta ~= "" and STATS.json_decode(meta) or nil)
                         })
-                    else
-                        -- Try previous sync format: t1|t2|actor|enabled|rgn_idx|text
+                        matched = true
+                    end
+
+                    -- 2. Try intermediate format (7 fields): t1|t2|actor|enabled|rgn_idx|index|text
+                    if not matched then
+                        local t1, t2, act, en, r_idx, idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
+                        if t1 and idx then
+                            table.insert(ass_lines, {
+                                t1 = tonumber(t1),
+                                t2 = tonumber(t2),
+                                actor = act,
+                                enabled = (en == "1"),
+                                rgn_idx = tonumber(r_idx),
+                                index = tonumber(idx),
+                                text = txt:gsub("\\p", "|"):gsub("\\n", "\n")
+                            })
+                            matched = true
+                        end
+                    end
+
+                    -- 3. Try previous sync format (6 fields): t1|t2|actor|enabled|rgn_idx|text
+                    if not matched then
                         local t1, t2, act, en, r_idx, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.-)|(.*)$")
                         if t1 and r_idx then
                             table.insert(ass_lines, {
@@ -5017,32 +5077,38 @@ local function load_project_data()
                                 actor = act,
                                 enabled = (en == "1"),
                                 rgn_idx = tonumber(r_idx),
+                                text = txt:gsub("\\p", "|"):gsub("\\n", "\n")
+                            })
+                            matched = true
+                        end
+                    end
+
+                    -- 4. Try older format (5 fields): t1|t2|actor|enabled|text
+                    if not matched then
+                        local t1, t2, act, en, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.*)$")
+                        if t1 and en then
+                            table.insert(ass_lines, {
+                                t1 = tonumber(t1),
+                                t2 = tonumber(t2),
+                                actor = act,
+                                enabled = (en == "1"),
+                                text = txt:gsub("\\p", "|"):gsub("\\n", "\n")
+                            })
+                            matched = true
+                        end
+                    end
+
+                    -- 5. Fallback: very old format (4 fields): t1|t2|actor|text
+                    if not matched then
+                        local t1, t2, act, txt = line:match("^(.-)|(.-)|(.-)|(.*)$")
+                        if t1 then
+                            table.insert(ass_lines, {
+                                t1 = tonumber(t1),
+                                t2 = tonumber(t2),
+                                actor = act,
+                                enabled = true,
                                 text = txt:gsub("\\n", "\n")
                             })
-                        else
-                            -- Older formats...
-                            local t1, t2, act, en, txt = line:match("^(.-)|(.-)|(.-)|(.-)|(.*)$")
-                            if t1 and en then
-                                table.insert(ass_lines, {
-                                    t1 = tonumber(t1),
-                                    t2 = tonumber(t2),
-                                    actor = act,
-                                    enabled = (en == "1"),
-                                    text = txt:gsub("\\n", "\n")
-                                })
-                            else
-                                -- Fallback: old format t1|t2|actor|text
-                                t1, t2, act, txt = line:match("^(.-)|(.-)|(.-)|(.*)$")
-                                if t1 then
-                                    table.insert(ass_lines, {
-                                        t1 = tonumber(t1),
-                                        t2 = tonumber(t2),
-                                        actor = act,
-                                        enabled = true,
-                                        text = txt:gsub("\\n", "\n")
-                                    })
-                                end
-                            end
                         end
                     end
                 end
@@ -5099,10 +5165,30 @@ local function load_project_data()
                 if line ~= "" then
                     local act, col_str = line:match("^(.-)|(.*)$")
                     if act and col_str then
-                        actor_colors[act] = tonumber(col_str)
+                      ASS.actor_colors[act] = tonumber(col_str)
                     end
                 end
             end
+        end
+    end
+    
+    -- Load ASS Headers
+    local h_dump = ""
+    local okHC, h_count_str = reaper.GetProjExtState(0, section_name, "ass_headers_count")
+    if okHC and h_count_str ~= "" then
+        local count = tonumber(h_count_str) or 0
+        for i = 1, count do
+            local okX, chunk = reaper.GetProjExtState(0, section_name, "ass_headers_chunk_" .. i)
+            if okX then h_dump = h_dump .. chunk end
+        end
+    end
+    if h_dump ~= "" then
+        local success, h_data = pcall(function() return STATS.json_decode(h_dump) end)
+        if success and type(h_data) == "table" then
+            ASS.ass_header_order = h_data.order or {}
+            ASS.ass_header_sections = h_data.sections or {}
+            ASS.ass_events_header_lines = h_data.events_header or {}
+            ASS.ass_format_order = h_data.format_order or {}
         end
     end
 
@@ -5123,7 +5209,7 @@ sanitize_indices()
 --- @return number Native color integer
 local function get_actor_color(actor)
     if not actor or actor == "" or not cfg.random_color_actors then return 0 end
-    if actor_colors[actor] then return actor_colors[actor] end
+    if ASS.actor_colors[actor] then return ASS.actor_colors[actor] end
     
     -- Generate random color (but avoid too dark/black)
     -- Simple approach: Random R, G, B
@@ -5137,7 +5223,7 @@ local function get_actor_color(actor)
     local b = math.random(50, 255)
     
     local native_col = reaper.ColorToNative(r, g, b) | 0x1000000
-    actor_colors[actor] = native_col
+    ASS.actor_colors[actor] = native_col
     return native_col
 end
 
@@ -5162,7 +5248,7 @@ local function cleanup_actors()
     for act in pairs(ass_actors) do
         if not current_actors[act] then
             ass_actors[act] = nil
-            if actor_colors then actor_colors[act] = nil end
+            if ASS.actor_colors then ASS.actor_colors[act] = nil end
         end
     end
 end
@@ -6358,64 +6444,85 @@ function DUBBERS.export_as_ass(deadline_str)
             return
         end
 
-        local fmt_time = function(secs)
+        local function fmt_time_ass(secs)
             local h = math.floor(secs / 3600)
             local m = math.floor((secs % 3600) / 60)
             local s = math.floor(secs % 60)
-            local ms = math.floor((secs % 1) * 100)
+            local ms = math.floor((secs % 1) * 100 + 0.5) % 100
             return string.format("%d:%02d:%02d.%02d", h, m, s, ms)
         end
 
-        file:write("[Script Info]\n")
-        
-        -- Filter assignments to only include dubbers with at least one assigned actor
-        -- AND only include actors that exist in the current project (ass_actors)
-        local filtered_assignments = {}
-        for dubber_name, actors in pairs(DUBBERS.data.assignments) do
-            local filtered_actors = {}
-            for actor, is_assigned in pairs(actors) do
-                -- Only include if assigned AND exists in current project
-                if is_assigned and ass_actors[actor] ~= nil then
-                    filtered_actors[actor] = true
+        local function format_dialogue(l)
+            if not ASS.ass_format_order or #ASS.ass_format_order == 0 then
+                -- Default fallback
+                local text = l.text:gsub("\n", "\\N")
+                return string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s", 
+                    fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text)
+            end
+            
+            local fields = {}
+            for _, field in ipairs(ASS.ass_format_order) do
+                local val = ""
+                if field == "Start" then
+                    val = fmt_time_ass(l.t1)
+                elseif field == "End" then
+                    val = fmt_time_ass(l.t2)
+                elseif field == "Text" then
+                    val = l.text:gsub("\n", "\\N")
+                elseif field == "Name" or field == "Actor" then
+                    val = l.actor or "Default"
+                elseif field == "Style" then
+                    val = (l.metadata and l.metadata[field]) or "Default"
+                elseif field == "Effect" then
+                    val = (l.metadata and l.metadata[field]) or ""
+                else
+                    val = (l.metadata and l.metadata[field]) or "0"
+                end
+                table.insert(fields, val)
+            end
+            return "Dialogue: " .. table.concat(fields, ",")
+        end
+
+        if ASS.ass_header_order and #ASS.ass_header_order > 0 then
+            for _, section_name in ipairs(ASS.ass_header_order) do
+                local lines = ASS.ass_header_sections[section_name]
+                if lines then
+                    for _, line in ipairs(lines) do
+                        file:write(line .. "\n")
+                    end
+                end
+                
+                if section_name == "Events" then
+                    -- Metadata Line
+                    file:write(format_dialogue({
+                        t1 = 0, t2 = 0, actor = "SubassMetadata", text = json_meta, enabled = true
+                    }) .. "\n")
+                    
+                    local out_lines = {}
+                    for _, l in ipairs(ass_lines) do table.insert(out_lines, l) end
+                    table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
+                    
+                    for _, l in ipairs(out_lines) do
+                        file:write(format_dialogue(l) .. "\n")
+                    end
                 end
             end
-            -- Only add dubber if they have at least one valid actor
-            if next(filtered_actors) then
-                filtered_assignments[dubber_name] = filtered_actors
-            end
-        end
-        
-        local json_meta = STATS.json_encode(filtered_assignments):gsub("\r", ""):gsub("\n", ""):gsub("%s%s+", " ")
-        file:write("Title: Subass Dubber Distribution\n")
-        file:write("ScriptType: v4.00+\n")
-        file:write("PlayResX: 1920\n")
-        file:write("PlayResY: 1080\n")
-        file:write("ScaledBorderAndShadow: yes\n\n")
-        
-        file:write("[V4+ Styles]\n")
-        file:write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-        file:write("Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
-        
-        file:write("[Events]\n")
-        file:write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
-
-        -- Metadata Dialogue line (for persistence across external editors)
-        file:write(string.format("Dialogue: 0,0:00:00.00,0:00:00.00,Default,SubassMetadata,0,0,0,,%s\n", json_meta))
-
-        local out_lines = {}
-        for _, l in ipairs(ass_lines) do
-            table.insert(out_lines, l)
-        end
-        table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
-
-        local export_count = 0
-        for _, l in ipairs(out_lines) do
-            local actor = l.actor or "Unknown"
-            if actor == "" then actor = "Unknown" end
+        else
+            -- Default Fallback
+            file:write("[Script Info]\nTitle: Subass Dubber Distribution\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\nScaledBorderAndShadow: yes\n\n")
+            file:write("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+            file:write("Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
+            file:write("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+            file:write(string.format("Dialogue: 0,0:00:00.00,0:00:00.00,Default,SubassMetadata,0,0,0,,%s\n", json_meta))
             
-            local text = l.text:gsub("\n", "\\N")
-            file:write(string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s\n", fmt_time(l.t1), fmt_time(l.t2), actor, text))
-            export_count = export_count + 1
+            local out_lines = {}
+            for _, l in ipairs(ass_lines) do table.insert(out_lines, l) end
+            table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
+            for _, l in ipairs(out_lines) do
+                local text = l.text:gsub("\n", "\\N")
+                file:write(string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s\n", 
+                    fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text))
+            end
         end
         
         file:close()
@@ -7346,33 +7453,71 @@ local function export_as_ass()
             return
         end
 
-        local fmt_time = function(secs)
+        local function fmt_time_ass(secs)
             local h = math.floor(secs / 3600)
             local m = math.floor((secs % 3600) / 60)
             local s = math.floor(secs % 60)
-            local ms = math.floor((secs % 1) * 100) -- ASS uses 2 digits for ms (centiseconds)
+            local ms = math.floor((secs % 1) * 100 + 0.5) % 100
             return string.format("%d:%02d:%02d.%02d", h, m, s, ms)
         end
 
-        file:write("[Script Info]\n")
-        file:write("Title: Subass Export\n")
-        file:write("ScriptType: v4.00+\n")
-        file:write("PlayResX: 1920\n")
-        file:write("PlayResY: 1080\n")
-        file:write("ScaledBorderAndShadow: yes\n\n")
-        
-        file:write("[V4+ Styles]\n")
-        file:write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-        file:write("Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
-        
-        file:write("[Events]\n")
-        file:write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+        local function format_dialogue(l)
+            if not ASS.ass_format_order or #ASS.ass_format_order == 0 then
+                local text = l.text:gsub("\n", "\\N")
+                return string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s", 
+                    fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text)
+            end
+            
+            local fields = {}
+            for _, field in ipairs(ASS.ass_format_order) do
+                local val = ""
+                if field == "Start" then
+                    val = fmt_time_ass(l.t1)
+                elseif field == "End" then
+                    val = fmt_time_ass(l.t2)
+                elseif field == "Text" then
+                    val = l.text:gsub("\n", "\\N")
+                elseif field == "Name" or field == "Actor" then
+                    val = l.actor or "Default"
+                elseif field == "Style" then
+                    val = (l.metadata and l.metadata[field]) or "Default"
+                elseif field == "Effect" then
+                    val = (l.metadata and l.metadata[field]) or ""
+                else
+                    val = (l.metadata and l.metadata[field]) or "0"
+                end
+                table.insert(fields, val)
+            end
+            return "Dialogue: " .. table.concat(fields, ",")
+        end
 
-        for _, l in ipairs(out_lines) do
-            local actor = l.actor or "Default"
-            -- Convert newlines to ASS \N
-            local text = l.text:gsub("\n", "\\N")
-            file:write(string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s\n", fmt_time(l.t1), fmt_time(l.t2), actor, text))
+        if ASS.ass_header_order and #ASS.ass_header_order > 0 then
+            for _, section_name in ipairs(ASS.ass_header_order) do
+                local lines = ASS.ass_header_sections[section_name]
+                if lines then
+                    for _, line in ipairs(lines) do
+                        file:write(line .. "\n")
+                    end
+                end
+                
+                if section_name == "Events" then
+                    -- Normal Export doesn't usually need the SubassMetadata line unless we want to persist assignments
+                    -- But let's keep it consistent if it was there
+                    -- For now, just write dialogues
+                    for _, l in ipairs(out_lines) do
+                        file:write(format_dialogue(l) .. "\n")
+                    end
+                end
+            end
+        else
+            -- Default Fallback
+            file:write("[Script Info]\nTitle: Subass Export\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\nScaledBorderAndShadow: yes\n\n")
+            file:write("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+            file:write("Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
+            file:write("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+            for _, l in ipairs(out_lines) do
+                file:write(format_dialogue(l) .. "\n")
+            end
         end
         
         file:close()
@@ -7784,6 +7929,10 @@ local function import_ass(file_path, dont_rebuild)
     local duplicates_skipped = 0
     local in_events = false
     local format_def = nil
+    local current_section = nil
+
+    ASS.ass_header_sections = {}
+    ASS.ass_header_order = {}
     
     -- Dubber metadata detection
     local metadata_str = content:match("; SubassDubbers: ([^\n]+)")
@@ -7836,29 +7985,57 @@ local function import_ass(file_path, dont_rebuild)
     end
 
     for line in content:gmatch("([^\n]*)\n?") do
-        if line:match("^%[Events%]") then in_events = true 
-        elseif line:match("^%[.*%]") then in_events = false end
-        
+        local section = line:match("^%[(.*)%]")
+        if section then
+            in_events = (section == "Events")
+            current_section = section
+            table.insert(ASS.ass_header_order, section)
+            ASS.ass_header_sections[section] = {}
+        end
+
+        if not current_section and not section then
+            -- Pre-header section
+            if not ASS.ass_header_sections["__pre__"] then
+                table.insert(ASS.ass_header_order, 1, "__pre__")
+                ASS.ass_header_sections["__pre__"] = {}
+            end
+            table.insert(ASS.ass_header_sections["__pre__"], line)
+        elseif current_section then
+            if in_events then
+                if line:match("^Dialogue:") then
+                    -- Process below
+                else
+                    -- Capture everything else in Events (Format, comments, empty lines)
+                    table.insert(ASS.ass_header_sections[current_section], line)
+                end
+            else
+                -- Normal section line (includes header)
+                table.insert(ASS.ass_header_sections[current_section], line)
+            end
+        end
+
         if in_events then
             if line:match("^Format:") then
-                format_def = {}
+                ASS.ass_format_def = {}
+                ASS.ass_format_order = {}
                 local fmt_str = line:match("^Format:%s*(.*)")
                 local idx = 1
                 for field in (fmt_str .. ","):gmatch("(.-),") do
                     field = field:match("^%s*(.-)%s*$")
                     if field ~= "" then
-                        format_def[field] = idx
+                        ASS.ass_format_def[field] = idx
+                        table.insert(ASS.ass_format_order, field)
                         idx = idx + 1
                     end
                 end
-            elseif line:match("^Dialogue:") and format_def then
+            elseif line:match("^Dialogue:") and ASS.ass_format_def then
                 -- Skip metadata line if it's in the actual event list
                 if line:match(",SubassMetadata,") then goto next_line end
 
                 local body = line:match("^Dialogue:%s*(.*)")
                 local fields = {}
                 local max_field_idx = 0
-                for _, f_idx in pairs(format_def) do
+                for _, f_idx in pairs(ASS.ass_format_def) do
                     if f_idx > max_field_idx then max_field_idx = f_idx end
                 end
                 
@@ -7872,10 +8049,10 @@ local function import_ass(file_path, dont_rebuild)
                 -- The rest of the line is the last field (usually 'Text')
                 table.insert(fields, body:sub(search_start))
                 
-                local i_start = format_def["Start"]
-                local i_end = format_def["End"]
-                local i_text = format_def["Text"]
-                local i_name = format_def["Name"] or format_def["Actor"] -- Usually "Name" in ASS
+                local i_start = ASS.ass_format_def["Start"]
+                local i_end = ASS.ass_format_def["End"]
+                local i_text = ASS.ass_format_def["Text"]
+                local i_name = ASS.ass_format_def["Name"] or ASS.ass_format_def["Actor"] -- Usually "Name" in ASS
                 
                 if i_start and i_end and i_text then
                     local t1 = parse_ass_timestamp(fields[i_start])
@@ -7893,9 +8070,17 @@ local function import_ass(file_path, dont_rebuild)
                             is_enabled = selected_dubber_actors[actor] == true
                         end
 
+                        local line_metadata = {}
+                        for field, f_idx in pairs(ASS.ass_format_def) do
+                            if field ~= "Start" and field ~= "End" and field ~= "Text" and field ~= "Name" and field ~= "Actor" then
+                                line_metadata[field] = fields[f_idx]
+                            end
+                        end
+
                         table.insert(ass_lines, {
                             t1=t1, t2=t2, text=text, actor=actor, enabled=is_enabled,
-                            index = line_idx_counter
+                            index = line_idx_counter,
+                            metadata = line_metadata
                         })
                         line_idx_counter = line_idx_counter + 1
                         
@@ -13175,7 +13360,7 @@ local function draw_file()
                             if current_native == 0 then current_native = 2500134 end
                             local retval, color = reaper.GR_SelectColor(reaper.GetMainHwnd(), current_native)
                             if retval > 0 then
-                                actor_colors[act] = color | 0x1000000
+                                ASS.actor_colors[act] = color | 0x1000000
                                 cfg.random_color_actors = true
                                 rebuild_regions()
                                 save_project_data()
@@ -13200,9 +13385,9 @@ local function draw_file()
                                     ass_actors[new_name] = true
                                 end
                                 -- Update color
-                                if actor_colors[act] then
-                                    actor_colors[new_name] = actor_colors[act]
-                                    actor_colors[act] = nil
+                                if ASS.actor_colors[act] then
+                                    ASS.actor_colors[new_name] = ASS.actor_colors[act]
+                                    ASS.actor_colors[act] = nil
                                 end
                                 cleanup_actors()
                                 rebuild_regions()
@@ -13215,7 +13400,7 @@ local function draw_file()
                                 
                                 -- Remove from actors list
                                 ass_actors[act] = nil
-                                actor_colors[act] = nil
+                                ASS.actor_colors[act] = nil
                                 
                                 -- Remove all lines for this actor in one pass (O(N) vs O(N^2))
                                 local new_lines = {}
