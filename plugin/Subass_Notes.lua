@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.9
+-- @version 4.9.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v4.9",
+    script_title = "Subass Notes v4.9.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -6682,14 +6682,40 @@ function DUBBERS.draw_dashboard(input_queue)
             gfx.drawstr(fit_text_width(meta, actor_col_w - S(40)))
             
             -- Click logic
-            if is_mouse_clicked() and gfx.mouse_x >= ax and gfx.mouse_x <= ax + actor_col_w and
+            if (is_mouse_clicked() or is_mouse_clicked(2)) and gfx.mouse_x >= ax and gfx.mouse_x <= ax + actor_col_w and
                gfx.mouse_y >= cur_ay and gfx.mouse_y <= cur_ay + actor_item_h and gfx.mouse_y > header_h then
-                if active_dubber then
-                    if not DUBBERS.data.assignments[active_dubber] then DUBBERS.data.assignments[active_dubber] = {} end
-                    DUBBERS.data.assignments[active_dubber][act] = not is_assigned
-                    DUBBERS.save()
+                
+                -- Right Click: Context Menu for all Dubbers
+                if is_mouse_clicked(2) then
+                    local menu_items = {}
+                    for _, d_name in ipairs(DUBBERS.data.names) do
+                        local is_assigned_to_this = DUBBERS.data.assignments[d_name] and DUBBERS.data.assignments[d_name][act]
+                        local prefix = is_assigned_to_this and "!" or ""
+                        table.insert(menu_items, prefix .. d_name)
+                    end
+                    
+                    if #menu_items > 0 then
+                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                        local ret = gfx.showmenu(table.concat(menu_items, "|"))
+                        if ret > 0 then
+                            local selected_dubber = DUBBERS.data.names[ret]
+                            if not DUBBERS.data.assignments[selected_dubber] then DUBBERS.data.assignments[selected_dubber] = {} end
+                            DUBBERS.data.assignments[selected_dubber][act] = not (DUBBERS.data.assignments[selected_dubber][act])
+                            DUBBERS.save()
+                        end
+                    else
+                        show_snackbar("Список даберів порожній", "error")
+                    end
+                
+                -- Left Click: Toggle for Active Dubber
                 else
-                    show_snackbar("Оберіть дабера зверху", "info")
+                    if active_dubber then
+                        if not DUBBERS.data.assignments[active_dubber] then DUBBERS.data.assignments[active_dubber] = {} end
+                        DUBBERS.data.assignments[active_dubber][act] = not is_assigned
+                        DUBBERS.save()
+                    else
+                        show_snackbar("Оберіть дабера зверху", "info")
+                    end
                 end
             end
         end
