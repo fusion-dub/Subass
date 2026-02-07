@@ -6451,11 +6451,37 @@ function DUBBERS.select_dubber(name)
     end
     
     rebuild_regions()
+    
+    -- Update active index for UI consistency
+    for i, d_name in ipairs(DUBBERS.data.names) do
+        if d_name == name then
+            DUBBERS.active_dubber_idx = i
+            break
+        end
+    end
+    
     if found_any then
         show_snackbar("Вибрано акторів дабера: " .. name, "success")
     else
         show_snackbar("У дабера '" .. name .. "' немає призначених акторів у цьому проекті", "warning")
     end
+end
+
+--- Check if the current filter state matches a dubber's assignments
+--- @param name string Name of the dubber to check
+--- @return boolean
+function DUBBERS.is_dubber_active(name)
+    if not DUBBERS.data or not DUBBERS.data.assignments then return false end
+    local assigned = DUBBERS.data.assignments[name] or {}
+    if not ass_actors then return false end
+    
+    for act, is_active_in_project in pairs(ass_actors) do
+        local is_assigned = assigned[act] or false
+        if is_active_in_project ~= is_assigned then
+            return false
+        end
+    end
+    return true
 end
 
 --- Draw Dubber Distribution Dashboard
@@ -13306,7 +13332,12 @@ local function draw_file()
         -- Add "Change Dubber" submenu if dubbers exist
         local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
         if has_dubbers then
-            menu = menu .. "|>Змінити дабера|" .. table.concat(DUBBERS.data.names, "|") .. "|<"
+            local dubber_menu_items = {}
+            for i, d_name in ipairs(DUBBERS.data.names) do
+                local prefix = DUBBERS.is_dubber_active(d_name) and "!" or ""
+                table.insert(dubber_menu_items, prefix .. d_name)
+            end
+            menu = menu .. "|>Змінити дабера|" .. table.concat(dubber_menu_items, "|") .. "|<"
         end
         
         menu = menu .. "||" .. dock_check .. "Закріпити вікно (Dock)"
