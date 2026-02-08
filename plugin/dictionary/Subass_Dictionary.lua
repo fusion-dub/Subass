@@ -276,6 +276,16 @@ local function format_time(seconds)
     return string.format("%d:%02d", mins, secs)
 end
 
+local function stop_preview()
+    if current_preview_source and reaper.CF_Preview_Stop then
+        reaper.CF_Preview_Stop(current_preview_source)
+    end
+    current_preview_source = nil
+    current_preview_name = ""
+    current_preview_paused = false
+    current_preview_pause_pos = 0
+end
+
 
 local function utf8_lower(s)
     if not s then return "" end
@@ -618,13 +628,7 @@ local function draw_mini_player(ctx)
         reaper.ImGui_SetCursorPosY(ctx, start_right_y - 3)
         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_CLOSE)
         if reaper.ImGui_Button(ctx, "✕", 23, 23) then
-            if current_preview_source and reaper.CF_Preview_Stop then
-                reaper.CF_Preview_Stop(current_preview_source)
-            end
-            current_preview_source = nil
-            current_preview_name = ""
-            current_preview_paused = false
-            current_preview_pause_pos = 0
+            stop_preview()
         end
         reaper.ImGui_PopStyleColor(ctx)
 
@@ -657,6 +661,7 @@ local function loop()
                 if not restore_tab and last_tab ~= 0 then
                     last_tab = 0
                     reaper.SetExtState("Subass_Dictionary", "last_tab", "0", true)
+                    stop_preview()
                 end
                 reaper.ImGui_PopFont(ctx)
                 reaper.ImGui_PopStyleVar(ctx)
@@ -706,6 +711,7 @@ local function loop()
                 if not restore_tab and last_tab ~= 1 then
                     last_tab = 1
                     reaper.SetExtState("Subass_Dictionary", "last_tab", "1", true)
+                    stop_preview()
                 end
                 reaper.ImGui_PopFont(ctx)
                 reaper.ImGui_PopStyleVar(ctx)
@@ -1133,7 +1139,6 @@ local function loop()
         reaper.ImGui_PopFont(ctx)
 
         draw_mini_player(ctx)
-        reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) - 20) -- Reduce bottom gap
         reaper.ImGui_End(ctx)
     end
 
