@@ -5848,67 +5848,178 @@ local function ebu_r128_replicas_normalize()
 
     reaper.Undo_BeginBlock()
     reaper.ShowConsoleMsg("═══════════════════════════════════════════\n")
-    reaper.ShowConsoleMsg("[LUFS Normalization] Press ESC to ABORT\n")
+    reaper.ShowConsoleMsg("[LUFS Normalization] Batch analyzing...\n")
     reaper.ShowConsoleMsg("═══════════════════════════════════════════\n\n")
     
-    -- PASS 1: Group items by TRACK and Analyze
+    -- OPTIMIZATION: Batch LUFS Analysis via Reverse Engineering
+    -- Instead of calling NF_AnalyzeTakeLoudness_IntegratedOnly 500 times (500 popup windows),
+    -- we use SWS batch normalization to -23 LUFS, then calculate original LUFS from gain applied
+    
     local track_groups = {}
     local normalized_count = 0
+    
+    -- Step 1: Save original volumes and prepare items
+    reaper.ShowConsoleMsg(string.format("Preparing %d items for batch analysis...\n", #items))
+    local take_data = {}
     
     for i = 1, #items do
         local item = items[i]
         local take = reaper.GetActiveTake(item)
         if take then
             local track = reaper.GetMediaItem_Track(item)
-            if not track_groups[track] then track_groups[track] = { items = {}, bp_sum = 0, bp_cnt = 0 } end
             
-            -- Reset Volume for Analysis
-            local original_vol = reaper.GetMediaItemTakeInfo_Value(take, "D_VOL")
+            -- Save original volumes (both take and item)
+            local original_take_vol = reaper.GetMediaItemTakeInfo_Value(take, "D_VOL")
+            local original_item_vol = reaper.GetMediaItemInfo_Value(item, "D_VOL")
+            
+            table.insert(take_data, {
+                take = take,
+                item = item,
+                track = track,
+                original_take_vol = original_take_vol,
+                original_item_vol = original_item_vol,
+                len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+            })
+            
+            -- Reset both volumes to 1.0 (0 dB) for consistent measurement
             reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", 1.0)
+            reaper.SetMediaItemInfo_Value(item, "D_VOL", 1.0)
+        end
+    end
+    
+    -- Step 2: Select all items for batch normalization
+    reaper.PreventUIRefresh(1)
+    reaper.SelectAllMediaItems(0, false)
+    for i = 1, #items do
+        reaper.SetMediaItemSelected(items[i], true)
+    end
+    
+    -- Step 3: Run SWS batch normalization to -23 LUFS
+    -- This will analyze all items and normalize them in one operation
+    reaper.ShowConsoleMsg("Running SWS batch LUFS analysis (this may take a moment)...\n")
+    
+    local sws_cmd = reaper.NamedCommandLookup("_BR_NORMALIZE_LOUDNESS_ITEMS23")
+    if not sws_cmd or sws_cmd == 0 then
+        -- Try alternative command names
+        sws_cmd = reaper.NamedCommandLookup("_SWS_AWLOUDNORM")
+    end
+    
+    if sws_cmd and sws_cmd > 0 then
+        -- Execute SWS batch normalization
+        reaper.Main_OnCommand(sws_cmd, 0)
+        reaper.ShowConsoleMsg("Batch analysis complete. Calculating LUFS values...\n\n")
+    else
+        -- Fallback to individual analysis if batch command not found
+        reaper.ShowConsoleMsg("⚠️ SWS batch command not found. Using individual analysis...\n\n")
+        reaper.PreventUIRefresh(-1)
+        
+        for i = 1, #take_data do
+            local data = take_data[i]
+            local take = data.take
+            local track = data.track
             
+            if not track_groups[track] then 
+                track_groups[track] = { items = {}, bp_sum = 0, bp_cnt = 0 } 
+            end
+            
+            -- Individual analysis (fallback)
             local retval, lufs = reaper.NF_AnalyzeTakeLoudness_IntegratedOnly(take)
             
-            -- Check for cancellation (ESC or SWS Cancel)
-            local abort = false
-            if not retval then abort = true end -- SWS window cancelled
-            
-            local char = gfx.getchar() 
-            if char == 27 or char == -1 then abort = true end
-            
-            if not abort and reaper.JS_VKeys_GetState then
-                local state = reaper.JS_VKeys_GetState(0)
-                if state:byte(28) ~= 0 then abort = true end
-            end
-
-            if abort then
-                reaper.ShowConsoleMsg("\n⚠️ ABORTED BY USER.\n")
-                show_snackbar("Нормалізацію перервано користувачем", "error")
-                reaper.Undo_EndBlock("LUFS Normalization (Aborted)", -1)
+            if not retval then
+                reaper.ShowConsoleMsg("\n⚠️ Analysis cancelled.\n")
+                show_snackbar("Нормалізацію перервано", "error")
+                -- Restore original volumes (both take and item)
+                for _, d in ipairs(take_data) do
+                    reaper.SetMediaItemTakeInfo_Value(d.take, "D_VOL", d.original_take_vol)
+                    reaper.SetMediaItemInfo_Value(d.item, "D_VOL", d.original_item_vol)
+                end
+                reaper.Undo_EndBlock("LUFS Normalization (Cancelled)", -1)
                 return
             end
 
             local bp_db, median_rms = analyze_take_structure(take)
-            reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", original_vol)
+            
+            -- Reset volumes to 1.0 for our custom normalization
+            reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", 1.0)
+            reaper.SetMediaItemInfo_Value(data.item, "D_VOL", 1.0)
             
             if lufs and lufs > -100 then
                 local item_data = {
                     take = take,
-                    item = item,
+                    item = data.item,
                     lufs = lufs, 
                     bp_db = bp_db, 
                     med_rms = median_rms,
-                    len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                    len = data.len
                 }
                 table.insert(track_groups[track].items, item_data)
                 
                 track_groups[track].bp_sum = track_groups[track].bp_sum + bp_db
                 track_groups[track].bp_cnt = track_groups[track].bp_cnt + 1
-
-                local progress_pct = (i / #items) * 100
-                reaper.ShowConsoleMsg(string.format("Processed %d/%d (%.3f%%) - LUFS: %.1f\n", i, #items, progress_pct, lufs))
+            end
+            
+            if i % 50 == 0 or i == #take_data then
+                local progress_pct = (i / #take_data) * 100
+                reaper.ShowConsoleMsg(string.format("Progress: %d/%d (%.1f%%)\n", i, #take_data, progress_pct))
             end
         end
+        
+        goto skip_batch_processing
     end
+    
+    -- Step 4: Calculate original LUFS from applied gain
+    -- Formula: original_LUFS = -23 - gain_applied_db
+    -- where gain_applied_db = 20 * log10(new_volume / 1.0)
+    
+    for i = 1, #take_data do
+        local data = take_data[i]
+        local take = data.take
+        local track = data.track
+        
+        if not track_groups[track] then 
+            track_groups[track] = { items = {}, bp_sum = 0, bp_cnt = 0 } 
+        end
+        
+        -- Read the volume after SWS normalization
+        local normalized_vol = reaper.GetMediaItemTakeInfo_Value(take, "D_VOL")
+        
+        -- Calculate the gain that was applied (in dB)
+        local gain_applied_db = 20 * math.log(normalized_vol, 10)
+        
+        -- Reverse-engineer the original LUFS
+        -- If SWS applied +6dB to reach -23 LUFS, original was -29 LUFS
+        local original_lufs = -23.0 - gain_applied_db
+        
+        -- Analyze spectral structure for De-Boomer
+        local bp_db, median_rms = analyze_take_structure(take)
+        
+        -- Reset volumes to 1.0 for our custom normalization
+        -- (We don't restore old volumes - we want to apply our own normalization)
+        reaper.SetMediaItemTakeInfo_Value(take, "D_VOL", 1.0)
+        reaper.SetMediaItemInfo_Value(data.item, "D_VOL", 1.0)
+        
+        if original_lufs > -100 then
+            local item_data = {
+                take = take,
+                item = data.item,
+                lufs = original_lufs, 
+                bp_db = bp_db, 
+                med_rms = median_rms,
+                len = data.len
+            }
+            table.insert(track_groups[track].items, item_data)
+            
+            track_groups[track].bp_sum = track_groups[track].bp_sum + bp_db
+            track_groups[track].bp_cnt = track_groups[track].bp_cnt + 1
+        end
+        
+        -- Progress tracking (silent - only final message shown)
+    end
+    
+    ::skip_batch_processing::
+    
+    reaper.PreventUIRefresh(-1)
+    reaper.ShowConsoleMsg("\nApplying custom normalization with De-Boomer...\n\n")
     
     -- PROCESS PER TRACK
     for track, group in pairs(track_groups) do
@@ -6016,13 +6127,17 @@ local function ebu_r128_replicas_normalize()
                     local presence_diff = anchor_bp - res.bp_db 
                     if presence_diff > 0 then
                         correction_db = presence_diff * 0.15 
-                        if correction_db < -6.0 then correction_db = -6.0 end
-                        if correction_db < -0.5 then track_stats.boom = track_stats.boom + 1 end
+                        if correction_db > 6.0 then correction_db = 6.0 end
+                        if correction_db > 0.5 then track_stats.boom = track_stats.boom + 1 end
                     end
                 end
                 
-                track_stats.norm = track_stats.norm + 1
-                track_stats.gain_sum = track_stats.gain_sum + (gain_db - correction_db)
+                -- Only accumulate valid gain values
+                local final_gain = gain_db - correction_db
+                if final_gain == final_gain and final_gain ~= math.huge and final_gain ~= -math.huge then
+                    track_stats.norm = track_stats.norm + 1
+                    track_stats.gain_sum = track_stats.gain_sum + final_gain
+                end
             end
 
             local final_vol = 10 ^ ((gain_db - correction_db) / 20)
