@@ -262,6 +262,7 @@ local edit_entry_idx = nil
 local edit_entry_data = {}
 local open_edit_popup = false
 local current_preview_source = nil
+local layout_has_player = false
 local current_preview_name = ""
 local current_preview_file = ""
 local current_preview_paused = false
@@ -505,7 +506,7 @@ local function draw_inline_entry(ctx, title, meaning, title_size, meaning_size)
 end
 
 local function draw_mini_player(ctx)
-    if not current_preview_source then return end
+    if not layout_has_player or not current_preview_source then return end
 
     local ok_p, pos = reaper.CF_Preview_GetValue(current_preview_source, "D_POSITION")
     local ok_l, len = reaper.CF_Preview_GetValue(current_preview_source, "D_LENGTH")
@@ -648,6 +649,7 @@ local function loop()
     local visible, open = reaper.ImGui_Begin(ctx, 'Subass Dictionary', true, reaper.ImGui_WindowFlags_NoScrollbar())
 
     if visible then
+        layout_has_player = (current_preview_source ~= nil)
 
         -- TABS
         reaper.ImGui_PushFont(ctx, font_tabs, 17)
@@ -674,7 +676,7 @@ local function loop()
                 reaper.ImGui_Separator(ctx)
                 reaper.ImGui_Dummy(ctx, 0, 5)
                 -- Content
-                local child_h = current_preview_source and -95 or -5
+                local child_h = layout_has_player and -82 or -5
                 if reaper.ImGui_BeginChild(ctx, "content_reference", 0, child_h) then
                     for _, cat in ipairs(cached_results) do
                         local header_flags = 0
@@ -797,7 +799,7 @@ local function loop()
                 reaper.ImGui_Separator(ctx)
                 reaper.ImGui_Dummy(ctx, 0, 5)
 
-                local child_h = current_preview_source and -82 or -5
+                local child_h = layout_has_player and -82 or -5
                 if reaper.ImGui_BeginChild(ctx, "content_glossary", 0, child_h) then
 
                     -- Glossary List
