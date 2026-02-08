@@ -50,50 +50,100 @@ local function json_encode(v)
 end
 
 local function json_decode(s)
-    -- Very basic decoder for our specific structure
-    local function parse_value(str, start)
-        str = str:sub(start)
-        if str:match("^%s*%[") then
-            local arr = {}
-            local pos = str:find("%[") + 1
-            while true do
-                local val, next_pos = parse_value(str, pos)
-                if not val then break end
-                table.insert(arr, val)
-                pos = next_pos
-                local sep = str:match("^%s*[,%]]", pos)
-                if sep:find("%]") then break end
-                pos = str:find(",", pos) + 1
-            end
-            return arr, start + str:find("%]", pos)
-        elseif str:match("^%s*{") then
-            local obj = {}
-            local pos = str:find("{") + 1
-            while true do
-                local key = str:match('^%s*"(.-)"%s*:', pos)
-                if not key then break end
-                pos = str:find(":", pos + #key + 2) + 1
-                local val, next_pos = parse_value(str, pos)
-                obj[key] = val
-                pos = next_pos
-                local sep = str:match("^%s*[,}]", pos)
-                if sep:find("}") then break end
-                pos = str:find(",", pos) + 1
-            end
-            return obj, start + str:find("}", pos)
-        elseif str:match('^%s*"') then
-            local val = str:match('^%s*"(.-)"')
-            return val, start + str:find('"', str:find('"') + 1)
-        elseif str:match('^%s*[%d%.%-]+') then
-            local val = str:match('^%s*([%d%.%-]+)')
-            return tonumber(val), start + str:find(val, 1, true) + #val
-        elseif str:match('^%s*true') then return true, start + str:find('true') + 4
-        elseif str:match('^%s*false') then return false, start + str:find('false') + 5
-        elseif str:match('^%s*null') then return nil, start + str:find('null') + 4
-        end
+    local pos = 1
+    
+    local skip_ws = function()
+        local next_pos = s:find("[^%s]", pos)
+        if next_pos then pos = next_pos end
     end
-    local ok, res = pcall(parse_value, s, 1)
-    return ok and res or {}
+    
+    local parse_val -- forward declaration
+    
+    local parse_object = function()
+        local obj = {}
+        pos = pos + 1 -- skip {
+        while pos <= #s do
+            skip_ws()
+            if s:sub(pos, pos) == "}" then pos = pos + 1 return obj end
+            
+            local key = s:match('^%s*"(.-)"%s*:', pos)
+            if not key then break end
+            
+            pos = s:find(":", pos) + 1
+            obj[key] = parse_val()
+            
+            skip_ws()
+            local sep = s:sub(pos, pos)
+            if sep == "," then 
+                pos = pos + 1
+            elseif sep == "}" then 
+                pos = pos + 1
+                return obj
+            else
+                break
+            end
+        end
+        return obj
+    end
+    
+    local parse_array = function()
+        local arr = {}
+        pos = pos + 1 -- skip [
+        while pos <= #s do
+            skip_ws()
+            if s:sub(pos, pos) == "]" then pos = pos + 1 return arr end
+            
+            table.insert(arr, parse_val())
+            
+            skip_ws()
+            local sep = s:sub(pos, pos)
+            if sep == "," then
+                pos = pos + 1
+            elseif sep == "]" then
+                pos = pos + 1
+                return arr
+            else
+                break
+            end
+        end
+        return arr
+    end
+    
+    parse_val = function()
+        skip_ws()
+        local char = s:sub(pos, pos)
+        if char == "{" then
+            return parse_object()
+        elseif char == "[" then
+            return parse_array()
+        elseif char == '"' then
+            local val = s:match('^"(.-)"', pos)
+            if val then 
+                pos = pos + #val + 2
+                return val
+            end
+        elseif s:match('^true', pos) then 
+            pos = pos + 4
+            return true
+        elseif s:match('^false', pos) then 
+            pos = pos + 5
+            return false
+        elseif s:match('^null', pos) then 
+            pos = pos + 4
+            return nil
+        else
+            local val = s:match('^[%d%.%-eE]+', pos)
+            if val then
+                pos = pos + #val
+                return tonumber(val)
+            end
+        end
+        pos = pos + 1
+        return nil
+    end
+    
+    local ok, res = pcall(parse_val)
+    return (ok and res) and res or { entries = {} }
 end
 
 local glossary_data = { entries = {} }
@@ -165,11 +215,13 @@ local function add_from_reaper()
     local success = false
     local filename_result = nil
     
+    local duration = 0
     if new_item then
         local new_take = reaper.GetActiveTake(new_item)
         if new_take then
             local source = reaper.GetMediaItemTake_Source(new_take)
             local src_path = reaper.GetMediaSourceFileName(source, "")
+            duration = reaper.GetMediaSourceLength(source)
             
             if src_path and src_path ~= "" then
                 local ext = src_path:match("%.([^%.]+)$") or "wav"
@@ -195,6 +247,7 @@ local function add_from_reaper()
          return {
             name = name,
             filename = filename_result,
+            duration = duration,
             tags = "",
             desc = "",
             date = os.date("%Y-%m-%d %H:%M:%S")
@@ -775,7 +828,6 @@ local function loop()
                             reaper.ImGui_BeginGroup(ctx)
                                 
                                 -- 1. Name & Playback (Top)
-                                reaper.ImGui_PushFont(ctx, font_main, 18)
                                 local play_icon = (current_preview_name == entry.name and not current_preview_paused) and "Ⅱ" or "▶"
                                 
                                 -- Play/Pause Logic (Extraction)
@@ -822,32 +874,105 @@ local function loop()
                                     end
                                 end
 
+                                -- Layout Measurements
+                                local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
+                                local raw_tags = entry.tags or ""
+                                local tag_str = raw_tags:gsub(",", ", ")
+                                
+                                -- 1.0 Duration Calculation
+                                local dur_str = entry.duration and format_time(entry.duration) or ""
+                                
+                                reaper.ImGui_PushFont(ctx, font_main, 13)
+                                local tag_w = (tag_str ~= "") and reaper.ImGui_CalcTextSize(ctx, tag_str) or 0
+                                local dur_w = (dur_str ~= "") and reaper.ImGui_CalcTextSize(ctx, dur_str) or 0
+                                reaper.ImGui_PopFont(ctx)
+                                
+                                local right_margin_w = 0
+                                if tag_w > 0 then right_margin_w = right_margin_w + tag_w end
+                                if dur_w > 0 then right_margin_w = right_margin_w + (tag_w > 0 and 12 or 0) + dur_w end
+
                                 -- Fixed width Play Button
-                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x4B824B50) -- Semi-transparent Greenish
-                                if reaper.ImGui_Button(ctx, play_icon .. "##playbtn"..i, 30, 0) then -- Fixed width 30
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x4B824B50)
+                                if reaper.ImGui_Button(ctx, play_icon .. "##playbtn"..i, 30, 24) then -- Height 24 to match name font
                                     toggle_playback()
                                 end
                                 reaper.ImGui_PopStyleColor(ctx)
                                 
-                                -- Clickable Name
+                                -- Clickable Name with Truncation
                                 reaper.ImGui_SameLine(ctx)
-                                reaper.ImGui_TextColored(ctx, C_BTN_OK, entry.name)
-                                if reaper.ImGui_IsItemClicked(ctx, 0) then
-                                    toggle_playback()
+                                local name_avail_w = math.max(50, avail_w - 30 - 8 - (right_margin_w > 0 and (right_margin_w + 15) or 0))
+                                
+                                -- 1.1 Calculate/Lazy-load Duration
+                                if not entry.duration then
+                                    local full_path = data_path .. (entry.filename or "")
+                                    if entry.filename and entry.filename ~= "" then
+                                        local src = reaper.PCM_Source_CreateFromFile(full_path)
+                                        if src then
+                                            entry.duration = reaper.GetMediaSourceLength(src)
+                                            reaper.PCM_Source_Destroy(src)
+                                            save_glossary()
+                                        end
+                                    end
                                 end
-
+                                
+                                local base_name = (entry.name or "Unnamed"):gsub("%s+$", "")
+                                local display_name = base_name
+                                reaper.ImGui_PushFont(ctx, font_main, 18)
+                                local name_w = reaper.ImGui_CalcTextSize(ctx, display_name)
+                                
+                                if name_w > name_avail_w then
+                                    local truncated = ""
+                                    -- Safe UTF-8 iteration
+                                    local ok, f, s, i = pcall(utf8.codes, base_name)
+                                    if ok then
+                                        for _, code in f, s, i do
+                                            local char = utf8.char(code)
+                                            if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > name_avail_w then
+                                                display_name = truncated .. "..."
+                                                break
+                                            end
+                                            truncated = truncated .. char
+                                        end
+                                    else
+                                        display_name = base_name:sub(1, 10) .. "..."
+                                    end
+                                end
+                                
+                                reaper.ImGui_TextColored(ctx, C_BTN_OK, display_name)
+                                if reaper.ImGui_IsItemClicked(ctx, 0) then toggle_playback() end
                                 reaper.ImGui_PopFont(ctx)
-                                
-                                -- 2. Tags & Desc
-                                if entry.tags ~= "" then
-                                    reaper.ImGui_TextColored(ctx, 0xAAAAAAFF, "Теги: " .. entry.tags)
+
+                                -- Tags & Duration Row (Right Aligned)
+                                if right_margin_w > 0 then
+                                    reaper.ImGui_SameLine(ctx)
+                                    reaper.ImGui_SetCursorPosX(ctx, avail_w - right_margin_w)
+                                    reaper.ImGui_PushFont(ctx, font_main, 13)
+                                    reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + 4)
+                                    local baseline_y = reaper.ImGui_GetCursorPosY(ctx)
+                                    
+                                    if tag_w > 0 then
+                                        reaper.ImGui_TextColored(ctx, 0xAAAAAAFF, tag_str)
+                                        if dur_w > 0 then 
+                                            reaper.ImGui_SameLine(ctx, nil, 10)
+                                            reaper.ImGui_SetCursorPosY(ctx, baseline_y)
+                                        end
+                                    end
+                                    
+                                    if dur_w > 0 then
+                                        reaper.ImGui_TextColored(ctx, 0x88EE88FF, dur_str) -- Light green for duration
+                                    end
+                                    
+                                    reaper.ImGui_PopFont(ctx)
+                                    reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) - 4)
                                 end
                                 
+                                -- 2. Description Below (If exists)
                                 if entry.desc ~= "" then
+                                    reaper.ImGui_Dummy(ctx, 0, 1) -- Tiny gap
                                     reaper.ImGui_TextWrapped(ctx, entry.desc)
                                 end
                                 
-                                reaper.ImGui_Dummy(ctx, 0, 5) -- Spacing before buttons
+                                reaper.ImGui_Dummy(ctx, 0, 3) -- Spacing before buttons
                                 
                                 -- 3. Actions (Bottom)
                                 
@@ -928,7 +1053,7 @@ local function loop()
                             reaper.ImGui_EndGroup(ctx)
                             
                             reaper.ImGui_Separator(ctx)
-                            reaper.ImGui_Dummy(ctx, 0, 5)
+                            reaper.ImGui_Dummy(ctx, 0, 2)
                         end
                     end
 
