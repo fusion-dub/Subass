@@ -171,9 +171,8 @@ load_glossary()
 -- Color Constants (Hex)
 local C_BTN_OK = 0x50C850FF
 local C_BTN_MEDIUM = 0x4B824BFF
-local C_BTN_ERROR = 0xC85050FF
+local C_BTN_CLOSE = 0x0000000F
 local C_SEL_BG = 0x4CA6FFFF
-
 
 local function copy_file(src, dst)
     local f_src = io.open(src, "rb")
@@ -581,7 +580,7 @@ local function draw_mini_player(ctx)
         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_PlotHistogram(), 0x50C850AA)
         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBg(), 0x333333FF)
         local progress = (len and len > 0) and pos/len or 0
-        local avail_w = reaper.ImGui_GetContentRegionAvail(ctx) - 45  -- Leave space for close button
+        local avail_w = reaper.ImGui_GetContentRegionAvail(ctx) - 4  -- Leave space for close button
         
         -- Make progress bar interactive
         local cursor_x, cursor_y = reaper.ImGui_GetCursorScreenPos(ctx)
@@ -613,10 +612,10 @@ local function draw_mini_player(ctx)
         reaper.ImGui_EndGroup(ctx)
         
         -- Close button on the far right
-        reaper.ImGui_SameLine(ctx, reaper.ImGui_GetWindowWidth(ctx) - 43)
-        reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + 2)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_ERROR)
-        if reaper.ImGui_Button(ctx, "✕", 33, 33) then
+        reaper.ImGui_SameLine(ctx, reaper.ImGui_GetWindowWidth(ctx) - 36)
+        reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) - 6)
+        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_CLOSE)
+        if reaper.ImGui_Button(ctx, "✕", 23, 23) then
             if current_preview_source and reaper.CF_Preview_Stop then
                 reaper.CF_Preview_Stop(current_preview_source)
             end
@@ -874,32 +873,40 @@ local function loop()
                                     end
                                 end
 
-                                -- Layout Measurements
+                                -- 0. Layout Requirements & Widths
                                 local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
                                 local raw_tags = entry.tags or ""
                                 local tag_str = raw_tags:gsub(",", ", ")
+                                local is_ultra = (tag_str == "") and (not entry.desc or entry.desc == "")
                                 
-                                -- 1.0 Duration Calculation
-                                local dur_str = entry.duration and format_time(entry.duration) or ""
-                                
+                                reaper.ImGui_PushFont(ctx, font_main, 15)
+                                local insert_btn_w = reaper.ImGui_CalcTextSize(ctx, "Вставити в проєкт")
+                                reaper.ImGui_PopFont(ctx)
+                                local actions_btn_w = 30
+                                local total_btns_w = insert_btn_w + actions_btn_w + 8
+
                                 reaper.ImGui_PushFont(ctx, font_main, 13)
                                 local tag_w = (tag_str ~= "") and reaper.ImGui_CalcTextSize(ctx, tag_str) or 0
-                                local dur_w = (dur_str ~= "") and reaper.ImGui_CalcTextSize(ctx, dur_str) or 0
                                 reaper.ImGui_PopFont(ctx)
                                 
                                 local right_margin_w = 0
-                                if tag_w > 0 then right_margin_w = right_margin_w + tag_w end
-                                if dur_w > 0 then right_margin_w = right_margin_w + (tag_w > 0 and 12 or 0) + dur_w end
+                                if is_ultra then
+                                    right_margin_w = total_btns_w
+                                else
+                                    if tag_w > 0 then right_margin_w = right_margin_w + tag_w end
+                                end
 
                                 -- Fixed width Play Button
+                                local entry_start_y = reaper.ImGui_GetCursorPosY(ctx)
                                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x4B824B50)
-                                if reaper.ImGui_Button(ctx, play_icon .. "##playbtn"..i, 30, 24) then -- Height 24 to match name font
+                                if reaper.ImGui_Button(ctx, play_icon .. "##playbtn"..i, 30, 30) then
                                     toggle_playback()
                                 end
                                 reaper.ImGui_PopStyleColor(ctx)
                                 
                                 -- Clickable Name with Truncation
                                 reaper.ImGui_SameLine(ctx)
+                                reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 3) -- Adjusted for 30px button height
                                 local name_avail_w = math.max(50, avail_w - 30 - 8 - (right_margin_w > 0 and (right_margin_w + 15) or 0))
                                 
                                 -- 1.1 Calculate/Lazy-load Duration
@@ -938,120 +945,121 @@ local function loop()
                                     end
                                 end
                                 
+                                -- 1.2 Rendering Title Row
                                 reaper.ImGui_TextColored(ctx, C_BTN_OK, display_name)
                                 if reaper.ImGui_IsItemClicked(ctx, 0) then toggle_playback() end
                                 reaper.ImGui_PopFont(ctx)
 
-                                -- Tags & Duration Row (Right Aligned)
-                                if right_margin_w > 0 then
-                                    reaper.ImGui_SameLine(ctx)
-                                    reaper.ImGui_SetCursorPosX(ctx, avail_w - right_margin_w)
-                                    reaper.ImGui_PushFont(ctx, font_main, 13)
-                                    reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + 4)
-                                    local baseline_y = reaper.ImGui_GetCursorPosY(ctx)
-                                    
-                                    if tag_w > 0 then
-                                        reaper.ImGui_TextColored(ctx, 0xAAAAAAFF, tag_str)
-                                        if dur_w > 0 then 
-                                            reaper.ImGui_SameLine(ctx, nil, 10)
-                                            reaper.ImGui_SetCursorPosY(ctx, baseline_y)
+                                if is_ultra then
+                                    -- ULTRA-COMPACT: Name, Buttons all on ONE line
+                                    reaper.ImGui_SameLine(ctx, avail_w - right_margin_w)
+                                    reaper.ImGui_BeginGroup(ctx)
+                                        -- Action Buttons - Centered vertically
+                                        reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 6) -- Match title offset
+                                        if reaper.ImGui_Button(ctx, "Вставити в проєкт##"..i, insert_btn_w) then
+                                            local full_path = data_path .. entry.filename
+                                            local track = reaper.GetSelectedTrack(0, 0)
+                                            if track then
+                                                local cursor_pos = reaper.GetCursorPosition()
+                                                reaper.InsertMedia(full_path, 0)
+                                                local new_item = reaper.GetSelectedMediaItem(0, 0)
+                                                if new_item then
+                                                    reaper.MoveMediaItemToTrack(new_item, track)
+                                                    reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor_pos)
+                                                    reaper.UpdateArrange()
+                                                end
+                                            else
+                                                reaper.MB("Будь ласка, виберіть трек для вставки.", "Помилка", 0)
+                                            end
                                         end
+                                        reaper.ImGui_SameLine(ctx)
+                                        reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 6)
+                                        if reaper.ImGui_Button(ctx, "⋮##btn"..i, actions_btn_w) then
+                                            reaper.ImGui_OpenPopup(ctx, "glossary_actions_popup"..i)
+                                        end
+                                    reaper.ImGui_EndGroup(ctx)
+                                else
+                                    -- STANDARD: Multi-line layout
+                                    -- Tags Row (Right Aligned on title row) - Centered vertically
+                                    if right_margin_w > 0 then
+                                        reaper.ImGui_SameLine(ctx)
+                                        reaper.ImGui_SetCursorPosX(ctx, avail_w - right_margin_w)
+                                        reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 7) -- Center font 13 in 30px height
+                                        reaper.ImGui_PushFont(ctx, font_main, 13)
+                                        
+                                        if tag_w > 0 then
+                                            reaper.ImGui_TextColored(ctx, 0xAAAAAAFF, tag_str)
+                                        end
+                                        
+                                        reaper.ImGui_PopFont(ctx)
                                     end
                                     
-                                    if dur_w > 0 then
-                                        reaper.ImGui_TextColored(ctx, 0x88EE88FF, dur_str) -- Light green for duration
-                                    end
+                                    reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 32) -- Bottom of the 30px button + gap
+                                    reaper.ImGui_Dummy(ctx, 0, 4)
                                     
-                                    reaper.ImGui_PopFont(ctx)
-                                    reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) - 4)
-                                end
-                                
-                                -- 2. Description Below (If exists)
-                                if entry.desc ~= "" then
-                                    reaper.ImGui_Dummy(ctx, 0, 1) -- Tiny gap
-                                    reaper.ImGui_TextWrapped(ctx, entry.desc)
-                                end
-                                
-                                reaper.ImGui_Dummy(ctx, 0, 3) -- Spacing before buttons
-                                
-                                -- 3. Actions (Bottom)
-                                
-                                -- Left: Insert into Project
-                                if reaper.ImGui_Button(ctx, "Вставити в проєкт##"..i) then
-                                    local full_path = data_path .. entry.filename
-                                    local track = reaper.GetSelectedTrack(0, 0)
-                                    if track then
-                                        local cursor_pos = reaper.GetCursorPosition()
-                                        reaper.InsertMedia(full_path, 0) -- 0 = add to current track/pos (default behavior usually requires tweaks but InsertMedia is robust)
-                                        
-                                        -- Move the newly inserted item to the correct track if InsertMedia didn't default to selected
-                                        -- Actually reaper.InsertMedia usually adheres to cursor/selected track.
-                                        -- Let's ensure it lands on the selected track at cursor.
-                                        
-                                        -- Since InsertMedia behavior can be tricky, a solid way is:
-                                        -- 1. Insert media
-                                        -- 2. It usually becomes the selected item
-                                        -- 3. Move it to the specific track if needed
-                                        
-                                        local new_item = reaper.GetSelectedMediaItem(0, 0)
-                                        if new_item then
-                                            reaper.MoveMediaItemToTrack(new_item, track)
-                                            reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor_pos)
-                                            reaper.UpdateArrange()
-                                        end
+                                    -- Description & Actions Row
+                                    if entry.desc ~= "" then
+                                        reaper.ImGui_PushTextWrapPos(ctx, avail_w - total_btns_w - 15)
+                                        reaper.ImGui_Text(ctx, entry.desc)
+                                        reaper.ImGui_PopTextWrapPos(ctx)
+                                        reaper.ImGui_SameLine(ctx, avail_w - total_btns_w)
                                     else
-                                        reaper.MB("Будь ласка, виберіть трек для вставки.", "Помилка", 0)
+                                        reaper.ImGui_SetCursorPosX(ctx, reaper.ImGui_GetCursorPosX(ctx) + avail_w - total_btns_w)
                                     end
+                                    
+                                    reaper.ImGui_BeginGroup(ctx)
+                                        local insert_label = "Вставити в проєкт##"..i
+                                        if reaper.ImGui_Button(ctx, insert_label, insert_btn_w) then
+                                            local full_path = data_path .. entry.filename
+                                            local track = reaper.GetSelectedTrack(0, 0)
+                                            if track then
+                                                local cursor_pos = reaper.GetCursorPosition()
+                                                reaper.InsertMedia(full_path, 0)
+                                                local new_item = reaper.GetSelectedMediaItem(0, 0)
+                                                if new_item then
+                                                    reaper.MoveMediaItemToTrack(new_item, track)
+                                                    reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor_pos)
+                                                    reaper.UpdateArrange()
+                                                end
+                                            else
+                                                reaper.MB("Будь ласка, виберіть трек для вставки.", "Помилка", 0)
+                                            end
+                                        end
+                                        
+                                        reaper.ImGui_SameLine(ctx)
+                                        if reaper.ImGui_Button(ctx, "⋮##btn"..i, actions_btn_w) then
+                                            reaper.ImGui_OpenPopup(ctx, "glossary_actions_popup"..i)
+                                        end
+                                    reaper.ImGui_EndGroup(ctx)
                                 end
 
-                                -- Right: Edit & Delete (Grouped)
-                                reaper.ImGui_SameLine(ctx)
-                                
-                                -- Calculate width needed for Edit + Spacing + Delete
-                                -- Edit button width approx 85 (default for "Редагувати"?) Let's measure or assume standard
-                                -- Delete is fixed 70
-                                -- We want them right aligned.
-                                
-                                local edit_label = "Редагувати##"..i
-                                local edit_w = reaper.ImGui_CalcTextSize(ctx, "Редагувати") + 20 -- approx padding
-                                local group_w = edit_w + 70 + 8 -- + spacing
-                                
-                                local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
-                                local cursor_x = reaper.ImGui_GetCursorPosX(ctx)
-                                
-                                -- Only push to right if there is space
-                                if avail_w > group_w then
-                                    reaper.ImGui_SetCursorPosX(ctx, cursor_x + avail_w - group_w)
-                                end
-
-                                -- Edit
-                                if reaper.ImGui_Button(ctx, edit_label) then
-                                    edit_entry_idx = i
-                                    edit_entry_data = {
-                                        name = entry.name,
-                                        tags = entry.tags,
-                                        desc = entry.desc
-                                    }
-                                    open_edit_popup = true
-                                end
-                                
-                                -- Delete
-                                reaper.ImGui_SameLine(ctx)
-                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_ERROR)
-                                if reaper.ImGui_Button(ctx, "Видалити##"..i, 70) then
-                                    if reaper.MB("Видалити цей звук?", "Підтвердження", 1) == 1 then
-                                        os.remove(data_path .. entry.filename)
-                                        table.remove(glossary_data.entries, i)
-                                        save_glossary()
-                                        -- Rebuild tags
-                                        -- (Simple enough to force update next frame or let it handle itself)
+                                -- Common Actions Popup
+                                if reaper.ImGui_BeginPopup(ctx, "glossary_actions_popup"..i) then
+                                    if reaper.ImGui_Selectable(ctx, "✎ Редагувати") then
+                                        edit_entry_idx = i
+                                        edit_entry_data = {
+                                            name = entry.name,
+                                            tags = entry.tags,
+                                            desc = entry.desc
+                                        }
+                                        open_edit_popup = true
                                     end
+                                    
+                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
+                                    if reaper.ImGui_Selectable(ctx, "× Видалити") then
+                                        if reaper.MB("Видалити цей звук?", "Підтвердження", 1) == 1 then
+                                            os.remove(data_path .. entry.filename)
+                                            table.remove(glossary_data.entries, i)
+                                            save_glossary()
+                                        end
+                                    end
+                                    reaper.ImGui_PopStyleColor(ctx)
+                                    reaper.ImGui_EndPopup(ctx)
                                 end
-                                reaper.ImGui_PopStyleColor(ctx)
-                            
                             
                             reaper.ImGui_EndGroup(ctx)
                             
+                            reaper.ImGui_Dummy(ctx, 0, 3)
                             reaper.ImGui_Separator(ctx)
                             reaper.ImGui_Dummy(ctx, 0, 2)
                         end
