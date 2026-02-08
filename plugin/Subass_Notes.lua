@@ -6392,49 +6392,70 @@ local function filter_unique_item_replicas()
     end
 end
 
---- Upload current subtitles to analytics via Python script
-function upload_subtitles_analytics()
-    if not ass_lines or #ass_lines == 0 then return end
-    
-    -- Get current file path (full path, not just name)
-    local filepath = UI_STATE.current_file_path
-    if not filepath or filepath == "" then
-        -- Fallback: if no path, skip upload
-        return
-    end
-    
-    -- Get project name
-    local _, proj_path = reaper.EnumProjects(-1)
-    local proj_name = "Project"
-    if proj_path and proj_path ~= "" then
-        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or "Project"
+    --- Upload current subtitles to analytics via Python script
+    function STATS.upload_subtitles_analytics()
+        if not ass_lines or #ass_lines == 0 then return end
+        
+        -- Get current file path (full path, not just name)
+        local filepath = UI_STATE.current_file_path
+        if not filepath or filepath == "" then
+            -- Fallback: if no path, skip upload
+            return
+        end
+        
+        -- Get project name
+        local _, proj_path = reaper.EnumProjects(-1)
+        local proj_name = "Project"
+        if proj_path and proj_path ~= "" then
+            proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or "Project"
+        end
+
+        -- Build Python script path
+        local source = debug.getinfo(1,'S').source
+        local script_path = source:match([[^@?(.*[\\/])]]) or ""
+        local full_script_path = script_path .. "stats/subass_extra_stats.py"
+        
+        -- Execute in background (fire-and-forget, completely silent)
+        if reaper.GetOS():match("Win") then
+            full_script_path = full_script_path:gsub("/", "\\")
+            filepath = filepath:gsub("/", "\\")
+            local py_exe = OTHER.rec_state.python and OTHER.rec_state.python.executable or "python"
+            
+            -- Use cmd /C start /B for background execution on Windows
+            -- We quote everything to handle paths with spaces
+            local cmd = string.format('cmd.exe /C start /B "" "%s" "%s" --filepath "%s" --project_name "%s"', 
+                                    py_exe, full_script_path, filepath, proj_name)
+            
+            reaper.ExecProcess(cmd, 0)
+        else
+            -- macOS/Linux: simple background execution with nohup for complete detachment
+            local cmd = string.format('nohup python3 "%s" --filepath "%s" --project_name "%s" > /dev/null 2>&1 &', 
+                                    full_script_path, filepath, proj_name)
+            os.execute(cmd)
+        end
     end
 
-    -- Build Python script path
-    local source = debug.getinfo(1,'S').source
-    local script_path = source:match([[^@?(.*[\\/])]]) or ""
-    local full_script_path = script_path .. "stats/subass_extra_stats.py"
-    
-    -- Execute in background (fire-and-forget, completely silent)
-    if reaper.GetOS():match("Win") then
-        full_script_path = full_script_path:gsub("/", "\\")
-        filepath = filepath:gsub("/", "\\")
-        local py_exe = OTHER.rec_state.python and OTHER.rec_state.python.executable or "python"
+    --- Register plugin usage on first run (Fire-and-Forget)
+    function STATS.register_plugin_usage() 
+        -- Build Python script path
+        local source = debug.getinfo(1,'S').source
+        local script_path = source:match([[^@?(.*[\\/])]]) or ""
+        local full_script_path = script_path .. "stats/subass_extra_stats.py"
         
-        -- Use cmd /C start /B for background execution on Windows
-        -- We quote everything to handle paths with spaces
-        local cmd = string.format('cmd.exe /C start /B "" "%s" "%s" --filepath "%s" --project_name "%s"', 
-                                   py_exe, full_script_path, filepath, proj_name)
-        
-        reaper.ExecProcess(cmd, 0)
-    else
-        -- macOS/Linux: simple background execution with nohup for complete detachment
-        local cmd = string.format('nohup python3 "%s" --filepath "%s" --project_name "%s" > /dev/null 2>&1 &', 
-                                  full_script_path, filepath, proj_name)
-        os.execute(cmd)
+        -- Execute in background
+        if reaper.GetOS():match("Win") then
+            full_script_path = full_script_path:gsub("/", "\\")
+            -- Quote args
+            local cmd = string.format('cmd.exe /C start /B "" "%s" "%s" --register --script_title "%s"', 
+                                    "python", full_script_path, GL.script_title)
+            reaper.ExecProcess(cmd, 0)
+        else
+            -- macOS/Linux
+            local cmd = string.format('nohup python3 "%s" --register --script_title "%s" > /dev/null 2>&1 &', 
+                                    full_script_path, GL.script_title)
+            os.execute(cmd)
+        end
     end
-end
-
 
 -- ═══════════════════════════════════════════════════════════════
 -- DUBBERS MODULE - Methods
@@ -7255,9 +7276,8 @@ local function import_srt(file_path, dont_rebuild, forced_actor)
     if not dont_rebuild then
         rebuild_regions() -- This handles clearing old regions and re-adding all (including new ones)
     end
-    
-    -- Auto-upload to Firestore
-    upload_subtitles_analytics()
+
+    STATS.upload_subtitles_analytics()
     
     return duplicates_skipped
 end
@@ -7356,8 +7376,7 @@ local function import_vtt(file_path, dont_rebuild)
         rebuild_regions()
     end
     
-    -- Auto-upload to Firestore
-    upload_subtitles_analytics()
+    STATS.upload_subtitles_analytics()
     
     return duplicates_skipped
 end
@@ -8270,8 +8289,7 @@ local function import_ass(file_path, dont_rebuild)
         rebuild_regions() -- This calls save_project_data
     end
 
-    -- Auto-upload to Firestore
-    upload_subtitles_analytics()
+    STATS.upload_subtitles_analytics()
 
     return duplicates_skipped or 0
 end
@@ -20743,7 +20761,9 @@ local function main()
     reaper.defer(main)
 end
 
+STATS.register_plugin_usage()
 update_regions_cache()
+
 reaper.atexit(function()
     save_settings()
     STATS.save()
