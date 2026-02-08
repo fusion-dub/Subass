@@ -1,5 +1,5 @@
 -- @description Subass Dictionary
--- @version 1.5
+-- @version 1.6
 -- @author Fusion (Fusion Dub)
 -- @about Dictionary of slang, idioms and terminology for dubbing.
 
@@ -521,12 +521,12 @@ local function draw_mini_player(ctx)
     reaper.ImGui_Separator(ctx)
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ChildBg(), 0x222222FF)
     
-    -- Height 85 (reduced from 100)
-    if reaper.ImGui_BeginChild(ctx, "mini_player_ui", 0, 85, 1, reaper.ImGui_WindowFlags_NoScrollbar()) then
-        
+    -- Height 70
+    if reaper.ImGui_BeginChild(ctx, "mini_player_ui", 0, 70, 1, reaper.ImGui_WindowFlags_NoScrollbar()) then
         -- Left column: Play/Pause button
         local play_icon = current_preview_paused and "▶" or "Ⅱ"
         reaper.ImGui_PushFont(ctx, font_main, 22)
+        reaper.ImGui_SetCursorPosY(ctx, 15) -- Center 40px button in 70px height child
         if reaper.ImGui_Button(ctx, play_icon .. "##playpause", 40, 40) then
             if current_preview_paused then
                 -- Resume: recreate preview from file and seek to saved position
@@ -555,13 +555,17 @@ local function draw_mini_player(ctx)
         
         -- Right column: Name, Progress, Timing (always show, even when paused)
         reaper.ImGui_SameLine(ctx, 0, 14)  -- Add 14px spacing from play button
-        reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx))
+        reaper.ImGui_SetCursorPosY(ctx, 16) -- Start of right column
         
+        local start_right_y = reaper.ImGui_GetCursorPosY(ctx)
         reaper.ImGui_BeginGroup(ctx)
             
-        -- Name at top (truncated if too long)
+        -- Name row with timing at the end
         reaper.ImGui_PushFont(ctx, font_main, 13)
-        local max_name_width = reaper.ImGui_GetContentRegionAvail(ctx) - 50  -- Leave space for close button
+        local time_str = string.format("%s / %s", format_time(pos), format_time(len))
+        local time_w = reaper.ImGui_CalcTextSize(ctx, time_str)
+        local avail_row_w = reaper.ImGui_GetContentRegionAvail(ctx) - 32 -- Space for 23px button + margin
+        local max_name_width = avail_row_w - time_w - 15 -- Gap between name and time
         local name_width = reaper.ImGui_CalcTextSize(ctx, current_preview_name)
         
         if name_width > max_name_width then
@@ -574,22 +578,24 @@ local function draw_mini_player(ctx)
         else
             reaper.ImGui_Text(ctx, current_preview_name)
         end
-        reaper.ImGui_PopFont(ctx)
         
+        reaper.ImGui_SameLine(ctx, avail_row_w - time_w)
+        reaper.ImGui_TextColored(ctx, 0xAAAAAAFF, time_str)
+        reaper.ImGui_PopFont(ctx)
         -- Progress bar (clickable for seeking)
         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_PlotHistogram(), 0x50C850AA)
         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBg(), 0x333333FF)
         local progress = (len and len > 0) and pos/len or 0
-        local avail_w = reaper.ImGui_GetContentRegionAvail(ctx) - 4  -- Leave space for close button
+        local avail_bar_w = avail_row_w
         
         -- Make progress bar interactive
         local cursor_x, cursor_y = reaper.ImGui_GetCursorScreenPos(ctx)
-        reaper.ImGui_ProgressBar(ctx, progress, avail_w, 8, "")
+        reaper.ImGui_ProgressBar(ctx, progress, avail_bar_w, 6, "")
         
         -- Check if progress bar was clicked
         if reaper.ImGui_IsItemClicked(ctx, 0) then
             local mouse_x, mouse_y = reaper.ImGui_GetMousePos(ctx)
-            local click_pos = (mouse_x - cursor_x) / avail_w
+            local click_pos = (mouse_x - cursor_x) / avail_bar_w
             click_pos = math.max(0, math.min(1, click_pos))
             local new_time = click_pos * len
             
@@ -605,15 +611,11 @@ local function draw_mini_player(ctx)
         end
         
         reaper.ImGui_PopStyleColor(ctx, 2)
-        
-        -- Timing at bottom
-        reaper.ImGui_Text(ctx, string.format("%s / %s", format_time(pos), format_time(len)))
-        
         reaper.ImGui_EndGroup(ctx)
         
-        -- Close button on the far right
-        reaper.ImGui_SameLine(ctx, reaper.ImGui_GetWindowWidth(ctx) - 36)
-        reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) - 6)
+        -- Close button aligned with name row
+        reaper.ImGui_SameLine(ctx, reaper.ImGui_GetWindowWidth(ctx) - 32)
+        reaper.ImGui_SetCursorPosY(ctx, start_right_y - 3)
         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_CLOSE)
         if reaper.ImGui_Button(ctx, "✕", 23, 23) then
             if current_preview_source and reaper.CF_Preview_Stop then
@@ -789,7 +791,7 @@ local function loop()
                 reaper.ImGui_Separator(ctx)
                 reaper.ImGui_Dummy(ctx, 0, 5)
 
-                local child_h = current_preview_source and -95 or -5
+                local child_h = current_preview_source and -82 or -5
                 if reaper.ImGui_BeginChild(ctx, "content_glossary", 0, child_h) then
 
                     -- Glossary List
@@ -1131,7 +1133,7 @@ local function loop()
         reaper.ImGui_PopFont(ctx)
 
         draw_mini_player(ctx)
-
+        reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) - 20) -- Reduce bottom gap
         reaper.ImGui_End(ctx)
     end
 
