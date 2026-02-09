@@ -1464,7 +1464,7 @@ local function sync_external_data()
 
                 if t1 then
                     -- Unescape newlines and | from Subass_Notes format
-                    local decoded_text = (txt or ""):gsub("\\p", "|"):gsub("\\n", "\n")
+                    local decoded_text = (txt or ""):gsub("!ђ∆!", "|"):gsub("\\n", "\n")
                     
                     table.insert(new_lines, {
                         t1 = tonumber(t1) or 0,
