@@ -12957,6 +12957,7 @@ local function draw_tabs()
                 -- Restore new tab's scroll position
                 UI_STATE.scroll_y = UI_STATE.tab_scroll_y[UI_STATE.current_tab] or 0
                 UI_STATE.target_scroll_y = UI_STATE.tab_target_scroll_y[UI_STATE.current_tab] or 0
+                UI_STATE.mouse_handled = true
             end
         end
     end
@@ -13136,7 +13137,7 @@ local function draw_file()
     
     -- 1. Import Button
     if cur_y + btn_h > start_y and cur_y < gfx.h then
-        if btn(padding, cur_y, import_w, btn_h, fit_text_width("Імпорт субтитрів (.srt/.ass/.vtt)", import_w - S(10))) then
+        if btn(padding, cur_y, import_w, btn_h, fit_text_width("Імпорт субтитрів (.srt/.ass/.vtt)", import_w - S(10))) and gfx.mouse_y > S(25) then
             local retval, file_list
             if reaper.JS_Dialog_BrowseForOpenFiles then
                 retval, file_list = reaper.JS_Dialog_BrowseForOpenFiles("Імпорт субтитрів", "", "", "Subtitle files (*.srt;*.ass;*.vtt)\0*.srt;*.ass;*.vtt\0All files\0*\0", true)
@@ -13214,7 +13215,7 @@ local function draw_file()
     
     -- 2. Notes Button
     if ny + btn_h > start_y and ny < gfx.h then
-        if btn(nx, ny, notes_w, btn_h, fit_text_width("Правки", notes_w - S(10))) then
+        if btn(nx, ny, notes_w, btn_h, fit_text_width("Правки", notes_w - S(10))) and gfx.mouse_y > S(25) then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu("Імпорт з тексту|Імпорт з файлу (CSV)")
             if ret == 1 then import_notes()
@@ -13247,7 +13248,7 @@ local function draw_file()
             end
         end
         
-        if btn(dx, ny, deadline_w, btn_h, fit_text_width(dl_text, deadline_w - S(10)), dl_bg, dl_txt) then
+        if btn(dx, ny, deadline_w, btn_h, fit_text_width(dl_text, deadline_w - S(10)), dl_bg, dl_txt) and gfx.mouse_y > S(25) then
             DEADLINE.open_picker(DEADLINE.project_deadline, function(ts)
                 DEADLINE.set(ts)
                 show_snackbar(ts and ("Дедлайн встановлено: " .. os.date("%d.%m.%Y", ts)) or "Дедлайн скасовано", "info")
@@ -15559,7 +15560,7 @@ local function draw_prompter_slider(input_queue)
         local y_bottom = y_top + item.h
         if y_bottom > 0 and y_top < gfx.h then
             -- Interaction detection
-            if is_mouse_clicked(1) and not UI_STATE.mouse_handled then
+            if is_mouse_clicked(1) and not UI_STATE.mouse_handled and gfx.mouse_y > S(25) then
                 if gfx.mouse_x >= content_offset_left and gfx.mouse_x <= gfx.w - content_offset_right and
                    gfx.mouse_y >= y_top and gfx.mouse_y <= y_bottom then
                     
@@ -16634,7 +16635,7 @@ local function draw_settings()
             UI_STATE.tooltip_state.text = tooltip
         end
 
-        if hover and is_mouse_clicked() then return true end
+        if hover and is_mouse_clicked() and gfx.mouse_y > S(25) then return true end
         return false
     end
 
@@ -16681,7 +16682,7 @@ local function draw_settings()
             UI_STATE.tooltip_state.text = tooltip
         end
 
-        return hover and is_mouse_clicked()
+        return hover and is_mouse_clicked() and gfx.mouse_y > S(25)
     end
 
     -- Text Helper
@@ -16757,7 +16758,7 @@ local function draw_settings()
                     gfx.rect(bx, screen_y, box_sz, box_sz, 0)
                 end
                 
-                if is_mouse_clicked() then
+                if is_mouse_clicked() and gfx.mouse_y > S(25) then
                     if gfx.mouse_x >= bx and gfx.mouse_x <= bx + box_sz and gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + box_sz then
                         on_change(r, g, b)
                     end
