@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 4.9.1
+-- @version 5.0
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v4.9.1",
+    script_title = "Subass Notes v5.0",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -4864,8 +4864,8 @@ local function save_project_data()
         local r_idx = l.rgn_idx or -1
         local index = l.index or i
         local meta_json = l.metadata and STATS.json_encode(l.metadata):gsub("\n", "") or ""
-        -- Escape | as \p to prevent column misalignment
-        local escaped_text = l.text:gsub("|", "\\p"):gsub("\n","\\n")
+        -- Escape | as !ђ∆! to prevent column misalignment and conflict with ASS tags like \pos
+        local escaped_text = l.text:gsub("|", "!ђ∆!"):gsub("\n","\\n")
         table.insert(dump_tbl, string.format("%.3f|%.3f|%s|%s|%d|%d|%s|%s\n", l.t1, l.t2, l.actor, en, r_idx, index, escaped_text, meta_json))
     end
     save_chunked("ass_lines", dump_tbl)
@@ -5044,7 +5044,7 @@ local function load_project_data()
                             enabled = (en == "1"),
                             rgn_idx = tonumber(r_idx),
                             index = tonumber(idx),
-                            text = txt:gsub("\\p", "|"):gsub("\\n", "\n"),
+                            text = txt:gsub("!ђ∆!", "|"):gsub("\\n", "\n"),
                             metadata = (meta ~= "" and STATS.json_decode(meta) or nil)
                         })
                         matched = true
@@ -5061,7 +5061,7 @@ local function load_project_data()
                                 enabled = (en == "1"),
                                 rgn_idx = tonumber(r_idx),
                                 index = tonumber(idx),
-                                text = txt:gsub("\\p", "|"):gsub("\\n", "\n")
+                                text = txt:gsub("!ђ∆!", "|"):gsub("\\n", "\n")
                             })
                             matched = true
                         end
@@ -5077,7 +5077,7 @@ local function load_project_data()
                                 actor = act,
                                 enabled = (en == "1"),
                                 rgn_idx = tonumber(r_idx),
-                                text = txt:gsub("\\p", "|"):gsub("\\n", "\n")
+                                text = txt:gsub("!ђ∆!", "|"):gsub("\\n", "\n")
                             })
                             matched = true
                         end
@@ -5092,7 +5092,7 @@ local function load_project_data()
                                 t2 = tonumber(t2),
                                 actor = act,
                                 enabled = (en == "1"),
-                                text = txt:gsub("\\p", "|"):gsub("\\n", "\n")
+                                text = txt:gsub("!ђ∆!", "|"):gsub("\\n", "\n")
                             })
                             matched = true
                         end
