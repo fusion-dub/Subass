@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.0
+-- @version 5.0.2
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.0",
+    script_title = "Subass Notes v5.0.2",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -15534,11 +15534,6 @@ local function draw_prompter_slider(input_queue)
         gfx.mouse_wheel = 0
         UI_STATE.skip_auto_scroll = true
     end
-    if is_mouse_clicked(1) then
-        if not UI_STATE.mouse_handled then
-            UI_STATE.skip_auto_scroll = false 
-        end
-    end
 
     if active_idx ~= -1 and not UI_STATE.skip_auto_scroll then
         for _, item in ipairs(prompter_slider_cache.items) do
@@ -15679,6 +15674,11 @@ local function draw_prompter_slider(input_queue)
     if cfg.p_drawer then draw_prompter_drawer(input_queue) end
 
     handle_prompter_context_menu()
+
+    -- Post-interaction check: resume auto-scroll if clicked on background
+    if is_mouse_clicked(1) and not UI_STATE.mouse_handled then
+        UI_STATE.skip_auto_scroll = false
+    end
 end
 
 local function draw_prompter(input_queue)
