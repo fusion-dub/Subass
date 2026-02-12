@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.0.2
+-- @version 5.0.3
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.0.2",
+    script_title = "Subass Notes v5.0.3",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -9632,7 +9632,7 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
             end
         -- Escape / Enter
         elseif char == 27 or char == 13 then
-            if char == 13 and is_multiline then
+            if char == 13 and is_shift and is_multiline then
                 delete_selection()
                 text = text:sub(1, cursor) .. "\n" .. text:sub(cursor + 1)
                 cursor = cursor + 1
@@ -10304,7 +10304,7 @@ local function draw_text_editor(input_queue)
     gfx.setfont(F.std)
     gfx.x, gfx.y = box_x + S(10), box_y + S(10)
     
-    local title_txt = "Редагування тексту (Enter = новий рядок, Esc = скасування)"
+    local title_txt = "Редагування тексту (Shift+Enter = новий рядок, Enter = зберегти, Esc = скасування)"
     local limit_x = hist_btn_x - S(10)
     local max_title_w = limit_x - gfx.x
     
@@ -10459,6 +10459,20 @@ local function draw_text_editor(input_queue)
                         content_changed = true
                     end
                 end
+            end
+
+            -- Main shortcuts (Enter to Save, Esc to Cancel)
+            if char == 13 and not is_shift then
+                if text_editor_state.callback then text_editor_state.callback(text_editor_state.text) end
+                text_editor_state.active = false
+                ai_modal.text = ""
+                ai_modal.suggestions = {}
+                ai_modal.history = {}
+            elseif char == 27 then
+                text_editor_state.active = false
+                ai_modal.text = ""
+                ai_modal.suggestions = {}
+                ai_modal.history = {}
             end
         end
     end
@@ -11105,7 +11119,7 @@ function SEARCH_ITEM.draw_window(input_queue)
     
     if input_queue then
         for _, char in ipairs(input_queue) do
-            if char == 13 and SEARCH_ITEM.input.focus then -- Enter
+            if char == 13 then -- Enter
                 SEARCH_ITEM.perform_search()
             elseif char == 27 then -- Esc
                 close_search()
@@ -18251,6 +18265,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     end
     
     if not calc_only then
+        local was_focused = director_state.input.focus
         ui_text_input(draw_x, draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true)
     
         -- Check for changes to highlight button
@@ -18275,8 +18290,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         if is_right_layout then
             save_btn_w = input_w
         end
-        
-        if draw_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
+
+        local function save_director_changes()
             local txt = director_state.input.text
             if txt ~= "" then
                 push_undo(save_label .. " правку (Режисер)")
@@ -18311,6 +18326,20 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
 
                 -- Adjust playhead/cursor position +150ms
                 reaper.SetEditCurPos(cur_time + 0.15, true, false)
+            end
+        end
+        
+        if draw_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
+            save_director_changes()
+        end
+
+        -- HOTKEY: Enter (Save/Update)
+        if input_queue then
+            local is_shift = (gfx.mouse_cap & 8 == 8)
+            for _, char in ipairs(input_queue) do
+                if char == 13 and not is_shift and was_focused then
+                    save_director_changes()
+                end
             end
         end
     end
