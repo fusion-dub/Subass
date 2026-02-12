@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.1.8
+-- @version 0.1.9
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -2097,17 +2097,25 @@ local function loop()
     reaper.ImGui_PushFont(ctx, ui_font, UI_FONT_SCALE)
     reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowBorderSize(), 0)
     
+    local is_any_focused = reaper.ImGui_IsWindowHovered(ctx, reaper.ImGui_HoveredFlags_ChildWindows()) or 
+                           reaper.ImGui_IsWindowFocused(ctx, reaper.ImGui_FocusedFlags_ChildWindows())
+
     local key_held = false
     if transparency_key == 0 then -- Shift
         key_held = (reaper.ImGui_GetKeyMods(ctx) & 1) ~= 0
+        if not key_held then
+            key_held = reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Key_LeftShift()) or 
+                       reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Key_RightShift())
+        end
         if not key_held and reaper.JS_VKeys_GetState then
             local state = reaper.JS_VKeys_GetState(0)
-            if state:byte(16) ~= 0 then key_held = true end
+            if state:byte(16) ~= 0 and not is_any_focused then key_held = true end
         end
     elseif transparency_key == 1 then -- Tab
-        if reaper.JS_VKeys_GetState then
+        key_held = reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Key_Tab())
+        if not key_held and reaper.JS_VKeys_GetState then
             local state = reaper.JS_VKeys_GetState(0)
-            if state:byte(9) ~= 0 then key_held = true end
+            if state:byte(9) ~= 0 and not is_any_focused then key_held = true end
         end
     end
     
