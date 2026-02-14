@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.0.3
+-- @version 5.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.0.3",
+    script_title = "Subass Notes v5.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -9535,6 +9535,122 @@ local function play_tts_audio(text, save_to_timeline)
     end)
 end
 
+
+--- Automatic actor assignment based on selected track activity
+function UTILS.calc_track_items_by_actor()
+    local sel_track_count = reaper.CountSelectedTracks(0)
+    if sel_track_count == 0 then
+        reaper.MB("Оберіть один або кілька треків акторів для аналізу.", "Помилка", 0)
+        return
+    end
+
+    if not ass_lines or #ass_lines == 0 then
+        reaper.MB("Спершу імпортуйте файл субтитрів.", "Помилка", 0)
+        return
+    end
+
+    local tracks = {}
+    for i = 0, sel_track_count - 1 do
+        local tr = reaper.GetSelectedTrack(0, i)
+        local _, name = reaper.GetTrackName(tr)
+        table.insert(tracks, {obj = tr, name = name})
+    end
+
+    push_undo("Розрахунок реплік по акторам (" .. sel_track_count .. " треків)")
+
+    local new_ass_lines = {}
+    local changed_count = 0
+
+    for line_idx, line in ipairs(ass_lines) do
+        local l_start = line.t1
+        local l_end = line.t2
+        if not l_start or not l_end then
+            table.insert(new_ass_lines, line)
+        else
+            local replica_duration = l_end - l_start
+            local track_overlaps = {}
+            local max_overlap = 0
+            local best_track_idx = nil
+            
+            for i, tr_info in ipairs(tracks) do
+                local total_overlap = 0
+                local it_count = reaper.CountTrackMediaItems(tr_info.obj)
+                
+                for j = 0, it_count - 1 do
+                    local item = reaper.GetTrackMediaItem(tr_info.obj, j)
+                    local i_start = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                    local i_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                    local i_end = i_start + i_len
+
+                    -- Calculate intersection duration
+                    local overlap_start = math.max(i_start, l_start)
+                    local overlap_end = math.min(i_end, l_end)
+                    local overlap = overlap_end - overlap_start
+                    
+                    if overlap > 0 then
+                        -- Significance check to avoid accidental "tails" from adjacent items
+                        -- 1. Must be > 300ms (user threshold)
+                        -- 2. Must cover > 20% of the ITEM itself OR > 50% of the REGION (for short regions)
+                        local is_significant = (overlap > 0.300) and 
+                                             ((overlap / i_len > 0.20) or (overlap / replica_duration > 0.50))
+                        
+                        if is_significant then
+                            total_overlap = total_overlap + overlap
+                        end
+                    end
+                end
+
+                if total_overlap > 0 then
+                    track_overlaps[i] = total_overlap
+                    if total_overlap > max_overlap then
+                        max_overlap = total_overlap
+                        best_track_idx = i
+                    end
+                end
+            end
+
+            local found_actors = {}
+            if best_track_idx then
+                -- Always include the winner
+                table.insert(found_actors, tracks[best_track_idx].name)
+                
+                -- Include other tracks if they are also significant and proportional to winner
+                for i, overlap in pairs(track_overlaps) do
+                    if i ~= best_track_idx then
+                        -- Participant must be at least 50% of the winner and > 300ms
+                        if overlap > (max_overlap * 0.5) and overlap > 0.300 then
+                            table.insert(found_actors, tracks[i].name)
+                        end
+                    end
+                end
+            end
+
+            if #found_actors == 0 then
+                table.insert(new_ass_lines, line)
+            elseif #found_actors == 1 then
+                line.actor = found_actors[1]
+                table.insert(new_ass_lines, line)
+                changed_count = changed_count + 1
+            else
+                -- Multiple actors: Duplicate the line
+                for _, act_name in ipairs(found_actors) do
+                    local dup = {}
+                    for k,v in pairs(line) do dup[k] = v end
+                    dup.actor = act_name
+                    table.insert(new_ass_lines, dup)
+                end
+                changed_count = changed_count + 1
+            end
+        end
+    end
+
+    ass_lines = new_ass_lines
+    cleanup_actors()
+    rebuild_regions()
+    save_project_data()
+    show_snackbar("Оброблено реплік: " .. changed_count, "success")
+end
+
 --- Handle keyboard input for a text field state
 --- @param input_queue table Key inputs
 --- @param state table Input state {text, cursor, anchor}
@@ -13749,7 +13865,7 @@ local function draw_file()
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "Видалити ВСІ регіони||Відкрити WEB-менеджер наголосів|Відкрити мою Статистику||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS|<"
+        local menu = "Видалити ВСІ регіони||Розрахувати репліки по акторам|Відкрити мою Статистику||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS|<"
         
         -- Add "Change Dubber" submenu if dubbers exist
         local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
@@ -13773,7 +13889,7 @@ local function draw_file()
         if ret == 1 then
             delete_all_regions()
         elseif ret == 2 then
-            UTILS.launch_python_script("stress/ukrainian_stress_tool.py")
+            UTILS.calc_track_items_by_actor()
         elseif ret == 3 then
             UTILS.launch_python_script("stats/subass_stats.py")
         elseif ret == 4 then
