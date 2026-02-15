@@ -18500,8 +18500,34 @@ local function draw_table(input_queue)
     
     local filter_w = avail_w - S(20) - opt_btn_w - chk_w - (gap * 2)
     
+    -- Reserve space for results counter when filter has text
+    local counter_reserve = S(0)
+    if table_filter_state.text ~= "" and table_data_cache.list then
+        local count = #table_data_cache.list
+        local count_text = tostring(count)
+        gfx.setfont(F.std)
+        counter_reserve = gfx.measurestr(count_text) + S(16) -- text width + padding
+    end
+    
     local prev_text = table_filter_state.text
-    ui_text_input(filter_x, filter_y, filter_w, filter_h, table_filter_state, "Фільтр (Текст або Актор)...", input_queue)
+    local filter_placeholder = OTHER.find_replace_state.show 
+        and "Фільтр (Текст для заміни)..." 
+        or "Фільтр (Текст, Актор або ID | можна кілька)..."
+    ui_text_input(filter_x, filter_y, filter_w - counter_reserve, filter_h, table_filter_state, filter_placeholder, input_queue)
+
+    -- Display results count in the top-right corner of filter input
+    if counter_reserve > 0 then
+        local count = #table_data_cache.list
+        local count_text = tostring(count)
+        gfx.setfont(F.std)
+        local count_w = gfx.measurestr(count_text)
+        local count_x = filter_x + filter_w - count_w - S(8)
+        local count_y = filter_y + (filter_h - gfx.texth) / 2
+        
+        set_color(UI.C_TXT_DIM) -- Subtle gray color
+        gfx.x, gfx.y = count_x, count_y
+        gfx.drawstr(count_text)
+    end
 
     -- Case Sensitive Toggle (Aa) - Always visible
     local chk_x = filter_x + filter_w + gap
@@ -18916,6 +18942,7 @@ local function draw_table(input_queue)
                            table_data_cache.sort_dir ~= table_sort.dir or
                            table_data_cache.show_markers ~= cfg.show_markers_in_table or
                            table_data_cache.case_sensitive ~= OTHER.find_replace_state.case_sensitive or
+                           table_data_cache.is_replace_mode ~= OTHER.find_replace_state.show or
                            table_data_cache.fr_show ~= OTHER.find_replace_state.show)
 
     if cache_invalid then
@@ -18940,44 +18967,84 @@ local function draw_table(input_queue)
 
         local filtered = {}
         local query = table_filter_state.text
-        local query_lower = utf8_lower(query)
-        local query_clean = strip_accents(query_lower)
         local use_case = OTHER.find_replace_state.case_sensitive
+        local is_replace_mode = OTHER.find_replace_state.show
+        
+        -- Split query by "|" for multi-filter (only when NOT in replace mode)
+        local queries = {}
+        if not is_replace_mode and query:find("|", 1, true) then
+            for part in query:gmatch("[^|]+") do
+                local trimmed = part:match("^%s*(.-)%s*$") -- Trim whitespace
+                if trimmed ~= "" then
+                    table.insert(queries, trimmed)
+                end
+            end
+        else
+            -- Single query mode (replace mode or no pipe separator)
+            if query ~= "" then
+                table.insert(queries, query)
+            end
+        end
 
         for _, line in ipairs(raw_data) do
             local target_text = line.text or line.name or "" -- Robust text selection
-            local text_match, actor_match, index_match = false, false, false
-            local h_text, h_actor
-
-            if use_case then
-                text_match = target_text:find(query, 1, true)
-                if text_match then h_text = {target_text:find(query, 1, true)} end
-                if show_actor and line.actor then
-                    actor_match = line.actor:find(query, 1, true)
-                    if actor_match then h_actor = {line.actor:find(query, 1, true)} end
-                end
-                index_match = tostring(line.index or ""):find(query, 1, true)
+            local any_match = false
+            local h_text, h_actor, h_index
+            
+            -- If no queries, show all
+            if #queries == 0 then
+                any_match = true
             else
-                local clean_text = strip_accents(utf8_lower(strip_tags(target_text)))
-                text_match = clean_text:find(query_clean, 1, true)
-                if text_match then 
-                    local s, e = utf8_find_accent_blind(target_text, query)
-                    if s then h_text = {s, e} end
-                end
-                if show_actor and line.actor then
-                    local clean_actor = strip_accents(utf8_lower(line.actor))
-                    actor_match = clean_actor:find(query_clean, 1, true)
-                    if actor_match then
-                        local s, e = utf8_find_accent_blind(line.actor, query)
-                        if s then h_actor = {s, e} end
+                -- Check each query part (OR logic)
+                for _, q in ipairs(queries) do
+                    local q_lower = utf8_lower(q)
+                    local q_clean = strip_accents(q_lower)
+                    local text_match, actor_match, index_match = false, false, false
+                    
+                    if use_case then
+                        text_match = target_text:find(q, 1, true)
+                        if text_match and not h_text then h_text = {target_text:find(q, 1, true)} end
+                        if show_actor and line.actor then
+                            actor_match = line.actor:find(q, 1, true)
+                            if actor_match and not h_actor then h_actor = {line.actor:find(q, 1, true)} end
+                        end
+                        index_match = tostring(line.index or ""):find(q, 1, true)
+                        if index_match and not h_index then h_index = {tostring(line.index or ""):find(q, 1, true)} end
+                    else
+                        local clean_text = strip_accents(utf8_lower(strip_tags(target_text)))
+                        text_match = clean_text:find(q_clean, 1, true)
+                        if text_match and not h_text then 
+                            local s, e = utf8_find_accent_blind(target_text, q)
+                            if s then h_text = {s, e} end
+                        end
+                        if show_actor and line.actor then
+                            local clean_actor = strip_accents(utf8_lower(line.actor))
+                            actor_match = clean_actor:find(q_clean, 1, true)
+                            if actor_match and not h_actor then
+                                local s, e = utf8_find_accent_blind(line.actor, q)
+                                if s then h_actor = {s, e} end
+                            end
+                        end
+                        local idx_str = tostring(line.index or "")
+                        index_match = idx_str:lower():find(q_clean, 1, true)
+                        if index_match and not h_index then
+                            local s, e = idx_str:lower():find(q_clean, 1, true)
+                            if s then h_index = {s, e} end
+                        end
+                    end
+                    
+                    -- Match if text OR (actor/index when not in replace mode)
+                    if text_match or (not is_replace_mode and (actor_match or index_match)) then
+                        any_match = true
+                        break -- Found a match, no need to check other queries
                     end
                 end
-                index_match = tostring(line.index or ""):lower():find(query_clean, 1, true)
             end
 
-            if query == "" or text_match or (not OTHER.find_replace_state.show and (actor_match or index_match)) then
+            if any_match then
                 line.h_text = h_text -- Store pre-calculated highlight
                 line.h_actor = h_actor
+                line.h_index = h_index
                 
                 -- Pre-calculate CPS and strings for table view
                 local duration = (line.t2 or 0) - (line.t1 or 0)
@@ -19027,11 +19094,12 @@ local function draw_table(input_queue)
         table_data_cache.list = filtered
         table_data_cache.state_count = current_state_count
         table_data_cache.project_id = current_proj_id
-        table_data_cache.filter = query
+        table_data_cache.filter = table_filter_state.text
         table_data_cache.sort_col = table_sort.col
         table_data_cache.sort_dir = table_sort.dir
         table_data_cache.show_markers = cfg.show_markers_in_table
         table_data_cache.case_sensitive = use_case
+        table_data_cache.is_replace_mode = is_replace_mode
         table_data_cache.fr_show = OTHER.find_replace_state.show
         
         -- Cleanup selection of stale marker indices (only those not in current raw_data)
@@ -19372,37 +19440,6 @@ local function draw_table(input_queue)
             
             -- Use original index if possible
             -- Helper to draw truncated text in cell
-            local col_ptr = cfg.reader_mode and 1 or 2
-            local function draw_cell_txt(txt, idx)
-                if not idx or not x_off[idx] then return end
-                local x = x_off[idx]
-                local next_x = x_off[idx + 1] or gfx.w
-                local w = next_x - x - S(4) -- padding
-                if w > S(5) then
-                    gfx.x = x; gfx.y = buf_y_text
-                    gfx.drawstr(fit_text_width(txt, w))
-                end
-            end
-
-            if not cfg.reader_mode then
-                if cfg.col_table_index then
-                    draw_cell_txt(line.idx_str, col_ptr); col_ptr = col_ptr + 1
-                end
-
-                if cfg.col_table_start then
-                    draw_cell_txt(line.t1_str, col_ptr); col_ptr = col_ptr + 1
-                end
-
-                if cfg.col_table_end then
-                    draw_cell_txt(line.t2_str, col_ptr); col_ptr = col_ptr + 1
-                end
-            end
-
-            if not cfg.reader_mode and cfg.col_table_cps then
-                set_color(line.cps_color)
-                draw_cell_txt(line.cps_str, col_ptr); col_ptr = col_ptr + 1
-            end
-            
             -- Helper for highlighting and wrapping
             local function draw_highlighted_text(txt, x, y, max_w, row_h_passed, h_range, cached_lines)
                 set_color(row_base_color)
@@ -19462,6 +19499,38 @@ local function draw_table(input_queue)
                         cur_y = cur_y + line_h
                     end
                 end
+            end
+
+            local col_ptr = cfg.reader_mode and 1 or 2
+            local function draw_cell_txt(txt, idx)
+                if not idx or not x_off[idx] then return end
+                local x = x_off[idx]
+                local next_x = x_off[idx + 1] or gfx.w
+                local w = next_x - x - S(4) -- padding
+                if w > S(5) then
+                    gfx.x = x; gfx.y = buf_y_text
+                    gfx.drawstr(fit_text_width(txt, w))
+                end
+            end
+
+            if not cfg.reader_mode then
+                if cfg.col_table_index then
+                    draw_highlighted_text(line.idx_str, x_off[col_ptr], buf_y_text, x_off[col_ptr+1] - x_off[col_ptr] - 4, row_h_dynamic, line.h_index)
+                    col_ptr = col_ptr + 1
+                end
+
+                if cfg.col_table_start then
+                    draw_cell_txt(line.t1_str, col_ptr); col_ptr = col_ptr + 1
+                end
+
+                if cfg.col_table_end then
+                    draw_cell_txt(line.t2_str, col_ptr); col_ptr = col_ptr + 1
+                end
+            end
+
+            if not cfg.reader_mode and cfg.col_table_cps then
+                set_color(line.cps_color)
+                draw_cell_txt(line.cps_str, col_ptr); col_ptr = col_ptr + 1
             end
 
             if not cfg.reader_mode and cfg.col_table_actor then
