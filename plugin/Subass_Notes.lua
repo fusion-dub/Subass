@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.1
+-- @version 5.1.2
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.1",
+    script_title = "Subass Notes v5.1.2",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -2503,6 +2503,8 @@ end
 --- @param project_name string Project name
 --- @param deadline_ts number|nil Unix timestamp or nil to remove
 function DEADLINE.save_global(project_path, project_name, deadline_ts)
+    if project_path then project_path = DEADLINE.normalize_path(project_path) end
+
     local data = DEADLINE.load_global()
     
     if deadline_ts then
@@ -2588,7 +2590,12 @@ end
 function DEADLINE.sync_project()
     local proj_path, proj_name = DEADLINE.get_project_info()
     if not proj_path then return end
-    
+
+    -- Normalize path for consistent key lookup
+    if not proj_path:match("^PTR:") then
+        proj_path = DEADLINE.normalize_path(proj_path)
+    end
+
     local global_data = DEADLINE.load_global()
     local changed = false
     
@@ -2817,6 +2824,7 @@ function DEADLINE.draw_dashboard(input_queue)
                     DEADLINE.open_picker(proj.deadline, function(new_ts)
                         DEADLINE.save_global(proj.path, proj.name, new_ts)
                         local cp_path, _ = DEADLINE.get_project_info()
+                        if cp_path then cp_path = DEADLINE.normalize_path(cp_path) end
                         if cp_path == proj.path then
                             DEADLINE.set(new_ts)
                         end
@@ -20752,6 +20760,7 @@ local function main()
         local proj, filename = reaper.EnumProjects(-1)
         local id_fname = (not filename or filename == "") and "unsaved" or filename
         UI_STATE.last_project_id = proj and (tostring(proj) .. "_" .. id_fname) or "none"
+        DEADLINE.sync_project() -- Restore deadline from global storage if needed
         DEADLINE.project_deadline = DEADLINE.get()
         DUBBERS.load() -- Load dubber data for initial project
         DUBBERS.last_project_id = UI_STATE.last_project_id
