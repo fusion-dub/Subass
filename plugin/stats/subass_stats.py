@@ -15,6 +15,7 @@ from collections import defaultdict
 # -----------------------------------------------------------------------------
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 STATS_DIR = os.path.join(SCRIPT_DIR, "../stats")  # Assuming script is in plugin/stats/
+
 PORT = 8766
 MAX_ATTEMPTS = 10
 
@@ -278,7 +279,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 </div>
                 <div class="chart-container" style="margin-bottom: 0;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <h3 id="duration-chart-title" style="margin: 0; font-size: 14px; color: var(--text-light); text-transform: uppercase;">Час запису</h3>
+                        <h3 id="duration-chart-title" style="margin: 0; font-size: 14px; color: var(--text-light); text-transform: uppercase;">Динаміка запису</h3>
                         <div class="filter-group" style="margin: 0;">
                             <button class="filter-btn" id="dur-mode-total" style="padding: 2px 8px; font-size: 11px;" onclick="setDurationMode('total')">Всього</button>
                             <button class="filter-btn active" id="dur-mode-timeline" style="padding: 2px 8px; font-size: 11px;" onclick="setDurationMode('timeline')">Таймлайн</button>
@@ -848,8 +849,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 // Also collect dates from duration if any (might not be in history)
                 if (p.duration) {
                     p.duration.forEach(seg => {
-                        const date = toLocalISO(new Date(seg.start * 1000));
-                        if (!dateMap[date]) dateMap[date] = { total: 0, lines: 0, outside: 0, words: 0, duration: 0, segments: [], projects: {} };
+                        const sDate = new Date(seg.start * 1000);
+                        const eDate = new Date(seg.end * 1000);
+                        
+                        // normalize to midnight to avoid infinite loops if logic is flawed
+                        const startMidnight = new Date(sDate.getFullYear(), sDate.getMonth(), sDate.getDate());
+                        const endMidnight = new Date(eDate.getFullYear(), eDate.getMonth(), eDate.getDate());
+                        
+                        let curr = new Date(startMidnight);
+                        while (curr <= endMidnight) {
+                            const date = toLocalISO(curr);
+                            if (!dateMap[date]) dateMap[date] = { total: 0, lines: 0, outside: 0, words: 0, duration: 0, segments: [], projects: {} };
+                            curr.setDate(curr.getDate() + 1);
+                        }
                     });
                 }
             });
@@ -897,12 +909,28 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         // Add segments for this project
                         if (p.duration) {
                             p.duration.forEach(seg => {
-                                const dStart = new Date(seg.start * 1000);
-                                if (toLocalISO(dStart) === date) {
-                                    const hourStart = dStart.getHours() + dStart.getMinutes()/60 + dStart.getSeconds()/3600;
-                                    const dEnd = new Date(seg.end * 1000);
-                                    const hourEnd = dEnd.getHours() + dEnd.getMinutes()/60 + dEnd.getSeconds()/3600;
-                                    info.segments.push({ project: p.name, range: [hourStart, hourEnd] });
+                                const segStart = new Date(seg.start * 1000);
+                                const segEnd = new Date(seg.end * 1000);
+                                
+                                const [y, m, d] = date.split('-').map(Number);
+                                const dayStart = new Date(y, m - 1, d, 0, 0, 0, 0);
+                                const dayEnd = new Date(y, m - 1, d, 23, 59, 59, 999);
+
+                                // Check intersection
+                                const effStart = new Date(Math.max(segStart, dayStart));
+                                const effEnd = new Date(Math.min(segEnd, dayEnd));
+
+                                if (effStart < effEnd) {
+                                    const hourStart = effStart.getHours() + effStart.getMinutes()/60 + effStart.getSeconds()/3600;
+                                    let hourEnd = effEnd.getHours() + effEnd.getMinutes()/60 + effEnd.getSeconds()/3600;
+                                    
+                                    // If touches end of day, round to 24 for clean graph
+                                    if (effEnd >= dayEnd) hourEnd = 24.0;
+                                    
+                                    // Handle cases where segment strictly equals day boundaries if needed (rare for sub-second)
+                                    if (hourEnd > hourStart) {
+                                        info.segments.push({ project: p.name, range: [hourStart, hourEnd] });
+                                    }
                                 }
                             });
                         }
