@@ -187,16 +187,26 @@ def monitor():
             continue
         
         name = info.get("name", "Project")
-        diff = deadline_ts - now
-        days = diff / 86400
         
+        # Calculate calendar day difference
+        dt_deadline = datetime.fromtimestamp(deadline_ts).date()
+        dt_now = datetime.fromtimestamp(now).date()
+        days_diff = (dt_deadline - dt_now).days
+
         # Notify if deadline is within next 2 days and in the future
-        if 0 <= days <= 2:
-            msg = f"Дедлайн проєкту '{name}' вже скоро!"
-            if days <= 0.5:
+        print(f"Project: {name}, Days diff: {days_diff}, {dt_deadline}, {dt_now}")
+        
+        if 0 <= days_diff <= 2:
+            print(f"Triggering urgent notification for {name}")
+            
+            if days_diff == 0:
                 msg = f"КРИТИЧНО: Дедлайн '{name}' сьогодні!"
-            elif days <= 1.1:
+            elif days_diff == 1:
                 msg = f"Дедлайн '{name}' завтра!"
+            elif days_diff == 2:
+                msg = f"Дедлайн '{name}' післязавтра!"
+            else:
+                msg = f"Дедлайн проєкту '{name}' вже скоро!"
             
             send_notification("Subass Deadline", msg, proj_path)
             notified_any = True
