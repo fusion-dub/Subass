@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.1.2
+-- @version 5.1.3
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.1.2",
+    script_title = "Subass Notes v5.1.3",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -93,6 +93,7 @@ local cfg = {
     col_table_actor = (get_set("col_table_actor", "1") == "1" or get_set("col_table_actor", 1) == 1),
     
     show_markers_in_table = (get_set("show_markers_in_table", "1") == "1" or get_set("show_markers_in_table", 1) == 1),
+    notify_time = reaper.GetExtState(section_name, "notify_time") ~= "" and reaper.GetExtState(section_name, "notify_time") or "19:00",
 
     -- Column Widths
     col_w_enabled = get_set("col_w_enabled", 25),
@@ -514,7 +515,6 @@ end
 
 --- Simple JSON encoder (handles basic types: string, number, boolean, table)
 function STATS.json_encode(val, indent)
-    indent = indent or 0
     local t = type(val)
     
     if t == "string" then
@@ -535,19 +535,20 @@ function STATS.json_encode(val, indent)
         end
         if is_array and count ~= max_idx then is_array = false end
         if count == 0 then
-            -- Heuristic: if key is 'duration' or 'actors' (when array), it might be an array
             return "[]"
         end
         
-        local spacing = string.rep("  ", indent)
-        local inner_spacing = string.rep("  ", indent + 1)
+        local nl = indent and "\n" or ""
+        local spacing = indent and string.rep("  ", indent) or ""
+        local inner_spacing = indent and string.rep("  ", indent + 1) or ""
+        local next_indent = indent and (indent + 1) or nil
         
         if is_array then
             local parts = {}
             for i = 1, max_idx do
-                table.insert(parts, inner_spacing .. STATS.json_encode(val[i], indent + 1))
+                table.insert(parts, inner_spacing .. STATS.json_encode(val[i], next_indent))
             end
-            return "[\n" .. table.concat(parts, ",\n") .. "\n" .. spacing .. "]"
+            return "[" .. nl .. table.concat(parts, "," .. nl) .. nl .. spacing .. "]"
         else
             local parts = {}
             local keys = {}
@@ -561,9 +562,9 @@ function STATS.json_encode(val, indent)
 
                 local v = val[k]
                 local key_part = '"' .. tostring(k):gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
-                table.insert(parts, inner_spacing .. key_part .. ": " .. STATS.json_encode(v, indent + 1))
+                table.insert(parts, inner_spacing .. key_part .. (indent and ": " or ":") .. STATS.json_encode(v, next_indent))
             end
-            return "{\n" .. table.concat(parts, ",\n") .. "\n" .. spacing .. "}"
+            return "{" .. nl .. table.concat(parts, "," .. nl) .. nl .. spacing .. "}"
         end
     else
         return "null"
@@ -2520,7 +2521,7 @@ function DEADLINE.save_global(project_path, project_name, deadline_ts)
     
     -- Save as JSON
     local json_str = STATS.json_encode(data)
-    reaper.SetExtState("Subass_Global", "project_deadlines", json_str, true)
+    reaper.SetExtState(section_name, "new_project_deadlines", json_str, true)
     
     -- Invalidate urgency cache for immediate update
     DEADLINE.urgency_cache.last_check = 0
@@ -2529,7 +2530,7 @@ end
 --- Load all project deadlines from global storage
 --- @return table Map of project_path -> {name, deadline}
 function DEADLINE.load_global()
-    local json_str = reaper.GetExtState("Subass_Global", "project_deadlines")
+    local json_str = reaper.GetExtState(section_name, "new_project_deadlines")
     if not json_str or json_str == "" then
         return {}
     end
@@ -2634,7 +2635,7 @@ function DEADLINE.sync_project()
     if changed then
         -- Save the migrated data
         local json_str = STATS.json_encode(global_data)
-        reaper.SetExtState("Subass_Global", "project_deadlines", json_str, true)
+        reaper.SetExtState(section_name, "new_project_deadlines", json_str, true)
     end
 end
 -- Run sync on script start
@@ -2873,6 +2874,37 @@ function DEADLINE.draw_dashboard(input_queue)
     if btn(cx, cy, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
         close_dash()
     end
+
+    -- Setup Notifications Button
+    local s_btn_w = S(180)
+    local s_btn_x = cx - s_btn_w - S(10)
+    if btn(s_btn_x, cy, s_btn_w, close_sz, "Налаштувати сповіщення", UI.C_ROW, UI.C_TXT) then
+        local retval, ret_time = reaper.GetUserInputs("Налаштування сповіщень", 1, "Час (ГГ:ХХ), напр. 19:00", cfg.notify_time)
+        if retval then
+            cfg.notify_time = ret_time
+            reaper.SetExtState(section_name, "notify_time", ret_time, true)
+            
+            local source = debug.getinfo(1,'S').source
+            local script_path = source:match([[^@?(.*[\\/])]]) or ""
+            if script_path ~= "" then
+                local py_script = script_path .. "stats/subass_notifier.py"
+                local cmd_args = ' --setup --time "' .. ret_time .. '"'
+                
+                if reaper.GetOS():match("Win") then
+                    py_script = py_script:gsub("/", "\\")
+                    local py_exe = (OTHER and OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or "pythonw.exe"
+                    local cmd = string.format('cmd.exe /C start /B "" "%s" "%s" %s', py_exe, py_script, cmd_args)
+                    reaper.ExecProcess(cmd, 0)
+                else
+                    -- macOS/Linux: simple background execution with nohup for complete detachment
+                    local cmd = string.format('nohup python3 "%s" %s > /dev/null 2>&1 &', py_script, cmd_args)
+                    os.execute(cmd)
+                end
+                show_snackbar("Запит на налаштування надіслано на " .. ret_time, "info")
+            end
+        end
+    end
+
     
     -- Escape key check
     if input_queue then
