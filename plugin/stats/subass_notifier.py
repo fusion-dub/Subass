@@ -7,6 +7,9 @@ import time
 import shlex
 from datetime import datetime
 
+# Ensure common paths are available for launchd
+os.environ['PATH'] = '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:' + os.environ.get('PATH', '')
+
 def notify_macos(title, message, proj_path=None):
     # Try to find terminal-notifier
     tn_path = "/opt/homebrew/bin/terminal-notifier" if os.path.exists("/opt/homebrew/bin/terminal-notifier") else "terminal-notifier"
@@ -19,15 +22,25 @@ def notify_macos(title, message, proj_path=None):
         # -execute allows running a full shell command.
         # We use shlex.quote to safely handle spaces and special characters.
         safe_path = shlex.quote(proj_path)
+        # Unique group helps ensure multiple notifications don't cancel each other
+        group_id = f"subass_deadline_{hash(proj_path) % 10000}"
+        
         cmd = [
             tn_path,
             "-title", title,
             "-message", message,
+            "-group", group_id,
             "-execute", f"open -a REAPER {safe_path}",
             "-action", "Відкрити",
-            "-timeout", "30" # Allow more time for user to see and click
+            "-timeout", "30"
         ]
-        subprocess.Popen(cmd)
+        
+        try:
+            # Using run instead of Popen to wait for it and capture results
+            subprocess.run(cmd, capture_output=True, text=True)
+        except Exception:
+            pass
+            
     elif proj_path:
         # Fallback to dialog if terminal-notifier is missing
         script = f'''
@@ -36,11 +49,22 @@ def notify_macos(title, message, proj_path=None):
             do shell script "open -a REAPER \\"{proj_path}\\""
         end if
         '''
-        subprocess.Popen(["osascript", "-e", script])
+        print(f"Sending macOS dialog fallback for: {title}")
+        try:
+            subprocess.run(["osascript", "-e", script])
+        except Exception as e:
+            print(f"Error launching osascript dialog: {e}")
     else:
         # Non-urgent/Generic notification
         script = f'display notification "{message}" with title "{title}"'
-        subprocess.run(["osascript", "-e", script])
+        print(f"Sending macOS simple notification: {title}")
+        try:
+            subprocess.run(["osascript", "-e", script])
+        except Exception as e:
+            print(f"Error launching osascript notification: {e}")
+    
+    # Small sleep to ensure launchd doesn't kill child processes too aggressively
+    time.sleep(1)
 
 
 def notify_windows(title, message, proj_path=None):
@@ -119,7 +143,9 @@ def parse_deadlines(file_path):
                 # but REAPER usually writes them on one line unless they contain newlines.
                 # Project deadlines is a JSON string.
                 try:
-                    return json.loads(json_data)
+                    res = json.loads(json_data)
+                    print(f"Parsed {len(res)} deadlines.")
+                    return res
                 except json.JSONDecodeError:
                     # Maybe it's multi-line? (Unlikely for ExtState but let's be safe)
                     json_buffer.append(json_data)
@@ -129,7 +155,9 @@ def parse_deadlines(file_path):
                 break
         
         if json_buffer:
-            return json.loads("".join(json_buffer))
+            res = json.loads("".join(json_buffer))
+            print(f"Parsed {len(res)} deadlines.")
+            return res
             
     except Exception as e:
         print(f"Error parsing extstate: {e}")
@@ -137,11 +165,12 @@ def parse_deadlines(file_path):
     return deadlines
 
 def monitor():
+    print(f"--- Subass Notifier Check: {datetime.now()} ---")
     path = find_extstate_file()
     if not path:
         print("REAPER extstate file not found.")
         return
-
+    
     data = parse_deadlines(path)
     if not data:
         return
@@ -151,7 +180,8 @@ def monitor():
     
     for proj_path, info in data.items():
         deadline_ts = info.get("deadline")
-        if not deadline_ts: continue
+        if not deadline_ts: 
+            continue
         
         name = info.get("name", "Project")
         diff = deadline_ts - now
@@ -199,6 +229,15 @@ def setup(schedule_time="19:00"):
 
         # macOS: Create LaunchAgent
         label = "com.subass.notifier"
+        
+        # Use the most robust python path possible
+        py_path = sys.executable
+        if "Xcode.app" in py_path:
+            # If we are in a stub, try to find brew python or use /usr/local/bin/python3
+            for p in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3"]:
+                if os.path.exists(p):
+                    py_path = p
+                    break
 
         plist_path = os.path.expanduser(f"~/Library/LaunchAgents/{label}.plist")
         
@@ -210,7 +249,7 @@ def setup(schedule_time="19:00"):
     <string>{label}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{sys.executable}</string>
+        <string>{py_path}</string>
         <string>{script_path}</string>
     </array>
     <key>RunAtLoad</key>
