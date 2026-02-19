@@ -112,7 +112,7 @@ def parse_deadlines(file_path):
         
         for line in lines:
             line = line.strip()
-            if line.startswith("project_deadlines="):
+            if line.startswith("new_project_deadlines="):
                 found_section = True
                 json_data = line.split("=", 1)[1]
                 # Sometimes extstate values across lines might be tricky,
