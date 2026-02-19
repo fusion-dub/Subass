@@ -134,32 +134,41 @@ def parse_deadlines(file_path):
         with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
             lines = f.readlines()
             
-        found_section = False
+        current_section = ""
+        found_key = False
         json_buffer = []
+        
+        # We need to find "new_project_deadlines" specifically inside [Subass_Notes]
+        # or at least prioritize it. The safest bet is to find it in [Subass_Notes].
         
         for line in lines:
             line = line.strip()
-            if line.startswith("new_project_deadlines="):
-                found_section = True
+            if line.startswith("[") and line.endswith("]"):
+                current_section = line[1:-1]
+                # If we were building a buffer from a previous section but didn't finish, reset it
+                if not found_key:
+                    json_buffer = []
+                continue
+                
+            if current_section == "Subass_Notes" and line.startswith("new_project_deadlines="):
+                found_key = True
                 json_data = line.split("=", 1)[1]
-                # Sometimes extstate values across lines might be tricky,
-                # but REAPER usually writes them on one line unless they contain newlines.
-                # Project deadlines is a JSON string.
                 try:
                     res = json.loads(json_data)
-                    print(f"Parsed {len(res)} deadlines.")
+                    print(f"Parsed {len(res)} deadlines from [Subass_Notes].")
                     return res
                 except json.JSONDecodeError:
-                    # Maybe it's multi-line? (Unlikely for ExtState but let's be safe)
+                    # Maybe it's multi-line?
                     json_buffer.append(json_data)
-            elif found_section and not line.startswith("[") and "=" not in line:
+            elif found_key and current_section == "Subass_Notes":
+                # If we started finding the key, keep adding lines until next key or section
+                if "=" in line or line.startswith("["):
+                    break
                 json_buffer.append(line)
-            elif found_section and (line.startswith("[") or "=" in line):
-                break
         
         if json_buffer:
             res = json.loads("".join(json_buffer))
-            print(f"Parsed {len(res)} deadlines.")
+            print(f"Parsed {len(res)} deadlines from [Subass_Notes] (buffered).")
             return res
             
     except Exception as e:
