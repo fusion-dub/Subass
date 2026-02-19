@@ -10,6 +10,9 @@ from datetime import datetime
 # Ensure common paths are available for launchd
 os.environ['PATH'] = '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:' + os.environ.get('PATH', '')
 
+# CREATE_NO_WINDOW for Windows
+SUBPROCESS_FLAGS = 0x08000000 if sys.platform == "win32" else 0
+
 def notify_macos(title, message, proj_path=None):
     # Try to find terminal-notifier
     tn_path = "/opt/homebrew/bin/terminal-notifier" if os.path.exists("/opt/homebrew/bin/terminal-notifier") else "terminal-notifier"
@@ -89,7 +92,7 @@ def notify_windows(title, message, proj_path=None):
         $xmlDoc.LoadXml($xml)
         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("SubassNotifier").Show((New-Object Windows.UI.Notifications.ToastNotification($xmlDoc)))
         """
-        subprocess.run(["powershell", "-Command", ps_script], capture_output=True)
+        subprocess.run(["powershell", "-Command", ps_script], capture_output=True, creationflags=SUBPROCESS_FLAGS)
     else:
         # Fallback to legacy notification balloon
         ps_script = f"""
@@ -102,7 +105,7 @@ def notify_windows(title, message, proj_path=None):
         $objNotifyIcon.Visible = $True
         $objNotifyIcon.ShowBalloonTip(10000)
         """
-        subprocess.run(["powershell", "-Command", ps_script], capture_output=True)
+        subprocess.run(["powershell", "-Command", ps_script], capture_output=True, creationflags=SUBPROCESS_FLAGS)
 
 def send_notification(title, message, proj_path=None):
     if sys.platform == "darwin":
@@ -281,9 +284,21 @@ def setup(schedule_time="19:00"):
     elif sys.platform == "win32":
         # Windows: Create Scheduled Task
         task_name = "SubassNotifier"
-        # We try to use pythonw.exe if available to hide the console window
-        python_exe = sys.executable.replace("python.exe", "pythonw.exe")
         
+        # Determine the most silent python executable
+        # pythonw.exe is the standard silent runner for Python on Windows
+        python_exe = sys.executable
+        if "python.exe" in python_exe.lower():
+            pythonw = python_exe.lower().replace("python.exe", "pythonw.exe")
+            if os.path.exists(pythonw):
+                python_exe = pythonw
+        elif not python_exe.lower().endswith("pythonw.exe"):
+            # Try searching in the same directory
+            dir_path = os.path.dirname(python_exe)
+            pythonw = os.path.join(dir_path, "pythonw.exe")
+            if os.path.exists(pythonw):
+                python_exe = pythonw
+
         cmd = [
             "schtasks", "/create", "/tn", task_name, 
             "/tr", f'"{python_exe}" "{script_path}"',
@@ -291,9 +306,9 @@ def setup(schedule_time="19:00"):
         ]
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            subprocess.run(cmd, check=True, capture_output=True, creationflags=SUBPROCESS_FLAGS)
             send_notification("Subass Setup", f"Сповіщення заплановано на {schedule_time} (Windows)")
-            print(f"Setup complete: Windows Scheduled Task created for {schedule_time}.")
+            print(f"Setup complete: Windows Scheduled Task created using {os.path.basename(python_exe)}.")
         except Exception as e:
             print(f"Failed to setup Windows Scheduled Task: {e}")
 
