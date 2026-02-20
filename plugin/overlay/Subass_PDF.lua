@@ -300,7 +300,7 @@ end
 
 local function process_pdf(pdf_file)
     STATE.is_loading = true
-    STATE.status_msg = "Обробка PDF..."
+    STATE.status_msg = "Обробка файлу..."
     
     local prj_cache = get_project_cache_dir()
     if not prj_cache then
@@ -333,11 +333,11 @@ end
 
 local function pick_pdf()
     if reaper.APIExists('JS_Dialog_BrowseForOpenFiles') then
-        local filter = "Усі підтримувані файли\0*.pdf;*.docx;*.doc\0PDF файли (*.pdf)\0*.pdf\0Word файли (*.docx, *.doc)\0*.docx;*.doc\0Всі файли (*.*)\0*.*\0"
+        local filter = "Усі підтримувані файли\0*.pdf;*.docx;*.doc;*.epub;*.mobi;*.txt;*.html;*.xps;*.fb2;*.cbz;*.svg\0PDF файли (*.pdf)\0*.pdf\0Word файли (*.docx, *.doc)\0*.docx;*.doc\0Електронні книги (*.epub, *.mobi, *.fb2)\0*.epub;*.mobi;*.fb2\0Інші (*.txt, *.html, *.svg, *.xps, *.cbz)\0*.txt;*.html;*.svg;*.xps;*.cbz\0Всі файли (*.*)\0*.*\0"
         local retval, file = reaper.JS_Dialog_BrowseForOpenFiles("Оберіть файл для імпорту", "", "", filter, false)
         if retval > 0 and file ~= "" then return file end
     else
-        local retval, file = reaper.GetUserInputs("Імпорт документа", 1, "Шлях до PDF або Word файла:", "")
+        local retval, file = reaper.GetUserInputs("Імпорт документа", 1, "Шлях до файлу (PDF, Word, EBook, etc):", "")
         if retval and file ~= "" then return file end
     end
     return nil
