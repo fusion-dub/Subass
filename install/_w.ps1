@@ -270,7 +270,7 @@ $projectRoot = Split-Path $scriptBase -Parent
 
 $scriptSource = Join-Path $projectRoot "plugin\Subass_Notes.lua"
 $stressSource = Join-Path $projectRoot "plugin\stress"
-$overlaySource = Join-Path $projectRoot "plugin\overlay\Lionzz_SubOverlay_Subass.lua"
+$overlaySource = Join-Path $projectRoot "plugin\overlay"
 $autoupdateSource = Join-Path $projectRoot "plugin\subass_autoupdate.py"
 $dictionarySource = Join-Path $projectRoot "plugin\dictionary"
 $ttsSource = Join-Path $projectRoot "plugin\tts"
@@ -296,7 +296,7 @@ if (Test-Path $scriptSource) {
     if (Test-Path $overlaySource) {
         $overlayTargetDir = Join-Path $scriptsPath "overlay"
         if (-not (Test-Path $overlayTargetDir)) { New-Item -ItemType Directory $overlayTargetDir | Out-Null }
-        Copy-Item $overlaySource (Join-Path $overlayTargetDir "Lionzz_SubOverlay_Subass.lua") -Force
+        Copy-Item "$overlaySource\*" $overlayTargetDir -Recurse -Force
     }
     if (Test-Path $autoupdateSource) {
         Copy-Item $autoupdateSource $scriptsPath -Force
@@ -385,26 +385,29 @@ if (Test-Path $stressTool) {
 # 6. Register Action and Menu Item
 $kbFile = Join-Path $reaperPath "reaper-kb.ini"
 $menuFile = Join-Path $reaperPath "reaper-menu.ini"
+$pdfActionId = "RS6666666666666666666666666666666666666666"
 $actionId = "RS7777777777777777777777777777777777777777"
 $overlayActionId = "RS8888888888888888888888888888888888888888"
 $dictActionId = "RS9999999999999999999999999999999999999999"
 
 Write-Host-Color "Updating REAPER configuration..." "Cyan"
 
-if (Test-Path $kbFile) {
+    if (Test-Path $kbFile) {
     Write-Host-Color "Updating actions in reaper-kb.ini..." "Cyan"
     $scriptRelativePath = "Subass/Subass_Notes.lua"
     $overlayRelativePath = "Subass/overlay/Lionzz_SubOverlay_Subass.lua"
     $dictRelativePath = "Subass/dictionary/Subass_Dictionary.lua"
+    $pdfRelativePath = "Subass/overlay/Subass_PDF.lua"
     $kbContent = [System.IO.File]::ReadAllLines($kbFile)
     
     $newKb = New-Object System.Collections.Generic.List[string]
     $foundMain = $false
     $foundOverlay = $false
     $foundDict = $false
+    $foundPdf = $false
     
     foreach ($line in $kbContent) {
-        if ($line -notmatch "Subass_Notes.lua" -and $line -notmatch "Lionzz_SubOverlay_Subass.lua" -and $line -notmatch "Subass_Dictionary.lua") {
+        if ($line -notmatch "Subass_Notes.lua" -and $line -notmatch "Lionzz_SubOverlay_Subass.lua" -and $line -notmatch "Subass_Dictionary.lua" -and $line -notmatch "Subass_PDF.lua") {
             $newKb.Add($line)
             continue
         }
@@ -427,12 +430,19 @@ if (Test-Path $kbFile) {
                 $newKb.Add($line)
                 $foundDict = $true
             }
+        } elseif ($line -match "Subass[/\\]+overlay[/\\]+Subass_PDF.lua") {
+            if (-not $foundPdf) {
+                if ($line -match "SCR 4 0 (RS[0-9a-fA-F]+)") { $pdfActionId = $matches[1] }
+                $newKb.Add($line)
+                $foundPdf = $true
+            }
         }
     }
     
     if (-not $foundMain) { $newKb.Add("SCR 4 0 $actionId ""Custom: Subass Notes"" ""$scriptRelativePath""") }
     if (-not $foundOverlay) { $newKb.Add("SCR 4 0 $overlayActionId ""Custom: Subass SubOverlay (Lionzz)"" ""$overlayRelativePath""") }
     if (-not $foundDict) { $newKb.Add("SCR 4 0 $dictActionId ""Custom: Subass Dictionary"" ""$dictRelativePath""") }
+    if (-not $foundPdf) { $newKb.Add("SCR 4 0 $pdfActionId ""Custom: Subass PDF Reader"" ""$pdfRelativePath""") }
     
     # Use UTF-8 WITHOUT BOM for REAPER configs
     $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
@@ -482,7 +492,7 @@ if (Test-Path $menuFile) {
         $contentBefore += "[Main Extensions]"
     }
 
-    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "_$dictActionId Subass: Dictionary", "0")
+    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "_$dictActionId Subass: Dictionary", "_$pdfActionId Subass: PDF Reader", "0")
     
     $newMenu = New-Object System.Collections.Generic.List[string]
     foreach ($l in $contentBefore) { $newMenu.Add($l) }
