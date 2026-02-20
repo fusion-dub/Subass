@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.1.3
+-- @version 5.2.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.1.3",
+    script_title = "Subass Notes v5.2.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -68,6 +68,7 @@ local cfg = {
     p_valign = get_set("p_valign", "center"),
     p_font = get_set("p_font", "Arial"),
     p_info = (get_set("p_info", "1") == "1" or get_set("p_info", 1) == 1),
+    p_progress = (get_set("p_progress", "1") == "1" or get_set("p_progress", 1) == 1),
     auto_srt_split = get_set("auto_srt_split", "():"),
     prmt_theme = get_set("prmt_theme", "Бетон"),
     ui_theme = get_set("ui_theme", "Titanium"),
@@ -157,6 +158,14 @@ local OTHER = {
         replace = {text = "", cursor = 0, anchor = 0, focus = false},
         case_sensitive = false,
         bounds = {x=0, y=0, w=0, h=0}
+    },
+    
+    -- Recording Progress Cache
+    progress_cache = {
+        state_count = -1,
+        tracks_guid = "",
+        percent = 0,
+        regions_count = 0
     },
     -- Column Visibility Menu State
     col_vis_menu = {
@@ -3101,6 +3110,146 @@ function DEADLINE.parse_from_name(name)
         if success then return res end
     end
     return nil
+end
+
+
+function UTILS.get_tracks_to_check()
+    local tracks_to_check = {}
+    local processed_tracks = {}
+    local guids = ""
+    local sel_tracks_count = reaper.CountSelectedTracks(0)
+    
+    if sel_tracks_count > 0 then
+        for i = 0, sel_tracks_count - 1 do
+            local tr = reaper.GetSelectedTrack(0, i)
+            local guid = reaper.GetTrackGUID(tr)
+            guids = guids .. guid
+            
+            if not processed_tracks[tr] then
+                processed_tracks[tr] = true
+                table.insert(tracks_to_check, tr)
+                
+                -- Check if it's a folder (I_FOLDERDEPTH > 0)
+                if reaper.GetMediaTrackInfo_Value(tr, "I_FOLDERDEPTH") > 0 then
+                    local tr_idx = math.floor(reaper.GetMediaTrackInfo_Value(tr, "IP_TRACKNUMBER")) -- 1-based
+                    local parent_depth = reaper.GetTrackDepth(tr)
+                    local total_tracks = reaper.CountTracks(0)
+                    
+                    for j = tr_idx, total_tracks - 1 do
+                        local child_tr = reaper.GetTrack(0, j)
+                        if reaper.GetTrackDepth(child_tr) > parent_depth then
+                            if not processed_tracks[child_tr] then
+                                processed_tracks[child_tr] = true
+                                table.insert(tracks_to_check, child_tr)
+                            end
+                        else
+                            break -- End of folder
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return tracks_to_check, guids
+end
+
+function UTILS.get_recording_progress()
+    if not regions or #regions == 0 then return 0 end
+    
+    -- Freeze progress during active recording to save resources
+    local play_state = reaper.GetPlayState()
+    if (play_state & 4) == 4 then 
+        return OTHER.progress_cache.percent 
+    end
+    
+    local cur_state = reaper.GetProjectStateChangeCount(0)
+    local tracks_to_check, guids = UTILS.get_tracks_to_check()
+    
+    -- Check cache
+    if OTHER.progress_cache.state_count == cur_state and OTHER.progress_cache.tracks_guid == guids and OTHER.progress_cache.regions_count == #regions then
+        return OTHER.progress_cache.percent
+    end
+    
+    -- Recalculate
+    if #tracks_to_check == 0 then
+        OTHER.progress_cache.state_count = cur_state
+        OTHER.progress_cache.tracks_guid = guids
+        OTHER.progress_cache.regions_count = #regions
+        OTHER.progress_cache.percent = 0
+        return 0
+    end
+    
+    local recorded_count = 0
+    for _, rgn in ipairs(regions) do
+        local rgn_recorded = false
+        for _, tr in ipairs(tracks_to_check) do
+            local item_count = reaper.CountTrackMediaItems(tr)
+            for i = 0, item_count - 1 do
+                local item = reaper.GetTrackMediaItem(tr, i)
+                if item and reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
+                    local i_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                    local i_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                    local i_end = i_pos + i_len
+                    
+                    -- Check overlap: (StartA < EndB) and (EndA > StartB)
+                    if i_pos < rgn.rgnend and i_end > rgn.pos then
+                        rgn_recorded = true
+                        break
+                    end
+                end
+            end
+            if rgn_recorded then break end
+        end
+        if rgn_recorded then recorded_count = recorded_count + 1 end
+    end
+    
+    local percent = math.floor((recorded_count / #regions) * 100)
+    
+    -- Update cache
+    OTHER.progress_cache.state_count = cur_state
+    OTHER.progress_cache.tracks_guid = guids
+    OTHER.progress_cache.regions_count = #regions
+    OTHER.progress_cache.percent = percent
+    
+    return percent
+end
+
+function UTILS.jump_to_first_unrecorded_region()
+    if not regions or #regions == 0 then return end
+    
+    local tracks_to_check = UTILS.get_tracks_to_check()
+    if #tracks_to_check == 0 then 
+        show_snackbar("Виберіть трек для перевірки!", "warning")
+        return 
+    end
+    
+    for _, rgn in ipairs(regions) do
+        local rgn_recorded = false
+        for _, tr in ipairs(tracks_to_check) do
+            local item_count = reaper.CountTrackMediaItems(tr)
+            for i = 0, item_count - 1 do
+                local item = reaper.GetTrackMediaItem(tr, i)
+                if item and reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
+                    local i_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                    local i_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                    local i_end = i_pos + i_len
+                    if i_pos < rgn.rgnend and i_end > rgn.pos then
+                        rgn_recorded = true
+                        break
+                    end
+                end
+            end
+            if rgn_recorded then break end
+        end
+        
+        if not rgn_recorded then
+            reaper.SetEditCurPos(rgn.pos, true, false)
+            show_snackbar("Перехід до першої незаписаної репліки", "info")
+            return
+        end
+    end
+    
+    show_snackbar("Всі репліки записані!", "info")
 end
 
 -- =============================================================================
@@ -15466,6 +15615,31 @@ local function handle_info_overlay_interaction(content_offset_left, content_offs
             end
         end
     end
+
+    -- Interaction: Right Info (Progress %)
+    if not (active_regions and #active_regions > 0) and cfg.p_progress and regions and #regions > 0 then
+        local percent = UTILS.get_recording_progress()
+        local right_str = percent .. "%"
+        gfx.setfont(F.std)
+        local tw, th = gfx.measurestr(right_str)
+        local x_pos = gfx.w - tw - S(10) - content_offset_right
+        
+        if gfx.mouse_x >= x_pos and gfx.mouse_x <= x_pos + tw and
+           gfx.mouse_y >= S(30) and gfx.mouse_y <= S(30) + th then
+            if is_mouse_clicked() and not UI_STATE.mouse_handled then
+                UI_STATE.mouse_handled = true
+                local now = reaper.time_precise()
+                -- Double click check
+                if UI_STATE.last_click_row == -7 and (now - UI_STATE.last_click_time) < 0.3 then
+                    UTILS.jump_to_first_unrecorded_region()
+                    UI_STATE.last_click_row = 0
+                else
+                    UI_STATE.last_click_time = now
+                    UI_STATE.last_click_row = -7
+                end
+            end
+        end
+    end
 end
 
 local function draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, override_time)
@@ -15481,6 +15655,9 @@ local function draw_info_overlay_graphics(content_offset_left, content_offset_ri
     if active_regions and #active_regions > 0 then
         local r = active_regions[1]
         right_str = tostring(r.idx) .. "/" .. tostring(#regions)
+    elseif cfg.p_progress and regions and #regions > 0 then
+        local percent = UTILS.get_recording_progress()
+        right_str = percent .. "%"
     end
     
     if left_str ~= "" then
@@ -17146,6 +17323,13 @@ local function draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + S(35)
+    if cfg.p_info then
+        if checkbox(x_start + S(30), y_cursor, "Відображати % скільки записано", cfg.p_progress, "Показувати загальний прогрес запису по вибраним трекам (коли немає активної репліки).") then
+            cfg.p_progress = not cfg.p_progress
+            save_settings()
+        end
+        y_cursor = y_cursor + S(35)
+    end
     if checkbox(x_start, y_cursor, "Таймер зворотного відліку", cfg.count_timer, "Показувати час до початку наступної репліки.\nТакож відображає стрілку для прокручення до наступної репліки (якщо час більше 10 секунд).") then
         cfg.count_timer = not cfg.count_timer
         save_settings()
