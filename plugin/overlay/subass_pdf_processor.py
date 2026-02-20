@@ -51,6 +51,20 @@ def bootstrap():
 bootstrap()
 import fitz  # PyMuPDF
 
+import re
+
+def extract_url_from_text(text):
+    # More robust URL regex to find links anywhere in the string
+    # Matches http://, https:// or www.
+    url_pattern = r'(https?://[^\s\)\]]+|www\.[^\s\)\]]+)'
+    match = re.search(url_pattern, text)
+    if match:
+        url = match.group(1).rstrip('.,;:!?)\]')
+        if url.startswith("www."):
+            return "https://" + url
+        return url
+    return None
+
 def process_pdf(pdf_path, output_dir):
     pdf_path = Path(pdf_path)
     output_dir = Path(output_dir)
@@ -81,6 +95,7 @@ def process_pdf(pdf_path, output_dir):
         
         # 2. Extract words and coordinates
         words = page.get_text("words")
+        links = [l for l in page.get_links() if l.get("kind") == fitz.LINK_URI]
         
         page_data = {
             "page_num": page_num + 1,
@@ -91,13 +106,44 @@ def process_pdf(pdf_path, output_dir):
         }
         
         for w in words:
-            page_data["items"].append({
-                "text": w[4],
+            text = w[4]
+            word_rect = fitz.Rect(w[:4])
+            item = {
+                "text": text,
                 "x": w[0],
                 "y": w[1],
                 "w": w[2] - w[0],
                 "h": w[3] - w[1]
-            })
+            }
+            
+            # Match word to native PDF links
+            for link in links:
+                link_rect = fitz.Rect(link["from"])
+                if word_rect.intersects(link_rect):
+                    item["url"] = link["uri"]
+                    break
+            
+            # Fallback to text-based URL extraction
+            if "url" not in item:
+                url = extract_url_from_text(text)
+                if url:
+                    item["url"] = url
+                    
+            page_data["items"].append(item)
+            
+        # 3. Add explicit link blocks (for images/hotspots)
+        for link in links:
+            rect = fitz.Rect(link["from"])
+            uri = link.get("uri")
+            if uri:
+                page_data["items"].append({
+                    "text": uri,
+                    "url": uri,
+                    "x": rect.x0,
+                    "y": rect.y0,
+                    "w": rect.width,
+                    "h": rect.height
+                })
             
         metadata["pages"].append(page_data)
         
@@ -111,7 +157,7 @@ def process_pdf(pdf_path, output_dir):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Використання: python pdf_processor.py <input_pdf> <output_directory>")
+        print("Використання: python subass_pdf_processor.py <input_pdf> <output_directory>")
         sys.exit(1)
         
     process_pdf(sys.argv[1], sys.argv[2])
