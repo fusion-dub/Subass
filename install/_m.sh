@@ -141,7 +141,7 @@ PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
 
 SCRIPT_SOURCE="$PROJECT_ROOT/plugin/Subass_Notes.lua"
 STRESS_SOURCE="$PROJECT_ROOT/plugin/stress"
-OVERLAY_SOURCE="$PROJECT_ROOT/plugin/overlay/Lionzz_SubOverlay_Subass.lua"
+OVERLAY_SOURCE="$PROJECT_ROOT/plugin/overlay"
 UPDATE_SOURCE="$PROJECT_ROOT/plugin/subass_autoupdate.py"
 DICTIONARY_SOURCE="$PROJECT_ROOT/plugin/dictionary"
 TTS_SOURCE="$PROJECT_ROOT/plugin/tts"
@@ -159,9 +159,9 @@ if [ -f "$SCRIPT_SOURCE" ]; then
             cp -R "$STRESS_SOURCE" "$SCRIPTS_PATH/"
         fi
     fi
-    if [ -f "$OVERLAY_SOURCE" ]; then
+    if [ -d "$OVERLAY_SOURCE" ]; then
         mkdir -p "$SCRIPTS_PATH/overlay"
-        cp "$OVERLAY_SOURCE" "$SCRIPTS_PATH/overlay/Lionzz_SubOverlay_Subass.lua"
+        cp -R "$OVERLAY_SOURCE/"* "$SCRIPTS_PATH/overlay/"
     fi
     if [ -f "$UPDATE_SOURCE" ]; then
         cp "$UPDATE_SOURCE" "$SCRIPTS_PATH/"
@@ -228,6 +228,7 @@ fi
 echo "\033[1;34m>> Registering Action and Menu Item...\033[0m"
 KB_FILE="$REAPER_PATH/reaper-kb.ini"
 MENU_FILE="$REAPER_PATH/reaper-menu.ini"
+PDF_ID="RS6666666666666666666666666666666666666666"
 ACTION_ID="RS7777777777777777777777777777777777777777"
 OVERLAY_ID="RS8888888888888888888888888888888888888888"
 DICT_ID="RS9999999999999999999999999999999999999999"
@@ -243,9 +244,11 @@ def update_ini():
         action_id_target = "$ACTION_ID"
         overlay_id_target = "$OVERLAY_ID"
         dict_id_target = "$DICT_ID"
+        pdf_id_target = "$PDF_ID"
         rel_path = "Subass/Subass_Notes.lua"
         overlay_rel = "Subass/overlay/Lionzz_SubOverlay_Subass.lua"
         dict_rel = "Subass/dictionary/Subass_Dictionary.lua"
+        pdf_rel = "Subass/overlay/Subass_PDF.lua"
 
         # 1. Update reaper-kb.ini
         if os.path.exists(kb_file):
@@ -254,11 +257,11 @@ def update_ini():
                 kb_lines = f.readlines()
             
             new_kb_lines = []
-            found_main = found_overlay = found_dict = False
+            found_main = found_overlay = found_dict = found_pdf = False
             
             for line in kb_lines:
                 # Keep unrelated lines
-                if "Subass_Notes.lua" not in line and "Lionzz_SubOverlay_Subass.lua" not in line and "Subass_Dictionary.lua" not in line:
+                if "Subass_Notes.lua" not in line and "Lionzz_SubOverlay_Subass.lua" not in line and "Subass_Dictionary.lua" not in line and "Subass_PDF.lua" not in line:
                     new_kb_lines.append(line)
                     continue
                 
@@ -277,10 +280,16 @@ def update_ini():
                     if m: dict_id_target = m.group(1)
                     new_kb_lines.append(line)
                     found_dict = True
+                elif "Subass_PDF.lua" in line and pdf_rel in line and not found_pdf:
+                    m = re.search(r'SCR 4 0 (RS[0-9a-fA-F]+)', line)
+                    if m: pdf_id_target = m.group(1)
+                    new_kb_lines.append(line)
+                    found_pdf = True
 
             if not found_main: new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
             if not found_overlay: new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
             if not found_dict: new_kb_lines.append(f'SCR 4 0 {dict_id_target} "Custom: Subass Dictionary" "{dict_rel}"\n')
+            if not found_pdf: new_kb_lines.append(f'SCR 4 0 {pdf_id_target} "Custom: Subass PDF Reader" "{pdf_rel}"\n')
             
             # Use standard UTF-8 WITHOUT BOM (Python default, but being explicit)
             with open(kb_file, 'w', encoding='utf-8', newline='\n') as f:
@@ -327,7 +336,7 @@ def update_ini():
                 content_before.append("\n")
             content_before.append("[Main Extensions]\n")
 
-        final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", f"_{dict_id_target} Subass: Dictionary", "0"]
+        final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", f"_{dict_id_target} Subass: Dictionary", f"_{pdf_id_target} Subass: PDF Reader", "0"]
         
         new_lines = content_before
         for i, item_val in enumerate(final_items):
