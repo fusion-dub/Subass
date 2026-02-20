@@ -461,16 +461,17 @@ local function draw_page(page_index, page_data, avail_w)
             reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + w, y + h, 0xFFFF0088, 0, 0, 2)
         end
         
-        -- Create invisible button for interaction
-        reaper.ImGui_SetCursorScreenPos(ctx, x, y)
-        reaper.ImGui_InvisibleButton(ctx, "##item_"..page_index.."_"..i, w, h)
-        
-        -- Context Menu on Right Click (Item 1 = default right click)
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 10, 10)
-        local ctx_open = reaper.ImGui_BeginPopupContextItem(ctx, "##CtxMenu"..page_index.."_"..i, 1)
-        reaper.ImGui_PopStyleVar(ctx)
-        
-        if ctx_open then
+        -- Create invisible button for interaction (only if size is valid)
+        if w > 0 and h > 0 then
+            reaper.ImGui_SetCursorScreenPos(ctx, x, y)
+            reaper.ImGui_InvisibleButton(ctx, "##item_"..page_index.."_"..i, w, h)
+            
+            -- Context Menu on Right Click (Item 1 = default right click)
+            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 10, 10)
+            local ctx_open = reaper.ImGui_BeginPopupContextItem(ctx, "##CtxMenu"..page_index.."_"..i, 1)
+            reaper.ImGui_PopStyleVar(ctx)
+            
+            if ctx_open then
             local time = parse_timecode(item.text)
             local url = item.url or parse_url(item.text)
             
@@ -514,6 +515,7 @@ local function draw_page(page_index, page_data, avail_w)
             end
         end
     end
+end
     
     -- Restore cursor position below the image
     reaper.ImGui_SetCursorScreenPos(ctx, start_x, start_y + draw_h)
