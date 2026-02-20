@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.2.1
+-- @version 5.4
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.2.1",
+    script_title = "Subass Notes v5.4",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -165,7 +165,8 @@ local OTHER = {
         state_count = -1,
         tracks_guid = "",
         percent = 0,
-        regions_count = 0
+        regions_count = 0,
+        data = {} -- Per-track cache map
     },
     -- Column Visibility Menu State
     col_vis_menu = {
@@ -3163,20 +3164,21 @@ function UTILS.get_recording_progress()
     end
     
     local cur_state = reaper.GetProjectStateChangeCount(0)
-    local tracks_to_check, guids = UTILS.get_tracks_to_check()
     
-    -- Check cache
-    if OTHER.progress_cache.state_count == cur_state and OTHER.progress_cache.tracks_guid == guids and OTHER.progress_cache.regions_count == #regions then
-        return OTHER.progress_cache.percent
-    end
-    
-    -- Recalculate
-    if #tracks_to_check == 0 then
+    -- Invalidate whole track cache if project state or regions count changes
+    if OTHER.progress_cache.state_count ~= cur_state or OTHER.progress_cache.regions_count ~= #regions then
         OTHER.progress_cache.state_count = cur_state
-        OTHER.progress_cache.tracks_guid = guids
         OTHER.progress_cache.regions_count = #regions
-        OTHER.progress_cache.percent = 0
-        return 0
+        OTHER.progress_cache.data = {} -- Reset per-track map
+    end
+
+    local tracks_to_check, guids = UTILS.get_tracks_to_check()
+    if guids == "" then return 0 end
+
+    -- Check if we have this track combo in cache
+    if OTHER.progress_cache.data[guids] then
+        OTHER.progress_cache.percent = OTHER.progress_cache.data[guids] -- Store for playhead freeze use
+        return OTHER.progress_cache.data[guids]
     end
     
     local recorded_count = 0
@@ -3206,9 +3208,7 @@ function UTILS.get_recording_progress()
     local percent = math.floor((recorded_count / #regions) * 100)
     
     -- Update cache
-    OTHER.progress_cache.state_count = cur_state
-    OTHER.progress_cache.tracks_guid = guids
-    OTHER.progress_cache.regions_count = #regions
+    OTHER.progress_cache.data[guids] = percent
     OTHER.progress_cache.percent = percent
     
     return percent
@@ -17143,11 +17143,8 @@ local function draw_settings()
         {name = "Глобальний пошук реплік", tip = "Наскрізний пошук будь-якого тексту чи слова по всіх ваших проектах Subass. Допомагає знайти, де вже зустрічалася певна фраза.", action = function() SEARCH_ITEM.show = true SEARCH_ITEM.input.focus = true end},
         {name = "Відкрити Словник", tip = "Словник з корисною інформацією, сленги, асиміляція, відмінки, лайка, тощо. А також Звуковий Глосарій", action = function() run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end}, 
         {name = "Відкрити SubOverlay від Lionzz", tip = "Допоміжне вікно поверх усього відео (Overlay), що відображає текст поточної репліки прямо перед очима під час запису.", action = function() run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end},
-        {name = "Знайти слово в ГОРОСі", tip = "Швидкий пошук слова у найбільшій лексикографічній базі Goroh.pp.ua (тлумачення, словозміна, синоніми, фразеологія, слововживання).", action = function() 
-            local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
-            if ok and input ~= "" then
-                trigger_dictionary_lookup(input)
-            end
+        {name = "Відкрити PDF Reader", tip = "Відкриває PDF Рідер в окремому вікні.", action = function() 
+            run_satellite_script("overlay", "Subass_PDF.lua", "PDF Рідер")
         end},
         {name = "Режим Режисера", tip = "Перемикає інтерфейс у режим перегляду для режисера: вкладка реплік з активним режимом контролю та зауважень.", color = cfg.director_mode and UI.C_BTN_MEDIUM or nil, action = function() 
             UI_STATE.current_tab = 2 
