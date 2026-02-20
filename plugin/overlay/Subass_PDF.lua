@@ -316,7 +316,7 @@ local function process_pdf(pdf_file)
     end
     STATE.textures = {}
     
-    local pdf_name = pdf_file:match("([^/\\]+)%.pdf$") or "temp_pdf"
+    local pdf_name = pdf_file:match("([^/\\]+)%.[^%.]+$") or "temp_doc"
     local output_dir = prj_cache .. "/" .. pdf_name
     reaper.RecursiveCreateDirectory(output_dir, 0)
     
@@ -333,10 +333,11 @@ end
 
 local function pick_pdf()
     if reaper.APIExists('JS_Dialog_BrowseForOpenFiles') then
-        local retval, file = reaper.JS_Dialog_BrowseForOpenFiles("Оберіть PDF", "", "", "PDF файли (*.pdf)\0*.pdf\0Всі файли (*.*)\0*.*\0", false)
+        local filter = "Усі підтримувані файли\0*.pdf;*.docx;*.doc\0PDF файли (*.pdf)\0*.pdf\0Word файли (*.docx, *.doc)\0*.docx;*.doc\0Всі файли (*.*)\0*.*\0"
+        local retval, file = reaper.JS_Dialog_BrowseForOpenFiles("Оберіть файл для імпорту", "", "", filter, false)
         if retval > 0 and file ~= "" then return file end
     else
-        local retval, file = reaper.GetUserInputs("Імпорт PDF", 1, "Повний шлях до PDF:", "")
+        local retval, file = reaper.GetUserInputs("Імпорт документа", 1, "Шлях до PDF або Word файла:", "")
         if retval and file ~= "" then return file end
     end
     return nil
