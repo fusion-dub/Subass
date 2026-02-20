@@ -95,7 +95,7 @@ end
 -- =============================================================================
 local ctx = reaper.ImGui_CreateContext('Subass PDF Reader')
 local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])")
-local python_script = script_path .. "pdf_processor.py"
+local python_script = script_path .. "subass_pdf_processor.py"
 
 -- =============================================================================
 -- STYLES
@@ -246,6 +246,17 @@ local function parse_timecode(str)
     m, s = s_text:match("^(%d+)[%.:](%d+)$")
     if m then return tonumber(m) * 60 + tonumber(s) end
 
+    return nil
+end
+
+local function parse_url(str)
+    local s_text = str:gsub("^%s+", ""):gsub("%s+$", "")
+    if s_text:match("^https?://") or s_text:match("^www%.") then
+        if s_text:match("^www%.") then
+            return "https://" .. s_text
+        end
+        return s_text
+    end
     return nil
 end
 
@@ -451,18 +462,29 @@ local function draw_page(page_index, page_data, avail_w)
         
         -- Create invisible button for interaction
         reaper.ImGui_SetCursorScreenPos(ctx, x, y)
-        reaper.ImGui_InvisibleButton(ctx, "##"..item.text..x..y, w, h)
+        reaper.ImGui_InvisibleButton(ctx, "##item_"..page_index.."_"..i, w, h)
         
         -- Context Menu on Right Click (Item 1 = default right click)
         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 10, 10)
-        local ctx_open = reaper.ImGui_BeginPopupContextItem(ctx, "##CtxMenu"..item.text..x..y, 1)
+        local ctx_open = reaper.ImGui_BeginPopupContextItem(ctx, "##CtxMenu"..page_index.."_"..i, 1)
         reaper.ImGui_PopStyleVar(ctx)
         
         if ctx_open then
             local time = parse_timecode(item.text)
+            local url = item.url or parse_url(item.text)
+            
             if time then
                 if reaper.ImGui_MenuItem(ctx, "Швидке переміщення на: " .. item.text) then
                     reaper.SetEditCurPos(time, true, false)
+                end
+                reaper.ImGui_Separator(ctx)
+            end
+            
+            if url then
+                if reaper.ImGui_MenuItem(ctx, "Відкрити посилання") then
+                    if reaper.CF_ShellExecute then
+                        reaper.CF_ShellExecute(url)
+                    end
                 end
                 reaper.ImGui_Separator(ctx)
             end
@@ -544,7 +566,7 @@ local function draw_gui()
             reaper.ImGui_SetNextItemWidth(ctx, 200)
             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBg(), 0xFFFFFFFF)
             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x000000FF)
-            local changed, new_text = reaper.ImGui_InputText(ctx, "##SearchInput", STATE.search_text)
+            local changed, new_text = reaper.ImGui_InputTextWithHint(ctx, "##SearchInput", "Шукати...", STATE.search_text)
             reaper.ImGui_PopStyleColor(ctx, 2)
             
             if changed then
