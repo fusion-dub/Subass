@@ -20,32 +20,37 @@ if sys.platform == "win32":
 
 def bootstrap():
     """Automatically installs dependencies if they are missing."""
+    needed = []
     try:
         import fitz
     except ImportError:
-        print("--- Subass PDF Processor: Перше налаштування ---")
-        print("Відсутні необхідні залежності. Спроба встановити 'pymupdf'...")
-        
-        packages = ["pymupdf"]
-        cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check"] + packages
+        needed.append("pymupdf")
 
+    if not needed:
+        return
+
+    print("--- Subass PDF Processor: Перше налаштування ---")
+    print(f"Відсутні необхідні залежності: {', '.join(needed)}. Спроба встановити...")
+    
+    cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check"] + needed
+
+    try:
+        subprocess.check_call(cmd)
+    except subprocess.CalledProcessError:
         try:
-            subprocess.check_call(cmd)
-        except subprocess.CalledProcessError:
-            try:
-                print("Стандартна інсталяція не вдалася. Спроба з --break-system-packages...")
-                subprocess.check_call(cmd + ["--break-system-packages"])
-            except subprocess.CalledProcessError as e:
-                print(f"Помилка: Не вдалося автоматично встановити залежності (Код помилки: {e.returncode}).")
-                print(f"Будь ласка, спробуйте встановити вручну: {sys.executable} -m pip install pymupdf")
-                sys.exit(1)
+            print("Стандартна інсталяція не вдалася. Спроба з --break-system-packages...")
+            subprocess.check_call(cmd + ["--break-system-packages"])
+        except subprocess.CalledProcessError as e:
+            print(f"Помилка: Не вдалося автоматично встановити залежності (Код помилки: {e.returncode}).")
+            print(f"Будь ласка, спробуйте встановити вручну: {sys.executable} -m pip install {' '.join(needed)}")
+            sys.exit(1)
 
-        print("\nЗалежності успішно встановлені!\n")
-        import importlib
-        importlib.invalidate_caches()
-        import site
-        from importlib import reload
-        reload(site)
+    print("\nЗалежності успішно встановлені!\n")
+    import importlib
+    importlib.invalidate_caches()
+    import site
+    from importlib import reload
+    reload(site)
 
 # Run bootstrap before other imports
 bootstrap()
@@ -59,7 +64,7 @@ def extract_url_from_text(text):
     url_pattern = r'(https?://[^\s\)\]]+|www\.[^\s\)\]]+)'
     match = re.search(url_pattern, text)
     if match:
-        url = match.group(1).rstrip('.,;:!?)\]')
+        url = match.group(1).rstrip(r'.,;:!?)\]')
         if url.startswith("www."):
             return "https://" + url
         return url
@@ -71,9 +76,10 @@ def process_pdf(pdf_path, output_dir):
     output_dir.mkdir(parents=True, exist_ok=True)
     
     try:
+        # PyMuPDF supports PDF, XPS, EPUB, MOBI, FB2, CBZ, SVG, TXT, HTML and DOCX
         doc = fitz.open(pdf_path)
     except Exception as e:
-        print(f"Помилка: Не вдалося відкрити PDF файл: {e}")
+        print(f"Помилка: Не вдалося відкрити файл: {e}")
         sys.exit(1)
 
     metadata = {
