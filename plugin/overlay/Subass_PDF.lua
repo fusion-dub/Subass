@@ -525,7 +525,9 @@ local function draw_gui()
     push_theme(ctx)
     local visible, open = reaper.ImGui_Begin(ctx, 'Subass PDF Reader', true)
     
-    if not open then STATE.window_open = false end
+    if not open or reaper.GetExtState("Subass_Global", "ForceCloseComplementary") == "1" then 
+        STATE.window_open = false 
+    end
     
     if visible then
         -- Header
