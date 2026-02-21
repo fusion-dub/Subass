@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.4
+-- @version 5.4.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.4",
+    script_title = "Subass Notes v5.4.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -6812,7 +6812,7 @@ function DUBBERS.export_as_ass(deadline_str)
             if not ASS.ass_format_order or #ASS.ass_format_order == 0 then
                 -- Default fallback
                 local txt = l.text or ""
-                local text = txt:gsub("\n", "\\N")
+                local text = txt:gsub("[\r\n]+", "\\N")
                 return string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s", 
                     fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text)
             end
@@ -6826,7 +6826,7 @@ function DUBBERS.export_as_ass(deadline_str)
                     val = fmt_time_ass(l.t2)
                 elseif field == "Text" then
                     local txt = l.text or ""
-                    val = txt:gsub("\n", "\\N")
+                    val = txt:gsub("[\r\n]+", "\\N")
                 elseif field == "Name" or field == "Actor" then
                     val = l.actor or "Default"
                 elseif field == "Style" then
@@ -7819,7 +7819,7 @@ local function export_as_ass()
 
         local function format_dialogue(l)
             if not ASS.ass_format_order or #ASS.ass_format_order == 0 then
-                local text = l.text:gsub("\n", "\\N")
+                local text = l.text:gsub("[\r\n]+", "\\N")
                 return string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s", 
                     fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text)
             end
@@ -7832,7 +7832,7 @@ local function export_as_ass()
                 elseif field == "End" then
                     val = fmt_time_ass(l.t2)
                 elseif field == "Text" then
-                    val = l.text:gsub("\n", "\\N")
+                    val = l.text:gsub("[\r\n]+", "\\N")
                 elseif field == "Name" or field == "Actor" then
                     val = l.actor or "Default"
                 elseif field == "Style" then
@@ -8519,15 +8519,15 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
             local current_text = ""
             local state = 0 -- 0: Index, 1: Time, 2: Text
             for l in (content .. "\n"):gmatch("(.-)\r?\n") do
-                l = l:match("^%s*(.-)%s*$") or l -- Trim
                 if state == 0 then
-                    if l:match("^%d+$") then state = 1 end
+                    local line_idx = l:match("^%s*(%d+)%s*$")
+                    if line_idx then state = 1 end
                 elseif state == 1 then
                     if l:match("%-%->") then 
                         state = 2; current_text = "" 
                     end
                 elseif state == 2 then
-                    if l == "" then
+                    if l:match("^%s*$") then
                         table.insert(stressed_texts, (current_text == "" and "" or current_text:sub(1,-2)))
                         state = 0
                     else
