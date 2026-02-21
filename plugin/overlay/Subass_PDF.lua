@@ -96,6 +96,7 @@ end
 local ctx = reaper.ImGui_CreateContext('Subass PDF Reader')
 local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])")
 local python_script = script_path .. "subass_pdf_processor.py"
+reaper.gmem_attach("SubassSync")
 
 -- =============================================================================
 -- STYLES
@@ -152,12 +153,91 @@ local STATE = {
     search_text = "",
     search_results = {},
     search_index = 0,
-    scroll_to_search = false
+    scroll_to_search = false,
+    notes_cmd_id = nil,
+    async_pool = {}
 }
 
 -- =============================================================================
 -- UTILS
 -- =============================================================================
+
+local function get_notes_cmd_id()
+    if STATE.notes_cmd_id then return STATE.notes_cmd_id end
+    local kb_path = reaper.GetResourcePath() .. "/reaper-kb.ini"
+    local f = io.open(kb_path, "r")
+    if not f then return nil end
+    
+    for line in f:lines() do
+        if line:find("Subass_Notes.lua", 1, true) then
+            local id = line:match("RS([%a%d ]+)")
+            if id then
+                id = id:match("^([%a%d]+)")
+                STATE.notes_cmd_id = "_RS" .. id
+                f:close()
+                return STATE.notes_cmd_id
+            end
+        end
+    end
+    f:close()
+    return nil
+end
+
+local function focus_notes_window()
+    if not reaper.JS_Window_ArrayAllChild then return false end
+    
+    -- Helper for recursive search (docked windows are nested children in REAPER)
+    local function find_recursively(parent_hwnd)
+        local arr = reaper.new_array({}, 1024)
+        reaper.JS_Window_ArrayAllChild(parent_hwnd, arr)
+        local children = arr.table()
+        for _, ptr in ipairs(children) do
+            local child = reaper.JS_Window_HandleFromAddress(ptr)
+            local title = reaper.JS_Window_GetTitle(child)
+            if title:find("Subass Notes", 1, true) then
+                return child
+            end
+            local found = find_recursively(child)
+            if found then return found end
+        end
+        return nil
+    end
+
+    -- 1. Search throughout the entire REAPER window hierarchy
+    local found_hwnd = find_recursively(reaper.GetMainHwnd())
+    
+    -- 2. Fallback: Search top-level OS windows (if floating)
+    if not found_hwnd and reaper.JS_Window_ArrayAllTop then
+        local arr = reaper.new_array({}, 1024)
+        reaper.JS_Window_ArrayAllTop(arr)
+        for _, ptr in ipairs(arr.table()) do
+            local hwnd = reaper.JS_Window_HandleFromAddress(ptr)
+            if reaper.JS_Window_GetTitle(hwnd):find("Subass Notes", 1, true) then
+                found_hwnd = hwnd
+                break
+            end
+        end
+    end
+
+    if found_hwnd then
+        -- Native REAPER API to switch tabs in Docker
+        reaper.DockWindowActivate(found_hwnd)
+        reaper.JS_Window_SetFocus(found_hwnd)
+        reaper.JS_Window_SetForeground(found_hwnd)
+        return true
+    end
+    
+    -- 3. If truly not found, it might be closed. Launch it.
+    local cmd_id = get_notes_cmd_id()
+    if cmd_id then
+        local cmd = reaper.NamedCommandLookup(cmd_id)
+        if cmd ~= 0 then
+            reaper.Main_OnCommand(cmd, 0)
+            return true
+        end
+    end
+    return false
+end
 
 local function run_async_command(shell_cmd, callback)
     local id = tostring(os.time()) .. "_" .. math.random(1000, 9999)
@@ -267,12 +347,49 @@ local function perform_search()
     
     local query = STATE.search_text:lower()
     for p_idx, page in ipairs(STATE.metadata.pages) do
-        for i_idx, item in ipairs(page.items or {}) do
-            if item.text and item.text:lower():find(query, 1, true) then
-                table.insert(STATE.search_results, {page = p_idx, item = i_idx})
+        local items = page.items or {}
+        local full_text = ""
+        local item_starts = {}
+        local item_ends = {}
+        
+        -- Build per-page full text and track item positions
+        for i_idx, item in ipairs(items) do
+            local start_pos = #full_text + 1
+            full_text = full_text .. (item.text or "") .. " "
+            item_starts[i_idx] = start_pos
+            item_ends[i_idx] = #full_text - 1
+        end
+        
+        full_text = full_text:lower()
+        
+        local search_pos = 1
+        while true do
+            local s, e = full_text:find(query, search_pos, true)
+            if not s then break end
+            
+            -- Find which items overlap with [s, e]
+            local start_item, end_item
+            for i_idx = 1, #items do
+                if not start_item and s <= item_ends[i_idx] then
+                    start_item = i_idx
+                end
+                if e >= item_starts[i_idx] then
+                    end_item = i_idx
+                end
             end
+            
+            if start_item and end_item then
+                table.insert(STATE.search_results, {
+                    page = p_idx, 
+                    start_item = start_item, 
+                    end_item = end_item,
+                    item = start_item -- Fallback/Backward compatibility for scroll logic
+                })
+            end
+            search_pos = e + 1
         end
     end
+    
     if #STATE.search_results > 0 then
         STATE.search_index = 1
         STATE.scroll_to_search = true
@@ -445,12 +562,23 @@ local function draw_page(page_index, page_data, avail_w)
         local is_active_search = false
         if STATE.search_open and #STATE.search_results > 0 then
             for r_idx, res in ipairs(STATE.search_results) do
-                if res.page == page_index and res.item == i then
-                    is_search_match = true
-                    if r_idx == STATE.search_index then
-                        is_active_search = true
+                if res.page == page_index then
+                    -- Phrase support: match if index is within start/end range
+                    local in_range = false
+                    if res.start_item and res.end_item then
+                        in_range = (i >= res.start_item and i <= res.end_item)
+                    else
+                        in_range = (res.item == i) -- Legacy support
                     end
-                    break
+
+                    if in_range then
+                        is_search_match = true
+                        if r_idx == STATE.search_index then
+                            is_active_search = true
+                        end
+                        -- Don't break here, we need to check if it's ALSO an active search 
+                        -- (another result might cover this item and NOT be active)
+                    end
                 end
             end
         end
@@ -501,6 +629,19 @@ local function draw_page(page_index, page_data, avail_w)
                 STATE.search_text = item.text
                 perform_search()
             end
+            
+            -- Dictionary Sync (if not a special item)
+            if not time and not url then
+                if reaper.ImGui_MenuItem(ctx, "Переглянути у ГОРОСі") then
+                    local dict_word = item.text:gsub("[%p]+$", ""):gsub("^[%p]+", "")
+                    reaper.SetExtState("SubassSync", "WORD", dict_word, false)
+                    reaper.gmem_write(0, 2) -- Signal DICT script
+                    
+                    -- Switch Docker Tab: Find and focus existing Notes window
+                    focus_notes_window()
+                end
+            end
+            
             reaper.ImGui_EndPopup(ctx)
         end
         
