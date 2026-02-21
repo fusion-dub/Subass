@@ -2370,7 +2370,16 @@ end
 --- Get project-wide deadline
 --- @return number|nil Project deadline as Unix timestamp
 function DEADLINE.get()
-    local retval, val = reaper.GetProjExtState(0, "Subass_Notes", "project_deadline")
+    local proj_path, _ = DEADLINE.get_project_info()
+    if proj_path then
+        local global_data = DEADLINE.load_global()
+        local norm_path = DEADLINE.normalize_path(proj_path)
+        if global_data[norm_path] and global_data[norm_path].deadline then
+            return global_data[norm_path].deadline
+        end
+    end
+
+    local retval, val = reaper.GetProjExtState(0, section_name, "project_deadline")
     if retval and val ~= "" then
         return tonumber(val)
     end
@@ -2380,7 +2389,7 @@ end
 --- Set project-wide deadline
 --- @param timestamp number|nil Unix timestamp or nil to clear
 function DEADLINE.set(timestamp)
-    reaper.SetProjExtState(0, "Subass_Notes", "project_deadline", timestamp and tostring(timestamp) or "")
+    reaper.SetProjExtState(0, section_name, "project_deadline", timestamp and tostring(timestamp) or "")
     DEADLINE.project_deadline = timestamp
     
     -- Update global storage
@@ -2607,9 +2616,10 @@ function DEADLINE.sync_project()
         proj_path = DEADLINE.normalize_path(proj_path)
     end
 
+    -- Load and sync
     local global_data = DEADLINE.load_global()
     local changed = false
-    
+
     -- MIGRATION: Check if we have an entry for this project as "unsaved" (via pointer)
     local proj_ptr, _ = reaper.EnumProjects(-1)
     local ptr_id = "PTR:" .. tostring(proj_ptr)
@@ -2626,24 +2636,21 @@ function DEADLINE.sync_project()
     end
 
     local global_entry = global_data[proj_path]
+
     if global_entry then
-        -- Sync local with global if different
+        -- Sync local with global (Global is source of truth)
         if DEADLINE.project_deadline ~= global_entry.deadline then
-            reaper.SetProjExtState(0, "Subass_Notes", "project_deadline", tostring(global_entry.deadline))
+            reaper.SetProjExtState(0, section_name, "project_deadline", tostring(global_entry.deadline))
             DEADLINE.project_deadline = global_entry.deadline
         end
     else
-        -- If no global entry but we have a local one, maybe clear it or update cache
-        if DEADLINE.project_deadline ~= nil then
-            local local_dl = DEADLINE.get()
-            if not local_dl then
-                DEADLINE.project_deadline = nil
-            end
-        end
+        -- If project is NOT in global registry, it means it has no deadline (or it was deleted)
+        -- We MUST clear the local state to stay in sync with the global truth
+        reaper.SetProjExtState(0, section_name, "project_deadline", "")
+        DEADLINE.project_deadline = nil
     end
-    
+
     if changed then
-        -- Save the migrated data
         local json_str = STATS.json_encode(global_data)
         reaper.SetExtState(section_name, "new_project_deadlines", json_str, true)
     end
@@ -6697,7 +6704,7 @@ end
 
 --- Load dubber data from project extented state
 function DUBBERS.load()
-    local retval, json_str = reaper.GetProjExtState(0, "Subass_Notes", "dubber_data")
+    local retval, json_str = reaper.GetProjExtState(0, section_name, "dubber_data")
     if retval and json_str ~= "" then
         local success, result = pcall(function() return STATS.json_decode(json_str) end)
         if success and type(result) == "table" then
@@ -6715,7 +6722,7 @@ end
 --- Save dubber data to project extented state
 function DUBBERS.save()
     local json_str = STATS.json_encode(DUBBERS.data)
-    reaper.SetProjExtState(0, "Subass_Notes", "dubber_data", json_str)
+    reaper.SetProjExtState(0, section_name, "dubber_data", json_str)
 end
 
 --- Copy distribution result to clipboard
@@ -21009,6 +21016,7 @@ local function main()
         -- Reset and load
         load_project_data()
         load_session_state(current_project_id)
+        DEADLINE.project_deadline = nil -- Reset before sync
         DEADLINE.sync_project() -- Synchronize local state with global registry
         DEADLINE.project_deadline = DEADLINE.get()
         DUBBERS.load() -- Reload dubber data for this project
