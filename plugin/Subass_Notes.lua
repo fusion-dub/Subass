@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.4.1
+-- @version 5.4.2
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.4.1",
+    script_title = "Subass Notes v5.4.2",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -7938,7 +7938,7 @@ local function import_notes()
                     matched = true
                 else
                     -- Try region index format first: #N - text
-                    local region_idx, note_text = line:match("^#(%d+)%s*%-%s*(.+)$")
+                    local region_idx, note_text = line:match("^#(%d+)%s*%-%s*(.*)$")
                     if region_idx then
                         region_idx = tonumber(region_idx)
                         
@@ -7965,7 +7965,7 @@ local function import_notes()
                         
                         -- Try to match time range format: TIME - TIME - text
                         -- Pattern: capture timestamp, space-dash-space, another timestamp, space-dash-space, then text
-                        local time1_str, time2_str, note_text = line:match("^([%d:.]+)%s*%-%s*([%d:.]+)%s*%-%s*(.+)$")
+                        local time1_str, time2_str, note_text = line:match("^([%d:.]+)%s*%-%s*([%d:.]+)%s*%-%s*(.*)$")
                         
                         if time1_str and time2_str and note_text then
                             -- Time range format: create marker at first time with end time in text
@@ -7980,7 +7980,7 @@ local function import_notes()
                             end
                         else
                             -- Try single time format: TIME - text
-                            time1_str, note_text = line:match("^([%d:.]+)%s*%-%s*(.+)$")
+                            time1_str, note_text = line:match("^([%d:.]+)%s*%-%s*(.*)$")
                             if time1_str and note_text then
                                 local time = parse_notes_timestamp(time1_str)
                                 if time then
