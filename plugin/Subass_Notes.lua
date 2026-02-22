@@ -8522,59 +8522,46 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
             local content = f_out:read("*all")
             f_out:close()
             
-            local lines = {}
-            for l in (content .. "\n"):gmatch("(.-)\r?\n") do
-                table.insert(lines, l)
-            end
-
             local stressed_texts = {}
-            local i = 1
-            while i <= #lines do
-                local l = lines[i]
-                -- Detect possible SRT index (digit)
-                local idx = l:match("^%s*(%d+)%s*$")
-                local next_l = lines[i+1]
+            local current_text = ""
+            local current_idx = -1
+            
+            for l in (content .. "\n"):gmatch("(.-)\r?\n") do
+                local entry_start = l:match("^%s*%[SUBASS_ENTRY_START%]%s*$")
+                local index_match = l:match("^%s*%[SUBASS_INDEX:(%d+)%]%s*$")
+                local entry_end = l:match("^%s*%[SUBASS_ENTRY_END%]%s*$")
                 
-                -- It's a header IF it's an index followed by a timestamp (-->)
-                if idx and next_l and next_l:match("%-%->") then
-                    i = i + 2 -- Skip Index and Time header
-                    local current_text = ""
-                    
-                    while i <= #lines do
-                        local txt_line = lines[i]
-                        
-                        -- Peek at next to see if current line is actually an index of the NEXT block
-                        local n_idx = txt_line:match("^%s*(%d+)%s*$")
-                        local nn_l = lines[i+1]
-                        if n_idx and nn_l and nn_l:match("%-%->") then
-                            break -- Finish collecting for current entry
-                        end
-                        
-                        current_text = current_text .. txt_line .. "\n"
-                        i = i + 1
+                if entry_start then
+                    current_text = ""
+                    current_idx = -1
+                elseif index_match then
+                    current_idx = tonumber(index_match)
+                elseif entry_end then
+                    if current_idx ~= -1 then
+                        -- Strip a trailing newline that might have been added by the loop
+                        if current_text:sub(-1) == "\n" then current_text = current_text:sub(1, -2) end
+                        stressed_texts[current_idx] = current_text
                     end
-                    -- Strip trailing newline and store
-                    table.insert(stressed_texts, (current_text:gsub("%s+$", "")))
                 else
-                    i = i + 1
+                    current_text = current_text .. l .. "\n"
                 end
             end
             
-            if #stressed_texts == export_count then
-                local ptr = 1
-                for i, line in ipairs(ass_lines) do
-                    if ass_actors[line.actor] then
+            -- Important: stressed_texts is now indexed by the actual export index
+            local ptr = 1
+            local changed_count = 0
+            for i, line in ipairs(ass_lines) do
+                if ass_actors[line.actor] then
+                    if stressed_texts[ptr] then
                         if line.text ~= stressed_texts[ptr] then
                             line.text = stressed_texts[ptr]
                             changed_lines = changed_lines + 1
                         end
-                        ptr = ptr + 1
                     end
+                    ptr = ptr + 1
                 end
-                python_success = true
-            else
-                reaper.ShowConsoleMsg(string.format("Warning: AI results count mismatch. Expected %d, got %d.\n", export_count, #stressed_texts))
             end
+            python_success = true
             os.remove(temp_out)
         end
     end
@@ -8746,9 +8733,10 @@ apply_stress_marks_async = function()
                 for i, line in ipairs(ass_lines) do
                     if ass_actors[line.actor] then
                         export_count = export_count + 1
-                        f_in:write(export_count .. "\n")
-                        f_in:write("00:00:00,000 --> 00:00:01,000\n")
-                        f_in:write(line.text .. "\n\n")
+                        f_in:write("[SUBASS_ENTRY_START]\n")
+                        f_in:write("[SUBASS_INDEX:" .. export_count .. "]\n")
+                        f_in:write(line.text .. "\n")
+                        f_in:write("[SUBASS_ENTRY_END]\n\n")
                     end
                     -- More aggressive yielding to prevent "Export Text" freeze
                     if (i % 50 == 0) and (os.clock() - time_batch_start > 0.01) then
@@ -8757,8 +8745,6 @@ apply_stress_marks_async = function()
                     end
                 end
                 
-                -- Yield before closing file (heavy flush)
-                coroutine.yield() 
                 f_in:close()
                 
                 if export_count > 0 then
