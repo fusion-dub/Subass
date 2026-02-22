@@ -6819,7 +6819,7 @@ function DUBBERS.export_as_ass(deadline_str)
             if not ASS.ass_format_order or #ASS.ass_format_order == 0 then
                 -- Default fallback
                 local txt = l.text or ""
-                local text = txt:gsub("[\r\n]+", "\\N")
+                local text = txt:gsub("\r\n", "\n"):gsub("\n", "\\N")
                 return string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s", 
                     fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text)
             end
@@ -6833,7 +6833,7 @@ function DUBBERS.export_as_ass(deadline_str)
                     val = fmt_time_ass(l.t2)
                 elseif field == "Text" then
                     local txt = l.text or ""
-                    val = txt:gsub("[\r\n]+", "\\N")
+                    val = txt:gsub("\r\n", "\n"):gsub("\n", "\\N")
                 elseif field == "Name" or field == "Actor" then
                     val = l.actor or "Default"
                 elseif field == "Style" then
@@ -7826,7 +7826,7 @@ local function export_as_ass()
 
         local function format_dialogue(l)
             if not ASS.ass_format_order or #ASS.ass_format_order == 0 then
-                local text = l.text:gsub("[\r\n]+", "\\N")
+                local text = l.text:gsub("\r\n", "\n"):gsub("\n", "\\N")
                 return string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s", 
                     fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text)
             end
@@ -7839,7 +7839,7 @@ local function export_as_ass()
                 elseif field == "End" then
                     val = fmt_time_ass(l.t2)
                 elseif field == "Text" then
-                    val = l.text:gsub("[\r\n]+", "\\N")
+                    val = l.text:gsub("\r\n", "\n"):gsub("\n", "\\N")
                 elseif field == "Name" or field == "Actor" then
                     val = l.actor or "Default"
                 elseif field == "Style" then
