@@ -165,11 +165,84 @@ def get_stressifier():
 def add_stress(text):
     """
     Main function: takes a string and returns it with Ukrainian stress marks.
+    Protects tags {...}, <...> and breaks \\N, \\n, \\h from processing.
     """
     if not text or not text.strip():
         return text
-    stressifier = get_stressifier()
-    return stressifier(text)
+        
+    try:
+        stressifier = get_stressifier()
+        
+        # Split by tags {...}, <...> or tokens \N, \n, \h while keeping separators in parts list
+        # We use a non-capturing group for the whole thing to avoid re-split issues, 
+        # then wrapping in a capturing group to keep the delimiters.
+        parts = re.split(r"(\{.*?\}|\\N|\\n|\\h|<.*?>)", text)
+        processed_parts = []
+        
+        for p in parts:
+            if p is None:
+                continue
+            if p == "":
+                processed_parts.append("")
+                continue
+                
+            # If it's a tag or a break token, keep as is
+            # Tags start with { or <. Tokens start with \
+            if p.startswith("{") or p.startswith("<") or p.startswith("\\"):
+                processed_parts.append(p)
+            else:
+                # Only stressifier non-empty text parts
+                # We strip to avoid passing trailing whitespace to AI, but keep it in the final string
+                stripped = p.strip()
+                if stripped:
+                    stressed = stressifier(p)
+                    processed_parts.append(stressed)
+                else:
+                    processed_parts.append(p)
+                    
+        return "".join(processed_parts)
+    except Exception as e:
+        # Fallback to original text if AI fails to avoid truncation
+        sys.stderr.write(f"Error in add_stress: {str(e)}\n")
+        return text
+
+
+def process_subass_protocol(content):
+    """
+    Processes content in the Subass Protocol format:
+    [SUBASS_ENTRY_START]
+    [SUBASS_INDEX:N]
+    Text
+    [SUBASS_ENTRY_END]
+    """
+    lines = content.splitlines()
+    processed_lines = []
+    
+    current_text = []
+    in_entry = False
+    
+    for line in lines:
+        if "[SUBASS_ENTRY_START]" in line:
+            processed_lines.append(line)
+            in_entry = True
+            current_text = []
+        elif "[SUBASS_ENTRY_END]" in line:
+            if current_text:
+                # Process the accumulated text
+                full_text = "\n".join(current_text)
+                processed_lines.append(add_stress(full_text))
+            processed_lines.append(line)
+            in_entry = False
+            current_text = []
+        elif "[SUBASS_INDEX:" in line:
+            processed_lines.append(line)
+        else:
+            if in_entry:
+                current_text.append(line)
+            else:
+                processed_lines.append(line)
+                
+    return "\n".join(processed_lines)
 
 
 def process_srt(content):
@@ -177,28 +250,34 @@ def process_srt(content):
     lines = content.splitlines()
     processed_lines = []
 
-    # SRT state: 0=Index, 1=Time, 2=Text
+    # SRT state: 0=Header (Index/Time), 1=Text
     state = 0
-    for line in lines:
-        if not line.strip():
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        
+        # Peek ahead to see if this is a header
+        is_header = False
+        if line.strip().isdigit() and i + 1 < len(lines):
+            if "-->" in lines[i+1]:
+                is_header = True
+                
+        if is_header:
             processed_lines.append(line)
-            state = 0
-            continue
-
-        if state == 0:
-            if line.strip().isdigit():
-                processed_lines.append(line)
-                state = 1
+            processed_lines.append(lines[i+1])
+            i += 2
+            state = 1
+        else:
+            if state == 1:
+                if not line.strip() and i + 1 < len(lines) and lines[i+1].strip().isdigit():
+                    # Likely end of entry
+                    processed_lines.append(line)
+                    state = 0
+                else:
+                    processed_lines.append(add_stress(line))
             else:
-                processed_lines.append(add_stress(line))
-        elif state == 1:
-            if "-->" in line:
                 processed_lines.append(line)
-                state = 2
-            else:
-                processed_lines.append(add_stress(line))
-        elif state == 2:
-            processed_lines.append(add_stress(line))
+            i += 1
 
     return "\n".join(processed_lines)
 
@@ -210,22 +289,11 @@ def process_ass(content):
 
     for line in lines:
         if line.startswith("Dialogue:"):
-            # ASS Dialogue format: Dialogue: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             parts = line.split(",", 9)
             if len(parts) > 9:
                 prefix = ",".join(parts[:9])
                 text = parts[9]
-
-                # Handle ASS tags like {\pos(100,100)}
-                text_parts = re.split(r"(\{.*?\})", text)
-                processed_text_parts = []
-                for p in text_parts:
-                    if p.startswith("{") and p.endswith("}"):
-                        processed_text_parts.append(p)
-                    else:
-                        processed_text_parts.append(add_stress(p))
-
-                processed_lines.append(f"{prefix},{''.join(processed_text_parts)}")
+                processed_lines.append(f"{prefix},{add_stress(text)}")
             else:
                 processed_lines.append(line)
         else:
@@ -236,9 +304,9 @@ def process_ass(content):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Add Ukrainian word stress marks to text or subtitle files."
+        description="Add Ukrainian word stress marks to text or subass utility files."
     )
-    parser.add_argument("input", help="The input string, or path to a .srt/.ass file.")
+    parser.add_argument("input", help="The input string, or path to a .srt/.ass/temp file.")
     parser.add_argument(
         "-o", "--output", help="Path to the output file (optional for strings)."
     )
@@ -248,19 +316,23 @@ def main():
 
     # Check if input is a file
     if os.path.isfile(input_val):
-        ext = os.path.splitext(input_val)[1].lower()
         with open(input_val, "r", encoding="utf-8") as f:
             content = f.read()
 
-        if ext == ".srt":
-            print(f"Processing SRT file: {input_val}")
-            result = process_srt(content)
-        elif ext == ".ass":
-            print(f"Processing ASS file: {input_val}")
-            result = process_ass(content)
+        # Check if it's our internal protocol first
+        if "[SUBASS_ENTRY_START]" in content:
+            result = process_subass_protocol(content)
         else:
-            print(f"Treating file as plain text: {input_val}")
-            result = add_stress(content)
+            ext = os.path.splitext(input_val)[1].lower()
+            if ext == ".ass":
+                print(f"Processing ASS file: {input_val}")
+                result = process_ass(content)
+            else:
+                # Default to line-by-line processing for SRT or plain text
+                print(f"Processing as generic text: {input_val}")
+                lines = content.splitlines()
+                processed = [add_stress(l) for l in lines]
+                result = "\n".join(processed)
 
         if args.output:
             with open(args.output, "w", encoding="utf-8") as f:
