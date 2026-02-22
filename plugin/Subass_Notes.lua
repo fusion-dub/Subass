@@ -8522,27 +8522,43 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
             local content = f_out:read("*all")
             f_out:close()
             
-            local stressed_texts = {}
-            local current_text = ""
-            local state = 0 -- 0: Index, 1: Time, 2: Text
+            local lines = {}
             for l in (content .. "\n"):gmatch("(.-)\r?\n") do
-                if state == 0 then
-                    local line_idx = l:match("^%s*(%d+)%s*$")
-                    if line_idx then state = 1 end
-                elseif state == 1 then
-                    if l:match("%-%->") then 
-                        state = 2; current_text = "" 
+                table.insert(lines, l)
+            end
+
+            local stressed_texts = {}
+            local i = 1
+            while i <= #lines do
+                local l = lines[i]
+                -- Detect possible SRT index (digit)
+                local idx = l:match("^%s*(%d+)%s*$")
+                local next_l = lines[i+1]
+                
+                -- It's a header IF it's an index followed by a timestamp (-->)
+                if idx and next_l and next_l:match("%-%->") then
+                    i = i + 2 -- Skip Index and Time header
+                    local current_text = ""
+                    
+                    while i <= #lines do
+                        local txt_line = lines[i]
+                        
+                        -- Peek at next to see if current line is actually an index of the NEXT block
+                        local n_idx = txt_line:match("^%s*(%d+)%s*$")
+                        local nn_l = lines[i+1]
+                        if n_idx and nn_l and nn_l:match("%-%->") then
+                            break -- Finish collecting for current entry
+                        end
+                        
+                        current_text = current_text .. txt_line .. "\n"
+                        i = i + 1
                     end
-                elseif state == 2 then
-                    if l:match("^%s*$") then
-                        table.insert(stressed_texts, (current_text == "" and "" or current_text:sub(1,-2)))
-                        state = 0
-                    else
-                        current_text = current_text .. l .. "\n"
-                    end
+                    -- Strip trailing newline and store
+                    table.insert(stressed_texts, (current_text:gsub("%s+$", "")))
+                else
+                    i = i + 1
                 end
             end
-            if state == 2 then table.insert(stressed_texts, (current_text == "" and "" or current_text:sub(1,-2))) end
             
             if #stressed_texts == export_count then
                 local ptr = 1
