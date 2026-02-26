@@ -7302,7 +7302,18 @@ local function import_srt(file_path, dont_rebuild, forced_actor)
     end
     
     -- Derive Actor Name from Filename or use forced_actor
-    local actor_name = forced_actor or UI_STATE.current_file_name:gsub("%.srt$", ""):gsub("%.SRT$", "")
+    local base_name = UI_STATE.current_file_name:gsub("%.srt$", ""):gsub("%.SRT$", "")
+    local actor_name = forced_actor
+    
+    if not actor_name then
+        -- Special Case: ВанПіс_989_... -> ВанПіс_989
+        local ep = base_name:match("^ВанПіс_([%d]+)")
+        if ep then
+            actor_name = "ВанПіс_" .. ep
+        else
+            actor_name = base_name
+        end
+    end
     
     -- Check for deadline in filename
     local dl = DEADLINE.parse_from_name(UI_STATE.current_file_name)
@@ -21107,42 +21118,44 @@ local function main()
     set_color(UI.C_BG)
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
     
-    -- Main Drawing Logic
-    if DEADLINE.modal.show then 
-        DEADLINE.draw_picker(input_queue)
-    elseif DUBBERS.show_dashboard then
-        DUBBERS.draw_dashboard(input_queue)
-    elseif DEADLINE.dashboard_show then
-        DEADLINE.draw_dashboard(input_queue)
-    elseif SEARCH_ITEM.show then
-        if SEARCH_ITEM.draw_window then SEARCH_ITEM.draw_window(input_queue) end
-    elseif dict_modal.show then
-        draw_dictionary_modal(input_queue)
-    elseif text_editor_state.active then
-        draw_text_editor(input_queue)
-    else
-        if UI_STATE.current_tab == 1 then 
-            if UI_STATE.inside_window then handle_drag_drop() end
-            draw_file()
-        elseif UI_STATE.current_tab == 2 then draw_table(input_queue)
-        elseif UI_STATE.current_tab == 3 then draw_prompter(input_queue) 
-        elseif UI_STATE.current_tab == 4 then draw_settings() end
-        
-        -- Draw Tabs LAST (Z-Index top)
-        draw_tabs()
-        
-        -- Context Menu logic (Right-click on tab bar / empty space)
-        -- Must strictly check UI_STATE.mouse_handled AND window bounds to avoid global capture.
-        if UI_STATE.inside_window and gfx.mouse_cap == 2 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
-            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-            local dock_state = gfx.dock(-1)
-            local check = (dock_state > 0) and "!" or ""
-            local ret = gfx.showmenu(check .. "Закріпити вікно (Dock)")
-            if ret == 1 then
-                local target_dock = dock_state > 0 and 0 or 1
-                gfx.dock(target_dock)
-                GL.last_dock_state = gfx.dock(-1) -- Get the actual new index
-                save_settings()
+    if not OTHER.rec_state.show then
+        -- Main Drawing Logic
+        if DEADLINE.modal.show then 
+            DEADLINE.draw_picker(input_queue)
+        elseif DUBBERS.show_dashboard then
+            DUBBERS.draw_dashboard(input_queue)
+        elseif DEADLINE.dashboard_show then
+            DEADLINE.draw_dashboard(input_queue)
+        elseif SEARCH_ITEM.show then
+            if SEARCH_ITEM.draw_window then SEARCH_ITEM.draw_window(input_queue) end
+        elseif dict_modal.show then
+            draw_dictionary_modal(input_queue)
+        elseif text_editor_state.active then
+            draw_text_editor(input_queue)
+        else
+            if UI_STATE.current_tab == 1 then 
+                if UI_STATE.inside_window then handle_drag_drop() end
+                draw_file()
+            elseif UI_STATE.current_tab == 2 then draw_table(input_queue)
+            elseif UI_STATE.current_tab == 3 then draw_prompter(input_queue) 
+            elseif UI_STATE.current_tab == 4 then draw_settings() end
+            
+            -- Draw Tabs LAST (Z-Index top)
+            draw_tabs()
+            
+            -- Context Menu logic (Right-click on tab bar / empty space)
+            -- Must strictly check UI_STATE.mouse_handled AND window bounds to avoid global capture.
+            if UI_STATE.inside_window and gfx.mouse_cap == 2 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local dock_state = gfx.dock(-1)
+                local check = (dock_state > 0) and "!" or ""
+                local ret = gfx.showmenu(check .. "Закріпити вікно (Dock)")
+                if ret == 1 then
+                    local target_dock = dock_state > 0 and 0 or 1
+                    gfx.dock(target_dock)
+                    GL.last_dock_state = gfx.dock(-1) -- Get the actual new index
+                    save_settings()
+                end
             end
         end
     end
