@@ -5532,10 +5532,11 @@ local function update_regions_cache()
     local retval, num_markers, num_regions = reaper.CountProjectMarkers(0)
     local i = 0
     local rgn_map = {}
-    while i < (num_markers + num_regions) do
-        local retval, isrgn, pos, rgnend, name, idx = reaper.EnumProjectMarkers(i)
+    while true do
+        local retval, isrgn, pos, rgnend, name, idx, color = reaper.EnumProjectMarkers3(0, i)
+        if retval == 0 then break end
         if isrgn then
-            local rgn_obj = {idx = idx, pos = pos, rgnend = rgnend, name = name, rgn_index = i, actor = ""}
+            local rgn_obj = {idx = idx, pos = pos, rgnend = rgnend, name = name, rgn_index = i, actor = "", color = color}
             table.insert(regions, rgn_obj)
             rgn_map[idx] = rgn_obj
         end
@@ -5602,25 +5603,56 @@ local function update_regions_cache()
         end
         
         -- 2. Adopt "foreign" regions (created manually in REAPER)
+        local is_empty_project = (#ass_lines == 0)
+        
         for idx, rgn in pairs(rgn_map) do
             if not tracked_rgn_idxs[idx] then
                 -- This is a new region! Adopt it.
                 if not UI_STATE.ass_file_loaded then UI_STATE.ass_file_loaded = true end
                 
+                -- Determine Actor name based on color, OR just "REAPER" if lines already exist
+                local actor_name = "REAPER"
+                
+                -- Only assign color-based names if we are importing a fresh project (ass_lines is empty)
+                -- Otherwise, any new / restored regions just go to a default "REAPER" actor to avoid hex scatter on Ctrl+Z
+                if is_empty_project and rgn.color and rgn.color ~= 0 then
+                    -- Extract RGB from BGR color (REAPER uses 0x1BBGGRR format where 1 is a flag)
+                    -- For EnumProjectMarkers3, color is native (BGR)
+                    local r = (rgn.color & 0xFF)
+                    local g = (rgn.color >> 8) & 0xFF
+                    local b = (rgn.color >> 16) & 0xFF
+                    actor_name = string.format("REAPER_%02X%02X%02X", r, g, b)
+                end
+
                 local new_line = {
                     t1 = rgn.pos,
                     t2 = rgn.rgnend,
                     text = rgn.name,
-                    actor = "REAPER",
+                    actor = actor_name,
                     enabled = true,
                     index = get_next_line_index(),
                     rgn_idx = rgn.idx
                 }
                 table.insert(ass_lines, new_line)
-                if ass_actors["REAPER"] == nil then ass_actors["REAPER"] = true end
+                if ass_actors[actor_name] == nil then 
+                    ass_actors[actor_name] = true 
+                    -- Register color in global actor_colors
+                    local color_to_save = rgn.color
+                    if not color_to_save or color_to_save == 0 then
+                        color_to_save = reaper.GetThemeColor("region", 0)
+                    end
+                    
+                    if color_to_save then
+                        -- Ensure 0x1000000 bit is set for consistency with get_actor_color
+                        if (color_to_save & 0x1000000) == 0 then
+                            color_to_save = color_to_save | 0x1000000
+                        end
+                        ASS.actor_colors[actor_name] = color_to_save
+                    end
+                end
                 changed = true
                 tracked_rgn_idxs[idx] = true -- Don't adopt twice
-                rgn.actor = "REAPER"
+                rgn.actor = actor_name
             end
         end
         
@@ -13944,11 +13976,14 @@ local function draw_file()
                                 else
                                     ass_actors[new_name] = true
                                 end
-                                -- Update color
-                                if ASS.actor_colors[act] then
-                                    ASS.actor_colors[new_name] = ASS.actor_colors[act]
-                                    ASS.actor_colors[act] = nil
+                                -- Update color: ALWAYS preserve the color even if it was auto-generated
+                                local current_color = get_actor_color(act)
+                                if current_color and current_color ~= 0 then
+                                    ASS.actor_colors[new_name] = current_color
                                 end
+                                -- Clear the old name's color just in case
+                                ASS.actor_colors[act] = nil
+                                
                                 cleanup_actors()
                                 rebuild_regions()
                                 save_project_data()
@@ -13970,7 +14005,7 @@ local function draw_file()
                                     end
                                 end
                                 ass_lines = new_lines
-                                
+
                                 cleanup_actors()
                                 rebuild_regions()
                                 save_project_data()
