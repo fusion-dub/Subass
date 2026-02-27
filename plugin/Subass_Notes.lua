@@ -1607,8 +1607,102 @@ function UTILS.compare_sub_text(s1, s2)
         n = n:gsub("^%s+", ""):gsub("%s+$", "")
         return n
     end
-    
+
     return norm(s1) == norm(s2)
+end
+
+--- Розрахувати кількість реплік і слів у списку рядків
+--- @param lines table Список реплік
+--- @return number, number Кількість реплік, кількість слів
+function UTILS.calculate_lines_stats(lines)
+    local total_lines = lines and #lines or 0
+    local total_words = 0
+    if lines then
+        for _, l in ipairs(lines) do
+            local clean = (l.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+            local _, count = clean:gsub("%S+", "")
+            total_words = total_words + count
+        end
+    end
+    return total_lines, total_words
+end
+
+--- Підготовка даних для експорту субтитрів (фільтрація, сортування, генерація імені файлу)
+--- @param ext string Розширення файлу (напр. ".srt", ".ass")
+--- @return table|nil, string|nil Список реплік та запропоноване ім'я файлу (або nil у разі переривання)
+function UTILS.prepare_export_data(ext)
+    if not reaper.JS_Dialog_BrowseForSaveFile then
+        local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
+        if not has_reapack then
+            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
+        else
+            msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
+        end
+        reaper.MB(msg, "Відсутні компоненти", 0)
+        return nil, nil
+    end
+
+    -- Filter enabled lines
+    local out_lines = {}
+    local selected_actors = {}
+    
+    for _, l in ipairs(ass_lines) do
+        if l.enabled then
+            table.insert(out_lines, l)
+            if l.actor and l.actor ~= "" then
+                selected_actors[l.actor] = true
+            end
+        end
+    end
+
+    table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
+
+    if #out_lines == 0 then
+        show_snackbar("Немає активних реплік для експорту", "info")
+        return nil, nil
+    end
+
+    -- Construct filename
+    local _, proj_path = reaper.EnumProjects(-1)
+    local proj_name = "Project"
+    if proj_path and proj_path ~= "" then
+        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
+    end
+
+    local actors_list = {}
+    for act in pairs(selected_actors) do
+        table.insert(actors_list, act)
+    end
+    table.sort(actors_list)
+    
+    local total_actors = 0
+    for _ in pairs(ass_actors) do total_actors = total_actors + 1 end
+    
+    local suffix = ""
+    if #actors_list > 0 and #actors_list < total_actors then
+        -- Limit to first 100 actors to avoid super long filenames
+        local limit = 100
+        local parts = {}
+        for i = 1, math.min(#actors_list, limit) do
+            table.insert(parts, actors_list[i])
+        end
+        suffix = "_" .. table.concat(parts, "_")
+        if #actors_list > limit then
+            suffix = suffix .. "_etc"
+        end
+    else
+        suffix = "_All"
+    end
+    
+    -- Clean filename chars (Sanitize illegal chars, allow unicode)
+    suffix = suffix:gsub("[<>:\"/\\|?*]", "_")
+    
+    local total_replicas, total_words = UTILS.calculate_lines_stats(out_lines)
+    local stats_suffix = string.format("_%d_реплік_%d_слів", total_replicas, total_words)
+    
+    local default_filename = proj_name .. suffix .. stats_suffix .. ext
+    
+    return out_lines, default_filename
 end
 
 --- Draw a vertical scrollbar with drag interaction
@@ -5407,6 +5501,16 @@ local function get_actor_color(actor)
     if not actor or actor == "" or not cfg.random_color_actors then return 0 end
     if ASS.actor_colors[actor] then return ASS.actor_colors[actor] end
     
+    -- Try to recover an existing color from REAPER regions for this actor before randomizing
+    if regions then
+        for _, r in ipairs(regions) do
+            if r.actor == actor and r.color and r.color ~= 0 then
+                ASS.actor_colors[actor] = r.color
+                return r.color
+            end
+        end
+    end
+    
     -- Generate random color (but avoid too dark/black)
     -- Simple approach: Random R, G, B
     -- Ensure visible against track background?
@@ -7666,70 +7770,8 @@ end
 
 --- Export selected subtitles to SRT format
 local function export_as_srt()
-    if not reaper.JS_Dialog_BrowseForSaveFile then
-        local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
-        if not has_reapack then
-            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
-        else
-            msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
-        end
-        reaper.MB(msg, "Відсутні компоненти", 0)
-        return
-    end
-
-    -- Filter enabled lines
-    local out_lines = {}
-    local selected_actors = {}
-    
-    for _, l in ipairs(ass_lines) do
-        if l.enabled then
-            table.insert(out_lines, l)
-            if l.actor and l.actor ~= "" then
-                selected_actors[l.actor] = true
-            end
-        end
-    end
-
-    table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
-
-    if #out_lines == 0 then
-        show_snackbar("Немає активних реплік для експорту", "info")
-        return
-    end
-
-    -- Construct filename
-    local _, proj_path = reaper.EnumProjects(-1)
-    local proj_name = "Project"
-    if proj_path and proj_path ~= "" then
-        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
-    end
-
-    local actors_list = {}
-    for act in pairs(selected_actors) do
-        table.insert(actors_list, act)
-    end
-    table.sort(actors_list)
-    
-    local suffix = ""
-    if #actors_list > 0 then
-        -- Limit to first 100 actors to avoid super long filenames
-        local limit = 100
-        local parts = {}
-        for i = 1, math.min(#actors_list, limit) do
-            table.insert(parts, actors_list[i])
-        end
-        suffix = "_" .. table.concat(parts, "_")
-        if #actors_list > limit then
-            suffix = suffix .. "_etc"
-        end
-    else
-        suffix = "_All"
-    end
-    
-    -- Clean filename chars (Sanitize illegal chars, allow unicode)
-    suffix = suffix:gsub("[<>:\"/\\|?*]", "_")
-    
-    local default_filename = proj_name .. suffix .. ".srt"
+    local out_lines, default_filename = UTILS.prepare_export_data(".srt")
+    if not out_lines then return end
 
     -- Save Dialog
     local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Експорт в SRT", "", default_filename, "SRT files (.srt)\0*.srt\0All Files (*.*)\0*.*\0")
@@ -7781,69 +7823,8 @@ local function export_as_srt()
 end
 
 local function export_as_ass()
-    if not reaper.JS_Dialog_BrowseForSaveFile then
-        local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
-        if not has_reapack then
-            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
-        else
-            msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
-        end
-        reaper.MB(msg, "Відсутні компоненти", 0)
-        return
-    end
-
-    -- Filter enabled lines
-    local out_lines = {}
-    local selected_actors = {}
-    
-    for _, l in ipairs(ass_lines) do
-        if l.enabled then
-            table.insert(out_lines, l)
-            if l.actor and l.actor ~= "" then
-                selected_actors[l.actor] = true
-            end
-        end
-    end
-
-    table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
-
-    if #out_lines == 0 then
-        show_snackbar("Немає активних реплік для експорту", "info")
-        return
-    end
-
-    -- Construct filename
-    local _, proj_path = reaper.EnumProjects(-1)
-    local proj_name = "Project"
-    if proj_path and proj_path ~= "" then
-        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
-    end
-
-    local actors_list = {}
-    for act in pairs(selected_actors) do
-        table.insert(actors_list, act)
-    end
-    table.sort(actors_list)
-    
-    local suffix = ""
-    if #actors_list > 0 then
-        local limit = 100
-        local parts = {}
-        for i = 1, math.min(#actors_list, limit) do
-            table.insert(parts, actors_list[i])
-        end
-        suffix = "_" .. table.concat(parts, "_")
-        if #actors_list > limit then
-            suffix = suffix .. "_etc"
-        end
-    else
-        suffix = "_All"
-    end
-    
-    -- Clean filename chars
-    suffix = suffix:gsub("[<>:\"/\\|?*]", "_")
-    
-    local default_filename = proj_name .. suffix .. ".ass"
+    local out_lines, default_filename = UTILS.prepare_export_data(".ass")
+    if not out_lines then return end
 
     -- Save Dialog
     local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Експорт в ASS", "", default_filename, "ASS files (.ass)\0*.ass\0All Files (*.*)\0*.*\0")
@@ -7929,6 +7910,112 @@ local function export_as_ass()
         file:close()
         show_snackbar("Експортовано " .. #out_lines .. " реплік в ASS", "success")
     end
+end
+
+--- Copy per-actor statistics to clipboard
+--- @param include_time boolean Whether to include time/duration in the statistics
+local function copy_actors_statistics(include_time)
+    local total_repl = 0
+    local total_words = 0
+    local total_time = 0
+    
+    local act_stats = {}
+    for _, line in ipairs(ass_lines) do
+        if line.enabled then
+            local act = line.actor or "Unknown"
+            if not act_stats[act] then
+                act_stats[act] = {r = 0, w = 0, t = 0}
+            end
+            local st = act_stats[act]
+            st.r = st.r + 1
+            total_repl = total_repl + 1
+            
+            local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+            local _, count = clean:gsub("%S+", "")
+            st.w = st.w + count
+            total_words = total_words + count
+            
+            if include_time and line.t1 and line.t2 then
+                local dur = line.t2 - line.t1
+                st.t = st.t + dur
+                total_time = total_time + dur
+            end
+        end
+    end
+    
+    if total_repl == 0 then
+        show_snackbar("Немає даних", "info")
+        return
+    end
+    
+    local sorted_actors = {}
+    local max_actor_len = 0
+    for act in pairs(act_stats) do 
+        table.insert(sorted_actors, act) 
+        -- Count physical bytes for rough padding
+        if string.len(act) > max_actor_len then
+            max_actor_len = string.len(act)
+        end
+    end
+    
+    -- Sort by lines descending, then alphabetically for ties
+    table.sort(sorted_actors, function(a, b)
+        if act_stats[a].r == act_stats[b].r then return a < b end
+        return act_stats[a].r > act_stats[b].r
+    end)
+    
+    local function fmt_time(secs)
+        local h = math.floor(secs / 3600)
+        local m = math.floor((secs % 3600) / 60)
+        local s = math.floor(secs % 60)
+        if h > 0 then
+            return string.format("%02d:%02d:%02d", h, m, s)
+        else
+            return string.format("%02d:%02d", m, s)
+        end
+    end
+    
+    local lines = {}
+    table.insert(lines, "Всього реплік: " .. total_repl)
+    if include_time then
+        table.insert(lines, "Загальний час: " .. fmt_time(total_time))
+    end
+    table.insert(lines, "Всього слів: " .. total_words)
+    table.insert(lines, "")
+    table.insert(lines, "Статистика по акторам:")
+    table.insert(lines, "")
+    
+    for i, act in ipairs(sorted_actors) do
+        local st = act_stats[act]
+        local l_pct = (st.r / total_repl) * 100
+        local w_pct = total_words > 0 and ((st.w / total_words) * 100) or 0
+        local t_pct = total_time > 0 and ((st.t / total_time) * 100) or 0
+        
+        -- Pad actor string
+        local pad = string.rep(" ", math.max(0, max_actor_len - string.len(act)))
+        table.insert(lines, string.format("%-2d %s%s", i, act, pad))
+        
+        -- Second line formatted with percentage spacing
+        local stats_line = ""
+        if include_time then
+            stats_line = string.format("-- %d реплік (%05.2f%%), %s (%05.2f%%), %4d слів (%05.2f%%)", 
+                st.r, l_pct, fmt_time(st.t), t_pct, st.w, w_pct)
+        else
+            stats_line = string.format("-- %d реплік (%05.2f%%), %4d слів (%05.2f%%)", 
+                st.r, l_pct, st.w, w_pct)
+        end
+        table.insert(lines, stats_line)
+        table.insert(lines, "")
+    end
+    
+    -- Remove trailing empty line for clean copy
+    if #lines > 0 and lines[#lines] == "" then
+        table.remove(lines, #lines)
+    end
+    
+    local text = table.concat(lines, "\n")
+    set_clipboard(text)
+    show_snackbar("Статистику скопійовано", "success")
 end
 
 --- Import director notes from text format and create markers
@@ -14047,7 +14134,20 @@ local function draw_file()
             gfx.y = stats_y
             local time_str = format_time_hms(stats_time)
             local str = "Обрано: " .. stats_replicas .. " реплік, " .. stats_words .. " слів, час: " .. time_str
+            local bw, bh = gfx.measurestr(str)
             gfx.drawstr(fit_text_width(str, gfx.w - S(40)))
+            
+            -- Hook right click for quick copy
+            if is_mouse_clicked(2) and not UI_STATE.mouse_handled and gfx.mouse_y >= stats_y and gfx.mouse_y <= stats_y + bh and gfx.mouse_x >= S(20) and gfx.mouse_x <= S(20) + bw then
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local ret = gfx.showmenu("Копіювати статистику||Копіювати статистику з часом")
+                UI_STATE.mouse_handled = true
+                if ret == 1 then
+                    copy_actors_statistics(false)
+                elseif ret == 2 then
+                    copy_actors_statistics(true)
+                end
+            end
         end
         y_cursor = y_cursor + S(45)
 
