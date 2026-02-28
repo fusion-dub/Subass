@@ -8,6 +8,7 @@ import base64
 import argparse
 import re
 import difflib
+import unicodedata
 
 # Whitelisted audio extensions
 AUDIO_EXTENSIONS = [".wav"]
@@ -16,12 +17,42 @@ MAX_FILE_SIZE_MB = 25
 
 def normalize_text(text):
     """
-    Normalizes text for fuzzy searching.
+    Normalizes text for fuzzy searching by removing diacritics, 
+    punctuation, homoglyphs, and extra whitespace.
     """
     if not text: return ""
-    text = text.lower()
-    text = text.replace('\u0301', '')
-    text = re.sub(r'[.,/#!$%^&*;:{}=\-_`~()…?!"\']', ' ', text)
+    
+    # 1. Normalize to NFKD (Compatibility Decomposition) to separate marks
+    text = unicodedata.normalize('NFKD', text)
+    
+    # 2. Map common Cyrillic/Latin homoglyphs to Cyrillic standard
+    # to handle accidental layout confusion (a, c, e, i, o, p, x, y/u)
+    homoglyphs = {
+        '\u0061': '\u0430', # Latin a -> Cyrillic а
+        '\u0063': '\u0441', # Latin c -> Cyrillic с
+        '\u0065': '\u0435', # Latin e -> Cyrillic е
+        '\u0069': '\u0456', # Latin i -> Cyrillic і
+        '\u006f': '\u043e', # Latin o -> Cyrillic о
+        '\u0070': '\u0440', # Latin p -> Cyrillic р
+        '\u0078': '\u0445', # Latin x -> Cyrillic х
+        '\u0079': '\u0443', # Latin y -> Cyrillic у
+    }
+    
+    # 3. Aggressively keep only letters and numbers, lowercase everything
+    result = []
+    for c in text.lower():
+        # First check homoglyphs
+        c = homoglyphs.get(c, c)
+        
+        # Then check category (Skip marks 'M', keep letters 'L' and numbers 'N')
+        if not unicodedata.combining(c):
+            cat = unicodedata.category(c)
+            if cat.startswith('L') or cat.startswith('N'):
+                result.append(c)
+            elif c.isspace():
+                result.append(' ')
+    
+    text = "".join(result)
     return " ".join(text.split())
 
 def get_similarity(s1, s2):
@@ -76,7 +107,8 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
         base_chunks = {}
         tracks = []
         sws_subs = []
-        marker_times = {} # id -> [times]
+        marker_times = {} # id -> [times] for SWS
+        marker_pairs = {} # id -> [{"pos": pos, "name": name}] for Regions
         current_track = None
         current_item = None
         
@@ -152,12 +184,21 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
                     continue
 
                 if line_str.startswith("MARKER "):
-                    # MARKER 1 161.541...
-                    m = re.match(r'MARKER\s+(\d+)\s+([\d.-]+)', line_str)
-                    if m:
-                        m_idx = int(m.group(1))
-                        m_pos = float(m.group(2))
-                        marker_times.setdefault(m_idx, []).append(m_pos)
+                    parts = re.findall(r'(?:[^\s"]+|"[^"]*")+', line_str)
+                    if len(parts) >= 3:
+                        try:
+                            m_idx = int(parts[1])
+                            m_pos = float(parts[2])
+                            m_name = parts[3].strip('"') if len(parts) > 3 else ""
+                            
+                            # Record for SWS lookup (id -> [pos, ...])
+                            marker_times.setdefault(m_idx, []).append(m_pos)
+                            
+                            # Group markers by ID to find start/end pairs for new "Region" logic
+                            # We'll process this later to avoid interfering with SWS lookup above
+                            if "marker_pairs" not in locals(): marker_pairs = {}
+                            marker_pairs.setdefault(m_idx, []).append({"pos": m_pos, "name": m_name})
+                        except: pass
                     continue
 
                 if line_str.startswith("<TRACK"):
@@ -231,7 +272,36 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
                 ass_lines = [l for l in ass_lines if l is not None]
             except Exception: pass
         
-        # Add SWS subtitles to the list
+        # Process markers into subtitles (pair markers with same ID)
+        for m_idx, m_instances in marker_pairs.items():
+            if len(m_instances) >= 2:
+                # Sort by position to find start/end
+                sorted_inst = sorted(m_instances, key=lambda x: x["pos"])
+                for i in range(0, len(sorted_inst) - 1, 2):
+                    t1_inst = sorted_inst[i]
+                    t2_inst = sorted_inst[i+1]
+                    
+                    # Use the name from the start marker (or end if start is empty)
+                    m_name = t1_inst["name"] if t1_inst["name"] else t2_inst["name"]
+                    if m_name:
+                        sws_subs.append({
+                            "t1": t1_inst["pos"],
+                            "t2": t2_inst["pos"],
+                            "actor": "Region",
+                            "text": m_name
+                        })
+            elif len(m_instances) == 1:
+                # Single marker (just a point), fall back to 0.5s duration
+                inst = m_instances[0]
+                if inst["name"]:
+                    sws_subs.append({
+                        "t1": inst["pos"],
+                        "t2": inst["pos"] + 0.5,
+                        "actor": "Marker",
+                        "text": inst["name"]
+                    })
+
+        # Add SWS and Marker/Region subtitles to the list
         ass_lines.extend(sws_subs)
         
         if not ass_lines: return None
