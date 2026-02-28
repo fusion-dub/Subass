@@ -1567,9 +1567,9 @@ function UTILS.launch_python_script(script_relative_path)
     local os_name = reaper.GetOS()
     
     if os_name:match("Win") then
-        local py_exe = OTHER.rec_state.python.executable or "python"
+        local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python.executable or "py -3")
         py_script = py_script:gsub("/", "\\")
-        reaper.ExecProcess('cmd.exe /C start "" "' .. py_exe .. '" "' .. py_script .. '"', -1)
+        reaper.ExecProcess('cmd.exe /C start "" ' .. py_exe .. ' "' .. py_script .. '"', -1)
     elseif os_name:match("OSX") or os_name:match("macOS") then
         local cmd = string.format('/usr/bin/open -n -a Terminal.app "%s"', py_script)
         reaper.ExecProcess(cmd, -1)
@@ -1625,6 +1625,19 @@ function UTILS.calculate_lines_stats(lines)
         end
     end
     return total_lines, total_words
+end
+
+--- Helper to properly quote Python executable for Windows cmd/start
+-- @param py_exe string The executable name or path
+-- @return string Processed string for shell execution
+function UTILS.get_win_py_exe(py_exe)
+    if not py_exe then return "python" end
+    -- If py_exe is a full path with spaces, it needs quotes: "C:\Path with spaces\python.exe"
+    -- If it's a launcher command with flags (like 'py -3'), it MUST NOT be quoted as a whole for 'start'
+    if py_exe:find(" ") and (py_exe:find("\\") or py_exe:find(":")) then
+        return '"' .. py_exe .. '"'
+    end
+    return py_exe
 end
 
 --- Підготовка даних для експорту субтитрів (фільтрація, сортування, генерація імені файлу)
@@ -3003,8 +3016,8 @@ function DEADLINE.draw_dashboard(input_queue)
                 
                 if reaper.GetOS():match("Win") then
                     py_script = py_script:gsub("/", "\\")
-                    local py_exe = (OTHER and OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or "pythonw.exe"
-                    local cmd = string.format('cmd.exe /C start /B "" "%s" "%s" %s', py_exe, py_script, cmd_args)
+                    local py_exe = UTILS.get_win_py_exe((OTHER and OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or "pythonw.exe")
+                    local cmd = string.format('cmd.exe /C start /B "" %s "%s" %s', py_exe, py_script, cmd_args)
                     reaper.ExecProcess(cmd, 0)
                 else
                     -- macOS/Linux: simple background execution with nohup for complete detachment
@@ -6237,7 +6250,6 @@ local function ebu_r128_replicas_normalize()
     end
     
     if sws_cmd and sws_cmd > 0 then
-        -- Execute SWS batch normalization
         reaper.Main_OnCommand(sws_cmd, 0)
         reaper.ShowConsoleMsg("Batch analysis complete. Calculating LUFS values...\n\n")
     else
@@ -6724,70 +6736,71 @@ local function filter_unique_item_replicas()
     end
 end
 
-    --- Upload current subtitles to analytics via Python script
-    function STATS.upload_subtitles_analytics()
-        if not ass_lines or #ass_lines == 0 then return end
+--- Upload current subtitles to analytics via Python script
+function STATS.upload_subtitles_analytics()
+    if not ass_lines or #ass_lines == 0 then return end
+    
+    -- Get current file path (full path, not just name)
+    local filepath = UI_STATE.current_file_path
+    if not filepath or filepath == "" then
+        -- Fallback: if no path, skip upload
+        return
+    end
         
-        -- Get current file path (full path, not just name)
-        local filepath = UI_STATE.current_file_path
-        if not filepath or filepath == "" then
-            -- Fallback: if no path, skip upload
-            return
-        end
-        
-        -- Get project name
-        local _, proj_path = reaper.EnumProjects(-1)
-        local proj_name = "Project"
-        if proj_path and proj_path ~= "" then
-            proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or "Project"
-        end
-
-        -- Build Python script path
-        local source = debug.getinfo(1,'S').source
-        local script_path = source:match([[^@?(.*[\\/])]]) or ""
-        local full_script_path = script_path .. "stats/subass_extra_stats.py"
-        
-        -- Execute in background (fire-and-forget, completely silent)
-        if reaper.GetOS():match("Win") then
-            full_script_path = full_script_path:gsub("/", "\\")
-            filepath = filepath:gsub("/", "\\")
-            local py_exe = OTHER.rec_state.python and OTHER.rec_state.python.executable or "python"
-            
-            -- Use cmd /C start /B for background execution on Windows
-            -- We quote everything to handle paths with spaces
-            local cmd = string.format('cmd.exe /C start /B "" "%s" "%s" --filepath "%s" --project_name "%s"', 
-                                    py_exe, full_script_path, filepath, proj_name)
-            
-            reaper.ExecProcess(cmd, 0)
-        else
-            -- macOS/Linux: simple background execution with nohup for complete detachment
-            local cmd = string.format('nohup python3 "%s" --filepath "%s" --project_name "%s" > /dev/null 2>&1 &', 
-                                    full_script_path, filepath, proj_name)
-            os.execute(cmd)
-        end
+    -- Get project name
+    local _, proj_path = reaper.EnumProjects(-1)
+    local proj_name = "Project"
+    if proj_path and proj_path ~= "" then
+        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or "Project"
     end
 
-    --- Register plugin usage on first run (Fire-and-Forget)
-    function STATS.register_plugin_usage() 
-        -- Build Python script path
-        local source = debug.getinfo(1,'S').source
-        local script_path = source:match([[^@?(.*[\\/])]]) or ""
-        local full_script_path = script_path .. "stats/subass_extra_stats.py"
+    -- Build Python script path
+    local source = debug.getinfo(1,'S').source
+    local script_path = source:match([[^@?(.*[\\/])]]) or ""
+    local full_script_path = script_path .. "stats/subass_extra_stats.py"
+
+    -- Execute in background (fire-and-forget, completely silent)
+    if reaper.GetOS():match("Win") then
+        full_script_path = full_script_path:gsub("/", "\\")
+        filepath = filepath:gsub("/", "\\")
+        local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
         
-        -- Execute in background
-        if reaper.GetOS():match("Win") then
-            full_script_path = full_script_path:gsub("/", "\\")
-            -- Quote args
-            local cmd = string.format('cmd.exe /C start /B "" "%s" "%s" --register --script_title "%s"', 
-                                    "python", full_script_path, GL.script_title)
-            reaper.ExecProcess(cmd, 0)
-        else
-            -- macOS/Linux
-            local cmd = string.format('nohup python3 "%s" --register --script_title "%s" > /dev/null 2>&1 &', 
+        -- Use cmd /C start /B for background execution on Windows
+        -- We quote everything to handle paths with spaces except the py_exe if it has flags
+        local cmd = string.format('cmd.exe /C start /B "" %s "%s" --filepath "%s" --project_name "%s"', 
+                                py_exe, full_script_path, filepath, proj_name)
+            
+        reaper.ExecProcess(cmd, 0)
+    else
+        -- macOS/Linux: simple background execution with nohup for complete detachment
+        local cmd = string.format('nohup python3 "%s" --filepath "%s" --project_name "%s" > /dev/null 2>&1 &', 
+                                full_script_path, filepath, proj_name)
+        os.execute(cmd)
+    end
+end
+
+--- Register plugin usage on first run (Fire-and-Forget)
+function STATS.register_plugin_usage() 
+    -- Build Python script path
+    local source = debug.getinfo(1,'S').source
+    local script_path = source:match([[^@?(.*[\\/])]]) or ""
+    local full_script_path = script_path .. "stats/subass_extra_stats.py"
+    
+    -- Execute in background
+    if reaper.GetOS():match("Win") then
+        full_script_path = full_script_path:gsub("/", "\\")
+        local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
+        -- Quote args
+        local cmd = string.format('cmd.exe /C start /B "" %s "%s" --register --script_title "%s"', 
+                                    py_exe, full_script_path, GL.script_title)
+        reaper.ExecProcess(cmd, 0)
+    else
+        -- macOS/Linux
+        local cmd = string.format('nohup python3 "%s" --register --script_title "%s" > /dev/null 2>&1 &', 
                                     full_script_path, GL.script_title)
-            os.execute(cmd)
-        end
+        os.execute(cmd)
     end
+end
 
 -- ═══════════════════════════════════════════════════════════════
 -- DUBBERS MODULE - Methods
@@ -8797,7 +8810,6 @@ apply_stress_marks_async = function()
     UI_STATE.script_loading_state.text = "Ініціалізація..."
     
     -- Calculate paths OUTSIDE coroutine to avoid debug.getinfo issues
-    local is_windows = reaper.GetOS():match("Win") ~= nil
     local function get_actual_script_path()
         local info = debug.getinfo(1, "S")
         local path = info.source
@@ -8894,7 +8906,7 @@ apply_stress_marks_async = function()
                         in_p = in_p:gsub("/", "\\")
                         out_p = out_p:gsub("/", "\\")
                         log_file = log_file:gsub("/", "\\")
-                        local py_exe = OTHER.rec_state.python.executable or "python"
+                        local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python.executable or "py -3")
                         cmd_to_run = string.format('%s "%s" "%s" -o "%s" > "%s" 2>&1', py_exe, tool_p, in_p, out_p, log_file)
                     else
                         -- Mac/Linux: Assume python3
@@ -9149,9 +9161,14 @@ end
 local function check_for_updates(is_silent)
     local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
     local py_script = script_path .. "subass_autoupdate.py"
+    local py_exe = OTHER.rec_state.python.executable 
     
-    local py_exe = OTHER.rec_state.python.executable or (reaper.GetOS():match("Win") and "python" or "python3")
-    local is_windows = reaper.GetOS():match("Win")
+    if not py_exe or py_exe == "" then
+        -- If detection hasn't finished, prefer 'py -3' on Windows as it's safer
+        py_exe = is_windows and "py -3" or "python3"
+    end
+    
+    if is_windows then py_exe = UTILS.get_win_py_exe(py_exe) end
     
     local cmd
     if is_windows then
@@ -10991,9 +11008,8 @@ function SEARCH_ITEM.perform_search()
     local separator = package.config:sub(1,1)
     local python_tool = dir .. "stats" .. separator .. "subass_search.py"
     local search_item_path = cfg.search_item_path
-    
-    local is_windows = reaper.GetOS():match("Win") ~= nil
-    local py_exe = is_windows and (OTHER.rec_state.python.executable or "python") or "python3"
+
+    local py_exe = is_windows and UTILS.get_win_py_exe(OTHER.rec_state.python.executable or "py -3") or "python3"
     
     local cmd = string.format('%s "%s" "%s" "%s"', py_exe, python_tool, q:gsub('"', '\\"'), search_item_path)
     
@@ -12778,9 +12794,9 @@ local function get_py_ver()
     if os_name:match("Win") then
         -- Async check for Windows to avoid terminal popup
         local cmds = {
+            { cmd = "py -3 --version", exe = "py -3" },
             { cmd = "python --version", exe = "python" },
-            { cmd = "python3 --version", exe = "python3" },
-            { cmd = "py -3 --version", exe = "py -3" }
+            { cmd = "python3 --version", exe = "python3" }
         }
         
         local function try_next_cmd(idx)
@@ -14171,7 +14187,8 @@ local function draw_file()
         if t_y + S(20) > start_y and t_y < gfx.h then
             gfx.setfont(F.std)
             gfx.x, gfx.y = S(20), t_y
-            gfx.drawstr("Імпортуй файл аби побачити більше опцій.")
+            local txt_see_more_options = fit_text_width("Імпортуй файл аби побачити більше опцій.", gfx.w - S(40))
+            gfx.drawstr(txt_see_more_options)
         end
         y_cursor = y_cursor + S(30)
     end
@@ -14202,7 +14219,27 @@ local function draw_file()
         gfx.x, gfx.y = dx + (dw - sw) / 2, drop_y + (dh - sh) / 2
         gfx.drawstr(str)
     end
-    y_cursor = y_cursor + S(80)
+    y_cursor = y_cursor + S(70)
+
+    -- Footer
+    local footer_txt = fit_text_width("Знайшли баг або маєте ідею — пишіть: @fusion_ford", gfx.w - S(10))
+    gfx.setfont(F.tip)
+    gfx.x, gfx.y = padding, get_y(y_cursor)
+    if gfx.y + S(20) > start_y and gfx.y < gfx.h then
+        gfx.drawstr(footer_txt)
+    end
+
+    -- Click to Copy handle (using existing helpers)
+    local f_sy = get_y(y_cursor)
+    if f_sy + S(20) > start_y and f_sy < gfx.h then
+        local tw, th = gfx.measurestr(footer_txt)
+        if is_mouse_clicked() and gfx.mouse_x >= padding and gfx.mouse_x <= padding + tw and
+           gfx.mouse_y >= f_sy and gfx.mouse_y <= f_sy + th then
+            set_clipboard("@fusion_ford")
+            show_snackbar("Скопійовано: @fusion_ford", "info")
+        end
+    end
+    y_cursor = y_cursor + S(40)
 
     -- Context Menu (Right Click on background)
     if is_mouse_clicked(2) and not UI_STATE.mouse_handled then
@@ -21319,9 +21356,9 @@ local function main()
     
     -- Periodic Update Check
     if reaper.time_precise() - UI_STATE.last_update_check_time > UI_STATE.AUTO_UPDATE_INTERVAL then
-        UI_STATE.last_update_check_time = reaper.time_precise()
-        -- Only check if we are not already doing something async
-        if not UI_STATE.script_loading_state.active then 
+        -- Only check if we are not already doing something async AND python detection finished AND is OK
+        if not UI_STATE.script_loading_state.active and not OTHER.rec_state.checking and OTHER.rec_state.python.ok then 
+            UI_STATE.last_update_check_time = reaper.time_precise()
             check_for_updates(true) -- Silent check
         end
     end
