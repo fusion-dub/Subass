@@ -162,6 +162,21 @@ def perform_update(zip_url):
                         data_d = os.path.join(d, "data")
                         if os.path.isdir(data_s) and not os.path.exists(data_d):
                             shutil.copytree(data_s, data_d)
+                    elif item == "imnotbad":
+                        # Update .lua code, preserve data (tabs data, etc)
+                        if not os.path.exists(d): os.makedirs(d)
+                        for sub_item in os.listdir(s):
+                            sub_s = os.path.join(s, sub_item)
+                            sub_d = os.path.join(d, sub_item)
+                            # If it's NOT a .lua file and it exists, DO NOT overwrite
+                            if not sub_item.endswith(".lua") and os.path.exists(sub_d):
+                                continue
+                            
+                            if os.path.isdir(sub_s):
+                                if os.path.exists(sub_d): shutil.rmtree(sub_d)
+                                shutil.copytree(sub_s, sub_d)
+                            else:
+                                shutil.copy2(sub_s, sub_d)
                     elif item == "stats":
                         # Preserve existing json data, update python code
                         if not os.path.exists(d): os.makedirs(d)
