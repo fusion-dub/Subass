@@ -275,6 +275,7 @@ $autoupdateSource = Join-Path $projectRoot "plugin\subass_autoupdate.py"
 $dictionarySource = Join-Path $projectRoot "plugin\dictionary"
 $ttsSource = Join-Path $projectRoot "plugin\tts"
 $statsSource = Join-Path $projectRoot "plugin\stats"
+$notepadSource = Join-Path $projectRoot "plugin\imnotbad"
 
 if (Test-Path $scriptSource) {
     Copy-Item $scriptSource $scriptsPath -Force
@@ -352,6 +353,22 @@ if (Test-Path $scriptSource) {
             Copy-Item $ttsSource $scriptsPath -Recurse -Force
         }
     }
+    if (Test-Path $notepadSource) {
+        $notepadTarget = Join-Path $scriptsPath "imnotbad"
+        if (-not (Test-Path $notepadTarget)) { New-Item -ItemType Directory $notepadTarget | Out-Null }
+        
+        # Update .lua files
+        Get-ChildItem -Path $notepadSource -Filter *.lua | ForEach-Object {
+            Copy-Item $_.FullName $notepadTarget -Force
+        }
+        # Copy other files ONLY if missing
+        Get-ChildItem -Path $notepadSource | Where-Object { $_.Extension -ne ".lua" } | ForEach-Object {
+            $dest = Join-Path $notepadTarget $_.Name
+            if (-not (Test-Path $dest)) {
+                Copy-Item $_.FullName $dest -Recurse
+            }
+        }
+    }
     Write-Host-Color "Scripts copied to REAPER/Scripts/Subass" "Green"
 } else {
     Write-Host-Color "ERROR: Could not find plugin in $projectRoot\plugin" "Red"
@@ -385,6 +402,7 @@ if (Test-Path $stressTool) {
 # 6. Register Action and Menu Item
 $kbFile = Join-Path $reaperPath "reaper-kb.ini"
 $menuFile = Join-Path $reaperPath "reaper-menu.ini"
+$notepadActionId = "RS5555555555555555555555555555555555555555"
 $pdfActionId = "RS6666666666666666666666666666666666666666"
 $actionId = "RS7777777777777777777777777777777777777777"
 $overlayActionId = "RS8888888888888888888888888888888888888888"
@@ -398,6 +416,7 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
     $overlayRelativePath = "Subass/overlay/Lionzz_SubOverlay_Subass.lua"
     $dictRelativePath = "Subass/dictionary/Subass_Dictionary.lua"
     $pdfRelativePath = "Subass/overlay/Subass_PDF.lua"
+    $notepadRelativePath = "Subass/imnotbad/imnotbad_Notepad.lua"
     $kbContent = [System.IO.File]::ReadAllLines($kbFile)
     
     $newKb = New-Object System.Collections.Generic.List[string]
@@ -405,9 +424,10 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
     $foundOverlay = $false
     $foundDict = $false
     $foundPdf = $false
+    $foundNotepad = $false
     
     foreach ($line in $kbContent) {
-        if ($line -notmatch "Subass_Notes.lua" -and $line -notmatch "Lionzz_SubOverlay_Subass.lua" -and $line -notmatch "Subass_Dictionary.lua" -and $line -notmatch "Subass_PDF.lua") {
+        if ($line -notmatch "Subass_Notes.lua" -and $line -notmatch "Lionzz_SubOverlay_Subass.lua" -and $line -notmatch "Subass_Dictionary.lua" -and $line -notmatch "Subass_PDF.lua" -and $line -notmatch "imnotbad_Notepad.lua") {
             $newKb.Add($line)
             continue
         }
@@ -436,6 +456,12 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
                 $newKb.Add($line)
                 $foundPdf = $true
             }
+        } elseif ($line -match "Subass[/\\]+imnotbad[/\\]+imnotbad_Notepad.lua") {
+            if (-not $foundNotepad) {
+                if ($line -match "SCR 4 0 (RS[0-9a-fA-F]+)") { $notepadActionId = $matches[1] }
+                $newKb.Add($line)
+                $foundNotepad = $true
+            }
         }
     }
     
@@ -443,6 +469,7 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
     if (-not $foundOverlay) { $newKb.Add("SCR 4 0 $overlayActionId ""Custom: Subass SubOverlay (Lionzz)"" ""$overlayRelativePath""") }
     if (-not $foundDict) { $newKb.Add("SCR 4 0 $dictActionId ""Custom: Subass Dictionary"" ""$dictRelativePath""") }
     if (-not $foundPdf) { $newKb.Add("SCR 4 0 $pdfActionId ""Custom: Subass PDF Reader"" ""$pdfRelativePath""") }
+    if (-not $foundNotepad) { $newKb.Add("SCR 4 0 $notepadActionId ""Custom: Imnotbad Notepad"" ""$notepadRelativePath""") }
     
     # Use UTF-8 WITHOUT BOM for REAPER configs
     $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
@@ -492,7 +519,7 @@ if (Test-Path $menuFile) {
         $contentBefore += "[Main Extensions]"
     }
 
-    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "_$dictActionId Subass: Dictionary", "_$pdfActionId Subass: PDF Reader", "0")
+    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "_$dictActionId Subass: Dictionary", "_$pdfActionId Subass: PDF Reader", "_$notepadActionId Imnotbad: Notepad", "0")
     
     $newMenu = New-Object System.Collections.Generic.List[string]
     foreach ($l in $contentBefore) { $newMenu.Add($l) }
