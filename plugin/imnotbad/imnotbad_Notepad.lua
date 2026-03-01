@@ -571,18 +571,25 @@ end
 -- POMODORO ЗВУК
 --==============================================================
 local function play_sound()
-    local snd_path = script_path .. "imnotbad_Notepad_Alarm.wav" 
-    if reaper.GetOS():match("Win") then 
-        snd_path = snd_path:gsub("\\", "\\\\") 
-        local cmd = 'powershell -NoProfile -NonInteractive -WindowStyle Hidden -Command ' .. 
-          '"$p = New-Object System.Media.SoundPlayer \\"' .. snd_path .. '\\"; $p.PlaySync();"' 
-        reaper.ExecProcess(cmd, -2) 
-    elseif os:match("OSX") or os:match("macOS") then
-        local cmd = '/usr/bin/afplay "' .. snd_path .. '"'
-        reaper.ExecProcess(cmd, 0) 
+    local info = debug.getinfo(1, 'S')
+    local script_path = info.source:match("@?(.*[\\/])")
+    local snd_path = script_path .. "imnotbad_Notepad_Alarm.wav"
+    if not reaper.CF_CreatePreview then
+        reaper.ShowMessageBox("SWS Extension не знайдено!", "Error", 0)
+        return
+    end
+    local pcm_source = reaper.PCM_Source_CreateFromFile(snd_path) 
+    if pcm_source then
+        local preview = reaper.CF_CreatePreview(pcm_source) 
+        if preview then
+            if reaper.CF_Preview_StopAll then reaper.CF_Preview_StopAll() end
+            reaper.CF_Preview_Play(preview)
+            _G.active_sound_preview = preview
+        else
+            reaper.ShowConsoleMsg("SWS: Не вдалося створити Preview\n")
+        end
     else
-        local cmd = 'ffplay -nodisp -autoexit "' .. snd_path .. '"'
-        reaper.ExecProcess(cmd, 0)
+        reaper.ShowConsoleMsg("Файл не знайдено: " .. snd_path .. "\n")
     end
 end
 
