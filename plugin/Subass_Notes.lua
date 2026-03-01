@@ -1528,6 +1528,166 @@ end
 
 -- Helper to open URLs safely (fallback if SWS not installed)
 local UTILS = {}
+local global_coroutine = nil
+local global_async_pool = {} -- { { id=str, out_file=str, done_file=str, callback=func } }
+
+--- Check statuses of active async tasks and trigger callbacks if done
+local function check_async_pool()
+    local has_non_silent = false
+    for i = #global_async_pool, 1, -1 do
+        local task = global_async_pool[i]
+        local f = io.open(task.done_file, "r")
+        if f then
+            f:close()
+            -- Task complete! Read output
+            local output = ""
+            local f_out = io.open(task.out_file, "r")
+            if f_out then
+                output = f_out:read("*a")
+                f_out:close()
+            end
+            
+            -- Cleanup files
+            os.remove(task.done_file)
+            os.remove(task.out_file)
+            
+            -- Remove from pool before callback to avoid issues
+            table.remove(global_async_pool, i)
+            
+            -- Trigger callback (nil check)
+            if task.callback then
+                task.callback(output)
+            end
+        else
+            -- Task still running, check if it's non-silent
+            if not task.is_silent then
+                has_non_silent = true
+            end
+        end
+    end
+
+    -- Update loader state
+    -- Only keep active if there are non-silent tasks OR a coroutine is still working
+    if not has_non_silent and not global_coroutine then
+        UI_STATE.script_loading_state.active = false
+    end
+end
+
+local function run_async_command(shell_cmd, callback, is_silent, loading_text, is_visible)
+    local id = tostring(os.time()) .. "_" .. math.random(1000,9999)
+    local path = reaper.GetResourcePath() .. "/Scripts/"
+    local is_tracking = (callback ~= nil)
+    
+    local out_file, done_file
+    if is_tracking then
+        out_file = path .. "async_out_" .. id .. ".tmp"
+        done_file = path .. "async_done_" .. id .. ".marker"
+    end
+    
+    if reaper.GetOS():match("Win") then
+        if out_file then out_file = out_file:gsub("/", "\\") end
+        if done_file then done_file = done_file:gsub("/", "\\") end
+        local bat_file = (path .. "async_exec_" .. id .. ".bat"):gsub("/", "\\")
+
+        local f_bat = io.open(bat_file, "w")
+        if not f_bat then return end
+
+        f_bat:write("@echo off\r\n")
+        f_bat:write("chcp 65001 > NUL\r\n")
+        f_bat:write("set PYTHONUTF8=1\r\n")
+
+        local bat_cmd = shell_cmd:gsub("%%", "%%%%")
+
+        if is_visible then
+            if is_tracking then f_bat:write("echo [AI] Початок аналізу... \r\n") end
+            
+            if is_tracking then
+                f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
+                f_bat:write('type "' .. out_file .. '"\r\n')
+            else
+                f_bat:write(bat_cmd .. "\r\n")
+            end
+        else
+            if bat_cmd:find(">") or not is_tracking then
+                f_bat:write(bat_cmd .. "\r\n")
+            else
+                f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
+            end
+        end
+
+        if is_tracking then
+            f_bat:write('echo DONE > "' .. done_file .. '"\r\n')
+        end
+        
+        if is_visible and is_tracking then
+            f_bat:write("echo [AI] Аналіз завершено. Це вікно можна закрити.\r\n")
+            f_bat:write("pause\r\n")
+        end
+
+        f_bat:write('set _self=%~f0\r\n')
+        f_bat:write('cmd /c ping 127.0.0.1 -n 2 > NUL & del "%_self%"\r\n')
+        f_bat:close()
+
+        local win_style = is_visible and "" or "-WindowStyle Hidden"
+        local ps_cmd =
+            'powershell -NoProfile -ExecutionPolicy Bypass ' ..
+            win_style ..' -Command "Start-Process ' ..
+            '\\\"' .. bat_file .. '\\\" ' .. win_style .. '"'
+
+        reaper.ExecProcess(ps_cmd, 0)
+    else
+        -- Unix/Mac background execution
+        if is_visible then
+            local sh_file = path .. "async_exec_" .. id .. ".sh"
+            local f_sh = io.open(sh_file, "w")
+            if f_sh then
+                f_sh:write("#!/bin/bash\n")
+                if is_tracking then
+                    f_sh:write('echo "[AI] Whisper Аналіз..." \n')
+                    f_sh:write(shell_cmd .. ' 2>&1 | tee "' .. out_file .. '"\n')
+                    f_sh:write('echo DONE > "' .. done_file .. '"\n')
+                    f_sh:write('echo ""\n')
+                    f_sh:write('echo "[AI] Аналіз завершено. Це вікно можна закрити."\n')
+                    f_sh:write('read -p "Натисніть Enter для виходу..."\n')
+                else
+                    f_sh:write(shell_cmd .. "\n")
+                end
+                f_sh:write('rm "$0"\n')
+                f_sh:close()
+                os.execute('chmod +x "' .. sh_file .. '"')
+                os.execute('open -a Terminal "' .. sh_file .. '"')
+            end
+        else
+            local full_cmd
+            if not is_tracking then
+                full_cmd = '( ' .. shell_cmd .. ' ) &'
+            elseif shell_cmd:find(" > ") then
+                full_cmd = '( ' .. shell_cmd .. ' ; touch "' .. done_file .. '" ) &'
+            else
+                full_cmd = '( ' .. shell_cmd .. ' > "' .. out_file .. '" 2>&1 ; touch "' .. done_file .. '" ) &'
+            end
+            os.execute(full_cmd)
+        end
+    end
+    
+    if is_tracking then
+        table.insert(global_async_pool, {
+            id = id,
+            out_file = out_file,
+            done_file = done_file,
+            callback = callback,
+            is_silent = is_silent
+        })
+    end
+    
+    if is_tracking and not is_silent then
+        UI_STATE.script_loading_state.active = true
+        UI_STATE.script_loading_state.text = loading_text or "Почекайте..."
+    end
+end
+
+UTILS.run_async_command = run_async_command
+UTILS.check_async_pool = check_async_pool
 
 -- Helper to open URLs safely (fallback if SWS not installed)
 function UTILS.open_url(url)
@@ -1560,22 +1720,22 @@ function UTILS.restart_script()
     end)
 end
 
---- Launch external python script
-function UTILS.launch_python_script(script_relative_path)
-    local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
-    local py_script = script_path .. script_relative_path
+--- Launch standalone python script in separate terminal window (Fire-and-Forget)
+function UTILS.launch_python_script(py_script_rel)
     local os_name = reaper.GetOS()
+    local source = debug.getinfo(1,'S').source
+    local script_path = source:match([[^@?(.*[\\/])]]) or ""
+    local full_script_path = script_path .. py_script_rel
     
     if os_name:match("Win") then
         local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python.executable or "py -3")
-        py_script = py_script:gsub("/", "\\")
-        reaper.ExecProcess('cmd.exe /C start "" ' .. py_exe .. ' "' .. py_script .. '"', -1)
-    elseif os_name:match("OSX") or os_name:match("macOS") then
-        local cmd = string.format('/usr/bin/open -n -a Terminal.app "%s"', py_script)
-        reaper.ExecProcess(cmd, -1)
+        full_script_path = full_script_path:gsub("/", "\\")
+        -- run_async_command(cmd, callback, is_silent, loading_text, is_visible)
+        -- Passing nil callback makes it Fire-and-Forget (no tracking, no loader)
+        run_async_command(py_exe .. ' "' .. full_script_path .. '"', nil, true, nil, true)
     else
-        local py_script = script_path .. script_relative_path
-        reaper.ExecProcess('python3 "' .. py_script .. '" &', -1)
+        -- macOS/Linux: unified approach via run_async_command (Terminal visibility)
+        run_async_command('python3 "' .. full_script_path .. '"', nil, true, nil, true)
     end
 end
 
@@ -1992,115 +2152,6 @@ local function get_words_and_separators(text)
     return result
 end
 
--- =============================================================================
--- ASYNC COMMAND INFRASTRUCTURE
--- =============================================================================
-local global_async_pool = {} -- { { id=str, out_file=str, done_file=str, callback=func } }
-
---- Execute a shell command asynchronously (background task)
---- @param shell_cmd string Command to execute
---- @param callback function Callback function(output) on completion
---- @param is_silent boolean? If true, don't show "Loading..." loader
---- @param loading_text string? Optional custom loading text
---- @param is_visible boolean? If true, show system terminal
-local function run_async_command(shell_cmd, callback, is_silent, loading_text, is_visible)
-    local id = tostring(os.time()) .. "_" .. math.random(1000,9999)
-    local path = reaper.GetResourcePath() .. "/Scripts/"
-    local out_file = path .. "async_out_" .. id .. ".tmp"
-    local done_file = path .. "async_done_" .. id .. ".marker"
-    
-    if reaper.GetOS():match("Win") then
-        out_file = out_file:gsub("/", "\\")
-        done_file = done_file:gsub("/", "\\")
-        local bat_file = (path .. "async_exec_" .. id .. ".bat"):gsub("/", "\\")
-
-        local f_bat = io.open(bat_file, "w")
-        if not f_bat then return end
-
-        f_bat:write("@echo off\r\n")
-        f_bat:write("chcp 65001 > NUL\r\n")
-        f_bat:write("set PYTHONUTF8=1\r\n")
-
-        local bat_cmd = shell_cmd:gsub("%%", "%%%%")
-
-        if is_visible then
-            -- For visible terminal, we use 'tee' equivalent or just redirect for file but user won't see...
-            -- Actually, let's just run and then echo to file.
-            f_bat:write("echo [AI] Початок аналізу... \r\n")
-            f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
-            f_bat:write('type "' .. out_file .. '"\r\n') -- Show output once done if visible
-        else
-            if bat_cmd:find(">") then
-                f_bat:write(bat_cmd .. "\r\n")
-            else
-                f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
-            end
-        end
-
-        f_bat:write('echo DONE > "' .. done_file .. '"\r\n')
-        
-        if is_visible then
-            f_bat:write("echo [AI] Аналіз завершено. Це вікно можна закрити.\r\n")
-            f_bat:write("pause\r\n")
-        end
-
-        f_bat:write('set _self=%~f0\r\n')
-        f_bat:write('cmd /c ping 127.0.0.1 -n 2 > NUL & del "%_self%"\r\n')
-
-        f_bat:close()
-
-        local win_style = is_visible and "" or "-WindowStyle Hidden"
-        local ps_cmd =
-            'powershell -NoProfile -ExecutionPolicy Bypass ' ..
-            win_style ..' -Command "Start-Process ' ..
-            '\\\"' .. bat_file .. '\\\" ' .. win_style .. '"'
-
-        reaper.ExecProcess(ps_cmd, 0)
-    else
-        -- Unix/Mac background execution
-        if is_visible then
-            -- On Mac, we create a temporary .sh script and open it with Terminal.app.
-            -- This is more robust than osascript for complex commands with quotes.
-            local sh_file = path .. "async_exec_" .. id .. ".sh"
-            local f_sh = io.open(sh_file, "w")
-            if f_sh then
-                f_sh:write("#!/bin/bash\n")
-                f_sh:write('echo "[AI] Whisper Аналіз..." \n')
-                -- Capture both stdout and stderr while showing it to the user
-                f_sh:write(shell_cmd .. ' 2>&1 | tee "' .. out_file .. '"\n')
-                f_sh:write('echo DONE > "' .. done_file .. '"\n')
-                f_sh:write('echo ""\n')
-                f_sh:write('echo "[AI] Аналіз завершено. Це вікно можна закрити."\n')
-                f_sh:write('read -p "Натисніть Enter для виходу..."\n')
-                f_sh:write('rm "$0"\n') -- Self-delete script after execution
-                f_sh:close()
-                
-                os.execute('chmod +x "' .. sh_file .. '"')
-                os.execute('open -a Terminal "' .. sh_file .. '"')
-            end
-        else
-            local full_cmd
-            if shell_cmd:find(" > ") then
-                full_cmd = '( ' .. shell_cmd .. ' ; touch "' .. done_file .. '" ) &'
-            else
-                full_cmd = '( ' .. shell_cmd .. ' > "' .. out_file .. '" 2>&1 ; touch "' .. done_file .. '" ) &'
-            end
-            os.execute(full_cmd)
-        end
-    end
-    
-    table.insert(global_async_pool, {
-        id = id,
-        out_file = out_file,
-        done_file = done_file,
-        callback = callback
-    })
-    
-    if not is_silent then
-        UI_STATE.script_loading_state.active = true
-        UI_STATE.script_loading_state.text = loading_text or "Завантаження даних..."
-    end
-end
 
 local sws_alert_shown = false
 
@@ -2133,43 +2184,6 @@ local function set_clipboard(text)
         -- Try PowerShell Set-Clipboard
         local escaped = text:gsub('"', '\\"')
         io.popen('powershell.exe -command "Set-Clipboard -Value \\"' .. escaped .. '\\""', "w")
-    end
-end
-
---- Check statuses of active async tasks and trigger callbacks if done
-local function check_async_pool()
-    for i = #global_async_pool, 1, -1 do
-        local task = global_async_pool[i]
-        local f = io.open(task.done_file, "r")
-        if f then
-            f:close()
-            -- Task complete!
-            -- Read output
-            local output = ""
-            local f_out = io.open(task.out_file, "r")
-            if f_out then
-                output = f_out:read("*a")
-                f_out:close()
-                -- DEBUG: Print output start
-                -- reaper.ShowConsoleMsg("Async Output (" .. task.id .. "): " .. output:sub(1, 500) .. "\n")
-            end
-            
-            -- Cleanup files
-            os.remove(task.done_file)
-            os.remove(task.out_file)
-            
-            -- Run callback
-            if task.callback then
-                task.callback(output)
-            end
-            
-            table.remove(global_async_pool, i)
-            
-            -- Use defer to allow UI update if multiple tasks finish
-            if #global_async_pool == 0 and not current_stress_job then
-                UI_STATE.script_loading_state.active = false
-            end
-        end
     end
 end
 
@@ -6760,23 +6774,18 @@ function STATS.upload_subtitles_analytics()
     local full_script_path = script_path .. "stats/subass_extra_stats.py"
 
     -- Execute in background (fire-and-forget, completely silent)
+    local cmd = string.format('python3 "%s" --filepath "%s" --project_name "%s"', 
+                            full_script_path, filepath, proj_name)
+    
     if reaper.GetOS():match("Win") then
         full_script_path = full_script_path:gsub("/", "\\")
         filepath = filepath:gsub("/", "\\")
         local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
-        
-        -- Use cmd /C start /B for background execution on Windows
-        -- We quote everything to handle paths with spaces except the py_exe if it has flags
-        local cmd = string.format('cmd.exe /C start /B "" %s "%s" --filepath "%s" --project_name "%s"', 
+        cmd = string.format('%s "%s" --filepath "%s" --project_name "%s"', 
                                 py_exe, full_script_path, filepath, proj_name)
-            
-        reaper.ExecProcess(cmd, 0)
-    else
-        -- macOS/Linux: simple background execution with nohup for complete detachment
-        local cmd = string.format('nohup python3 "%s" --filepath "%s" --project_name "%s" > /dev/null 2>&1 &', 
-                                full_script_path, filepath, proj_name)
-        os.execute(cmd)
     end
+    
+    run_async_command(cmd, nil, true, nil, false)
 end
 
 --- Register plugin usage on first run (Fire-and-Forget)
@@ -6786,20 +6795,18 @@ function STATS.register_plugin_usage()
     local script_path = source:match([[^@?(.*[\\/])]]) or ""
     local full_script_path = script_path .. "stats/subass_extra_stats.py"
     
-    -- Execute in background
+    -- Execute in background (Fire-and-Forget)
+    local cmd = string.format('python3 "%s" --register --script_title "%s"', 
+                                full_script_path, GL.script_title)
+    
     if reaper.GetOS():match("Win") then
         full_script_path = full_script_path:gsub("/", "\\")
         local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
-        -- Quote args
-        local cmd = string.format('cmd.exe /C start /B "" %s "%s" --register --script_title "%s"', 
+        cmd = string.format('%s "%s" --register --script_title "%s"', 
                                     py_exe, full_script_path, GL.script_title)
-        reaper.ExecProcess(cmd, 0)
-    else
-        -- macOS/Linux
-        local cmd = string.format('nohup python3 "%s" --register --script_title "%s" > /dev/null 2>&1 &', 
-                                    full_script_path, GL.script_title)
-        os.execute(cmd)
     end
+    
+    run_async_command(cmd, nil, true, nil, false)
 end
 
 -- ═══════════════════════════════════════════════════════════════
@@ -8639,7 +8646,6 @@ end
 
 --- Apply stress marks from dictionary file to all subtitles
 -- Forward declaration
-local global_coroutine = nil
 local apply_stress_marks_async 
 
 -- Callback for when stress tool finishes
