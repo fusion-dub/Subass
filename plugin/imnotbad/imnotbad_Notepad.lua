@@ -31,17 +31,15 @@ local function is_mod_pressed()
         or reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Super())
 end
 
-local function js_vkey_down(vk)
-    if not reaper.JS_VKeys_GetState then return false end
-    local state = reaper.JS_VKeys_GetState(-2)
-    if not state or #state < vk then return false end
-    return state:byte(vk) == 1
-end
-
 local function is_mod_key_pressed(key_fn, vk)
     if not is_mod_pressed() then return false end
     if reaper.ImGui_IsKeyPressed(ctx, key_fn()) then return true end
-    if vk and js_vkey_down(vk) then return true end
+    if vk and reaper.JS_VKeys_GetState then
+        local state = reaper.JS_VKeys_GetState(-2)
+        if state and #state >= vk and state:byte(vk) == 1 then
+            return true
+        end
+    end
     return false
 end
 
@@ -1794,21 +1792,11 @@ local function loop()
                                 reaper.ImGui_SameLine(ctx)
                             end
                         end
-
+                        
                         local active_editing_tab = nil
-                        for _, t in ipairs(tabs) do
-                            if t.is_active and t.editing then
-                                active_editing_tab = t
-                                break
-                            end
-                        end
-                        if not active_editing_tab then
-                            for _, t in ipairs(tabs) do
-                                if t.editing then
-                                    active_editing_tab = t
-                                    break
-                                end
-                            end
+                        local current_active = tabs[active_tab_index]
+                        if current_active and current_active.editing then
+                            active_editing_tab = current_active
                         end
 
                         if active_editing_tab then
