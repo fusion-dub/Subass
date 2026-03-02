@@ -3,7 +3,7 @@
 -- @author imnotbad
 
 --==============================================================
--- Перевірка ReaImGui та JS_ReaScriptAPI
+-- Попередження
 --==============================================================
 if not reaper.ImGui_CreateContext then
     reaper.ShowMessageBox("Встановіть ReaImGui через ReaPack", "Помилка", 0)
@@ -12,6 +12,14 @@ end
 
 if not reaper.JS_Dialog_BrowseForSaveFile then
     reaper.ShowMessageBox("Встановіть JS_ReaScriptAPI через ReaPack.", "Попередження", 0)
+end
+
+if not reaper.BR_GetMediaTrackByGUID then
+    reaper.ShowMessageBox(
+        "Розширення SWS/S&M не виявлено.\n\nДеякі функції скрипта можуть не працювати.\nВстановіть SWS/S&M через ReaPack:\nExtensions → ReaPack → Browse packages → SWS/S&M",
+        "Попередження: відсутній SWS/S&M",
+        0
+    )
 end
 --==============================================================
 -- Контекст і дані
@@ -47,11 +55,14 @@ local pomo                      = {
     session_log       = {},
     total_work_sec    = 0,
     show_settings     = false,
+    confirm_clear     = false,
     notification_msg  = nil,
     notification_time = 0,
 }
 local saved_selection_start     = 0
 local saved_selection_end       = 0
+local confirm_close_tab_index   = nil
+local confirm_close_prev_active = nil
 local tab_font_size             = 16
 local current_font_name         = "Sans-serif"
 local font_list                 = { "Arial", "Helvetica", "Calibri", "Roboto", "Segoe UI", "Tahoma", "Verdana",
@@ -75,6 +86,7 @@ local function get_font(name, style)
     if not fonts_storage[name] then return nil end
     return fonts_storage[name][style]
 end
+local pomo_menu_font = reaper.ImGui_CreateFont("Arial", reaper.ImGui_FontFlags_Bold())
 --==============================================================
 -- СТИЛІЗАЦІЯ
 --==============================================================
@@ -241,7 +253,6 @@ local function build_filtered(full_text, filter_text)
     return table.concat(result, "\n")
 end
 
-
 local last_synced = ""
 local function sync_filtered_to_full(full_text, old_filtered, new_filtered)
     if new_filtered == last_synced then return full_text end
@@ -288,7 +299,7 @@ local function sync_filtered_to_full(full_text, old_filtered, new_filtered)
 end
 
 --==============================================================
--- ПАРСИНГ MARKDOWN ДЛЯ ВІДОБРАЖЕННЯ (З ПІДТРИМКОЮ МНОЖИННИХ СТИЛІВ)
+-- ПАРСИНГ MARKDOWN
 --==============================================================
 local function parse_line_styles(text)
     local segments = {}
@@ -578,9 +589,9 @@ local function play_sound()
         reaper.ShowMessageBox("SWS Extension не знайдено!", "Error", 0)
         return
     end
-    local pcm_source = reaper.PCM_Source_CreateFromFile(snd_path) 
+    local pcm_source = reaper.PCM_Source_CreateFromFile(snd_path)
     if pcm_source then
-        local preview = reaper.CF_CreatePreview(pcm_source) 
+        local preview = reaper.CF_CreatePreview(pcm_source)
         if preview then
             if reaper.CF_Preview_StopAll then reaper.CF_Preview_StopAll() end
             reaper.CF_Preview_Play(preview)
@@ -1375,7 +1386,7 @@ local function loop()
     local active_style_tooltip = ""
     push_style(ctx)
 
-    reaper.ImGui_SetNextWindowSizeConstraints(ctx, 470, 400, 1e10, 1e10)
+    reaper.ImGui_SetNextWindowSizeConstraints(ctx, 475, 400, 1e10, 1e10)
     reaper.ImGui_SetNextWindowSize(ctx, 800, 600, reaper.ImGui_Cond_FirstUseEver())
     local flags = reaper.ImGui_WindowFlags_MenuBar()
         | reaper.ImGui_WindowFlags_NoCollapse()
@@ -1385,7 +1396,7 @@ local function loop()
     if visible then
         --================ MENU =================
         if reaper.ImGui_BeginMenuBar(ctx) then
-            if reaper.ImGui_BeginMenu(ctx, "Notepad") then
+            if reaper.ImGui_BeginMenu(ctx, "Файл") then
                 if reaper.ImGui_MenuItem(ctx, "Зберегти Notepad") then save_data() end
                 reaper.ImGui_Separator(ctx)
 
@@ -1418,7 +1429,7 @@ local function loop()
                 end
                 reaper.ImGui_Separator(ctx)
                 if reaper.ImGui_MenuItem(ctx, "Закрити Notepad") then
-                   open = false
+                    open = false
                 end
                 reaper.ImGui_EndMenu(ctx)
             end
@@ -1464,77 +1475,7 @@ local function loop()
                 end
                 reaper.ImGui_EndMenu(ctx)
             end
-            if reaper.ImGui_BeginMenu(ctx, "Pomodoro") then
-                reaper.ImGui_SeparatorText(ctx, "Тривалість (хвилини):")
-                reaper.ImGui_SetNextItemWidth(ctx, 160)
-                local ch1, nv1 = reaper.ImGui_SliderInt(ctx, "Pomodoro##mwork", pomo.edit_work, 1, 60)
-                if ch1 then
-                    pomo.edit_work     = nv1
-                    pomo.work_duration = nv1 * 60
-                    if pomo.mode == "work" and pomo.state == "idle" then
-                        pomo.remaining = pomo.work_duration
-                    end
-                    save_data()
-                end
 
-                reaper.ImGui_SetNextItemWidth(ctx, 160)
-                local ch2, nv2 = reaper.ImGui_SliderInt(ctx, "Коротка перерва##mshort", pomo.edit_short, 1, 30)
-                if ch2 then
-                    pomo.edit_short  = nv2
-                    pomo.short_break = nv2 * 60
-                    if pomo.mode == "short_break" and pomo.state == "idle" then
-                        pomo.remaining = pomo.short_break
-                    end
-                    save_data()
-                end
-
-                reaper.ImGui_SetNextItemWidth(ctx, 160)
-                local ch3, nv3 = reaper.ImGui_SliderInt(ctx, "Довга перерва##mlong", pomo.edit_long, 5, 60)
-                if ch3 then
-                    pomo.edit_long  = nv3
-                    pomo.long_break = nv3 * 60
-                    if pomo.mode == "long_break" and pomo.state == "idle" then
-                        pomo.remaining = pomo.long_break
-                    end
-                    save_data()
-                end
-
-                reaper.ImGui_SetNextItemWidth(ctx, 160)
-                local ch4, nv4 = reaper.ImGui_SliderInt(ctx, "Довга перерва після (pomodoro)##mevery",
-                    pomo.long_break_every, 2, 8)
-                if ch4 then
-                    pomo.long_break_every = nv4
-                    save_data()
-                end
-
-                reaper.ImGui_Separator(ctx)
-                reaper.ImGui_SeparatorText(ctx, "Опції:")
-                local ca, av = reaper.ImGui_Checkbox(ctx, "Авто-старт наступного##mauto", pomo.auto_start)
-                if ca then
-                    pomo.auto_start = av; save_data()
-                end
-
-                local cs, sv = reaper.ImGui_Checkbox(ctx, "Звук при завершенні##msound", pomo.sound_enabled)
-                if cs then
-                    pomo.sound_enabled = sv; save_data()
-                end
-
-                reaper.ImGui_Separator(ctx)
-                reaper.ImGui_SeparatorText(ctx, "Статистика:")
-                reaper.ImGui_TextDisabled(ctx, string.format("Завершено сесій: %d", pomo.completed))
-                reaper.ImGui_TextDisabled(ctx,
-                    string.format("Загальний час: %d хв", math.floor(pomo.total_work_sec / 60)))
-
-                reaper.ImGui_Separator(ctx)
-                if reaper.ImGui_MenuItem(ctx, "Очистити журнал та статистику") then
-                    pomo.session_log    = {}
-                    pomo.completed      = 0
-                    pomo.total_work_sec = 0
-                    save_data()
-                end
-
-                reaper.ImGui_EndMenu(ctx)
-            end
             if reaper.ImGui_BeginMenu(ctx, "Довідка") then
                 reaper.ImGui_SeparatorText(ctx, "Загальні:")
                 reaper.ImGui_TextDisabled(ctx, "• Для зміни назви блокнота зробіть подвійний клік на Tab")
@@ -1565,19 +1506,77 @@ local function loop()
                 reaper.ImGui_TextDisabled(ctx, "• --- Розділова лінія ")
                 reaper.ImGui_EndMenu(ctx)
             end
+            do
+                reaper.ImGui_PushFont(ctx, pomo_menu_font, 13)
+                local win_w = reaper.ImGui_GetWindowWidth(ctx)
+                local pomo_btn_label
+                local pomo_btn_color
 
-           -- local menu_item_width = 60
-           -- local window_width = reaper.ImGui_GetWindowWidth(ctx)
-           -- reaper.ImGui_SetCursorPosX(ctx, window_width - menu_item_width - 0)
+                if pomodoro_active then
+                    pomo_btn_label = "NOTEPAD"
+                    pomo_btn_color = 0x71ce5aFF
+                elseif pomo.state == "paused" then
+                    pomo_btn_label = "ПАУЗА"
+                    pomo_btn_color = 0xFF8800FF
+                elseif pomo.state == "running" then
+                    local mins = math.floor(pomo.remaining / 60)
+                    local secs = math.floor(pomo.remaining % 60)
+                    pomo_btn_label = string.format("%02d:%02d", mins, secs)
+                    if pomo.mode == "work" then
+                        pomo_btn_color = 0xFF4444FF
+                    elseif pomo.mode == "short_break" then
+                        pomo_btn_color = 0x44CC44FF
+                    else
+                        pomo_btn_color = 0x4488FFFF
+                    end
+                else
+                    pomo_btn_label = "POMODORO"
+                    pomo_btn_color = 0xFF3838FF
+                end
 
-           -- if reaper.ImGui_MenuItem(ctx, "Закрити") then
-           --     open = false
-           -- end
+                local pomo_btn_w = reaper.ImGui_CalcTextSize(ctx, pomo_btn_label)
+                local right_offset = win_w - pomo_btn_w - 24
+                reaper.ImGui_SetCursorPosX(ctx, right_offset)
+
+                local pomo_btn_tooltip
+                if pomodoro_active then
+                    pomo_btn_tooltip = "ЗАКРИТИ POMODORO"
+                elseif pomo.state == "paused" then
+                    pomo_btn_tooltip = "POMODORO НА ПАУЗІ"
+                elseif pomo.state == "running" then
+                    if pomo.mode == "work" then
+                        pomo_btn_tooltip = "ВІДЛІК POMODORO"
+                    elseif pomo.mode == "short_break" then
+                        pomo_btn_tooltip = "КОРОТКА ПЕРЕРВА"
+                    else
+                        pomo_btn_tooltip = "ДОВГА ПЕРЕРВА"
+                    end
+                else
+                    pomo_btn_tooltip = "ВІДКРИТИ POMODORO"
+                end
+
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Header(), 0x00000000)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0x33333355)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderActive(), 0x44444488)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), pomo_btn_color)
+                if reaper.ImGui_MenuItem(ctx, pomo_btn_label) then
+                    if pomodoro_active then
+                        pomodoro_active = false
+                    else
+                        pomodoro_pending_select = true
+                    end
+                end
+                if reaper.ImGui_IsItemHovered(ctx) then
+                    reaper.ImGui_SetTooltip(ctx, pomo_btn_tooltip)
+                end
+                reaper.ImGui_PopFont(ctx)
+                reaper.ImGui_PopStyleColor(ctx, 4)
+            end
 
             reaper.ImGui_EndMenuBar(ctx)
         end
 
-        --================ POMODORO GLOBAL TICK (незалежно від активної вкладки) =================
+        --================ POMODORO GLOBAL TICK =================
         do
             local now_tick = reaper.time_precise()
             local elapsed_tick = pomo.elapsed_before
@@ -1593,6 +1592,10 @@ local function loop()
                 total_dur_tick = pomo.long_break
             end
             local remaining_tick = math.max(0, total_dur_tick - elapsed_tick)
+
+            if pomo.state == "running" or pomo.state == "paused" then
+                pomo.remaining = remaining_tick
+            end
 
             if pomo.state == "running" and remaining_tick <= 0 then
                 table.insert(pomo.session_log, {
@@ -1635,1023 +1638,1266 @@ local function loop()
         end
 
         --================ TAB BAR =================
-        if reaper.ImGui_BeginTabBar(ctx, "MyTabBar", reaper.ImGui_TabBarFlags_Reorderable()) then
-            if reaper.ImGui_TabItemButton(ctx, "+", reaper.ImGui_TabItemFlags_Trailing()) then
-                tabs[#tabs + 1] = {
-                    title = "Нотатка " .. (#tabs + 1),
-                    content = "",
-                    editing = false,
-                    renaming = false
-                }
-                pending_active_tab = #tabs
-            end
-
-            local tab_to_remove = nil
-
-            local any_renaming = false
-            local renaming_tab_index = nil
-            for idx, t in ipairs(tabs) do
-                if t.renaming then
-                    any_renaming = true
-                    renaming_tab_index = idx
-                    break
+        if not pomodoro_active then
+            if reaper.ImGui_BeginTabBar(ctx, "MyTabBar", reaper.ImGui_TabBarFlags_Reorderable()) then
+                if reaper.ImGui_TabItemButton(ctx, "+", reaper.ImGui_TabItemFlags_Trailing()) then
+                    tabs[#tabs + 1] = {
+                        title = "Нотатка " .. (#tabs + 1),
+                        content = "",
+                        editing = false,
+                        renaming = false
+                    }
+                    pending_active_tab = #tabs
                 end
-            end
 
-            --================ ФІЛЬТР АБО ПЕРЕЙМЕНУВАННЯ =================
-            if not pomodoro_active then
-                if any_renaming then
-                    reaper.ImGui_SetNextItemWidth(ctx, 220)
-                    local rv, new_title = reaper.ImGui_InputText(
-                        ctx,
-                        "##rename_tab_global",
-                        tabs[renaming_tab_index].title,
-                        reaper.ImGui_InputTextFlags_EnterReturnsTrue()
-                    )
-
-                    if rv then
-                        tabs[renaming_tab_index].title = new_title ~= "" and new_title or tabs[renaming_tab_index].title
-                        tabs[renaming_tab_index].renaming = false
-                        tabs[renaming_tab_index].should_focus = true
+                local any_renaming = false
+                local renaming_tab_index = nil
+                for idx, t in ipairs(tabs) do
+                    if t.renaming then
+                        any_renaming = true
+                        renaming_tab_index = idx
+                        break
                     end
+                end
 
-                    if reaper.ImGui_IsItemDeactivated(ctx) then
-                        tabs[renaming_tab_index].renaming = false
-                        tabs[renaming_tab_index].should_focus = true
-                    end
+                --================ ФІЛЬТР АБО ПЕРЕЙМЕНУВАННЯ =================
+                if not pomodoro_active then
+                    if any_renaming then
+                        reaper.ImGui_SetNextItemWidth(ctx, 220)
+                        local rv, new_title = reaper.ImGui_InputText(
+                            ctx,
+                            "##rename_tab_global",
+                            tabs[renaming_tab_index].title,
+                            reaper.ImGui_InputTextFlags_EnterReturnsTrue()
+                        )
 
-                    reaper.ImGui_SameLine(ctx)
-                    reaper.ImGui_TextDisabled(ctx, "Натисніть Enter")
-                else
-                    reaper.ImGui_SetNextItemWidth(ctx, 160)
-                    local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, "##filter", "Пошук (Ctrl+F/Cmd+F)",
-                        filter_text)
-                    if changed then
-                        filter_text = new_filter
-                        filter_active = (filter_text ~= "")
-                        filter_match_index = 1
-                    end
-
-                    if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_F())
-                        and is_mod_pressed() then
-                        reaper.ImGui_SetKeyboardFocusHere(ctx, -1)
-                    end
-
-                    reaper.ImGui_SameLine(ctx)
-
-                    if filter_active then
-                        local active_tab = tabs[active_tab_index]
-                        if active_tab then
-                            filter_matches = {}
-                            local search_lc = utf8_to_lower(filter_text)
-                            local line_idx = 0
-                            for line in (active_tab.content .. "\n"):gmatch("([^\n]*)\n") do
-                                local line_lc = utf8_to_lower(line)
-                                local sp = 1
-                                while true do
-                                    local ms, me = line_lc:find(search_lc, sp, true)
-                                    if not ms then break end
-                                    table.insert(filter_matches, { line = line_idx, char_s = ms, char_e = me })
-                                    sp = me + 1
-                                end
-                                line_idx = line_idx + 1
-                            end
-                            if filter_match_index > #filter_matches then
-                                filter_match_index = #filter_matches > 0 and 1 or 0
-                            end
+                        if rv then
+                            tabs[renaming_tab_index].title = new_title ~= "" and new_title or
+                                tabs[renaming_tab_index].title
+                            tabs[renaming_tab_index].renaming = false
+                            tabs[renaming_tab_index].should_focus = true
                         end
 
-                        if reaper.ImGui_Button(ctx, "X##clear_filter") then
-                            filter_text = ""
-                            filter_active = false
-                            filter_matches = {}
-                            filter_match_index = 0
+                        if reaper.ImGui_IsItemDeactivated(ctx) then
+                            tabs[renaming_tab_index].renaming = false
+                            tabs[renaming_tab_index].should_focus = true
                         end
-                        if reaper.ImGui_IsItemHovered(ctx) then
-                            active_style_tooltip = "Очистити пошук"
+
+                        reaper.ImGui_SameLine(ctx)
+                        reaper.ImGui_TextDisabled(ctx, "Натисніть Enter")
+                    else
+                        reaper.ImGui_SetNextItemWidth(ctx, 160)
+                        local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, "##filter",
+                            "Пошук (Ctrl+F/Cmd+F)",
+                            filter_text)
+                        if changed then
+                            filter_text = new_filter
+                            filter_active = (filter_text ~= "")
+                            filter_match_index = 1
                         end
+
+                        if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_F())
+                            and is_mod_pressed() then
+                            reaper.ImGui_SetKeyboardFocusHere(ctx, -1)
+                        end
+
                         reaper.ImGui_SameLine(ctx)
 
-                        local is_editing_now = tabs[active_tab_index] and tabs[active_tab_index].editing
-                        if not is_editing_now then
-                            local has_matches = #filter_matches > 0
-                            if not has_matches then
-                                reaper.ImGui_BeginDisabled(ctx)
-                            end
-                            if reaper.ImGui_Button(ctx, "<##prev_match") then
-                                if has_matches then
-                                    filter_match_index = filter_match_index - 1
-                                    if filter_match_index < 1 then filter_match_index = #filter_matches end
-                                    local m = filter_matches[filter_match_index]
-                                    if tabs[active_tab_index] then
-                                        tabs[active_tab_index].scroll_to_line = m.line
+                        if filter_active then
+                            local active_tab = tabs[active_tab_index]
+                            if active_tab then
+                                filter_matches = {}
+                                local search_lc = utf8_to_lower(filter_text)
+                                local line_idx = 0
+                                for line in (active_tab.content .. "\n"):gmatch("([^\n]*)\n") do
+                                    local line_lc = utf8_to_lower(line)
+                                    local sp = 1
+                                    while true do
+                                        local ms, me = line_lc:find(search_lc, sp, true)
+                                        if not ms then break end
+                                        table.insert(filter_matches, { line = line_idx, char_s = ms, char_e = me })
+                                        sp = me + 1
                                     end
+                                    line_idx = line_idx + 1
+                                end
+                                if filter_match_index > #filter_matches then
+                                    filter_match_index = #filter_matches > 0 and 1 or 0
                                 end
                             end
-                            if reaper.ImGui_IsItemHovered(ctx) then
-                                active_style_tooltip = "Попередній збіг"
-                            end
-                            reaper.ImGui_SameLine(ctx)
-                            if reaper.ImGui_Button(ctx, ">##next_match") then
-                                if has_matches then
-                                    filter_match_index = filter_match_index + 1
-                                    if filter_match_index > #filter_matches then filter_match_index = 1 end
-                                    local m = filter_matches[filter_match_index]
-                                    if tabs[active_tab_index] then
-                                        tabs[active_tab_index].scroll_to_line = m.line
-                                    end
-                                end
-                            end
-                            if reaper.ImGui_IsItemHovered(ctx) then
-                                active_style_tooltip = "Наступний збіг"
-                            end
-                            if not has_matches then
-                                reaper.ImGui_EndDisabled(ctx)
-                            end
-                            if has_matches then
-                                reaper.ImGui_SameLine(ctx)
-                                reaper.ImGui_TextDisabled(ctx, filter_match_index .. "/" .. #filter_matches)
-                            end
-                            reaper.ImGui_SameLine(ctx)
-                        end
-                    end
 
-                    local active_editing_tab = nil
-                    for _, t in ipairs(tabs) do
-                        if t.is_active and t.editing then
-                            active_editing_tab = t
-                            break
+                            if reaper.ImGui_Button(ctx, "X##clear_filter", 24) then
+                                filter_text = ""
+                                filter_active = false
+                                filter_matches = {}
+                                filter_match_index = 0
+                            end
+                            if reaper.ImGui_IsItemHovered(ctx) then
+                                active_style_tooltip = "Очистити пошук"
+                            end
+                            reaper.ImGui_SameLine(ctx)
+
+                            local is_editing_now = tabs[active_tab_index] and tabs[active_tab_index].editing
+                            if not is_editing_now then
+                                local has_matches = #filter_matches > 0
+                                if not has_matches then
+                                    reaper.ImGui_BeginDisabled(ctx)
+                                end
+
+                                if reaper.ImGui_Button(ctx, "<##prev_match", 24) then
+                                    if has_matches then
+                                        filter_match_index = filter_match_index - 1
+                                        if filter_match_index < 1 then filter_match_index = #filter_matches end
+                                        local m = filter_matches[filter_match_index]
+                                        if tabs[active_tab_index] then
+                                            tabs[active_tab_index].scroll_to_line = m.line
+                                        end
+                                    end
+                                end
+                                if reaper.ImGui_IsItemHovered(ctx) then
+                                    active_style_tooltip = "Попередній збіг"
+                                end
+                                reaper.ImGui_SameLine(ctx)
+                                if reaper.ImGui_Button(ctx, ">##next_match", 24) then
+                                    if has_matches then
+                                        filter_match_index = filter_match_index + 1
+                                        if filter_match_index > #filter_matches then filter_match_index = 1 end
+                                        local m = filter_matches[filter_match_index]
+                                        if tabs[active_tab_index] then
+                                            tabs[active_tab_index].scroll_to_line = m.line
+                                        end
+                                    end
+                                end
+                                if reaper.ImGui_IsItemHovered(ctx) then
+                                    active_style_tooltip = "Наступний збіг"
+                                end
+                                if not has_matches then
+                                    reaper.ImGui_EndDisabled(ctx)
+                                end
+                                if has_matches then
+                                    reaper.ImGui_SameLine(ctx)
+                                    reaper.ImGui_TextDisabled(ctx, filter_match_index .. "/" .. #filter_matches)
+                                end
+                                reaper.ImGui_SameLine(ctx)
+                            end
                         end
-                    end
-                    if not active_editing_tab then
+
+                        local active_editing_tab = nil
                         for _, t in ipairs(tabs) do
-                            if t.editing then
+                            if t.is_active and t.editing then
                                 active_editing_tab = t
                                 break
                             end
                         end
-                    end
+                        if not active_editing_tab then
+                            for _, t in ipairs(tabs) do
+                                if t.editing then
+                                    active_editing_tab = t
+                                    break
+                                end
+                            end
+                        end
 
-                    if active_editing_tab then
-                        local style_buttons = {
-                            { label = "-", prefix = "---", tooltip = "Розділова лінія", is_wrap = false },
-                            { label = "B", wrapper = "**", tooltip = "Жирний", is_wrap = true },
-                            { label = "I", wrapper = "*", tooltip = "Курсив", is_wrap = true },
-                            { label = "_", wrapper = "__", tooltip = "Підкреслення", is_wrap = true },
-                            { label = "T", wrapper = "|", tooltip = "Таблиця", is_wrap = true },
-                            { label = "H1", prefix = "# ", tooltip = "Заголовок 1", is_wrap = false },
-                            { label = "H2", prefix = "## ", tooltip = "Заголовок 2", is_wrap = false },
-                            { label = "H3", prefix = "### ", tooltip = "Заголовок 3", is_wrap = false },
-                            { label = "Ч", prefix = "[ ] ", tooltip = "Чекбокс", is_wrap = false },
-                        }
+                        if active_editing_tab then
+                            local style_buttons = {
+                                { label = "-", prefix = "---", tooltip = "Розділова лінія", is_wrap = false },
+                                { label = "B", wrapper = "**", tooltip = "Жирний", is_wrap = true },
+                                { label = "I", wrapper = "*", tooltip = "Курсив", is_wrap = true },
+                                { label = "_", wrapper = "__", tooltip = "Підкреслення", is_wrap = true },
+                                { label = "T", wrapper = "|", tooltip = "Таблиця", is_wrap = true },
+                                { label = "H1", prefix = "# ", tooltip = "Заголовок 1", is_wrap = false },
+                                { label = "H2", prefix = "## ", tooltip = "Заголовок 2", is_wrap = false },
+                                { label = "H3", prefix = "### ", tooltip = "Заголовок 3", is_wrap = false },
+                                { label = "Ч", prefix = "[ ] ", tooltip = "Чекбокс", is_wrap = false },
+                            }
 
-                        local btn_w         = 22
-                        local btn_h         = 0
-                        local spacing       = 0
-                        local total_w       = #style_buttons * btn_w + (#style_buttons - 1) * spacing
-                        local win_w         = reaper.ImGui_GetWindowWidth(ctx)
-                        reaper.ImGui_SetCursorPosX(ctx, win_w - total_w - 70)
+                            local btn_w         = 22
+                            local btn_h         = 0
+                            local spacing       = 0
+                            local total_w       = #style_buttons * btn_w + (#style_buttons - 1) * spacing
+                            local win_w         = reaper.ImGui_GetWindowWidth(ctx)
+                            reaper.ImGui_SetCursorPosX(ctx, win_w - total_w - 70)
 
-                        for bi, btn in ipairs(style_buttons) do
-                            if reaper.ImGui_Button(ctx, btn.label .. "##style_btn_" .. bi, btn_w, btn_h) then
-                                local t = active_editing_tab
-                                local cur = t.saved_cursor or 0
-                                local sel_s = t.saved_sel_start or 0
-                                local sel_e = t.saved_sel_end or 0
-                                if sel_s > sel_e then sel_s, sel_e = sel_e, sel_s end
+                            for bi, btn in ipairs(style_buttons) do
+                                if reaper.ImGui_Button(ctx, btn.label .. "##style_btn_" .. bi, btn_w, btn_h) then
+                                    local t = active_editing_tab
+                                    local cur = t.saved_cursor or 0
+                                    local sel_s = t.saved_sel_start or 0
+                                    local sel_e = t.saved_sel_end or 0
+                                    if sel_s > sel_e then sel_s, sel_e = sel_e, sel_s end
 
-                                local current_view_text = filter_active and filter_content(t.content, filter_text) or
-                                    t.content
-                                local modified_text = ""
+                                    local current_view_text = filter_active and filter_content(t.content, filter_text) or
+                                        t.content
+                                    local modified_text = ""
 
-                                if btn.is_wrap then
-                                    if sel_s ~= sel_e then
-                                        local before = current_view_text:sub(1, sel_s)
-                                        local selected = current_view_text:sub(sel_s + 1, sel_e)
-                                        local after = current_view_text:sub(sel_e + 1)
-                                        modified_text = before .. btn.wrapper .. selected .. btn.wrapper .. after
-                                    else
-                                        local before = current_view_text:sub(1, cur)
-                                        local after = current_view_text:sub(cur + 1)
-                                        modified_text = before .. btn.wrapper .. btn.wrapper .. after
-                                    end
-                                else
-                                    local search_pos = (sel_s ~= sel_e) and sel_s or cur
-                                    local line_start = current_view_text:sub(1, search_pos):match(".*\n()") or 1
-
-                                    if btn.label == "-" then
-                                        local line_end = current_view_text:find("\n", search_pos + 1, true)
-                                        if line_end then
-                                            modified_text = current_view_text:sub(1, line_end) ..
-                                                "---\n" .. current_view_text:sub(line_end + 1)
+                                    if btn.is_wrap then
+                                        if sel_s ~= sel_e then
+                                            local before = current_view_text:sub(1, sel_s)
+                                            local selected = current_view_text:sub(sel_s + 1, sel_e)
+                                            local after = current_view_text:sub(sel_e + 1)
+                                            modified_text = before .. btn.wrapper .. selected .. btn.wrapper .. after
                                         else
-                                            local cur_line_text = current_view_text:sub(line_start, search_pos)
-                                            modified_text = current_view_text ..
-                                                (cur_line_text:match("%S") and "\n---\n" or "---\n")
+                                            local before = current_view_text:sub(1, cur)
+                                            local after = current_view_text:sub(cur + 1)
+                                            modified_text = before .. btn.wrapper .. btn.wrapper .. after
                                         end
                                     else
-                                        modified_text = current_view_text:sub(1, line_start - 1) ..
-                                            btn.prefix .. current_view_text:sub(line_start)
+                                        local search_pos = (sel_s ~= sel_e) and sel_s or cur
+                                        local line_start = current_view_text:sub(1, search_pos):match(".*\n()") or 1
+
+                                        if btn.label == "-" then
+                                            local line_end = current_view_text:find("\n", search_pos + 1, true)
+                                            if line_end then
+                                                modified_text = current_view_text:sub(1, line_end) ..
+                                                    "---\n" .. current_view_text:sub(line_end + 1)
+                                            else
+                                                local cur_line_text = current_view_text:sub(line_start, search_pos)
+                                                modified_text = current_view_text ..
+                                                    (cur_line_text:match("%S") and "\n---\n" or "---\n")
+                                            end
+                                        else
+                                            modified_text = current_view_text:sub(1, line_start - 1) ..
+                                                btn.prefix .. current_view_text:sub(line_start)
+                                        end
                                     end
+
+                                    if filter_active then
+                                        t.content = sync_filtered_to_full(t.content, current_view_text, modified_text)
+                                    else
+                                        t.content = modified_text
+                                    end
+
+                                    t.should_focus_edit = true
                                 end
-
-                                if filter_active then
-                                    t.content = sync_filtered_to_full(t.content, current_view_text, modified_text)
-                                else
-                                    t.content = modified_text
+                                if reaper.ImGui_IsItemHovered(ctx) then
+                                    active_style_tooltip = btn.tooltip
                                 end
-
-                                t.should_focus_edit = true
+                                reaper.ImGui_SameLine(ctx)
                             end
-                            if reaper.ImGui_IsItemHovered(ctx) then
-                                active_style_tooltip = btn.tooltip
+                        end
+
+                        if filter_active then
+                            reaper.ImGui_TextColored(ctx, 0x00FF00FF, " ")
+                        else
+                            reaper.ImGui_TextDisabled(ctx, " ")
+                        end
+                    end
+                end
+
+                reaper.ImGui_Separator(ctx)
+
+                for i, tab in ipairs(tabs) do
+                    local flags = 0
+                    if tab.renaming or tab.should_focus then
+                        flags = reaper.ImGui_TabItemFlags_SetSelected() | reaper.ImGui_TabItemFlags_NoReorder()
+                        tab.should_focus = false
+                    elseif pending_active_tab == i then
+                        flags = reaper.ImGui_TabItemFlags_SetSelected()
+                        pending_active_tab = nil
+                    end
+
+                    local is_open, keep_open = reaper.ImGui_BeginTabItem(ctx, tab.title .. "##" .. i, true, flags)
+
+                    if reaper.ImGui_IsItemHovered(ctx)
+                        and reaper.ImGui_IsMouseDoubleClicked(ctx, 0) then
+                        tab.renaming = true
+                    end
+
+                    if is_open then
+                        active_tab_index = i
+                        pomodoro_active = false
+                        local avail_w, avail_h = reaper.ImGui_GetContentRegionAvail(ctx)
+
+                        if tab.reopen_editing then
+                            tab.reopen_editing = nil
+                            tab.editing = true
+                            tab.should_focus_edit = true
+                        end
+
+                        local display_content = tab.content
+
+                        --========== EDIT MODE ==========
+                        if tab.editing then
+                            reaper.ImGui_TextDisabled(ctx, "Редагування:")
+
+                            local save_button_width = 80
+                            local save_button_height = 25
+                            local window_width = reaper.ImGui_GetWindowWidth(ctx)
+
+                            if active_style_tooltip ~= "" then
+                                local tooltip_w = reaper.ImGui_CalcTextSize(ctx, active_style_tooltip)
+                                reaper.ImGui_SameLine(ctx, window_width - tooltip_w - save_button_width + 70)
+                                reaper.ImGui_TextColored(ctx, 0x62b058FF, active_style_tooltip)
                             end
-                            reaper.ImGui_SameLine(ctx)
-                        end
-                    end
 
-                    if filter_active then
-                        reaper.ImGui_TextColored(ctx, 0x00FF00FF, " ")
-                    else
-                        reaper.ImGui_TextDisabled(ctx, " ")
-                    end
-                end
-            end
-
-            reaper.ImGui_Separator(ctx)
-
-            for i, tab in ipairs(tabs) do
-                local flags = 0
-                if tab.renaming or tab.should_focus then
-                    flags = reaper.ImGui_TabItemFlags_SetSelected() | reaper.ImGui_TabItemFlags_NoReorder()
-                    tab.should_focus = false
-                elseif pending_active_tab == i then
-                    flags = reaper.ImGui_TabItemFlags_SetSelected()
-                    pending_active_tab = nil
-                end
-
-                local is_open, keep_open = reaper.ImGui_BeginTabItem(ctx, tab.title .. "##" .. i, true, flags)
-
-                if reaper.ImGui_IsItemHovered(ctx)
-                    and reaper.ImGui_IsMouseDoubleClicked(ctx, 0) then
-                    tab.renaming = true
-                end
-
-                if is_open then
-                    active_tab_index = i
-                    pomodoro_active = false
-                    local avail_w, avail_h = reaper.ImGui_GetContentRegionAvail(ctx)
-
-                    if tab.reopen_editing then
-                        tab.reopen_editing = nil
-                        tab.editing = true
-                        tab.should_focus_edit = true
-                    end
-
-                    local display_content = tab.content
-
-                    --========== EDIT MODE ==========
-                    if tab.editing then
-                        reaper.ImGui_TextDisabled(ctx, "Редагування:")
-
-                        local save_button_width = 80
-                        local save_button_height = 25
-                        local window_width = reaper.ImGui_GetWindowWidth(ctx)
-
-                        if active_style_tooltip ~= "" then
-                            local tooltip_w = reaper.ImGui_CalcTextSize(ctx, active_style_tooltip)
-                            reaper.ImGui_SameLine(ctx, window_width - tooltip_w - save_button_width + 70)
-                            reaper.ImGui_TextColored(ctx, 0x62b058FF, active_style_tooltip)
-                        end
-
-                        reaper.ImGui_PushFont(ctx, tab_font, tab_font_size)
-
-                        local flags = reaper.ImGui_InputTextFlags_CallbackAlways()
-
-                        if tab.should_focus_edit then
-                            reaper.ImGui_SetKeyboardFocusHere(ctx)
-                            tab.should_focus_edit = false
-                        end
-
-                        if tab.scroll_to_line and tab.cursor_cb_scroll then
                             reaper.ImGui_PushFont(ctx, tab_font, tab_font_size)
-                            local lh_edit = reaper.ImGui_GetTextLineHeightWithSpacing(ctx)
-                            reaper.ImGui_PopFont(ctx)
-                            local target_sy = tab.scroll_to_line * lh_edit - (avail_h - 60) * 0.4
-                            if target_sy < 0 then target_sy = 0 end
-                            reaper.ImGui_Function_SetValue(tab.cursor_cb_scroll, "g_want_scroll", 1)
-                            reaper.ImGui_Function_SetValue(tab.cursor_cb_scroll, "g_scroll_target", target_sy)
-                            tab.scroll_to_line = nil
-                        end
 
-                        if tab.cursor_cb_scroll then
-                            local ok = pcall(function()
-                                reaper.ImGui_Function_GetValue(tab.cursor_cb_scroll, "g_want_scroll")
-                            end)
-                            if not ok then
-                                reaper.ImGui_Detach(ctx, tab.cursor_cb_scroll)
-                                tab.cursor_cb_scroll = nil
-                                tab.cursor_cb = nil
+                            local flags = reaper.ImGui_InputTextFlags_CallbackAlways()
+
+                            if tab.should_focus_edit then
+                                reaper.ImGui_SetKeyboardFocusHere(ctx)
+                                tab.should_focus_edit = false
                             end
-                        end
 
-                        if not tab.cursor_cb_scroll then
-                            tab.cursor_cb_scroll = reaper.ImGui_CreateFunctionFromEEL([[
+                            if tab.scroll_to_line and tab.cursor_cb_scroll then
+                                reaper.ImGui_PushFont(ctx, tab_font, tab_font_size)
+                                local lh_edit = reaper.ImGui_GetTextLineHeightWithSpacing(ctx)
+                                reaper.ImGui_PopFont(ctx)
+                                local target_sy = tab.scroll_to_line * lh_edit - (avail_h - 60) * 0.4
+                                if target_sy < 0 then target_sy = 0 end
+                                reaper.ImGui_Function_SetValue(tab.cursor_cb_scroll, "g_want_scroll", 1)
+                                reaper.ImGui_Function_SetValue(tab.cursor_cb_scroll, "g_scroll_target", target_sy)
+                                tab.scroll_to_line = nil
+                            end
+
+                            if tab.cursor_cb_scroll then
+                                local ok = pcall(function()
+                                    reaper.ImGui_Function_GetValue(tab.cursor_cb_scroll, "g_want_scroll")
+                                end)
+                                if not ok then
+                                    reaper.ImGui_Detach(ctx, tab.cursor_cb_scroll)
+                                    tab.cursor_cb_scroll = nil
+                                    tab.cursor_cb = nil
+                                end
+                            end
+
+                            if not tab.cursor_cb_scroll then
+                                tab.cursor_cb_scroll = reaper.ImGui_CreateFunctionFromEEL([[
                                 g_cursor    = CursorPos;
                                 g_sel_start = SelectionStart;
                                 g_sel_end   = SelectionEnd;
                                 g_scroll_y  = ScrollY;
                                 g_want_scroll ? (ScrollY = g_scroll_target; g_want_scroll = 0;);
                             ]])
-                            reaper.ImGui_Attach(ctx, tab.cursor_cb_scroll)
-                            tab.cursor_cb = tab.cursor_cb_scroll
-                        end
-
-                        local flags = reaper.ImGui_InputTextFlags_CallbackAlways()
-
-                        local edit_h = avail_h - 60
-                        local edit_text = filter_active and filter_text ~= "" and
-                            filter_content(tab.content, filter_text) or tab.content
-
-                        local rv, new_edit_content = reaper.ImGui_InputTextMultiline(
-                            ctx,
-                            "##edit" .. i,
-                            edit_text,
-                            avail_w,
-                            edit_h,
-                            flags,
-                            tab.cursor_cb_scroll
-                        )
-
-                        if rv then
-                            if filter_active and filter_text ~= "" then
-                                tab.content = sync_filtered_to_full(tab.content, edit_text, new_edit_content)
-                            else
-                                tab.content = new_edit_content
+                                reaper.ImGui_Attach(ctx, tab.cursor_cb_scroll)
+                                tab.cursor_cb = tab.cursor_cb_scroll
                             end
-                        end
 
-                        if tab.cursor_cb_scroll then
-                            local cur = math.floor(reaper.ImGui_Function_GetValue(tab.cursor_cb_scroll, "g_cursor"))
-                            if cur and cur >= 0 then
-                                tab.saved_cursor    = cur
-                                tab.saved_sel_start = math.floor(reaper.ImGui_Function_GetValue(tab.cursor_cb_scroll,
-                                    "g_sel_start"))
-                                tab.saved_sel_end   = math.floor(reaper.ImGui_Function_GetValue(tab.cursor_cb_scroll,
-                                    "g_sel_end"))
-                            end
-                        end
+                            local flags = reaper.ImGui_InputTextFlags_CallbackAlways()
 
-                        if reaper.ImGui_IsItemHovered(ctx) and reaper.ImGui_IsMouseClicked(ctx, 1) then
-                            reaper.ImGui_OpenPopup(ctx, "FormatMenu")
-                        end
+                            local edit_h = avail_h - 60
+                            local edit_text = filter_active and filter_text ~= "" and
+                                filter_content(tab.content, filter_text) or tab.content
 
-                        reaper.ImGui_PushFont(ctx, tab_font, 14)
+                            local rv, new_edit_content = reaper.ImGui_InputTextMultiline(
+                                ctx,
+                                "##edit" .. i,
+                                edit_text,
+                                avail_w,
+                                edit_h,
+                                flags,
+                                tab.cursor_cb_scroll
+                            )
 
-                        if reaper.ImGui_BeginPopup(ctx, "FormatMenu") then
-                            local sel_s = tab.saved_sel_start or 0
-                            local sel_e = tab.saved_sel_end or 0
-                            if sel_s > sel_e then sel_s, sel_e = sel_e, sel_s end
-                            local has_selection = (sel_s ~= sel_e)
-
-                            if reaper.ImGui_MenuItem(ctx, "Копіювати", "Ctrl+C/Cmd+C", false, has_selection) then
-                                if has_selection then
-                                    local selected_text = tab.content:sub(sel_s + 1, sel_e)
-                                    reaper.ImGui_SetClipboardText(ctx, selected_text)
+                            if rv then
+                                if filter_active and filter_text ~= "" then
+                                    tab.content = sync_filtered_to_full(tab.content, edit_text, new_edit_content)
+                                else
+                                    tab.content = new_edit_content
                                 end
                             end
 
-                            if reaper.ImGui_MenuItem(ctx, "Вирізати", "Ctrl+X/Cmd+X", false, has_selection) then
-                                if has_selection then
-                                    local selected_text = tab.content:sub(sel_s + 1, sel_e)
-                                    reaper.ImGui_SetClipboardText(ctx, selected_text)
-                                    tab.content         = tab.content:sub(1, sel_s) .. tab.content:sub(sel_e + 1)
-                                    tab.saved_sel_start = sel_s
-                                    tab.saved_sel_end   = sel_s
-                                    tab.saved_cursor    = sel_s
-                                    tab.editing         = false
-                                    tab.reopen_editing  = true
+                            if tab.cursor_cb_scroll then
+                                local cur = math.floor(reaper.ImGui_Function_GetValue(tab.cursor_cb_scroll, "g_cursor"))
+                                if cur and cur >= 0 then
+                                    tab.saved_cursor    = cur
+                                    tab.saved_sel_start = math.floor(reaper.ImGui_Function_GetValue(tab.cursor_cb_scroll,
+                                        "g_sel_start"))
+                                    tab.saved_sel_end   = math.floor(reaper.ImGui_Function_GetValue(tab.cursor_cb_scroll,
+                                        "g_sel_end"))
                                 end
                             end
 
-                            if reaper.ImGui_MenuItem(ctx, "Вставити", "Ctrl+V/Cmd+V") then
-                                local clipboard = reaper.ImGui_GetClipboardText(ctx)
-                                if clipboard and clipboard ~= "" then
-                                    local pos = tab.saved_cursor or #tab.content
+                            if reaper.ImGui_IsItemHovered(ctx) and reaper.ImGui_IsMouseClicked(ctx, 1) then
+                                reaper.ImGui_OpenPopup(ctx, "FormatMenu")
+                            end
+
+                            reaper.ImGui_PushFont(ctx, tab_font, 14)
+
+                            if reaper.ImGui_BeginPopup(ctx, "FormatMenu") then
+                                local sel_s = tab.saved_sel_start or 0
+                                local sel_e = tab.saved_sel_end or 0
+                                if sel_s > sel_e then sel_s, sel_e = sel_e, sel_s end
+                                local has_selection = (sel_s ~= sel_e)
+
+                                if reaper.ImGui_MenuItem(ctx, "Копіювати", "Ctrl+C/Cmd+C", false, has_selection) then
                                     if has_selection then
-                                        tab.content = tab.content:sub(1, sel_s) ..
-                                            clipboard .. tab.content:sub(sel_e + 1)
-                                    else
-                                        tab.content = tab.content:sub(1, pos) ..
-                                            clipboard .. tab.content:sub(pos + 1)
+                                        local selected_text = tab.content:sub(sel_s + 1, sel_e)
+                                        reaper.ImGui_SetClipboardText(ctx, selected_text)
                                     end
-                                    tab.editing        = false
-                                    tab.reopen_editing = true
                                 end
-                            end
 
-                            if reaper.ImGui_MenuItem(ctx, "Видалити", "Del", false, has_selection) then
-                                if has_selection then
-                                    tab.content         = tab.content:sub(1, sel_s) .. tab.content:sub(sel_e + 1)
-                                    tab.saved_sel_start = sel_s
-                                    tab.saved_sel_end   = sel_s
-                                    tab.saved_cursor    = sel_s
-                                    tab.editing         = false
-                                    tab.reopen_editing  = true
-                                end
-                            end
-
-                            reaper.ImGui_Separator(ctx)
-
-                            if reaper.ImGui_MenuItem(ctx, "Імпортувати маркери") then
-                                local markers_text = get_reaper_markers_text()
-                                if markers_text then
-                                    local formatted_markers = ""
-                                    for line in markers_text:gmatch("[^\r\n]+") do
-                                        formatted_markers = formatted_markers .. "[ ] " .. line .. "\n"
+                                if reaper.ImGui_MenuItem(ctx, "Вирізати", "Ctrl+X/Cmd+X", false, has_selection) then
+                                    if has_selection then
+                                        local selected_text = tab.content:sub(sel_s + 1, sel_e)
+                                        reaper.ImGui_SetClipboardText(ctx, selected_text)
+                                        tab.content         = tab.content:sub(1, sel_s) .. tab.content:sub(sel_e + 1)
+                                        tab.saved_sel_start = sel_s
+                                        tab.saved_sel_end   = sel_s
+                                        tab.saved_cursor    = sel_s
+                                        tab.editing         = false
+                                        tab.reopen_editing  = true
                                     end
-                                    local pos          = tab.saved_cursor or #tab.content
-                                    local before       = tab.content:sub(1, pos)
-                                    local after        = tab.content:sub(pos + 1)
-                                    tab.content        = before .. "\n" .. formatted_markers .. after
-                                    tab.editing        = false
-                                    tab.reopen_editing = true
-                                    tab.reopen_cursor  = pos + 1 + #formatted_markers
                                 end
+
+                                if reaper.ImGui_MenuItem(ctx, "Вставити", "Ctrl+V/Cmd+V") then
+                                    local clipboard = reaper.ImGui_GetClipboardText(ctx)
+                                    if clipboard and clipboard ~= "" then
+                                        local pos = tab.saved_cursor or #tab.content
+                                        if has_selection then
+                                            tab.content = tab.content:sub(1, sel_s) ..
+                                                clipboard .. tab.content:sub(sel_e + 1)
+                                        else
+                                            tab.content = tab.content:sub(1, pos) ..
+                                                clipboard .. tab.content:sub(pos + 1)
+                                        end
+                                        tab.editing        = false
+                                        tab.reopen_editing = true
+                                    end
+                                end
+
+                                if reaper.ImGui_MenuItem(ctx, "Видалити", "Del", false, has_selection) then
+                                    if has_selection then
+                                        tab.content         = tab.content:sub(1, sel_s) .. tab.content:sub(sel_e + 1)
+                                        tab.saved_sel_start = sel_s
+                                        tab.saved_sel_end   = sel_s
+                                        tab.saved_cursor    = sel_s
+                                        tab.editing         = false
+                                        tab.reopen_editing  = true
+                                    end
+                                end
+
+                                reaper.ImGui_Separator(ctx)
+
+                                if reaper.ImGui_MenuItem(ctx, "Імпортувати маркери") then
+                                    local markers_text = get_reaper_markers_text()
+                                    if markers_text then
+                                        local formatted_markers = ""
+                                        for line in markers_text:gmatch("[^\r\n]+") do
+                                            formatted_markers = formatted_markers .. "[ ] " .. line .. "\n"
+                                        end
+                                        local pos          = tab.saved_cursor or #tab.content
+                                        local before       = tab.content:sub(1, pos)
+                                        local after        = tab.content:sub(pos + 1)
+                                        tab.content        = before .. "\n" .. formatted_markers .. after
+                                        tab.editing        = false
+                                        tab.reopen_editing = true
+                                        tab.reopen_cursor  = pos + 1 + #formatted_markers
+                                    end
+                                end
+                                reaper.ImGui_Separator(ctx)
+                                reaper.ImGui_TextDisabled(ctx, "Ctrl+S / Cmd+S - зберегти")
+                                reaper.ImGui_EndPopup(ctx)
                             end
-                            reaper.ImGui_Separator(ctx)
-                            reaper.ImGui_TextDisabled(ctx, "Ctrl+S / Cmd+S - зберегти")
-                            reaper.ImGui_EndPopup(ctx)
-                        end
-                        reaper.ImGui_PopFont(ctx)
-
-                        if reaper.ImGui_IsItemActive(ctx) then
-                            if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_A())
-                                and is_mod_pressed() then
-                                text_sel_start = 0
-                                text_sel_end = #tab.content
-                            end
-                        end
-
-                        reaper.ImGui_PopFont(ctx)
-
-                        reaper.ImGui_PushFont(ctx, font, 16)
-                        reaper.ImGui_SetCursorPosX(ctx, window_width - save_button_width / 0.5)
-                        if reaper.ImGui_Button(ctx, "Зберегти", 150, 30) then
-                            tab.editing = false
-                        end
-                        if reaper.ImGui_IsItemHovered(ctx) then
-                            reaper.ImGui_SetTooltip(ctx, "Ctrl+S / Cmd+S")
-                        end
-                        if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_S())
-                            and is_mod_pressed() then
-                            tab.editing = false
-                        end
-                        reaper.ImGui_PopFont(ctx)
-
-                        if reaper.ImGui_IsMouseClicked(ctx, 0)
-                            and not reaper.ImGui_IsItemHovered(ctx)
-                            and not reaper.ImGui_IsAnyItemHovered(ctx)
-                            and not reaper.ImGui_IsPopupOpen(ctx, "FormatMenu", 0) then
-                            tab.editing = false
-                        end
-                    else
-                        reaper.ImGui_BeginChild(ctx, "view" .. i, avail_w, avail_h)
-                        filter_view_match_counter = 0
-                        if tab.scroll_to_line then
-                            reaper.ImGui_PushFont(ctx, tab_font, tab_font_size)
-                            local lh = reaper.ImGui_GetTextLineHeightWithSpacing(ctx)
                             reaper.ImGui_PopFont(ctx)
-                            local target_y = tab.scroll_to_line * lh - avail_h * 0.4
-                            if target_y < 0 then target_y = 0 end
-                            reaper.ImGui_SetScrollY(ctx, target_y)
-                            tab.scroll_to_line = nil
-                        end
 
-                        if display_content == "" then
-                            reaper.ImGui_TextDisabled(ctx, "Подвійний клік для редагування")
-                        else
-                            local parsed = parse_simple_markdown(display_content)
-
-                            reaper.ImGui_PushTextWrapPos(ctx, 0.0)
-
-                            local win_left_scr_x
-                            do
-                                local wx, _ = reaper.ImGui_GetWindowPos(ctx)
-                                local sx, _ = reaper.ImGui_GetCursorScreenPos(ctx)
-                                win_left_scr_x = sx
-                            end
-
-                            local paragraph_segments = {}
-                            local just_flushed = false
-                            local function flush_paragraph(is_checked_ctx)
-                                if #paragraph_segments == 0 then return end
-                                local scr_x, _ = reaper.ImGui_GetCursorScreenPos(ctx)
-                                local tokens = segments_to_word_tokens(paragraph_segments, is_checked_ctx or false)
-                                render_line_tokens(ctx, tokens, scr_x, nil, win_left_scr_x)
-                                paragraph_segments = {}
-                                just_flushed = true
-                            end
-
-                            for idx, segment in ipairs(parsed) do
-                                local is_text_type = segment.type == "text" or segment.type == "bold"
-                                    or segment.type == "italic" or segment.type == "underline"
-                                    or segment.type == "multi_style"
-
-                                if is_text_type then
-                                    just_flushed = false
-                                    local seg_copy = {
-                                        text = segment.text or "",
-                                        bold = false,
-                                        italic = false,
-                                        underline = false,
-                                        styles = segment.styles
-                                    }
-                                    if segment.type == "bold" then
-                                        seg_copy.bold = true
-                                    elseif segment.type == "italic" then
-                                        seg_copy.italic = true
-                                    elseif segment.type == "underline" then
-                                        seg_copy.underline = true
-                                    end
-                                    table.insert(paragraph_segments, seg_copy)
-                                    local next_seg = parsed[idx + 1]
-                                    local next_is_text = next_seg and (
-                                        next_seg.type == "text" or next_seg.type == "bold"
-                                        or next_seg.type == "italic" or next_seg.type == "underline"
-                                        or next_seg.type == "multi_style")
-                                    if not next_is_text then
-                                        flush_paragraph(false)
-                                    end
-                                elseif segment.type == "newline" then
-                                    if #paragraph_segments > 0 then
-                                        flush_paragraph(false)
-                                    elseif not just_flushed then
-                                        reaper.ImGui_NewLine(ctx)
-                                    end
-                                    just_flushed = false
-                                elseif segment.type == "checkbox" then
-                                    flush_paragraph(false)
-                                    local is_checked = segment.checked
-
-                                    reaper.ImGui_PushFont(ctx, tab_font, tab_font_size)
-                                    local line_h_cb = reaper.ImGui_GetTextLineHeight(ctx)
-                                    local fp = math.max(1, math.floor((line_h_cb - 100) * 0.45))
-                                    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), fp, fp)
-
-                                    if segment.indent and #segment.indent > 0 then
-                                        reaper.ImGui_Dummy(ctx, #segment.indent * 10, 0)
-                                        reaper.ImGui_SameLine(ctx)
-                                    end
-
-                                    local cb_scr_x, cb_scr_y = reaper.ImGui_GetCursorScreenPos(ctx)
-
-                                    local changed, new_state = reaper.ImGui_Checkbox(ctx, "##cb_" .. i .. "_" .. idx,
-                                        is_checked)
-
-                                    if changed then
-                                        local old_line = segment.line
-                                        local new_line = segment.indent ..
-                                            "[" .. (new_state and "x" or " ") .. "] " .. segment.text
-                                        tab.content = tab.content:gsub(
-                                            old_line:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"), new_line, 1)
-                                    end
-
-                                    local text_y = cb_scr_y + fp - 2
-
-                                    reaper.ImGui_SameLine(ctx)
-                                    local text_start_x, _ = reaper.ImGui_GetCursorScreenPos(ctx)
-
-                                    local checkbox_parsed = parse_simple_markdown(segment.text)
-                                    local cb_segs = {}
-                                    for _, cb_seg in ipairs(checkbox_parsed) do
-                                        if cb_seg.type ~= "newline" then
-                                            local s = {
-                                                text = cb_seg.text or "",
-                                                bold = (cb_seg.type == "bold"),
-                                                italic = (cb_seg.type == "italic"),
-                                                underline = (cb_seg.type == "underline"),
-                                                styles = cb_seg.styles
-                                            }
-                                            table.insert(cb_segs, s)
-                                        end
-                                    end
-
-                                    local cb_tokens = segments_to_word_tokens(cb_segs, is_checked)
-                                    render_line_tokens(ctx, cb_tokens, text_start_x, nil, win_left_scr_x, text_y)
-
-                                    reaper.ImGui_PopStyleVar(ctx)
-                                    reaper.ImGui_PopFont(ctx)
-                                    just_flushed = true
-                                elseif segment.type == "table_row" then
-                                    local cell_padding = 6
-                                    local win_width = reaper.ImGui_GetContentRegionAvail(ctx)
-                                    local num_cells = #segment.cells
-                                    local cell_width = win_width / num_cells
-
-                                    local start_x, start_y = reaper.ImGui_GetCursorScreenPos(ctx)
-                                    local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
-                                    local line_h = reaper.ImGui_GetTextLineHeight(ctx) + (cell_padding * 3)
-
-                                    if segment.is_header then
-                                        reaper.ImGui_DrawList_AddRectFilled(draw_list, start_x, start_y,
-                                            start_x + win_width, start_y + line_h, GetGeneralColorHEX())
-                                    end
-
-                                    for c_idx, styled_segments in ipairs(segment.cells) do
-                                        local cur_x = start_x + (c_idx - 1) * cell_width
-                                        reaper.ImGui_DrawList_AddRect(draw_list, cur_x, start_y, cur_x + cell_width,
-                                            start_y + line_h, GetGeneralColorHEX())
-
-                                        reaper.ImGui_SetCursorScreenPos(ctx, cur_x + cell_padding, start_y + cell_padding)
-
-                                        for _, s in ipairs(styled_segments) do
-                                            local font = tab_font
-                                            if segment.is_header or s.bold then
-                                                font = get_font(current_font_name, "Bold") or tab_font
-                                            elseif s.italic then
-                                                font = get_font(current_font_name, "Italic") or tab_font
-                                            end
-
-                                            reaper.ImGui_PushFont(ctx, tab_font, 16)
-                                            if filter_active and filter_text ~= "" and s.text ~= "" then
-                                                local cell_lc   = utf8_to_lower(s.text)
-                                                local search_lc = utf8_to_lower(filter_text)
-                                                local cx, cy    = reaper.ImGui_GetCursorScreenPos(ctx)
-                                                local cell_lh   = reaper.ImGui_GetTextLineHeight(ctx)
-                                                local sp        = 1
-                                                while true do
-                                                    local ms, me = cell_lc:find(search_lc, sp, true)
-                                                    if not ms then break end
-                                                    filter_view_match_counter = filter_view_match_counter + 1
-                                                    local x_before            = reaper.ImGui_CalcTextSize(ctx,
-                                                        s.text:sub(1, ms - 1))
-                                                    local x_matched           = reaper.ImGui_CalcTextSize(ctx,
-                                                        s.text:sub(ms, me))
-                                                    local col                 = (filter_view_match_counter == filter_match_index) and
-                                                        0x93f67b60 or 0xf6de7b77
-                                                    reaper.ImGui_DrawList_AddRectFilled(draw_list,
-                                                        cx + x_before, cy,
-                                                        cx + x_before + x_matched, cy + cell_lh, col)
-                                                    sp = me + 1
-                                                end
-                                            end
-                                            reaper.ImGui_Text(ctx, s.text)
-                                            reaper.ImGui_PopFont(ctx)
-
-                                            if s.underline then
-                                                local tx, ty = reaper.ImGui_GetItemRectMin(ctx)
-                                                local bx, by = reaper.ImGui_GetItemRectMax(ctx)
-                                                reaper.ImGui_DrawList_AddLine(draw_list, tx, by, bx, by, 0xFFFFFFFF)
-                                            end
-
-                                            reaper.ImGui_SameLine(ctx, nil, 0)
-                                        end
-                                    end
-                                    reaper.ImGui_SetCursorScreenPos(ctx, win_left_scr_x, start_y + line_h)
-                                    reaper.ImGui_Dummy(ctx, 0, 0)
-                                    just_flushed = true
-                                elseif segment.type == "separator" then
-                                    flush_paragraph(false)
-                                    reaper.ImGui_Dummy(ctx, 0, 5)
-                                    reaper.ImGui_Separator(ctx)
-                                    reaper.ImGui_Dummy(ctx, 0, 5)
-                                    just_flushed = true
-                                elseif segment.type == "header" then
-                                    flush_paragraph(false)
-                                    local header_sizes = {
-                                        [1] = tab_font_size + 14,
-                                        [2] = tab_font_size + 10,
-                                        [3] = tab_font_size + 6,
-                                        [4] = tab_font_size + 4,
-                                        [5] = tab_font_size + 2,
-                                        [6] = tab_font_size + 1
-                                    }
-                                    local size = header_sizes[segment.level] or tab_font_size
-                                    local main_col = GetGeneralColorHEX()
-                                    reaper.ImGui_PushFont(ctx, bold_font, size)
-                                    reaper.ImGui_TextColored(ctx, main_col, segment.text)
-                                    reaper.ImGui_PopFont(ctx)
-                                    if filter_active and filter_text ~= "" then
-                                        local hdr_lc    = utf8_to_lower(segment.text)
-                                        local search_lc = utf8_to_lower(filter_text)
-                                        local hx, hy    = reaper.ImGui_GetItemRectMin(ctx)
-                                        local _, hy2    = reaper.ImGui_GetItemRectMax(ctx)
-                                        local dl_h      = reaper.ImGui_GetWindowDrawList(ctx)
-                                        reaper.ImGui_PushFont(ctx, bold_font, size)
-                                        local sp = 1
-                                        while true do
-                                            local ms, me = hdr_lc:find(search_lc, sp, true)
-                                            if not ms then break end
-                                            filter_view_match_counter = filter_view_match_counter + 1
-                                            local x_before            = reaper.ImGui_CalcTextSize(ctx,
-                                                segment.text:sub(1, ms - 1))
-                                            local x_matched           = reaper.ImGui_CalcTextSize(ctx,
-                                                segment.text:sub(ms, me))
-                                            local col                 = (filter_view_match_counter == filter_match_index) and
-                                                0x93f67b60 or 0xf6de7b77
-                                            reaper.ImGui_DrawList_AddRectFilled(dl_h,
-                                                hx + x_before, hy,
-                                                hx + x_before + x_matched, hy2,
-                                                col)
-                                            sp = me + 1
-                                        end
-                                        reaper.ImGui_PopFont(ctx)
-                                    end
-                                    just_flushed = true
+                            if reaper.ImGui_IsItemActive(ctx) then
+                                if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_A())
+                                    and is_mod_pressed() then
+                                    text_sel_start = 0
+                                    text_sel_end = #tab.content
                                 end
                             end
-                            flush_paragraph(false)
-                            reaper.ImGui_PopTextWrapPos(ctx)
-                            reaper.ImGui_Dummy(ctx, 0, 0)
+
+                            reaper.ImGui_PopFont(ctx)
+
+                            reaper.ImGui_PushFont(ctx, font, 16)
+                            reaper.ImGui_SetCursorPosX(ctx, window_width - save_button_width / 0.5)
+                            if reaper.ImGui_Button(ctx, "Зберегти", 150, 30) then
+                                tab.editing = false
+                            end
+                            if reaper.ImGui_IsItemHovered(ctx) then
+                                reaper.ImGui_SetTooltip(ctx, "Ctrl+S / Cmd+S")
+                            end
+                            if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_S())
+                                and is_mod_pressed() then
+                                tab.editing = false
+                            end
+                            reaper.ImGui_PopFont(ctx)
+
+                            if reaper.ImGui_IsMouseClicked(ctx, 0)
+                                and not reaper.ImGui_IsItemHovered(ctx)
+                                and not reaper.ImGui_IsAnyItemHovered(ctx)
+                                and not reaper.ImGui_IsPopupOpen(ctx, "FormatMenu", 0) then
+                                tab.editing = false
+                            end
+                        else
+                            reaper.ImGui_BeginChild(ctx, "view" .. i, avail_w, avail_h)
+                            filter_view_match_counter = 0
+                            if tab.scroll_to_line then
+                                reaper.ImGui_PushFont(ctx, tab_font, tab_font_size)
+                                local lh = reaper.ImGui_GetTextLineHeightWithSpacing(ctx)
+                                reaper.ImGui_PopFont(ctx)
+                                local target_y = tab.scroll_to_line * lh - avail_h * 0.4
+                                if target_y < 0 then target_y = 0 end
+                                reaper.ImGui_SetScrollY(ctx, target_y)
+                                tab.scroll_to_line = nil
+                            end
+
+                            if display_content == "" then
+                                reaper.ImGui_TextDisabled(ctx, "Подвійний клік для редагування")
+                            else
+                                local parsed = parse_simple_markdown(display_content)
+
+                                reaper.ImGui_PushTextWrapPos(ctx, 0.0)
+
+                                local win_left_scr_x
+                                do
+                                    local wx, _ = reaper.ImGui_GetWindowPos(ctx)
+                                    local sx, _ = reaper.ImGui_GetCursorScreenPos(ctx)
+                                    win_left_scr_x = sx
+                                end
+
+                                local paragraph_segments = {}
+                                local just_flushed = false
+                                local function flush_paragraph(is_checked_ctx)
+                                    if #paragraph_segments == 0 then return end
+                                    local scr_x, _ = reaper.ImGui_GetCursorScreenPos(ctx)
+                                    local tokens = segments_to_word_tokens(paragraph_segments, is_checked_ctx or false)
+                                    render_line_tokens(ctx, tokens, scr_x, nil, win_left_scr_x)
+                                    paragraph_segments = {}
+                                    just_flushed = true
+                                end
+
+                                for idx, segment in ipairs(parsed) do
+                                    local is_text_type = segment.type == "text" or segment.type == "bold"
+                                        or segment.type == "italic" or segment.type == "underline"
+                                        or segment.type == "multi_style"
+
+                                    if is_text_type then
+                                        just_flushed = false
+                                        local seg_copy = {
+                                            text = segment.text or "",
+                                            bold = false,
+                                            italic = false,
+                                            underline = false,
+                                            styles = segment.styles
+                                        }
+                                        if segment.type == "bold" then
+                                            seg_copy.bold = true
+                                        elseif segment.type == "italic" then
+                                            seg_copy.italic = true
+                                        elseif segment.type == "underline" then
+                                            seg_copy.underline = true
+                                        end
+                                        table.insert(paragraph_segments, seg_copy)
+                                        local next_seg = parsed[idx + 1]
+                                        local next_is_text = next_seg and (
+                                            next_seg.type == "text" or next_seg.type == "bold"
+                                            or next_seg.type == "italic" or next_seg.type == "underline"
+                                            or next_seg.type == "multi_style")
+                                        if not next_is_text then
+                                            flush_paragraph(false)
+                                        end
+                                    elseif segment.type == "newline" then
+                                        if #paragraph_segments > 0 then
+                                            flush_paragraph(false)
+                                        elseif not just_flushed then
+                                            reaper.ImGui_NewLine(ctx)
+                                        end
+                                        just_flushed = false
+                                    elseif segment.type == "checkbox" then
+                                        flush_paragraph(false)
+                                        local is_checked = segment.checked
+
+                                        reaper.ImGui_PushFont(ctx, tab_font, tab_font_size)
+                                        local line_h_cb = reaper.ImGui_GetTextLineHeight(ctx)
+                                        local fp = math.max(1, math.floor((line_h_cb - 100) * 0.45))
+                                        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), fp, fp)
+
+                                        if segment.indent and #segment.indent > 0 then
+                                            reaper.ImGui_Dummy(ctx, #segment.indent * 10, 0)
+                                            reaper.ImGui_SameLine(ctx)
+                                        end
+
+                                        local cb_scr_x, cb_scr_y = reaper.ImGui_GetCursorScreenPos(ctx)
+
+                                        local changed, new_state = reaper.ImGui_Checkbox(ctx, "##cb_" .. i .. "_" .. idx,
+                                            is_checked)
+
+                                        if changed then
+                                            local old_line = segment.line
+                                            local new_line = segment.indent ..
+                                                "[" .. (new_state and "x" or " ") .. "] " .. segment.text
+                                            tab.content = tab.content:gsub(
+                                                old_line:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"), new_line, 1)
+                                        end
+
+                                        local text_y = cb_scr_y + fp - 2
+
+                                        reaper.ImGui_SameLine(ctx)
+                                        local text_start_x, _ = reaper.ImGui_GetCursorScreenPos(ctx)
+
+                                        local checkbox_parsed = parse_simple_markdown(segment.text)
+                                        local cb_segs = {}
+                                        for _, cb_seg in ipairs(checkbox_parsed) do
+                                            if cb_seg.type ~= "newline" then
+                                                local s = {
+                                                    text = cb_seg.text or "",
+                                                    bold = (cb_seg.type == "bold"),
+                                                    italic = (cb_seg.type == "italic"),
+                                                    underline = (cb_seg.type == "underline"),
+                                                    styles = cb_seg.styles
+                                                }
+                                                table.insert(cb_segs, s)
+                                            end
+                                        end
+
+                                        local cb_tokens = segments_to_word_tokens(cb_segs, is_checked)
+                                        render_line_tokens(ctx, cb_tokens, text_start_x, nil, win_left_scr_x, text_y)
+
+                                        reaper.ImGui_PopStyleVar(ctx)
+                                        reaper.ImGui_PopFont(ctx)
+                                        just_flushed = true
+                                    elseif segment.type == "table_row" then
+                                        local cell_padding = 6
+                                        local win_width = reaper.ImGui_GetContentRegionAvail(ctx)
+                                        local num_cells = #segment.cells
+                                        local cell_width = win_width / num_cells
+
+                                        local start_x, start_y = reaper.ImGui_GetCursorScreenPos(ctx)
+                                        local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
+                                        local line_h = reaper.ImGui_GetTextLineHeight(ctx) + (cell_padding * 3)
+
+                                        if segment.is_header then
+                                            reaper.ImGui_DrawList_AddRectFilled(draw_list, start_x, start_y,
+                                                start_x + win_width, start_y + line_h, GetGeneralColorHEX())
+                                        end
+
+                                        for c_idx, styled_segments in ipairs(segment.cells) do
+                                            local cur_x = start_x + (c_idx - 1) * cell_width
+                                            reaper.ImGui_DrawList_AddRect(draw_list, cur_x, start_y, cur_x + cell_width,
+                                                start_y + line_h, GetGeneralColorHEX())
+
+                                            reaper.ImGui_SetCursorScreenPos(ctx, cur_x + cell_padding,
+                                                start_y + cell_padding)
+
+                                            for _, s in ipairs(styled_segments) do
+                                                local font = tab_font
+                                                if segment.is_header or s.bold then
+                                                    font = get_font(current_font_name, "Bold") or tab_font
+                                                elseif s.italic then
+                                                    font = get_font(current_font_name, "Italic") or tab_font
+                                                end
+
+                                                reaper.ImGui_PushFont(ctx, tab_font, 16)
+                                                if filter_active and filter_text ~= "" and s.text ~= "" then
+                                                    local cell_lc   = utf8_to_lower(s.text)
+                                                    local search_lc = utf8_to_lower(filter_text)
+                                                    local cx, cy    = reaper.ImGui_GetCursorScreenPos(ctx)
+                                                    local cell_lh   = reaper.ImGui_GetTextLineHeight(ctx)
+                                                    local sp        = 1
+                                                    while true do
+                                                        local ms, me = cell_lc:find(search_lc, sp, true)
+                                                        if not ms then break end
+                                                        filter_view_match_counter = filter_view_match_counter + 1
+                                                        local x_before            = reaper.ImGui_CalcTextSize(ctx,
+                                                            s.text:sub(1, ms - 1))
+                                                        local x_matched           = reaper.ImGui_CalcTextSize(ctx,
+                                                            s.text:sub(ms, me))
+                                                        local col                 = (filter_view_match_counter == filter_match_index) and
+                                                            0x93f67b60 or 0xf6de7b77
+                                                        reaper.ImGui_DrawList_AddRectFilled(draw_list,
+                                                            cx + x_before, cy,
+                                                            cx + x_before + x_matched, cy + cell_lh, col)
+                                                        sp = me + 1
+                                                    end
+                                                end
+                                                reaper.ImGui_Text(ctx, s.text)
+                                                reaper.ImGui_PopFont(ctx)
+
+                                                if s.underline then
+                                                    local tx, ty = reaper.ImGui_GetItemRectMin(ctx)
+                                                    local bx, by = reaper.ImGui_GetItemRectMax(ctx)
+                                                    reaper.ImGui_DrawList_AddLine(draw_list, tx, by, bx, by, 0xFFFFFFFF)
+                                                end
+
+                                                reaper.ImGui_SameLine(ctx, nil, 0)
+                                            end
+                                        end
+                                        reaper.ImGui_SetCursorScreenPos(ctx, win_left_scr_x, start_y + line_h)
+                                        reaper.ImGui_Dummy(ctx, 0, 0)
+                                        just_flushed = true
+                                    elseif segment.type == "separator" then
+                                        flush_paragraph(false)
+                                        reaper.ImGui_Dummy(ctx, 0, 5)
+                                        reaper.ImGui_Separator(ctx)
+                                        reaper.ImGui_Dummy(ctx, 0, 5)
+                                        just_flushed = true
+                                    elseif segment.type == "header" then
+                                        flush_paragraph(false)
+                                        local header_sizes = {
+                                            [1] = tab_font_size + 14,
+                                            [2] = tab_font_size + 10,
+                                            [3] = tab_font_size + 6,
+                                            [4] = tab_font_size + 4,
+                                            [5] = tab_font_size + 2,
+                                            [6] = tab_font_size + 1
+                                        }
+                                        local size = header_sizes[segment.level] or tab_font_size
+                                        local main_col = GetGeneralColorHEX()
+                                        reaper.ImGui_PushFont(ctx, bold_font, size)
+                                        reaper.ImGui_TextColored(ctx, main_col, segment.text)
+                                        reaper.ImGui_PopFont(ctx)
+                                        if filter_active and filter_text ~= "" then
+                                            local hdr_lc    = utf8_to_lower(segment.text)
+                                            local search_lc = utf8_to_lower(filter_text)
+                                            local hx, hy    = reaper.ImGui_GetItemRectMin(ctx)
+                                            local _, hy2    = reaper.ImGui_GetItemRectMax(ctx)
+                                            local dl_h      = reaper.ImGui_GetWindowDrawList(ctx)
+                                            reaper.ImGui_PushFont(ctx, bold_font, size)
+                                            local sp = 1
+                                            while true do
+                                                local ms, me = hdr_lc:find(search_lc, sp, true)
+                                                if not ms then break end
+                                                filter_view_match_counter = filter_view_match_counter + 1
+                                                local x_before            = reaper.ImGui_CalcTextSize(ctx,
+                                                    segment.text:sub(1, ms - 1))
+                                                local x_matched           = reaper.ImGui_CalcTextSize(ctx,
+                                                    segment.text:sub(ms, me))
+                                                local col                 = (filter_view_match_counter == filter_match_index) and
+                                                    0x93f67b60 or 0xf6de7b77
+                                                reaper.ImGui_DrawList_AddRectFilled(dl_h,
+                                                    hx + x_before, hy,
+                                                    hx + x_before + x_matched, hy2,
+                                                    col)
+                                                sp = me + 1
+                                            end
+                                            reaper.ImGui_PopFont(ctx)
+                                        end
+                                        just_flushed = true
+                                    end
+                                end
+                                flush_paragraph(false)
+                                reaper.ImGui_PopTextWrapPos(ctx)
+                                reaper.ImGui_Dummy(ctx, 0, 0)
+                            end
+
+                            if reaper.ImGui_IsWindowHovered(ctx)
+                                and reaper.ImGui_IsMouseDoubleClicked(ctx, 0) then
+                                tab.editing = true
+                            end
+                            reaper.ImGui_EndChild(ctx)
                         end
 
-                        if reaper.ImGui_IsWindowHovered(ctx)
-                            and reaper.ImGui_IsMouseDoubleClicked(ctx, 0) then
-                            tab.editing = true
-                        end
-                        reaper.ImGui_EndChild(ctx)
+                        reaper.ImGui_EndTabItem(ctx)
                     end
 
-                    reaper.ImGui_EndTabItem(ctx)
+                    if not keep_open and confirm_close_tab_index == nil then
+                        confirm_close_tab_index = i
+                        confirm_close_prev_active = active_tab_index
+                        pending_active_tab = i
+                        reaper.ImGui_OpenPopup(ctx, "ConfirmCloseTab")
+                    end
                 end
 
-                if not keep_open then tab_to_remove = i end
-            end
+                local modal_win_w   = 380
+                local modal_pad     = 20
+                local btn_w         = 135
+                local btn_h         = 30
+                local btn_gap       = 14
+                local text_max_w    = modal_win_w - modal_pad * 2
+                local font_size     = 16
+                local char_w_approx = font_size * 0.60
+                local line_h        = font_size - 6
 
-            if tab_to_remove then table.remove(tabs, tab_to_remove) end
-
-            --================ POMODORO TAB =================
-
-            do
-                local pomo_flags = reaper.ImGui_TabItemFlags_Trailing()
-                    | reaper.ImGui_TabItemFlags_NoReorder()
-                if pomodoro_pending_select then
-                    pomo_flags = pomo_flags | reaper.ImGui_TabItemFlags_SetSelected()
-                    pomodoro_pending_select = false
+                local modal_text_h  = line_h
+                if confirm_close_tab_index and tabs[confirm_close_tab_index] then
+                    local full_msg  = "Видалити \"" .. tabs[confirm_close_tab_index].title .. "\"" .. "?"
+                    local msg_px_w  = #full_msg * char_w_approx
+                    local num_lines = math.ceil(msg_px_w / text_max_w)
+                    if num_lines < 1 then num_lines = 1 end
+                    modal_text_h = num_lines * line_h
                 end
 
-                local pomo_open = reaper.ImGui_BeginTabItem(ctx, "Pomodoro##pomodoro_fixed", nil, pomo_flags)
-                if pomo_open then
-                    pomodoro_active = true
-                    local avail_w, avail_h = reaper.ImGui_GetContentRegionAvail(ctx)
-                    local now = reaper.time_precise()
-                    local elapsed = pomo.elapsed_before
-                    if pomo.state == "running" then
-                        elapsed = elapsed + (now - pomo.start_time)
-                    end
-                    local total_dur
-                    if pomo.mode == "work" then
-                        total_dur = pomo.work_duration
-                    elseif pomo.mode == "short_break" then
-                        total_dur = pomo.short_break
-                    else
-                        total_dur = pomo.long_break
-                    end
-                    pomo.remaining = math.max(0, total_dur - elapsed)
-                    local mode_color
-                    if pomo.mode == "work" then
-                        mode_color = 0xFF5555FF
-                    elseif pomo.mode == "short_break" then
-                        mode_color = 0x55CC55FF
-                    else
-                        mode_color = 0x5599FFFF
-                    end
-                    local mode_color_dim = (mode_color & 0xFFFFFF00) | 0x55
-                    reaper.ImGui_BeginChild(ctx, "##pomodoro_child", avail_w, avail_h)
+                local modal_win_h = modal_pad + 6 + modal_text_h + 8 + 6 + btn_h + modal_pad
 
-                    local top_pad = 18
-                    reaper.ImGui_Dummy(ctx, 0, top_pad)
+                reaper.ImGui_SetNextWindowSize(ctx, modal_win_w, modal_win_h, reaper.ImGui_Cond_Always())
 
-                    local mode_labels = {
-                        work        = "POMODORO",
-                        short_break = "КОРОТКА ПЕРЕРВА",
-                        long_break  = "ДОВГА ПЕРЕРВА"
-                    }
-                    local mode_lbl = mode_labels[pomo.mode]
-                    reaper.ImGui_PushFont(ctx, tab_font, 40)
-                    local tw = reaper.ImGui_CalcTextSize(ctx, mode_lbl)
-                    reaper.ImGui_SetCursorPosX(ctx, (avail_w - tw) * 0.5)
-                    reaper.ImGui_TextColored(ctx, mode_color, mode_lbl)
+                local modal_flags = reaper.ImGui_WindowFlags_NoResize()
+                    | reaper.ImGui_WindowFlags_NoScrollbar()
+                    | reaper.ImGui_WindowFlags_NoDocking()
+                    | reaper.ImGui_WindowFlags_TopMost()
+                    | reaper.ImGui_WindowFlags_NoDecoration()
+
+                local popup_open = reaper.ImGui_BeginPopupModal(ctx, "ConfirmCloseTab", true, modal_flags)
+                if popup_open then
+                    local tab_name = (confirm_close_tab_index and tabs[confirm_close_tab_index])
+                        and tabs[confirm_close_tab_index].title or "?"
+                    local full_msg = "Видалити \"" .. tab_name .. "\"?"
+
+                    reaper.ImGui_Dummy(ctx, 0, 6)
+                    reaper.ImGui_SetCursorPosX(ctx, modal_pad)
+                    reaper.ImGui_PushFont(ctx, font, 16)
+                    reaper.ImGui_PushTextWrapPos(ctx, modal_win_w - modal_pad)
+                    reaper.ImGui_Text(ctx, full_msg)
+                    reaper.ImGui_PopTextWrapPos(ctx)
                     reaper.ImGui_PopFont(ctx)
-
                     reaper.ImGui_Dummy(ctx, 0, 8)
 
-                    local cx_pos = avail_w * 0.5
-                    local timer_radius = math.min(avail_w, avail_h) * 0.22
+                    local total_btns_w = btn_w * 2 + btn_gap
+                    local btn_start_x  = (modal_win_w - total_btns_w) * 0.5
+                    reaper.ImGui_SetCursorPosX(ctx, btn_start_x)
 
-                    local scroll_y = reaper.ImGui_GetScrollY(ctx)
-
-                    local cy_pos = reaper.ImGui_GetCursorPosY(ctx) + timer_radius + 10
-                    reaper.ImGui_SetCursorPosY(ctx, cy_pos + timer_radius + 14)
-
-                    local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
-                    local win_x, win_y = reaper.ImGui_GetWindowPos(ctx)
-
-                    local scr_cx = win_x + cx_pos
-                    local scr_cy = win_y + cy_pos - scroll_y
-
-                    reaper.ImGui_DrawList_AddCircleFilled(draw_list, scr_cx, scr_cy, timer_radius, 0x22222270, 80)
-                    reaper.ImGui_DrawList_AddCircle(draw_list, scr_cx, scr_cy, timer_radius, 0x33333370, 80, 4)
-
-                    local progress    = (total_dur > 0) and (1.0 - pomo.remaining / total_dur) or 0
-                    local seg         = 80
-                    local start_angle = -math.pi * 0.5
-                    local end_angle   = start_angle + progress * math.pi * 2
-                    if progress > 0 then
-                        for s = 0, seg - 1 do
-                            local a1 = start_angle + (end_angle - start_angle) * (s / seg)
-                            local a2 = start_angle + (end_angle - start_angle) * ((s + 1) / seg)
-                            local r  = timer_radius - 5
-                            reaper.ImGui_DrawList_AddLine(draw_list,
-                                scr_cx + math.cos(a1) * r, scr_cy + math.sin(a1) * r,
-                                scr_cx + math.cos(a2) * r, scr_cy + math.sin(a2) * r,
-                                mode_color, 6)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x551111FF)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0xAA2222FF)
+                    reaper.ImGui_PushFont(ctx, bold_font, 14)
+                    if reaper.ImGui_Button(ctx, "Видалити##confirm_close", btn_w, btn_h) then
+                        if confirm_close_tab_index then
+                            local del_idx = confirm_close_tab_index
+                            table.remove(tabs, del_idx)
+                            local target = confirm_close_prev_active or del_idx
+                            if target > del_idx then target = target - 1 end
+                            if target > #tabs then target = #tabs end
+                            if target < 1 then target = 1 end
+                            pending_active_tab = target
+                            save_data()
                         end
+                        confirm_close_tab_index   = nil
+                        confirm_close_prev_active = nil
+                        reaper.ImGui_CloseCurrentPopup(ctx)
                     end
-
-                    local mins = math.floor(pomo.remaining / 60)
-                    local secs = math.floor(pomo.remaining % 60)
-                    local time_str = string.format("%02d:%02d", mins, secs)
-                    reaper.ImGui_PushFont(ctx, tab_font, timer_radius * 0.62)
-                    local tsw, tsh = reaper.ImGui_CalcTextSize(ctx, time_str)
-                    reaper.ImGui_SetCursorPos(ctx, cx_pos - tsw * 0.5, cy_pos - timer_radius * 0.35)
-                    reaper.ImGui_TextColored(ctx, 0xFFFFFFFF, time_str)
                     reaper.ImGui_PopFont(ctx)
-
-                    local state_lbl = (pomo.state == "running") and "Виконується"
-                        or (pomo.state == "paused") and "Пауза"
-                        or "Зупинено"
-                    reaper.ImGui_PushFont(ctx, tab_font, tab_font_size - 3)
-                    local slw, slh = reaper.ImGui_CalcTextSize(ctx, state_lbl)
-                    reaper.ImGui_SetCursorPos(ctx, cx_pos - slw * 0.5, cy_pos + timer_radius * 0.50)
-                    reaper.ImGui_TextColored(ctx, 0xAAAAAA88, state_lbl)
-                    reaper.ImGui_PopFont(ctx)
-
-                    reaper.ImGui_SetCursorPosY(ctx, cy_pos + timer_radius + 22)
-
-                    local btn_w        = 90
-                    local btn_h        = 32
-                    local gap          = 10
-                    local total_btns_w = btn_w * 3 + gap * 2
-                    reaper.ImGui_SetCursorPosX(ctx, (avail_w - total_btns_w) * 0.5)
-                    if pomo.state == "running" then
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x885500FF)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0xBB7700FF)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0xFF9900FF)
-                        if reaper.ImGui_Button(ctx, "Пауза", btn_w, btn_h) then
-                            pomo.elapsed_before = pomo.elapsed_before + (now - pomo.start_time)
-                            pomo.state = "paused"
-                        end
-                        reaper.ImGui_PopStyleColor(ctx, 3)
-                    else
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x226622FF)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x339933FF)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x44BB44FF)
-                        local start_lbl = (pomo.state == "paused") and "Продовжити" or "Старт"
-                        if reaper.ImGui_Button(ctx, start_lbl, btn_w, btn_h) then
-                            pomo.start_time = now
-                            pomo.state = "running"
-                        end
-                        reaper.ImGui_PopStyleColor(ctx, 3)
-                    end
-
-                    reaper.ImGui_SameLine(ctx, nil, gap)
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x333333FF)
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x555555FF)
-                    if reaper.ImGui_Button(ctx, "Стоп", btn_w, btn_h) then
-                        pomo.state          = "idle"
-                        pomo.elapsed_before = 0
-                        pomo.remaining      = (pomo.mode == "work") and pomo.work_duration
-                            or (pomo.mode == "short_break") and pomo.short_break
-                            or pomo.long_break
-                    end
                     reaper.ImGui_PopStyleColor(ctx, 2)
 
-                    reaper.ImGui_SameLine(ctx, nil, gap)
+                    reaper.ImGui_SameLine(ctx, nil, btn_gap)
 
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x333333FF)
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x555555FF)
-                    if reaper.ImGui_Button(ctx, "Далі", btn_w, btn_h) then
-                        pomo.state          = "idle"
-                        pomo.elapsed_before = 0
-                        if pomo.mode == "work" then
-                            pomo.completed = pomo.completed + 1
-                            if pomo.completed % pomo.long_break_every == 0 then
-                                pomo.mode = "long_break"
-                            else
-                                pomo.mode = "short_break"
-                            end
-                        else
-                            pomo.mode = "work"
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x1A1A1AFF)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), GetGeneralColorHEX())
+                    reaper.ImGui_PushFont(ctx, bold_font, 14)
+                    if reaper.ImGui_Button(ctx, "Скасувати##cancel_close", btn_w, btn_h) then
+                        if confirm_close_prev_active then
+                            pending_active_tab = confirm_close_prev_active
                         end
-                        pomo.remaining = (pomo.mode == "work") and pomo.work_duration
-                            or (pomo.mode == "short_break") and pomo.short_break
-                            or pomo.long_break
+                        confirm_close_tab_index   = nil
+                        confirm_close_prev_active = nil
+                        reaper.ImGui_CloseCurrentPopup(ctx)
                     end
+                    reaper.ImGui_PopFont(ctx)
                     reaper.ImGui_PopStyleColor(ctx, 2)
 
-                    reaper.ImGui_Dummy(ctx, 0, 14)
-
-                    local modes = { { id = "work", lbl = "Pomodoro" }, { id = "short_break", lbl = "Коротка" }, { id = "long_break", lbl = "Довга" } }
-                    local mode_btn_w = 100
-                    local total_mode_w = mode_btn_w * 3 + gap * 2
-                    reaper.ImGui_SetCursorPosX(ctx, (avail_w - total_mode_w) * 0.5)
-                    for mi, mdata in ipairs(modes) do
-                        local is_active = (pomo.mode == mdata.id)
-                        if is_active then
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), mode_color)
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), mode_color)
-                        else
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x2A2A2AFF)
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x444444FF)
-                        end
-                        if reaper.ImGui_Button(ctx, mdata.lbl .. "##mode" .. mi, mode_btn_w, 26) then
-                            if pomo.mode ~= mdata.id then
-                                pomo.mode           = mdata.id
-                                pomo.state          = "idle"
-                                pomo.elapsed_before = 0
-                                pomo.remaining      = (pomo.mode == "work") and pomo.work_duration
-                                    or (pomo.mode == "short_break") and pomo.short_break
-                                    or pomo.long_break
-                            end
-                        end
-                        reaper.ImGui_PopStyleColor(ctx, 2)
-                        if mi < 3 then reaper.ImGui_SameLine(ctx, nil, gap) end
-                    end
-
-                    reaper.ImGui_Dummy(ctx, 0, 10)
-                    reaper.ImGui_SetCursorPosX(ctx, 16)
-                    reaper.ImGui_Separator(ctx)
-                    reaper.ImGui_Dummy(ctx, 0, 6)
-
-                    reaper.ImGui_PushFont(ctx, tab_font, tab_font_size)
-                    local total_work_min = math.floor(pomo.total_work_sec / 60)
-                    local stat_str = string.format("Завершено: %d   |   Загалом: %d хв", pomo.completed, total_work_min)
-                    local stw = reaper.ImGui_CalcTextSize(ctx, stat_str)
-                    reaper.ImGui_SetCursorPosX(ctx, (avail_w - stw) * 0.5)
-                    reaper.ImGui_TextColored(ctx, 0x888888FF, stat_str)
-                    reaper.ImGui_PopFont(ctx)
-
-                    reaper.ImGui_Dummy(ctx, 0, 6)
-
-                    if #pomo.session_log > 0 then
-                        reaper.ImGui_Dummy(ctx, 0, 8)
-                        reaper.ImGui_PushFont(ctx, tab_font, tab_font_size)
-
-                        local btn_label = (pomo.show_log and "▼" or "▷") .. " Журнал сесії (" .. #pomo.session_log .. ")"
-                        local text_w, text_h = reaper.ImGui_CalcTextSize(ctx, btn_label)
-                        local win_w = reaper.ImGui_GetWindowWidth(ctx)
-                        local center_pos = (win_w - text_w) * 0.5
-
-                        reaper.ImGui_SetCursorPosX(ctx, center_pos)
-
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x17171700)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x171717FF)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x33333333)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x666666FF)
-
-
-                        if reaper.ImGui_Button(ctx, btn_label) then
-                            pomo.show_log = not pomo.show_log
-                        end
-
-                        reaper.ImGui_PopStyleColor(ctx, 4)
-                        reaper.ImGui_PopFont(ctx)
-                        if pomo.show_log then
-                            reaper.ImGui_Dummy(ctx, 0, 4)
-                            local log_h = math.max(40, math.min(120, #pomo.session_log * 40 + 10))
-
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ChildBg(), 0x171717FF)
-                            if reaper.ImGui_BeginChild(ctx, "##pomo_log", avail_w - 15, log_h, 1) then
-                                for li = #pomo.session_log, 1, -1 do
-                                    local entry = pomo.session_log[li]
-                                    local dur_min = math.floor(entry.duration_sec / 60)
-                                    local lline = string.format("  %s — %d хв о %s",
-                                        entry.mode == "work" and "Pomodoro"
-                                        or entry.mode == "short_break" and "Коротка перерва"
-                                        or "Довга перерва",
-                                        dur_min, entry.completed_at)
-
-                                    reaper.ImGui_PushFont(ctx, tab_font, tab_font_size - 3)
-                                    reaper.ImGui_TextColored(ctx, 0x888888FF, lline)
-                                    reaper.ImGui_PopFont(ctx)
-                                end
-                                reaper.ImGui_EndChild(ctx)
-                            end
-                            reaper.ImGui_PopStyleColor(ctx, 1)
-                            reaper.ImGui_Dummy(ctx, 0, 20)
-                        end
-                    end
-                    reaper.ImGui_Dummy(ctx, 0, 10)
-
-                    reaper.ImGui_EndChild(ctx)
-                    reaper.ImGui_EndTabItem(ctx)
+                    reaper.ImGui_EndPopup(ctx)
+                elseif not reaper.ImGui_IsPopupOpen(ctx, "ConfirmCloseTab") and confirm_close_tab_index ~= nil then
+                    confirm_close_tab_index   = nil
+                    confirm_close_prev_active = nil
                 end
-            end
 
-            reaper.ImGui_EndTabBar(ctx)
+                reaper.ImGui_EndTabBar(ctx)
+            end
         end
+
+        --================ POMODORO PANEL =================
+        do
+            if pomodoro_pending_select then
+                pomodoro_active = true
+                pomodoro_pending_select = false
+            end
+            local pomo_open = pomodoro_active
+            if pomo_open then
+                pomodoro_active = true
+                local avail_w, avail_h = reaper.ImGui_GetContentRegionAvail(ctx)
+                local now = reaper.time_precise()
+                local elapsed = pomo.elapsed_before
+                if pomo.state == "running" then
+                    elapsed = elapsed + (now - pomo.start_time)
+                end
+                local total_dur
+                if pomo.mode == "work" then
+                    total_dur = pomo.work_duration
+                elseif pomo.mode == "short_break" then
+                    total_dur = pomo.short_break
+                else
+                    total_dur = pomo.long_break
+                end
+                pomo.remaining = math.max(0, total_dur - elapsed)
+                local mode_color
+                if pomo.mode == "work" then
+                    mode_color = 0xFF5555FF
+                elseif pomo.mode == "short_break" then
+                    mode_color = 0x55CC55FF
+                else
+                    mode_color = 0x5599FFFF
+                end
+                local mode_color_dim = (mode_color & 0xFFFFFF00) | 0x55
+                reaper.ImGui_BeginChild(ctx, "##pomodoro_child", avail_w, avail_h)
+
+                local top_pad = 18
+                reaper.ImGui_Dummy(ctx, 0, top_pad)
+
+                local mode_labels = {
+                    work        = "POMODORO",
+                    short_break = "КОРОТКА ПЕРЕРВА",
+                    long_break  = "ДОВГА ПЕРЕРВА"
+                }
+                local mode_lbl = mode_labels[pomo.mode]
+                reaper.ImGui_PushFont(ctx, tab_font, 46)
+                local tw = reaper.ImGui_CalcTextSize(ctx, mode_lbl)
+                reaper.ImGui_SetCursorPosX(ctx, (avail_w - tw) * 0.5)
+                reaper.ImGui_TextColored(ctx, GetGeneralColorHEX(), mode_lbl)
+                reaper.ImGui_PopFont(ctx)
+
+                reaper.ImGui_Dummy(ctx, 0, 8)
+
+                local cx_pos = avail_w * 0.5
+                local timer_radius = math.max(40, math.min(avail_w, avail_h) * 0.22)
+
+                local scroll_y = reaper.ImGui_GetScrollY(ctx)
+
+                local cy_pos = reaper.ImGui_GetCursorPosY(ctx) + timer_radius + 10
+                reaper.ImGui_SetCursorPosY(ctx, cy_pos + timer_radius + 14)
+
+                local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
+                local win_x, win_y = reaper.ImGui_GetWindowPos(ctx)
+
+                local scr_cx = win_x + cx_pos
+                local scr_cy = win_y + cy_pos - scroll_y
+
+                reaper.ImGui_DrawList_AddCircleFilled(draw_list, scr_cx, scr_cy, timer_radius, 0x22222270, 80)
+                reaper.ImGui_DrawList_AddCircle(draw_list, scr_cx, scr_cy, timer_radius, 0x33333370, 80, 4)
+
+                local progress    = (total_dur > 0) and (1.0 - pomo.remaining / total_dur) or 0
+                local seg         = 80
+                local start_angle = -math.pi * 0.5
+                local end_angle   = start_angle + progress * math.pi * 2
+                if progress > 0 then
+                    for s = 0, seg - 1 do
+                        local a1 = start_angle + (end_angle - start_angle) * (s / seg)
+                        local a2 = start_angle + (end_angle - start_angle) * ((s + 1) / seg)
+                        local r  = timer_radius - 5
+                        reaper.ImGui_DrawList_AddLine(draw_list,
+                            scr_cx + math.cos(a1) * r, scr_cy + math.sin(a1) * r,
+                            scr_cx + math.cos(a2) * r, scr_cy + math.sin(a2) * r,
+                            mode_color, 6)
+                    end
+                end
+
+                local mins = math.floor(pomo.remaining / 60)
+                local secs = math.floor(pomo.remaining % 60)
+                local time_str = string.format("%02d:%02d", mins, secs)
+                reaper.ImGui_PushFont(ctx, tab_font, math.max(12, timer_radius * 0.55))
+                local tsw, tsh = reaper.ImGui_CalcTextSize(ctx, time_str)
+                reaper.ImGui_SetCursorPos(ctx, cx_pos - tsw * 0.5, cy_pos - timer_radius * 0.35)
+                reaper.ImGui_TextColored(ctx, 0xFFFFFFFF, time_str)
+                reaper.ImGui_PopFont(ctx)
+
+                local state_lbl = (pomo.state == "running") and "Виконується"
+                    or (pomo.state == "paused") and "Пауза"
+                    or "Зупинено"
+                reaper.ImGui_PushFont(ctx, tab_font, 20)
+                local slw, slh = reaper.ImGui_CalcTextSize(ctx, state_lbl)
+                reaper.ImGui_SetCursorPos(ctx, cx_pos - slw * 0.5, cy_pos + timer_radius * 0.50)
+                reaper.ImGui_TextColored(ctx, 0xAAAAAA88, state_lbl)
+                reaper.ImGui_PopFont(ctx)
+
+                reaper.ImGui_SetCursorPosY(ctx, cy_pos + timer_radius + 22)
+
+                local btn_w        = 115
+                local btn_h        = 40
+                local gap          = 15
+                local total_btns_w = btn_w * 3 + gap * 2
+                reaper.ImGui_SetCursorPosX(ctx, (avail_w - total_btns_w) * 0.5)
+                if pomo.state == "running" then
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x885500FF)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0xBB7700FF)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0xFF9900FF)
+                    reaper.ImGui_PushFont(ctx, bold_font, 16)
+                    if reaper.ImGui_Button(ctx, "Пауза", btn_w, btn_h) then
+                        pomo.elapsed_before = pomo.elapsed_before + (now - pomo.start_time)
+                        pomo.state = "paused"
+                    end
+                    reaper.ImGui_PopFont(ctx)
+                    reaper.ImGui_PopStyleColor(ctx, 3)
+                else
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x226622FF)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x339933FF)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x44BB44FF)
+                    reaper.ImGui_PushFont(ctx, bold_font, 16)
+                    local start_lbl = (pomo.state == "paused") and "Продовжити" or "Старт"
+                    if reaper.ImGui_Button(ctx, start_lbl, btn_w, btn_h) then
+                        pomo.start_time = now
+                        pomo.state = "running"
+                    end
+                    reaper.ImGui_PopFont(ctx)
+                    reaper.ImGui_PopStyleColor(ctx, 3)
+                end
+
+                reaper.ImGui_SameLine(ctx, nil, gap)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x333333FF)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x555555FF)
+                reaper.ImGui_PushFont(ctx, bold_font, 16)
+                if reaper.ImGui_Button(ctx, "Стоп", btn_w, btn_h) then
+                    pomo.state          = "idle"
+                    pomo.elapsed_before = 0
+                    pomo.remaining      = (pomo.mode == "work") and pomo.work_duration
+                        or (pomo.mode == "short_break") and pomo.short_break
+                        or pomo.long_break
+                end
+                reaper.ImGui_PopFont(ctx)
+                reaper.ImGui_PopStyleColor(ctx, 2)
+
+                reaper.ImGui_SameLine(ctx, nil, gap)
+
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x333333FF)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x555555FF)
+                reaper.ImGui_PushFont(ctx, bold_font, 16)
+                if reaper.ImGui_Button(ctx, "Далі", btn_w, btn_h) then
+                    pomo.state          = "idle"
+                    pomo.elapsed_before = 0
+                    if pomo.mode == "work" then
+                        pomo.completed = pomo.completed + 1
+                        if pomo.completed % pomo.long_break_every == 0 then
+                            pomo.mode = "long_break"
+                        else
+                            pomo.mode = "short_break"
+                        end
+                    else
+                        pomo.mode = "work"
+                    end
+                    pomo.remaining = (pomo.mode == "work") and pomo.work_duration
+                        or (pomo.mode == "short_break") and pomo.short_break
+                        or pomo.long_break
+                end
+                reaper.ImGui_PopFont(ctx)
+                reaper.ImGui_PopStyleColor(ctx, 2)
+
+                reaper.ImGui_Dummy(ctx, 0, 14)
+
+                local modes = { { id = "work", lbl = "Pomodoro" }, { id = "short_break", lbl = "Коротка" }, { id = "long_break", lbl = "Довга" } }
+                local mode_btn_w = 115
+                local total_mode_w = mode_btn_w * 3 + gap * 2
+                reaper.ImGui_SetCursorPosX(ctx, (avail_w - total_mode_w) * 0.5)
+                for mi, mdata in ipairs(modes) do
+                    local is_active = (pomo.mode == mdata.id)
+                    if is_active then
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), mode_color)
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), mode_color)
+                    else
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x2A2A2AFF)
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x444444FF)
+                    end
+                    if reaper.ImGui_Button(ctx, mdata.lbl .. "##mode" .. mi, mode_btn_w, 26) then
+                        if pomo.mode ~= mdata.id then
+                            pomo.mode           = mdata.id
+                            pomo.state          = "idle"
+                            pomo.elapsed_before = 0
+                            pomo.remaining      = (pomo.mode == "work") and pomo.work_duration
+                                or (pomo.mode == "short_break") and pomo.short_break
+                                or pomo.long_break
+                        end
+                    end
+                    reaper.ImGui_PopStyleColor(ctx, 2)
+                    if mi < 3 then reaper.ImGui_SameLine(ctx, nil, gap) end
+                end
+
+                reaper.ImGui_Dummy(ctx, 0, 10)
+                reaper.ImGui_SetCursorPosX(ctx, 16)
+                reaper.ImGui_Separator(ctx)
+                reaper.ImGui_Dummy(ctx, 0, 6)
+
+                reaper.ImGui_PushFont(ctx, tab_font, 20)
+                local total_work_min = math.floor(pomo.total_work_sec / 60)
+                local stat_str = string.format("Завершено: %d   |   Загалом: %d хв", pomo.completed, total_work_min)
+                local stw = reaper.ImGui_CalcTextSize(ctx, stat_str)
+                reaper.ImGui_SetCursorPosX(ctx, (avail_w - stw) * 0.5)
+                reaper.ImGui_TextColored(ctx, 0x888888FF, stat_str)
+                reaper.ImGui_PopFont(ctx)
+
+                reaper.ImGui_Dummy(ctx, 0, 6)
+
+                if #pomo.session_log > 0 then
+                    reaper.ImGui_Dummy(ctx, 0, 8)
+                    reaper.ImGui_PushFont(ctx, tab_font, 14)
+
+                    local btn_label = (pomo.show_log and "▼" or "▷") .. " Журнал сесії (" .. #pomo.session_log .. ")"
+                    local text_w, text_h = reaper.ImGui_CalcTextSize(ctx, btn_label)
+                    local win_w = reaper.ImGui_GetWindowWidth(ctx)
+                    local center_pos = (win_w - text_w) * 0.5
+
+                    reaper.ImGui_SetCursorPosX(ctx, center_pos)
+
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x17171700)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x171717FF)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x33333333)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x666666FF)
+
+
+                    if reaper.ImGui_Button(ctx, btn_label) then
+                        pomo.show_log = not pomo.show_log
+                    end
+
+                    reaper.ImGui_PopStyleColor(ctx, 4)
+                    reaper.ImGui_PopFont(ctx)
+                    if pomo.show_log then
+                        reaper.ImGui_Dummy(ctx, 0, 4)
+                        local log_h = math.max(40, math.min(120, #pomo.session_log * 40 + 10))
+
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ChildBg(), 0x171717FF)
+                        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_ChildRounding(), 8.0)
+                        if reaper.ImGui_BeginChild(ctx, "##pomo_log", avail_w - 15, log_h, 0) then
+                            for li = #pomo.session_log, 1, -1 do
+                                local entry = pomo.session_log[li]
+                                local dur_min = math.floor(entry.duration_sec / 60)
+                                local lline = string.format("  %s — %d хв о %s",
+                                    entry.mode == "work" and "Pomodoro"
+                                    or entry.mode == "short_break" and "Коротка перерва"
+                                    or "Довга перерва",
+                                    dur_min, entry.completed_at)
+
+                                reaper.ImGui_PushFont(ctx, tab_font, 16)
+                                reaper.ImGui_TextColored(ctx, 0x888888FF, lline)
+                                reaper.ImGui_PopFont(ctx)
+                            end
+                            reaper.ImGui_EndChild(ctx)
+                        end
+                        reaper.ImGui_PopStyleColor(ctx, 1)
+                        reaper.ImGui_PopStyleVar(ctx)
+                        reaper.ImGui_Dummy(ctx, 0, 20)
+                    end
+                end
+                -- ======= КНОПКА НАЛАШТУВАНЬ =======
+                reaper.ImGui_Dummy(ctx, 0, 8)
+                reaper.ImGui_PushFont(ctx, tab_font, 14)
+
+                local settings_label = (pomo.show_settings and "▼" or "▷") .. " Налаштування"
+                local stw2, sth2 = reaper.ImGui_CalcTextSize(ctx, settings_label)
+                local win_w2 = reaper.ImGui_GetWindowWidth(ctx)
+                local center_pos2 = (win_w2 - stw2) * 0.5
+
+                reaper.ImGui_SetCursorPosX(ctx, center_pos2)
+
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x17171700)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x171717FF)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x33333333)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x666666FF)
+
+                if reaper.ImGui_Button(ctx, settings_label) then
+                    pomo.show_settings = not pomo.show_settings
+                end
+
+                reaper.ImGui_PopStyleColor(ctx, 4)
+                reaper.ImGui_PopFont(ctx)
+
+                if pomo.show_settings then
+                    reaper.ImGui_Dummy(ctx, 0, 4)
+                    local settings_h = 315
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ChildBg(), 0x171717FF)
+                    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_ChildRounding(), 8.0)
+                    if reaper.ImGui_BeginChild(ctx, "##pomo_settings", avail_w - 15, settings_h, 0) then
+                        reaper.ImGui_Dummy(ctx, 0, 8)
+                        reaper.ImGui_PushFont(ctx, tab_font, 14)
+                        reaper.ImGui_SeparatorText(ctx, "Тривалість (хвилини):")
+                        reaper.ImGui_PopFont(ctx)
+
+                        local slider_w = avail_w - 210
+                        reaper.ImGui_SetNextItemWidth(ctx, slider_w)
+                        local ch1, nv1 = reaper.ImGui_SliderInt(ctx, "Pomodoro##twork", pomo.edit_work, 1, 60)
+                        if ch1 then
+                            pomo.edit_work     = nv1
+                            pomo.work_duration = nv1 * 60
+                            if pomo.mode == "work" and pomo.state == "idle" then
+                                pomo.remaining = pomo.work_duration
+                            end
+                            save_data()
+                        end
+
+                        reaper.ImGui_SetNextItemWidth(ctx, slider_w)
+                        local ch2, nv2 = reaper.ImGui_SliderInt(ctx, "Коротка перерва##tshort", pomo.edit_short, 1, 30)
+                        if ch2 then
+                            pomo.edit_short  = nv2
+                            pomo.short_break = nv2 * 60
+                            if pomo.mode == "short_break" and pomo.state == "idle" then
+                                pomo.remaining = pomo.short_break
+                            end
+                            save_data()
+                        end
+
+                        reaper.ImGui_SetNextItemWidth(ctx, slider_w)
+                        local ch3, nv3 = reaper.ImGui_SliderInt(ctx, "Довга перерва##tlong", pomo.edit_long, 5, 60)
+                        if ch3 then
+                            pomo.edit_long  = nv3
+                            pomo.long_break = nv3 * 60
+                            if pomo.mode == "long_break" and pomo.state == "idle" then
+                                pomo.remaining = pomo.long_break
+                            end
+                            save_data()
+                        end
+
+                        reaper.ImGui_SetNextItemWidth(ctx, slider_w)
+                        local ch4, nv4 = reaper.ImGui_SliderInt(ctx, "Довга перерва після (Pomodoro)##tevery",
+                            pomo.long_break_every, 2, 8)
+                        if ch4 then
+                            pomo.long_break_every = nv4
+                            save_data()
+                        end
+
+                        reaper.ImGui_Separator(ctx)
+                        reaper.ImGui_PushFont(ctx, tab_font, 14)
+                        reaper.ImGui_SeparatorText(ctx, "Опції:")
+                        reaper.ImGui_PopFont(ctx)
+
+                        local ca, av = reaper.ImGui_Checkbox(ctx, "Авто-старт наступного##tauto", pomo.auto_start)
+                        if ca then
+                            pomo.auto_start = av; save_data()
+                        end
+
+                        local cs, sv = reaper.ImGui_Checkbox(ctx, "Звук при завершенні##tsound", pomo.sound_enabled)
+                        if cs then
+                            pomo.sound_enabled = sv; save_data()
+                        end
+
+                        reaper.ImGui_Separator(ctx)
+                        if not pomo.confirm_clear then
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x1A1A1AFF)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), GetGeneralColorHEX())
+                            reaper.ImGui_Dummy(ctx, 0, 8)
+                            reaper.ImGui_PushFont(ctx, bold_font, 16)
+                            if reaper.ImGui_Button(ctx, "Очистити журнал та статистику##tclear", avail_w - 30, 40) then
+                                pomo.confirm_clear = true
+                            end
+                            reaper.ImGui_PopFont(ctx)
+                            reaper.ImGui_PopStyleColor(ctx, 2)
+                        else
+                            reaper.ImGui_PushFont(ctx, bold_font, 14)
+                            reaper.ImGui_TextColored(ctx, GetGeneralColorHEX(), "Справді очистити всі дані?")
+                            reaper.ImGui_PopFont(ctx)
+                            reaper.ImGui_Dummy(ctx, 0, 2)
+                            local half_w = (avail_w - 45) * 0.5
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x551111FF)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0xAA2222FF)
+                            reaper.ImGui_PushFont(ctx, bold_font, 14)
+                            if reaper.ImGui_Button(ctx, "Так, очистити##tconfirm", half_w, 26) then
+                                pomo.session_log    = {}
+                                pomo.completed      = 0
+                                pomo.total_work_sec = 0
+                                pomo.confirm_clear  = false
+                                save_data()
+                            end
+                            reaper.ImGui_PopFont(ctx)
+                            reaper.ImGui_PopStyleColor(ctx, 2)
+                            reaper.ImGui_SameLine(ctx, nil, 8)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x1A1A1AFF)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), GetGeneralColorHEX())
+                            reaper.ImGui_PushFont(ctx, bold_font, 14)
+                            if reaper.ImGui_Button(ctx, "Скасувати##tcancel", half_w, 26) then
+                                pomo.confirm_clear = false
+                            end
+                            reaper.ImGui_PopFont(ctx)
+                            reaper.ImGui_PopStyleColor(ctx, 2)
+                        end
+                        reaper.ImGui_Dummy(ctx, 0, 6)
+
+                        reaper.ImGui_EndChild(ctx)
+                    end
+                    reaper.ImGui_PopStyleVar(ctx)
+                    reaper.ImGui_PopStyleColor(ctx, 1)
+                    reaper.ImGui_Dummy(ctx, 0, 10)
+                end
+
+                reaper.ImGui_Dummy(ctx, 0, 10)
+
+                reaper.ImGui_EndChild(ctx)
+            end
+        end
+
 
         --================ ГЛОБАЛЬНЕ СПОВІЩЕННЯ POMODORO =================
         if pomo.notification_msg then
@@ -2689,7 +2935,7 @@ local function loop()
                 local nw     = tw + pad * 2
                 local nh     = th + 10
                 local nx     = win_x + (win_w - nw) * 0.5
-                local ny     = win_y + 350
+                local ny     = win_y + 50
                 local bg_a   = 255
                 local bg_col = (0x11 << 24) | (0x11 << 16) | (0x11 << 8) | bg_a
                 local dl     = reaper.ImGui_GetForegroundDrawList(ctx)
@@ -2716,4 +2962,3 @@ local function loop()
 end
 
 reaper.defer(loop)
-
