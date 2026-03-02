@@ -26,10 +26,26 @@ end
 --==============================================================
 local ctx = reaper.ImGui_CreateContext("Notepad від imnotbad")
 
+local IS_MACOS = reaper.GetOS():find("OSX") ~= nil or reaper.GetOS():find("macOS") ~= nil
+
 local function is_mod_pressed()
-    return reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Ctrl())
-        or reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Super())
+    if IS_MACOS then
+        return reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Super())
+            or reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Ctrl())
+    else
+        return reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Ctrl())
+    end
 end
+
+local VK_TO_IMGUI_KEY = {
+    [65]  = function() return reaper.ImGui_Key_A() end,   -- A
+    [67]  = function() return reaper.ImGui_Key_C() end,   -- C
+    [70]  = function() return reaper.ImGui_Key_F() end,   -- F
+    [83]  = function() return reaper.ImGui_Key_S() end,   -- S
+    [86]  = function() return reaper.ImGui_Key_V() end,   -- V
+    [88]  = function() return reaper.ImGui_Key_X() end,   -- X
+    [90]  = function() return reaper.ImGui_Key_Z() end,   -- Z
+}
 
 local function is_mod_key_pressed(key_fn, vk)
     if not is_mod_pressed() then return false end
@@ -41,6 +57,17 @@ local function is_mod_key_pressed(key_fn, vk)
         end
     end
     return false
+end
+
+local function is_shortcut_pressed(imgui_key_fn, vk)
+    if reaper.ImGui_Shortcut then
+        local mod = IS_MACOS and reaper.ImGui_Mod_Super() or reaper.ImGui_Mod_Ctrl()
+        local chord = mod | imgui_key_fn()
+        if reaper.ImGui_Shortcut(ctx, chord, reaper.ImGui_InputFlags_RouteGlobal and reaper.ImGui_InputFlags_RouteGlobal() or 0) then
+            return true
+        end
+    end
+    return is_mod_key_pressed(imgui_key_fn, vk)
 end
 
 local tabs                      = {}
@@ -162,10 +189,12 @@ local function push_style(ctx)
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_PopupBg(), 0x1A1A1AFF)
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Separator(), 0x444444FF)
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_CheckMark(), main_col)
+   
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ModalWindowDimBg(), 0x00000099)
 end
 
 local function pop_style(ctx)
-    reaper.ImGui_PopStyleColor(ctx, 30)
+    reaper.ImGui_PopStyleColor(ctx, 31)
     reaper.ImGui_PopStyleVar(ctx, 5)
 end
 --==============================================================
@@ -1393,10 +1422,98 @@ local function toggle_reaper_startup(enable)
     return false
 end
 --==============================================================
+-- ОБРОБКА ХОТКЕЇВ ДЛЯ MACOS
+--==============================================================
+local mac_hotkey_debounce = {}
+
+local function handle_mac_hotkeys()
+    if not IS_MACOS then return end
+    if not reaper.JS_VKeys_GetState then return end
+
+    local tab = tabs[active_tab_index]
+    if not tab or not tab.editing then return end
+
+    local cmd_down = reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Super())
+    if not cmd_down then
+        mac_hotkey_debounce = {}
+        return
+    end
+
+    local state = reaper.JS_VKeys_GetState(-2)
+    if not state then return end
+
+    local function vk_just_pressed(vk)
+        local pressed = (#state >= vk) and (state:byte(vk) == 1)
+        if pressed and not mac_hotkey_debounce[vk] then
+            mac_hotkey_debounce[vk] = true
+            return true
+        elseif not pressed then
+            mac_hotkey_debounce[vk] = false
+        end
+        return false
+    end
+
+    if vk_just_pressed(67) then
+        local sel_s = tab.saved_sel_start or 0
+        local sel_e = tab.saved_sel_end or 0
+        if sel_s > sel_e then sel_s, sel_e = sel_e, sel_s end
+        if sel_s ~= sel_e then
+            reaper.ImGui_SetClipboardText(ctx, tab.content:sub(sel_s + 1, sel_e))
+        end
+        return
+    end
+
+    if vk_just_pressed(88) then
+        local sel_s = tab.saved_sel_start or 0
+        local sel_e = tab.saved_sel_end or 0
+        if sel_s > sel_e then sel_s, sel_e = sel_e, sel_s end
+        if sel_s ~= sel_e then
+            reaper.ImGui_SetClipboardText(ctx, tab.content:sub(sel_s + 1, sel_e))
+            tab.content         = tab.content:sub(1, sel_s) .. tab.content:sub(sel_e + 1)
+            tab.saved_sel_start = sel_s
+            tab.saved_sel_end   = sel_s
+            tab.saved_cursor    = sel_s
+            tab.editing         = false
+            tab.reopen_editing  = true
+        end
+        return
+    end
+
+    if vk_just_pressed(86) then
+        local clipboard = reaper.ImGui_GetClipboardText(ctx)
+        if clipboard and clipboard ~= "" then
+            local sel_s = tab.saved_sel_start or 0
+            local sel_e = tab.saved_sel_end or 0
+            if sel_s > sel_e then sel_s, sel_e = sel_e, sel_s end
+            local has_sel = (sel_s ~= sel_e)
+            local pos = tab.saved_cursor or #tab.content
+            if has_sel then
+                tab.content = tab.content:sub(1, sel_s) .. clipboard .. tab.content:sub(sel_e + 1)
+            else
+                tab.content = tab.content:sub(1, pos) .. clipboard .. tab.content:sub(pos + 1)
+            end
+            tab.editing        = false
+            tab.reopen_editing = true
+        end
+        return
+    end
+
+    if vk_just_pressed(83) then
+        tab.editing = false
+        return
+    end
+
+    vk_just_pressed(70)
+    vk_just_pressed(65)
+end
+
+--==============================================================
 -- ГОЛОВНИЙ ЦИКЛ
 --==============================================================
 local function loop()
     local active_style_tooltip = ""
+    handle_mac_hotkeys()
+
     push_style(ctx)
 
     reaper.ImGui_SetNextWindowSizeConstraints(ctx, 475, 400, 1e10, 1e10)
@@ -1708,8 +1825,23 @@ local function loop()
                             filter_active = (filter_text ~= "")
                             filter_match_index = 1
                         end
-
-                        if is_mod_key_pressed(reaper.ImGui_Key_F, 70) then
+                        
+                        local want_search = is_mod_key_pressed(reaper.ImGui_Key_F, 70)
+                        if not want_search and IS_MACOS and reaper.JS_VKeys_GetState then
+                            local cmd_down = reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Super())
+                            if cmd_down then
+                                local st = reaper.JS_VKeys_GetState(-2)
+                                if st and #st >= 70 and st:byte(70) == 1 then
+                                    if not mac_hotkey_debounce[70] then
+                                        mac_hotkey_debounce[70] = true
+                                        want_search = true
+                                    end
+                                else
+                                    mac_hotkey_debounce[70] = false
+                                end
+                            end
+                        end
+                        if want_search then
                             reaper.ImGui_SetKeyboardFocusHere(ctx, -1)
                         end
 
@@ -2425,6 +2557,12 @@ local function loop()
 
                 local modal_win_h = modal_pad + 6 + modal_text_h + 8 + 6 + btn_h + modal_pad
 
+                local main_win_x, main_win_y = reaper.ImGui_GetWindowPos(ctx)
+                local main_win_w_m  = reaper.ImGui_GetWindowWidth(ctx)
+                local main_win_h_m  = reaper.ImGui_GetWindowHeight(ctx)
+                local modal_cx = main_win_x + (main_win_w_m - modal_win_w) * 0.5
+                local modal_cy = main_win_y + (main_win_h_m - modal_win_h) * 0.5
+                reaper.ImGui_SetNextWindowPos(ctx, modal_cx, modal_cy, reaper.ImGui_Cond_Always())
                 reaper.ImGui_SetNextWindowSize(ctx, modal_win_w, modal_win_h, reaper.ImGui_Cond_Always())
 
                 local modal_flags = reaper.ImGui_WindowFlags_NoResize()
