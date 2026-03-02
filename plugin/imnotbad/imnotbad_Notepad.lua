@@ -30,6 +30,21 @@ local function is_mod_pressed()
     return reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Ctrl())
         or reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Super())
 end
+
+local function js_vkey_down(vk)
+    if not reaper.JS_VKeys_GetState then return false end
+    local state = reaper.JS_VKeys_GetState(-2)
+    if not state or #state < vk then return false end
+    return state:byte(vk) == 1
+end
+
+local function is_mod_key_pressed(key_fn, vk)
+    if not is_mod_pressed() then return false end
+    if reaper.ImGui_IsKeyPressed(ctx, key_fn()) then return true end
+    if vk and js_vkey_down(vk) then return true end
+    return false
+end
+
 local tabs                      = {}
 local active_tab_index          = 1
 local pending_active_tab        = nil
@@ -1696,8 +1711,7 @@ local function loop()
                             filter_match_index = 1
                         end
 
-                        if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_F())
-                            and is_mod_pressed() then
+                        if is_mod_key_pressed(reaper.ImGui_Key_F, 70) then
                             reaper.ImGui_SetKeyboardFocusHere(ctx, -1)
                         end
 
@@ -2091,8 +2105,7 @@ local function loop()
                             reaper.ImGui_PopFont(ctx)
 
                             if reaper.ImGui_IsItemActive(ctx) then
-                                if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_A())
-                                    and is_mod_pressed() then
+                                if is_mod_key_pressed(reaper.ImGui_Key_A, 65) then
                                     text_sel_start = 0
                                     text_sel_end = #tab.content
                                 end
@@ -2108,8 +2121,7 @@ local function loop()
                             if reaper.ImGui_IsItemHovered(ctx) then
                                 reaper.ImGui_SetTooltip(ctx, "Ctrl+S / Cmd+S")
                             end
-                            if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_S())
-                                and is_mod_pressed() then
+                            if is_mod_key_pressed(reaper.ImGui_Key_S, 83) then
                                 tab.editing = false
                             end
                             reaper.ImGui_PopFont(ctx)
@@ -2383,10 +2395,24 @@ local function loop()
                     end
 
                     if not keep_open and confirm_close_tab_index == nil then
-                        confirm_close_tab_index = i
-                        confirm_close_prev_active = active_tab_index
-                        pending_active_tab = i
-                        reaper.ImGui_OpenPopup(ctx, "ConfirmCloseTab")
+                        local tab_has_content = tabs[i] and tabs[i].content and tabs[i].content:match("%S") ~= nil
+                        if tab_has_content then
+                            confirm_close_tab_index = i
+                            confirm_close_prev_active = active_tab_index
+                            pending_active_tab = i
+                            reaper.ImGui_OpenPopup(ctx, "ConfirmCloseTab")
+                        else
+                            local del_idx = i
+                            table.remove(tabs, del_idx)
+                            local target = active_tab_index
+                            if target > del_idx then target = target - 1 end
+                            if target > #tabs then target = #tabs end
+                            if target < 1 then target = 1 end
+                            if #tabs > 0 then
+                                pending_active_tab = target
+                            end
+                            save_data()
+                        end
                     end
                 end
 
@@ -2482,6 +2508,31 @@ local function loop()
                 end
 
                 reaper.ImGui_EndTabBar(ctx)
+            end
+
+            if #tabs == 0 and not pomodoro_active then
+                local avail_w, avail_h = reaper.ImGui_GetContentRegionAvail(ctx)
+                local msg = "Подвійний клік, щоб створити нотатку"
+                reaper.ImGui_PushFont(ctx, tab_font, tab_font_size + 2)
+                local tw, th = reaper.ImGui_CalcTextSize(ctx, msg)
+                reaper.ImGui_PopFont(ctx)
+                local cx = (avail_w - tw) * 0.5
+                local cy = (avail_h - th) * 0.5
+                reaper.ImGui_SetCursorPos(ctx, cx, reaper.ImGui_GetCursorPosY(ctx) + cy)
+                reaper.ImGui_PushFont(ctx, tab_font, tab_font_size + 2)
+                reaper.ImGui_TextDisabled(ctx, msg)
+                reaper.ImGui_PopFont(ctx)
+                local win_hovered = reaper.ImGui_IsWindowHovered(ctx, reaper.ImGui_HoveredFlags_ChildWindows())
+                if win_hovered and reaper.ImGui_IsMouseDoubleClicked(ctx, 0) then
+                    tabs[1] = {
+                        title = "Нотатка 1",
+                        content = "",
+                        editing = true,
+                        renaming = false,
+                        should_focus_edit = true
+                    }
+                    pending_active_tab = 1
+                end
             end
         end
 
@@ -2582,9 +2633,9 @@ local function loop()
                 local state_lbl = (pomo.state == "running") and "Виконується"
                     or (pomo.state == "paused") and "Пауза"
                     or "Зупинено"
-                reaper.ImGui_PushFont(ctx, tab_font, 20)
+                reaper.ImGui_PushFont(ctx, tab_font, 18)
                 local slw, slh = reaper.ImGui_CalcTextSize(ctx, state_lbl)
-                reaper.ImGui_SetCursorPos(ctx, cx_pos - slw * 0.5, cy_pos + timer_radius * 0.50)
+                reaper.ImGui_SetCursorPos(ctx, cx_pos - slw * 0.5, cy_pos + timer_radius * 0.30)
                 reaper.ImGui_TextColored(ctx, 0xAAAAAA88, state_lbl)
                 reaper.ImGui_PopFont(ctx)
 
@@ -2732,7 +2783,7 @@ local function loop()
 
                         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ChildBg(), 0x171717FF)
                         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_ChildRounding(), 8.0)
-                        if reaper.ImGui_BeginChild(ctx, "##pomo_log", avail_w - 15, log_h, 0) then
+                        if reaper.ImGui_BeginChild(ctx, "##pomo_log", avail_w - 15, log_h, 1) then
                             for li = #pomo.session_log, 1, -1 do
                                 local entry = pomo.session_log[li]
                                 local dur_min = math.floor(entry.duration_sec / 60)
@@ -2781,7 +2832,7 @@ local function loop()
                     local settings_h = 315
                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ChildBg(), 0x171717FF)
                     reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_ChildRounding(), 8.0)
-                    if reaper.ImGui_BeginChild(ctx, "##pomo_settings", avail_w - 15, settings_h, 0) then
+                    if reaper.ImGui_BeginChild(ctx, "##pomo_settings", avail_w - 15, settings_h, 1) then
                         reaper.ImGui_Dummy(ctx, 0, 8)
                         reaper.ImGui_PushFont(ctx, tab_font, 14)
                         reaper.ImGui_SeparatorText(ctx, "Тривалість (хвилини):")
@@ -2884,20 +2935,16 @@ local function loop()
                             reaper.ImGui_PopStyleColor(ctx, 2)
                         end
                         reaper.ImGui_Dummy(ctx, 0, 6)
-
                         reaper.ImGui_EndChild(ctx)
                     end
                     reaper.ImGui_PopStyleVar(ctx)
                     reaper.ImGui_PopStyleColor(ctx, 1)
                     reaper.ImGui_Dummy(ctx, 0, 10)
                 end
-
                 reaper.ImGui_Dummy(ctx, 0, 10)
-
                 reaper.ImGui_EndChild(ctx)
             end
         end
-
 
         --================ ГЛОБАЛЬНЕ СПОВІЩЕННЯ POMODORO =================
         if pomo.notification_msg then
