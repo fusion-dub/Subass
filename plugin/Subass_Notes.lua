@@ -2644,19 +2644,21 @@ end
 --- @param project_name string Project name
 --- @param deadline_ts number|nil Unix timestamp or nil to remove
 function DEADLINE.save_global(project_path, project_name, deadline_ts)
-    if project_path then project_path = DEADLINE.normalize_path(project_path) end
+    if not project_path then return end
+    local norm_path = DEADLINE.normalize_path(project_path)
 
     local data = DEADLINE.load_global()
     
     if deadline_ts then
         -- Add or update deadline
-        data[project_path] = {
+        data[norm_path] = {
             name = project_name,
-            deadline = deadline_ts
+            deadline = deadline_ts,
+            path = project_path -- Store original raw path with casing
         }
     else
         -- Remove deadline
-        data[project_path] = nil
+        data[norm_path] = nil
     end
     
     -- Save as JSON
@@ -2748,9 +2750,11 @@ function DEADLINE.sync_project()
     
     if ptr_entry and not proj_path:match("^PTR:") then
         -- Move deadline from temporary pointer ID to the real project path
-        global_data[proj_path] = {
+        local norm_proj_path = DEADLINE.normalize_path(proj_path)
+        global_data[norm_proj_path] = {
             name = proj_name or "Untitled",
-            deadline = ptr_entry.deadline
+            deadline = ptr_entry.deadline,
+            path = proj_path -- Store original raw path with casing
         }
         global_data[ptr_id] = nil
         changed = true
@@ -2821,10 +2825,10 @@ function DEADLINE.draw_dashboard(input_queue)
     -- Load and Sort Data
     local all_deadlines = DEADLINE.load_global()
     local sorted_projects = {}
-    for path, data in pairs(all_deadlines) do
+    for path_key, data in pairs(all_deadlines) do
         if data.deadline then
             table.insert(sorted_projects, {
-                path = path,
+                path = data.path or path_key, -- Use original path if stored, else fallback to key
                 name = data.name,
                 deadline = data.deadline
             })
