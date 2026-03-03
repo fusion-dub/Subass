@@ -1,5 +1,5 @@
 -- @description Notepad від imnotbad
--- @version 1.0
+-- @version 1.1
 -- @author imnotbad
 
 --==============================================================
@@ -24,7 +24,7 @@ end
 --==============================================================
 -- Контекст і дані
 --==============================================================
-local ctx = reaper.ImGui_CreateContext("Notepad від imnotbad")
+local ctx = reaper.ImGui_CreateContext("Notepad v1.1")
 
 local IS_MACOS = reaper.GetOS():find("OSX") ~= nil or reaper.GetOS():find("macOS") ~= nil
 
@@ -38,13 +38,13 @@ local function is_mod_pressed()
 end
 
 local VK_TO_IMGUI_KEY = {
-    [65]  = function() return reaper.ImGui_Key_A() end,   -- A
-    [67]  = function() return reaper.ImGui_Key_C() end,   -- C
-    [70]  = function() return reaper.ImGui_Key_F() end,   -- F
-    [83]  = function() return reaper.ImGui_Key_S() end,   -- S
-    [86]  = function() return reaper.ImGui_Key_V() end,   -- V
-    [88]  = function() return reaper.ImGui_Key_X() end,   -- X
-    [90]  = function() return reaper.ImGui_Key_Z() end,   -- Z
+    [65] = function() return reaper.ImGui_Key_A() end,
+    [67] = function() return reaper.ImGui_Key_C() end,
+    [70] = function() return reaper.ImGui_Key_F() end,
+    [83] = function() return reaper.ImGui_Key_S() end,
+    [86] = function() return reaper.ImGui_Key_V() end,
+    [88] = function() return reaper.ImGui_Key_X() end,
+    [90] = function() return reaper.ImGui_Key_Z() end,
 }
 
 local function is_mod_key_pressed(key_fn, vk)
@@ -98,11 +98,19 @@ local pomo                      = {
     confirm_clear     = false,
     notification_msg  = nil,
     notification_time = 0,
+    tasks             = {},
+    selected_task     = 0,
+    new_task_buf      = "",
+    log_filter        = "",
+    hidden_sectors    = {},
 }
 local saved_selection_start     = 0
 local saved_selection_end       = 0
 local confirm_close_tab_index   = nil
 local confirm_close_prev_active = nil
+local rename_task_index         = nil
+local rename_task_buf           = ""
+local pending_rename_task       = false
 local tab_font_size             = 16
 local current_font_name         = "Sans-serif"
 local font_list                 = { "Arial", "Helvetica", "Calibri", "Roboto", "Segoe UI", "Tahoma", "Verdana",
@@ -121,7 +129,7 @@ local text_sel_end              = 0
 local sel_cache_start           = nil
 local sel_cache_end             = nil
 local script_path               = ({ reaper.get_action_context() })[2]:match("^.+[\\//]")
-local save_file                 = script_path .. "imnotbad_notepad_tabs_data.txt"
+local save_file                 = script_path .. "imnotbad_Notepad_Data.txt"
 local function get_font(name, style)
     if not fonts_storage[name] then return nil end
     return fonts_storage[name][style]
@@ -189,7 +197,7 @@ local function push_style(ctx)
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_PopupBg(), 0x1A1A1AFF)
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Separator(), 0x444444FF)
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_CheckMark(), main_col)
-   
+
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ModalWindowDimBg(), 0x00000099)
 end
 
@@ -406,7 +414,6 @@ local function parse_line_styles(text)
 
     return segments
 end
-
 
 local function parse_simple_markdown(text)
     local lines = {}
@@ -659,34 +666,83 @@ local function save_font_settings()
         string.format("%.3f,%.3f,%.3f,%.3f", c[1], c[2], c[3], c[4]), true)
 end
 
-local function save_pomo_stats()
-    reaper.SetExtState(EXT_STATE_SECTION, "pomo_completed", tostring(pomo.completed), true)
-    reaper.SetExtState(EXT_STATE_SECTION, "pomo_total_work", tostring(pomo.total_work_sec), true)
-    reaper.SetExtState(EXT_STATE_SECTION, "pomo_work_dur", tostring(pomo.edit_work), true)
-    reaper.SetExtState(EXT_STATE_SECTION, "pomo_short_dur", tostring(pomo.edit_short), true)
-    reaper.SetExtState(EXT_STATE_SECTION, "pomo_long_dur", tostring(pomo.edit_long), true)
-    reaper.SetExtState(EXT_STATE_SECTION, "pomo_long_every", tostring(pomo.long_break_every), true)
-    reaper.SetExtState(EXT_STATE_SECTION, "pomo_auto_start", pomo.auto_start and "1" or "0", true)
-    reaper.SetExtState(EXT_STATE_SECTION, "pomo_sound", pomo.sound_enabled and "1" or "0", true)
-    local log_parts = {}
-    for _, e in ipairs(pomo.session_log) do
-        table.insert(log_parts, e.mode .. "|" .. tostring(e.duration_sec) .. "|" .. e.completed_at)
-    end
-    reaper.SetExtState(EXT_STATE_SECTION, "pomo_log", table.concat(log_parts, ";"), true)
-end
+-- local function save_pomo_stats()
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_completed", tostring(pomo.completed), true)
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_total_work", tostring(pomo.total_work_sec), true)
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_work_dur", tostring(pomo.edit_work), true)
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_short_dur", tostring(pomo.edit_short), true)
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_long_dur", tostring(pomo.edit_long), true)
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_long_every", tostring(pomo.long_break_every), true)
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_auto_start", pomo.auto_start and "1" or "0", true)
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_sound", pomo.sound_enabled and "1" or "0", true)
+--     local log_parts = {}
+--     for _, e in ipairs(pomo.session_log) do
+--         table.insert(log_parts,
+--             e.mode .. "|" .. tostring(e.duration_sec) .. "|" .. e.completed_at .. "|" .. (e.task_name or ""))
+--     end
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_log", table.concat(log_parts, ";"), true)
+
+--     local task_parts = {}
+--     for _, t in ipairs(pomo.tasks) do
+--         if type(t) == "string" then
+--             local safe = (t:gsub(";", ","):gsub("|", "-"))
+--             table.insert(task_parts, safe)
+--         end
+--     end
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_tasks", table.concat(task_parts, ";"), true)
+--     reaper.SetExtState(EXT_STATE_SECTION, "pomo_selected_task", tostring(pomo.selected_task), true)
+-- end
 
 local function save_data()
     save_font_settings()
-    save_pomo_stats()
     reaper.SetExtState(EXT_STATE_SECTION, "active_tab", tostring(active_tab_index), true)
     reaper.SetExtState(EXT_STATE_SECTION, "pomodoro_active", pomodoro_active and "1" or "0", true)
+    
     local f = io.open(save_file, "w")
-    if f then
+    if f then 
         for _, tab in ipairs(tabs) do
             f:write("[TAB_TITLE]" .. tab.title .. "\n")
             f:write("[TAB_CONTENT]" .. tab.content .. "\n")
             f:write("[TAB_END]\n")
         end
+
+        f:write("[POMODORO_START]\n")
+      
+        f:write("mode=" .. pomo.mode .. "\n")
+        f:write("work_duration=" .. pomo.work_duration .. "\n")
+        f:write("short_break=" .. pomo.short_break .. "\n")
+        f:write("long_break=" .. pomo.long_break .. "\n")
+        f:write("completed=" .. pomo.completed .. "\n")
+        f:write("total_work_sec=" .. pomo.total_work_sec .. "\n")
+        f:write("long_break_every=" .. pomo.long_break_every .. "\n")
+        f:write("auto_start=" .. (pomo.auto_start and "1" or "0") .. "\n")
+        f:write("sound_enabled=" .. (pomo.sound_enabled and "1" or "0") .. "\n") 
+       
+        f:write("edit_work=" .. pomo.edit_work .. "\n")
+        f:write("edit_short=" .. pomo.edit_short .. "\n")
+        f:write("edit_long=" .. pomo.edit_long .. "\n")
+        f:write("edit_long_every=" .. pomo.edit_long_every .. "\n") 
+       
+        f:write("[TASKS]\n")
+        for _, task in ipairs(pomo.tasks) do
+            local safe_task = task:gsub("\n", "\\n")
+            f:write(safe_task .. "\n")
+        end
+        f:write("[TASKS_END]\n")
+        f:write("selected_task=" .. pomo.selected_task .. "\n")
+        f:write("[SESSION_LOG]\n")
+        for _, entry in ipairs(pomo.session_log) do
+            local task_name = entry.task_name or "" 
+            task_name = task_name:gsub("\n", "\\n"):gsub("|", "\\p")
+            local completed_at = entry.completed_at:gsub("\n", "\\n")
+            f:write(string.format("%s|%d|%s|%s\n", 
+                entry.mode, 
+                entry.duration_sec or 0, 
+                completed_at, 
+                task_name))
+        end
+        f:write("[SESSION_LOG_END]\n") 
+        f:write("[POMODORO_END]\n") 
         f:close()
     end
 end
@@ -724,8 +780,21 @@ local function load_data()
     local f = io.open(save_file, "r")
     if f then
         local all = f:read("*all")
-        f:close()
+        f:close() 
 
+        tabs = {} 
+        pomo = {
+            mode = "work", state = "idle", work_duration = 25 * 60,
+            short_break = 5 * 60, long_break = 15 * 60, remaining = 25 * 60,
+            start_time = 0, elapsed_before = 0, completed = 0,
+            long_break_every = 4, auto_start = false, sound_enabled = true,
+            edit_work = 25, edit_short = 5, edit_long = 15, edit_long_every = 4,
+            session_log = {}, total_work_sec = 0, show_settings = false,
+            confirm_clear = false, notification_msg = nil, notification_time = 0,
+            tasks = {}, selected_task = 0, new_task_buf = "", log_filter = "",
+            hidden_sectors = {},
+        } 
+       
         for title, text in all:gmatch("%[TAB_TITLE%](.-)\n%[TAB_CONTENT%](.-)\n%[TAB_END%]") do
             table.insert(tabs, {
                 title = title,
@@ -733,69 +802,67 @@ local function load_data()
                 editing = false,
                 renaming = false
             })
-        end
-    end
+        end 
+        
+        local pomo_block = all:match("%[POMODORO_START%]\n(.-)%[POMODORO_END%]")
+        if pomo_block then 
+            pomo.mode = pomo_block:match("mode=(%w+)") or "work"
+            pomo.work_duration = tonumber(pomo_block:match("work_duration=(%d+)")) or 25*60
+            pomo.short_break = tonumber(pomo_block:match("short_break=(%d+)")) or 5*60
+            pomo.long_break = tonumber(pomo_block:match("long_break=(%d+)")) or 15*60
+            pomo.completed = tonumber(pomo_block:match("completed=(%d+)")) or 0
+            pomo.total_work_sec = tonumber(pomo_block:match("total_work_sec=(%d+)")) or 0
+            pomo.long_break_every = tonumber(pomo_block:match("long_break_every=(%d+)")) or 4
+            pomo.auto_start = (pomo_block:match("auto_start=([01])") or "0") == "1"
+            pomo.sound_enabled = (pomo_block:match("sound_enabled=([01])") or "1") == "1" 
+           
+            pomo.edit_work = tonumber(pomo_block:match("edit_work=(%d+)")) or 25
+            pomo.edit_short = tonumber(pomo_block:match("edit_short=(%d+)")) or 5
+            pomo.edit_long = tonumber(pomo_block:match("edit_long=(%d+)")) or 15
+            pomo.edit_long_every = tonumber(pomo_block:match("edit_long_every=(%d+)")) or 4
+           
+            if pomo.mode == "work" then
+                pomo.remaining = pomo.work_duration
+            elseif pomo.mode == "short_break" then
+                pomo.remaining = pomo.short_break
+            else
+                pomo.remaining = pomo.long_break
+            end 
+           
+            local tasks_block = pomo_block:match("%[TASKS%]\n(.-)%[TASKS_END%]")
+            if tasks_block then
+                pomo.tasks = {}
+                for task in tasks_block:gmatch("([^\n]+)") do 
+                    task = task:gsub("\\n", "\n"):gsub("\\p", "|")
+                    table.insert(pomo.tasks, task)
+                end
+            end 
 
-    local saved_idx = tonumber(reaper.GetExtState(EXT_STATE_SECTION, "active_tab")) or 1
-    if saved_idx >= 1 and saved_idx <= #tabs then
-        pending_active_tab = saved_idx
-    end
-
-    local saved_pomodoro = reaper.GetExtState(EXT_STATE_SECTION, "pomodoro_active")
-    if saved_pomodoro == "1" then
-        pomodoro_pending_select = true
-    end
-
-    local sv_completed = tonumber(reaper.GetExtState(EXT_STATE_SECTION, "pomo_completed"))
-    if sv_completed then pomo.completed = sv_completed end
-
-    local sv_total = tonumber(reaper.GetExtState(EXT_STATE_SECTION, "pomo_total_work"))
-    if sv_total then pomo.total_work_sec = sv_total end
-
-    local sv_work = tonumber(reaper.GetExtState(EXT_STATE_SECTION, "pomo_work_dur"))
-    if sv_work then
-        pomo.edit_work     = sv_work
-        pomo.work_duration = sv_work * 60
-        pomo.remaining     = pomo.work_duration
-    end
-
-    local sv_short = tonumber(reaper.GetExtState(EXT_STATE_SECTION, "pomo_short_dur"))
-    if sv_short then
-        pomo.edit_short  = sv_short
-        pomo.short_break = sv_short * 60
-    end
-
-    local sv_long = tonumber(reaper.GetExtState(EXT_STATE_SECTION, "pomo_long_dur"))
-    if sv_long then
-        pomo.edit_long  = sv_long
-        pomo.long_break = sv_long * 60
-    end
-
-    local sv_every = tonumber(reaper.GetExtState(EXT_STATE_SECTION, "pomo_long_every"))
-    if sv_every then pomo.long_break_every = sv_every end
-
-    local sv_auto = reaper.GetExtState(EXT_STATE_SECTION, "pomo_auto_start")
-    if sv_auto ~= "" then pomo.auto_start = (sv_auto == "1") end
-
-    local sv_sound = reaper.GetExtState(EXT_STATE_SECTION, "pomo_sound")
-    if sv_sound ~= "" then pomo.sound_enabled = (sv_sound == "1") end
-
-    local sv_log = reaper.GetExtState(EXT_STATE_SECTION, "pomo_log")
-    if sv_log and sv_log ~= "" then
-        for entry_str in sv_log:gmatch("[^;]+") do
-            local mode, dur, time_str = entry_str:match("([^|]+)|([^|]+)|([^|]+)")
-            if mode and dur and time_str then
-                table.insert(pomo.session_log, {
-                    mode         = mode,
-                    duration_sec = tonumber(dur) or 0,
-                    completed_at = time_str
-                })
+            pomo.selected_task = tonumber(pomo_block:match("selected_task=(%d+)")) or 0 
+            
+            local log_block = pomo_block:match("%[SESSION_LOG%]\n(.-)%[SESSION_LOG_END%]")
+            if log_block then
+                pomo.session_log = {}
+                for line in log_block:gmatch("([^\n]+)") do
+                    local mode, dur, time_str, task_name = line:match("^([^|]+)|([^|]+)|([^|]+)|?(.*)$")
+                    if mode and dur and time_str then 
+                        task_name = task_name:gsub("\\n", "\n"):gsub("\\p", "|")
+                        time_str = time_str:gsub("\\n", "\n")
+                        table.insert(pomo.session_log, {
+                            mode = mode,
+                            duration_sec = tonumber(dur) or 0,
+                            completed_at = time_str,
+                            task_name = (task_name and task_name ~= "") and task_name or nil
+                        })
+                    end
+                end
             end
-        end
-    end
+        end 
+    end 
+  
     if #tabs == 0 then
-        local welcome_content = [[# ПРИВІТАЛЬНА СТОРІНКА
-*Для редагування зробіть подвійний клік миші по тексту.*
+        local welcome_content = [[# ВІТАЄМО В NOTEPAD
+*Для редагування зробіть подвійний клік.*
 *Більше інформації у вкладці "Довідка".*
 ---
 # Заголовок 1
@@ -824,9 +891,19 @@ __Підкреслений__
 ---
 https://www.youtube.com/ - посилання відкриваються в браузері
 ---]]
-        tabs[1] = { title = "Нотатник 1", content = welcome_content, editing = false, renaming = false }
+        tabs[1] = { title = "Записник 1", content = welcome_content, editing = false, renaming = false }
+    end 
+    
+    local saved_idx = tonumber(reaper.GetExtState(EXT_STATE_SECTION, "active_tab")) or 1
+    if saved_idx >= 1 and saved_idx <= #tabs then
+        pending_active_tab = saved_idx
     end
-
+    
+    local saved_pomodoro = reaper.GetExtState(EXT_STATE_SECTION, "pomodoro_active")
+    if saved_pomodoro == "1" then
+        pomodoro_pending_select = true
+    end
+    
     rebuild_tab_font()
     rebuild_all_fonts()
 end
@@ -1521,7 +1598,7 @@ local function loop()
     local flags = reaper.ImGui_WindowFlags_MenuBar()
         | reaper.ImGui_WindowFlags_NoCollapse()
 
-    local visible, open = reaper.ImGui_Begin(ctx, "Notepad від imnotbad", true, flags)
+    local visible, open = reaper.ImGui_Begin(ctx, "Notepad v1.1", true, flags)
 
     if visible then
         --================ MENU =================
@@ -1613,7 +1690,7 @@ local function loop()
                 reaper.ImGui_TextDisabled(ctx, "• Для редагування блокнота зробіть подвійний клік всередині Tab")
                 reaper.ImGui_TextDisabled(ctx,
                     "• В режимі редагування блокнота зробіть правий клік \n   і натисніть 'Імпортувати макрери'")
-                reaper.ImGui_TextDisabled(ctx, "• Для збереження блокнота натисніть Ctrl+S / Cmd+S")
+                reaper.ImGui_TextDisabled(ctx, "• Для збереження блокнота натисніть Ctrl+S")
                 reaper.ImGui_SeparatorText(ctx, "Markdown:")
                 reaper.ImGui_Text(ctx, "Стилі для виділення:")
                 reaper.ImGui_Separator(ctx)
@@ -1728,10 +1805,12 @@ local function loop()
             end
 
             if pomo.state == "running" and remaining_tick <= 0 then
+                local cur_task_name = (pomo.selected_task > 0 and pomo.tasks[pomo.selected_task]) or nil
                 table.insert(pomo.session_log, {
-                    mode = pomo.mode,
+                    mode         = pomo.mode,
                     duration_sec = total_dur_tick,
-                    completed_at = os.date("%H:%M")
+                    completed_at = os.date("%H:%M %d.%m.%Y"),
+                    task_name    = cur_task_name
                 })
                 if pomo.mode == "work" then
                     pomo.completed      = pomo.completed + 1
@@ -1772,7 +1851,7 @@ local function loop()
             if reaper.ImGui_BeginTabBar(ctx, "MyTabBar", reaper.ImGui_TabBarFlags_Reorderable()) then
                 if reaper.ImGui_TabItemButton(ctx, "+", reaper.ImGui_TabItemFlags_Trailing()) then
                     tabs[#tabs + 1] = {
-                        title = "Нотатка " .. (#tabs + 1),
+                        title = "Записник " .. (#tabs + 1),
                         content = "",
                         editing = false,
                         renaming = false
@@ -1818,14 +1897,14 @@ local function loop()
                     else
                         reaper.ImGui_SetNextItemWidth(ctx, 160)
                         local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, "##filter",
-                            "Пошук (Ctrl+F/Cmd+F)",
+                            "Пошук (Ctrl+F)",
                             filter_text)
                         if changed then
                             filter_text = new_filter
                             filter_active = (filter_text ~= "")
                             filter_match_index = 1
                         end
-                        
+
                         local want_search = is_mod_key_pressed(reaper.ImGui_Key_F, 70)
                         if not want_search and IS_MACOS and reaper.JS_VKeys_GetState then
                             local cmd_down = reaper.ImGui_IsKeyDown(ctx, reaper.ImGui_Mod_Super())
@@ -1924,7 +2003,7 @@ local function loop()
                                 reaper.ImGui_SameLine(ctx)
                             end
                         end
-                        
+
                         local active_editing_tab = nil
                         local current_active = tabs[active_tab_index]
                         if current_active and current_active.editing then
@@ -2153,14 +2232,14 @@ local function loop()
                                 if sel_s > sel_e then sel_s, sel_e = sel_e, sel_s end
                                 local has_selection = (sel_s ~= sel_e)
 
-                                if reaper.ImGui_MenuItem(ctx, "Копіювати", "Ctrl+C/Cmd+C", false, has_selection) then
+                                if reaper.ImGui_MenuItem(ctx, "Копіювати", "Ctrl+C", false, has_selection) then
                                     if has_selection then
                                         local selected_text = tab.content:sub(sel_s + 1, sel_e)
                                         reaper.ImGui_SetClipboardText(ctx, selected_text)
                                     end
                                 end
 
-                                if reaper.ImGui_MenuItem(ctx, "Вирізати", "Ctrl+X/Cmd+X", false, has_selection) then
+                                if reaper.ImGui_MenuItem(ctx, "Вирізати", "Ctrl+X", false, has_selection) then
                                     if has_selection then
                                         local selected_text = tab.content:sub(sel_s + 1, sel_e)
                                         reaper.ImGui_SetClipboardText(ctx, selected_text)
@@ -2173,7 +2252,7 @@ local function loop()
                                     end
                                 end
 
-                                if reaper.ImGui_MenuItem(ctx, "Вставити", "Ctrl+V/Cmd+V") then
+                                if reaper.ImGui_MenuItem(ctx, "Вставити", "Ctrl+V") then
                                     local clipboard = reaper.ImGui_GetClipboardText(ctx)
                                     if clipboard and clipboard ~= "" then
                                         local pos = tab.saved_cursor or #tab.content
@@ -2219,7 +2298,7 @@ local function loop()
                                     end
                                 end
                                 reaper.ImGui_Separator(ctx)
-                                reaper.ImGui_TextDisabled(ctx, "Ctrl+S / Cmd+S - зберегти")
+                                reaper.ImGui_TextDisabled(ctx, "Ctrl+S - зберегти")
                                 reaper.ImGui_EndPopup(ctx)
                             end
                             reaper.ImGui_PopFont(ctx)
@@ -2239,7 +2318,7 @@ local function loop()
                                 tab.editing = false
                             end
                             if reaper.ImGui_IsItemHovered(ctx) then
-                                reaper.ImGui_SetTooltip(ctx, "Ctrl+S / Cmd+S")
+                                reaper.ImGui_SetTooltip(ctx, "Ctrl+S")
                             end
                             if is_mod_key_pressed(reaper.ImGui_Key_S, 83) then
                                 tab.editing = false
@@ -2555,13 +2634,13 @@ local function loop()
                     modal_text_h = num_lines * line_h
                 end
 
-                local modal_win_h = modal_pad + 6 + modal_text_h + 8 + 6 + btn_h + modal_pad
+                local modal_win_h            = modal_pad + 6 + modal_text_h + 8 + 6 + btn_h + modal_pad
 
                 local main_win_x, main_win_y = reaper.ImGui_GetWindowPos(ctx)
-                local main_win_w_m  = reaper.ImGui_GetWindowWidth(ctx)
-                local main_win_h_m  = reaper.ImGui_GetWindowHeight(ctx)
-                local modal_cx = main_win_x + (main_win_w_m - modal_win_w) * 0.5
-                local modal_cy = main_win_y + (main_win_h_m - modal_win_h) * 0.5
+                local main_win_w_m           = reaper.ImGui_GetWindowWidth(ctx)
+                local main_win_h_m           = reaper.ImGui_GetWindowHeight(ctx)
+                local modal_cx               = main_win_x + (main_win_w_m - modal_win_w) * 0.5
+                local modal_cy               = main_win_y + (main_win_h_m - modal_win_h) * 0.5
                 reaper.ImGui_SetNextWindowPos(ctx, modal_cx, modal_cy, reaper.ImGui_Cond_Always())
                 reaper.ImGui_SetNextWindowSize(ctx, modal_win_w, modal_win_h, reaper.ImGui_Cond_Always())
 
@@ -2651,7 +2730,7 @@ local function loop()
                 local win_hovered = reaper.ImGui_IsWindowHovered(ctx, reaper.ImGui_HoveredFlags_ChildWindows())
                 if win_hovered and reaper.ImGui_IsMouseDoubleClicked(ctx, 0) then
                     tabs[1] = {
-                        title = "Нотатка 1",
+                        title = "Записник 1",
                         content = "",
                         editing = true,
                         renaming = false,
@@ -2750,19 +2829,19 @@ local function loop()
                 local mins = math.floor(pomo.remaining / 60)
                 local secs = math.floor(pomo.remaining % 60)
                 local time_str = string.format("%02d:%02d", mins, secs)
-                reaper.ImGui_PushFont(ctx, tab_font, math.max(12, timer_radius * 0.55))
+                reaper.ImGui_PushFont(ctx, tab_font, math.max(12, timer_radius * 0.6))
                 local tsw, tsh = reaper.ImGui_CalcTextSize(ctx, time_str)
-                reaper.ImGui_SetCursorPos(ctx, cx_pos - tsw * 0.5, cy_pos - timer_radius * 0.35)
+                reaper.ImGui_SetCursorPos(ctx, cx_pos - tsw * 0.5, cy_pos - timer_radius * 0.5)
                 reaper.ImGui_TextColored(ctx, 0xFFFFFFFF, time_str)
                 reaper.ImGui_PopFont(ctx)
 
                 local state_lbl = (pomo.state == "running") and "Виконується"
                     or (pomo.state == "paused") and "Пауза"
                     or "Зупинено"
-                reaper.ImGui_PushFont(ctx, tab_font, 18)
+                reaper.ImGui_PushFont(ctx, tab_font, math.max(10, timer_radius * 0.2))
                 local slw, slh = reaper.ImGui_CalcTextSize(ctx, state_lbl)
-                reaper.ImGui_SetCursorPos(ctx, cx_pos - slw * 0.5, cy_pos + timer_radius * 0.30)
-                reaper.ImGui_TextColored(ctx, 0xAAAAAA88, state_lbl)
+                reaper.ImGui_SetCursorPos(ctx, cx_pos - slw * 0.5, cy_pos + timer_radius * 0.2)
+                reaper.ImGui_TextColored(ctx, 0xAAAAAA80, state_lbl)
                 reaper.ImGui_PopFont(ctx)
 
                 reaper.ImGui_SetCursorPosY(ctx, cy_pos + timer_radius + 22)
@@ -2868,7 +2947,273 @@ local function loop()
                 reaper.ImGui_Dummy(ctx, 0, 10)
                 reaper.ImGui_SetCursorPosX(ctx, 16)
                 reaper.ImGui_Separator(ctx)
+
+                -- ======= ЗАВДАННЯ =======
+                reaper.ImGui_Dummy(ctx, 0, 8)
+
+                local tasks_avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
+
+                reaper.ImGui_PushFont(ctx, bold_font, 38)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x666666FF)
+                reaper.ImGui_SetCursorPosX(ctx, (tasks_avail_w - reaper.ImGui_CalcTextSize(ctx, "ЗАВДАННЯ")) * 0.5)
+                reaper.ImGui_Text(ctx, "ЗАВДАННЯ")
+                reaper.ImGui_PopStyleColor(ctx, 1)
+                reaper.ImGui_PopFont(ctx)
+
                 reaper.ImGui_Dummy(ctx, 0, 6)
+
+                do
+                    local pad       = 20
+                    local btn_add_w = 90
+                    local item_h    = 32
+                    local input_w   = tasks_avail_w - btn_add_w - pad * 2 - 8
+
+                    reaper.ImGui_SetCursorPosX(ctx, pad)
+                    reaper.ImGui_SetNextItemWidth(ctx, input_w)
+                    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 8, 7)
+                    reaper.ImGui_PushFont(ctx, italic_font, 15)
+
+                    local _, new_task_text = reaper.ImGui_InputTextWithHint(
+                        ctx, "##new_task_input", "Введіть завдання...", pomo.new_task_buf
+                    )
+
+                    if reaper.ImGui_IsItemActive(ctx) then
+                        pomo.new_task_buf = new_task_text
+                    end
+
+                    local enter_pressed = reaper.ImGui_IsItemFocused(ctx)
+                        and reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Enter())
+
+                    reaper.ImGui_PopFont(ctx)
+                    reaper.ImGui_PopStyleVar(ctx)
+
+                    reaper.ImGui_SameLine(ctx, nil, 10)
+                    reaper.ImGui_PushFont(ctx, bold_font, 16)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x1E4A1EFF)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x2E6B2EFF)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x3A8A3AFF)
+                    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 0, 0)
+                    local btn_clicked = reaper.ImGui_Button(ctx, "+ Додати##add_task", btn_add_w, item_h + 2)
+                    reaper.ImGui_PopStyleVar(ctx)
+                    reaper.ImGui_PopStyleColor(ctx, 3)
+                    reaper.ImGui_PopFont(ctx)
+
+                    if btn_clicked or enter_pressed then
+                        local trimmed = pomo.new_task_buf:match("^%s*(.-)%s*$")
+                        if trimmed and trimmed ~= "" then
+                            table.insert(pomo.tasks, trimmed)
+                            pomo.new_task_buf = ""
+                            save_data()
+                        end
+                    end
+                end
+
+                if #pomo.tasks > 0 then
+                    reaper.ImGui_Dummy(ctx, 0, 6)
+                    local task_item_h = 26
+                    local del_btn_w   = 26
+                    local pad         = 20
+
+                    for ti = 1, #pomo.tasks do
+                        local task_name = pomo.tasks[ti]
+                        if task_name then
+                            local is_sel = (pomo.selected_task == ti)
+                            local task_w = tasks_avail_w - del_btn_w - pad * 2 - 6
+
+                            reaper.ImGui_SetCursorPosX(ctx, pad)
+                            reaper.ImGui_PushFont(ctx, tab_font, 14)
+
+                            if is_sel then
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), mode_color)
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), mode_color)
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), mode_color)
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFFFFFFFF)
+                            else
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x252525FF)
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x383838FF)
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x454545FF)
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xAAAAAAFF)
+                            end
+
+                            if reaper.ImGui_Button(ctx, task_name .. "##task_sel" .. ti, task_w, task_item_h) then
+                                pomo.selected_task = (pomo.selected_task == ti) and 0 or ti
+                                save_data()
+                            end
+                            reaper.ImGui_PopStyleColor(ctx, 4)
+                            reaper.ImGui_PopFont(ctx)
+
+                            if reaper.ImGui_IsItemHovered(ctx) and reaper.ImGui_IsMouseClicked(ctx, 1) then
+                                reaper.ImGui_OpenPopup(ctx, "TaskContextMenu_" .. ti)
+                            end
+
+                            if reaper.ImGui_BeginPopup(ctx, "TaskContextMenu_" .. ti) then
+                                reaper.ImGui_PushFont(ctx, tab_font, 14)
+                                if reaper.ImGui_MenuItem(ctx, "Змінити завдання") then
+                                    rename_task_index = ti
+                                    rename_task_buf = pomo.tasks[ti] or ""
+                                    pending_rename_task = true
+                                end
+                                reaper.ImGui_PopFont(ctx)
+                                reaper.ImGui_EndPopup(ctx)
+                            end
+
+                            reaper.ImGui_SameLine(ctx, nil, 6)
+                            reaper.ImGui_PushFont(ctx, tab_font, 12)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x1A1A1AFF)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x7A1A1AFF)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0xAA2222FF)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x888888FF)
+                            if reaper.ImGui_Button(ctx, "✕##del_task" .. ti, del_btn_w, task_item_h) then
+                                if pomo.selected_task == ti then
+                                    pomo.selected_task = 0
+                                elseif pomo.selected_task > ti then
+                                    pomo.selected_task = pomo.selected_task - 1
+                                end
+                                table.remove(pomo.tasks, ti)
+                                save_data()
+                            end
+                            reaper.ImGui_PopStyleColor(ctx, 4)
+                            reaper.ImGui_PopFont(ctx)
+
+                            reaper.ImGui_Dummy(ctx, 0, 2)
+                        end
+                    end
+                else
+                    reaper.ImGui_Dummy(ctx, 0, 4)
+                    reaper.ImGui_PushFont(ctx, tab_font, 20)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x444444FF)
+                    local hint = "Завдань немає"
+                    reaper.ImGui_SetCursorPosX(ctx, (tasks_avail_w - reaper.ImGui_CalcTextSize(ctx, hint)) * 0.5)
+                    reaper.ImGui_Text(ctx, hint)
+                    reaper.ImGui_PopStyleColor(ctx, 1)
+                    reaper.ImGui_PopFont(ctx)
+                end
+
+                if pomo.selected_task > 0 and pomo.tasks[pomo.selected_task] then
+                    reaper.ImGui_Dummy(ctx, 0, 6)
+                    reaper.ImGui_PushFont(ctx, tab_font, 13)
+                    local sel_lbl = "▶ " .. pomo.tasks[pomo.selected_task]
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), mode_color)
+                    reaper.ImGui_SetCursorPosX(ctx, (tasks_avail_w - reaper.ImGui_CalcTextSize(ctx, sel_lbl)) * 0.5)
+                    reaper.ImGui_Text(ctx, sel_lbl)
+                    reaper.ImGui_PopStyleColor(ctx, 1)
+                    reaper.ImGui_PopFont(ctx)
+                end
+
+                -- ======= МОДАЛЬНЕ ВІКНО ЗМІНИ НАЗВИ ЗАВДАННЯ =======
+                do
+                    local rt_win_w   = 400
+                    local rt_pad     = 20
+                    local rt_btn_w   = 140
+                    local rt_btn_h   = 32
+                    local rt_btn_gap = 14
+                    local rt_input_h = 38
+                    local rt_win_h   = rt_pad + 20 + 8 + rt_input_h + 14 + rt_btn_h + rt_pad
+
+                    local mwx, mwy   = reaper.ImGui_GetWindowPos(ctx)
+                    local mww        = reaper.ImGui_GetWindowWidth(ctx)
+                    local mwh        = reaper.ImGui_GetWindowHeight(ctx)
+                    reaper.ImGui_SetNextWindowPos(ctx, mwx + (mww - rt_win_w) * 0.5, mwy + (mwh - rt_win_h) * 0.5,
+                        reaper.ImGui_Cond_Always())
+                    reaper.ImGui_SetNextWindowSize(ctx, rt_win_w, rt_win_h, reaper.ImGui_Cond_Always())
+
+                    local rt_flags = reaper.ImGui_WindowFlags_NoResize()
+                        | reaper.ImGui_WindowFlags_NoScrollbar()
+                        | reaper.ImGui_WindowFlags_NoDocking()
+                        | reaper.ImGui_WindowFlags_TopMost()
+                        | reaper.ImGui_WindowFlags_NoDecoration()
+
+                    if pending_rename_task then
+                        pending_rename_task = false
+                        reaper.ImGui_OpenPopup(ctx, "RenameTask")
+                    end
+
+                    local rt_open = reaper.ImGui_BeginPopupModal(ctx, "RenameTask", true, rt_flags)
+                    if rt_open then
+                        reaper.ImGui_Dummy(ctx, 0, 6)
+                        reaper.ImGui_SetCursorPosX(ctx, rt_pad)
+                        reaper.ImGui_PushFont(ctx, bold_font, 16)
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xCCCCCCFF)
+                        reaper.ImGui_Text(ctx, "ЗМІНИТИ ЗАВДАННЯ")
+                        reaper.ImGui_PopStyleColor(ctx, 1)
+                        reaper.ImGui_PopFont(ctx)
+
+                        reaper.ImGui_Dummy(ctx, 0, 6)
+                        reaper.ImGui_SetCursorPosX(ctx, rt_pad)
+                        reaper.ImGui_SetNextItemWidth(ctx, rt_win_w - rt_pad * 2)
+                        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 8, 9)
+                        reaper.ImGui_PushFont(ctx, tab_font, 15)
+
+                        if reaper.ImGui_IsWindowAppearing(ctx) then
+                            reaper.ImGui_SetKeyboardFocusHere(ctx)
+                        end
+
+                        local _, new_name = reaper.ImGui_InputText(ctx, "##rename_task_input", rename_task_buf)
+                        if reaper.ImGui_IsItemActive(ctx) then
+                            rename_task_buf = new_name
+                        end
+
+                        local enter_confirm = reaper.ImGui_IsItemFocused(ctx)
+                            and reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Enter())
+
+                        reaper.ImGui_PopFont(ctx)
+                        reaper.ImGui_PopStyleVar(ctx)
+
+                        reaper.ImGui_Dummy(ctx, 0, 6)
+
+                        local total_btns_w = rt_btn_w * 2 + rt_btn_gap
+                        reaper.ImGui_SetCursorPosX(ctx, (rt_win_w - total_btns_w) * 0.5)
+
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x1E3D1EFF)
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x2E6B2EFF)
+                        reaper.ImGui_PushFont(ctx, bold_font, 14)
+                        local do_rename = reaper.ImGui_Button(ctx, "Зберегти##rename_task_ok", rt_btn_w, rt_btn_h)
+                            or enter_confirm
+                        reaper.ImGui_PopFont(ctx)
+                        reaper.ImGui_PopStyleColor(ctx, 2)
+
+                        if do_rename then
+                            local trimmed = rename_task_buf:match("^%s*(.-)%s*$")
+                            if trimmed and trimmed ~= "" and rename_task_index then
+                                local old_name = pomo.tasks[rename_task_index]
+                                pomo.tasks[rename_task_index] = trimmed
+                                if old_name then
+                                    for _, e in ipairs(pomo.session_log) do
+                                        if e.task_name == old_name then
+                                            e.task_name = trimmed
+                                        end
+                                    end
+                                end
+                                save_data()
+                            end
+                            rename_task_index = nil
+                            rename_task_buf   = ""
+                            reaper.ImGui_CloseCurrentPopup(ctx)
+                        end
+
+                        reaper.ImGui_SameLine(ctx, nil, rt_btn_gap)
+
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x1A1A1AFF)
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), GetGeneralColorHEX())
+                        reaper.ImGui_PushFont(ctx, bold_font, 14)
+                        if reaper.ImGui_Button(ctx, "Скасувати##rename_task_cancel", rt_btn_w, rt_btn_h) then
+                            rename_task_index = nil
+                            rename_task_buf   = ""
+                            reaper.ImGui_CloseCurrentPopup(ctx)
+                        end
+                        reaper.ImGui_PopFont(ctx)
+                        reaper.ImGui_PopStyleColor(ctx, 2)
+
+                        reaper.ImGui_EndPopup(ctx)
+                    elseif not reaper.ImGui_IsPopupOpen(ctx, "RenameTask") and rename_task_index ~= nil then
+                        rename_task_index = nil
+                        rename_task_buf   = ""
+                    end
+                end
+
+                reaper.ImGui_Dummy(ctx, 0, 10)
+                reaper.ImGui_SetCursorPosX(ctx, 16)
+                reaper.ImGui_Separator(ctx)
 
                 reaper.ImGui_PushFont(ctx, tab_font, 20)
                 local total_work_min = math.floor(pomo.total_work_sec / 60)
@@ -2880,54 +3225,480 @@ local function loop()
 
                 reaper.ImGui_Dummy(ctx, 0, 6)
 
+                -- ======= КРУГОВА ДІАГРАМА ЗАВДАНЬ =======
+                if #pomo.session_log > 0 and not reaper.ImGui_IsPopupOpen(ctx, "RenameTask") then
+                    local task_time  = {}
+                    local task_count = {}
+                    local task_order = {}
+                    for _, e in ipairs(pomo.session_log) do
+                        if e.mode == "work" then
+                            local key = (e.task_name and e.task_name ~= "") and e.task_name or "Без задачі"
+                            if not task_time[key] then
+                                task_time[key]  = 0
+                                task_count[key] = 0
+                                table.insert(task_order, key)
+                            end
+                            task_time[key]  = task_time[key] + (e.duration_sec or 0)
+                            task_count[key] = task_count[key] + 1
+                        end
+                    end
+
+                    local total_sec = 0
+                    for _, k in ipairs(task_order) do total_sec = total_sec + task_time[k] end
+
+                    if total_sec > 0 and #task_order > 0 then
+                        local sector_colors    = {
+                            0xE76F51FF, 0x6BCB77FF, 0x4D96FFFF, 0xFFD93DFF,
+                            0xC77DFFFF, 0xFF9A3CFF, 0x4ECDC4FF, 0xF72585FF,
+                            0x7B9E87FF, 0xE9C46AFF, 0x52B788FF, 0xFF6B6BFF,
+                            0xa024bfFF, 0x176bc2FF, 0x164371FF, 0x711616FF,
+                        }
+
+                        local chart_avail_w    = reaper.ImGui_GetContentRegionAvail(ctx)
+                        local pad_side         = 14
+                        local radius           = math.min((chart_avail_w - pad_side * 2) * 0.45, 130)
+                        local seg_count        = 160
+                        local cx_off           = chart_avail_w * 0.5
+                        local cy_extra         = radius + 20
+
+                        local leg_line_h       = 25
+                        local leg_pad          = 16
+                        local leg_total_h      = #task_order * (leg_line_h + 3) + 10
+                        local chart_h          = radius * 2 + 40 + leg_total_h
+
+                        local cur_x, cur_y     = reaper.ImGui_GetCursorScreenPos(ctx)
+                        local scr_cx           = cur_x + cx_off
+                        local scr_cy           = cur_y + cy_extra
+                        local dl               = reaper.ImGui_GetWindowDrawList(ctx)
+                        local mouse_x, mouse_y = reaper.ImGui_GetMousePos(ctx)
+                        local mouse_clicked    = reaper.ImGui_IsMouseClicked(ctx, 0)
+
+                        local visible_sec      = 0
+                        for _, key in ipairs(task_order) do
+                            if not pomo.hidden_sectors[key] then
+                                visible_sec = visible_sec + task_time[key]
+                            end
+                        end
+                        if visible_sec == 0 then visible_sec = 1 end
+
+                        local sectors = {}
+                        local angle   = -math.pi * 0.5
+                        for si, key in ipairs(task_order) do
+                            if not pomo.hidden_sectors[key] then
+                                local frac  = task_time[key] / visible_sec
+                                local sweep = frac * math.pi * 2
+                                table.insert(sectors, {
+                                    key           = key,
+                                    frac          = frac,
+                                    frac_of_total = task_time[key] / total_sec,
+                                    sweep         = sweep,
+                                    a_start       = angle,
+                                    a_end         = angle + sweep,
+                                    color         = sector_colors[((si - 1) % #sector_colors) + 1],
+                                    dur_sec       = task_time[key],
+                                    count         = task_count[key],
+                                    orig_idx      = si,
+                                })
+                                angle = angle + sweep
+                            end
+                        end
+
+                        local TWO_PI = math.pi * 2
+                        local function norm_angle(a)
+                            return ((a % TWO_PI) + TWO_PI) % TWO_PI
+                        end
+
+                        local hovered_sector = nil
+                        local dx0            = mouse_x - scr_cx
+                        local dy0            = mouse_y - scr_cy
+                        local dist0          = math.sqrt(dx0 * dx0 + dy0 * dy0)
+                        if dist0 >= radius * 0.36 and dist0 <= radius + 10 then
+                            local m = norm_angle(math.atan(dy0, dx0))
+                            for si, s in ipairs(sectors) do
+                                local a_s = norm_angle(s.a_start)
+                                local a_e = norm_angle(s.a_end)
+                                local inside
+                                if a_s <= a_e then
+                                    inside = (m >= a_s and m <= a_e)
+                                else
+                                    inside = (m >= a_s or m <= a_e)
+                                end
+                                if inside then
+                                    hovered_sector = si; break
+                                end
+                            end
+                        end
+
+                        local leg_top_scr_y = cur_y + radius * 2 + 40
+                        local hovered_leg   = nil
+                        for oi, key in ipairs(task_order) do
+                            local row_y = leg_top_scr_y + (oi - 1) * (leg_line_h + 3)
+                            if mouse_x >= cur_x + leg_pad - 4
+                                and mouse_x <= cur_x + chart_avail_w - leg_pad
+                                and mouse_y >= row_y
+                                and mouse_y <= row_y + leg_line_h then
+                                hovered_leg = oi
+                                if not pomo.hidden_sectors[key] then
+                                    for si, s in ipairs(sectors) do
+                                        if s.key == key then
+                                            if hovered_sector == nil then
+                                                hovered_sector = si
+                                            end
+                                            break
+                                        end
+                                    end
+                                end
+                                if mouse_clicked then
+                                    if pomo.hidden_sectors[key] then
+                                        pomo.hidden_sectors[key] = nil
+                                    else
+                                        pomo.hidden_sectors[key] = true
+                                    end
+                                end
+                                break
+                            end
+                        end
+
+                        reaper.ImGui_DrawList_AddCircleFilled(dl, scr_cx + 10, scr_cy + 10, radius, 0x151515FF, seg_count)
+
+                        for si, s in ipairs(sectors) do
+                            local is_hov = (hovered_sector == si)
+                            local r_draw = is_hov and (radius + 8) or radius
+                            local col    = is_hov and ((s.color & 0xFFFFFF00) | 0xFF) or s.color
+                            local steps  = math.max(4, math.floor(s.sweep * seg_count / (math.pi * 2)))
+                            for i = 0, steps - 1 do
+                                local a1 = s.a_start + s.sweep * (i / steps)
+                                local a2 = s.a_start + s.sweep * ((i + 1) / steps)
+                                reaper.ImGui_DrawList_AddTriangleFilled(dl,
+                                    scr_cx, scr_cy,
+                                    scr_cx + math.cos(a1) * r_draw, scr_cy + math.sin(a1) * r_draw,
+                                    scr_cx + math.cos(a2) * r_draw, scr_cy + math.sin(a2) * r_draw,
+                                    col)
+                            end
+                            reaper.ImGui_DrawList_AddLine(dl,
+                                scr_cx, scr_cy,
+                                scr_cx + math.cos(s.a_start) * r_draw,
+                                scr_cy + math.sin(s.a_start) * r_draw,
+                                0x1A1A1AFF, 1.5)
+                        end
+
+                        for si, s in ipairs(sectors) do
+                            if s.frac >= 0.06 then
+                                local mid_a   = s.a_start + s.sweep * 0.5
+                                local lbl_r   = radius * 0.65
+                                local lx      = scr_cx + math.cos(mid_a) * lbl_r
+                                local ly      = scr_cy + math.sin(mid_a) * lbl_r
+                                local pct_str = string.format("%d%%", math.floor(s.frac * 100 + 0.5))
+                                reaper.ImGui_PushFont(ctx, bold_font, 13)
+                                local tw2 = reaper.ImGui_CalcTextSize(ctx, pct_str)
+                                reaper.ImGui_DrawList_AddText(dl, lx - tw2 * 0.5 + 1, ly - 7 + 1, 0x000000AA, pct_str)
+                                reaper.ImGui_DrawList_AddText(dl, lx - tw2 * 0.5, ly - 7, 0xFFFFFFEE, pct_str)
+                                reaper.ImGui_PopFont(ctx)
+                            end
+                        end
+
+                        if #sectors == 0 then
+                            reaper.ImGui_DrawList_AddCircleFilled(dl, scr_cx, scr_cy, radius, 0x222222FF, seg_count)
+                            reaper.ImGui_PushFont(ctx, tab_font, 12)
+                            local hint_c = "Всі приховані"
+                            local hw = reaper.ImGui_CalcTextSize(ctx, hint_c)
+                            reaper.ImGui_DrawList_AddText(dl, scr_cx - hw * 0.5, scr_cy - 7, 0x555555FF, hint_c)
+                            reaper.ImGui_PopFont(ctx)
+                        end
+
+                        local hole_r = radius * 0.4
+                        reaper.ImGui_DrawList_AddCircleFilled(dl, scr_cx, scr_cy, hole_r, 0x1A1A1AFF, seg_count)
+                        reaper.ImGui_DrawList_AddCircle(dl, scr_cx, scr_cy, hole_r, 0x333333FF, seg_count, 1.5)
+
+                        local total_min_c = math.floor(total_sec / 60)
+                        local total_ses_c = 0
+                        for _, s in ipairs(sectors) do total_ses_c = total_ses_c + s.count end
+                        reaper.ImGui_PushFont(ctx, bold_font, 13)
+                        local c1  = tostring(total_min_c) .. " хв"
+                        local c1w = reaper.ImGui_CalcTextSize(ctx, c1)
+                        reaper.ImGui_DrawList_AddText(dl, scr_cx - c1w * 0.5, scr_cy - 17, 0xCCCCCCFF, c1)
+                        reaper.ImGui_PopFont(ctx)
+                        reaper.ImGui_PushFont(ctx, tab_font, 11)
+                        local c2  = "робочий час"
+                        local c2w = reaper.ImGui_CalcTextSize(ctx, c2)
+                        reaper.ImGui_DrawList_AddText(dl, scr_cx - c2w * 0.5, scr_cy - 3, 0x666666FF, c2)
+                        local c3  = total_ses_c .. " сесій"
+                        local c3w = reaper.ImGui_CalcTextSize(ctx, c3)
+                        reaper.ImGui_DrawList_AddText(dl, scr_cx - c3w * 0.5, scr_cy + 10, 0x555555FF, c3)
+                        reaper.ImGui_PopFont(ctx)
+
+                        reaper.ImGui_Dummy(ctx, chart_avail_w, radius * 2 + 0)
+
+                        for oi, key in ipairs(task_order) do
+                            local si_color  = ((oi - 1) % #sector_colors) + 1
+                            local row_color = sector_colors[si_color]
+                            local is_hidden = pomo.hidden_sectors[key] == true
+                            local is_hov_l  = (hovered_leg == oi)
+
+                            local row_scr_y = leg_top_scr_y + (oi - 1) * (leg_line_h + 3)
+                            local dur_m     = math.floor(task_time[key] / 60)
+                            local pct_l     = string.format("%.1f%%", task_time[key] / total_sec * 100)
+
+                            if is_hov_l then
+                                reaper.ImGui_DrawList_AddRectFilled(dl,
+                                    cur_x + leg_pad - 4, row_scr_y,
+                                    cur_x + chart_avail_w - leg_pad, row_scr_y + leg_line_h,
+                                    0x33333355, 4)
+                            end
+
+                            local sq_col = is_hidden and 0x444444FF or row_color
+                            reaper.ImGui_DrawList_AddRectFilled(dl,
+                                cur_x + leg_pad, row_scr_y + 5,
+                                cur_x + leg_pad + 13, row_scr_y + 18,
+                                sq_col, 3)
+                            if is_hidden then
+                                reaper.ImGui_DrawList_AddLine(dl,
+                                    cur_x + leg_pad, row_scr_y + 5,
+                                    cur_x + leg_pad + 13, row_scr_y + 18, 0x666666FF, 1)
+                                reaper.ImGui_DrawList_AddLine(dl,
+                                    cur_x + leg_pad + 13, row_scr_y + 5,
+                                    cur_x + leg_pad, row_scr_y + 18, 0x666666FF, 1)
+                            end
+
+                            local dur_s_rem = task_time[key] % 60
+                            local leg_str = string.format(" %s - %s ·  %d сес.  ·  %d хв",
+                                key, pct_l, task_count[key], dur_m, dur_s_rem)
+                            reaper.ImGui_PushFont(ctx, tab_font, 13)
+                            local max_w = chart_avail_w - leg_pad * 2 - 18
+                            while #leg_str > 6 and reaper.ImGui_CalcTextSize(ctx, leg_str) > max_w do
+                                leg_str = leg_str:sub(1, -2)
+                            end
+                            reaper.ImGui_PopFont(ctx)
+
+                            local txt_col
+                            if is_hidden then
+                                txt_col = 0x444444FF
+                            elseif is_hov_l then
+                                txt_col = 0xFFFFFFFF
+                            else
+                                txt_col = 0x888888FF
+                            end
+                            reaper.ImGui_PushFont(ctx, tab_font, 12)
+                            reaper.ImGui_DrawList_AddText(dl,
+                                cur_x + leg_pad + 16, row_scr_y + 3, txt_col, leg_str)
+                            reaper.ImGui_PopFont(ctx)
+
+                            if is_hov_l then
+                                local hint_s = is_hidden and "Показати" or "Приховати"
+                                reaper.ImGui_PushFont(ctx, tab_font, 11)
+                                local hint_w = reaper.ImGui_CalcTextSize(ctx, hint_s)
+                                reaper.ImGui_DrawList_AddText(dl,
+                                    cur_x + chart_avail_w - leg_pad - hint_w - 4,
+                                    row_scr_y + 5,
+                                    0x555555FF, hint_s)
+                                reaper.ImGui_PopFont(ctx)
+                            end
+
+                            reaper.ImGui_InvisibleButton(ctx, "##leg" .. oi,
+                                chart_avail_w - leg_pad * 2, leg_line_h)
+                            reaper.ImGui_Dummy(ctx, 0, 3)
+                        end
+
+                        if hovered_sector and sectors[hovered_sector] then
+                            local s      = sectors[hovered_sector]
+                            local dur_m2 = math.floor(s.dur_sec / 60)
+                            local dur_s2 = s.dur_sec % 60
+                            local pct2   = string.format("%.1f%%", s.frac_of_total * 100)
+                            reaper.ImGui_BeginTooltip(ctx)
+                            reaper.ImGui_PushFont(ctx, bold_font, 14)
+                            reaper.ImGui_TextColored(ctx, s.color,
+                                string.format("%s  (%s)", s.key, pct2))
+                            reaper.ImGui_PopFont(ctx)
+                            reaper.ImGui_Separator(ctx)
+                            reaper.ImGui_PushFont(ctx, tab_font, 12)
+                            reaper.ImGui_TextColored(ctx, 0xAAAAAAFF,
+                                string.format("Час:          %d хв", dur_m2, dur_s2))
+                            reaper.ImGui_TextColored(ctx, 0xAAAAAAFF,
+                                string.format("Сесій:       %d", s.count))
+                            reaper.ImGui_TextColored(ctx, 0xAAAAAAFF,
+                                string.format("Частка:    %s від робочого часу", pct2))
+                            reaper.ImGui_PopFont(ctx)
+                            reaper.ImGui_EndTooltip(ctx)
+                        end
+
+                        reaper.ImGui_Dummy(ctx, 0, 8)
+                    end
+                end
+
                 if #pomo.session_log > 0 then
                     reaper.ImGui_Dummy(ctx, 0, 8)
                     reaper.ImGui_PushFont(ctx, tab_font, 14)
 
                     local btn_label = (pomo.show_log and "▼" or "▷") .. " Журнал сесії (" .. #pomo.session_log .. ")"
-                    local text_w, text_h = reaper.ImGui_CalcTextSize(ctx, btn_label)
+                    local text_w = reaper.ImGui_CalcTextSize(ctx, btn_label)
                     local win_w = reaper.ImGui_GetWindowWidth(ctx)
-                    local center_pos = (win_w - text_w) * 0.5
-
-                    reaper.ImGui_SetCursorPosX(ctx, center_pos)
+                    reaper.ImGui_SetCursorPosX(ctx, (win_w - text_w) * 0.5)
 
                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x17171700)
                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x171717FF)
                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x33333333)
                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x666666FF)
-
-
                     if reaper.ImGui_Button(ctx, btn_label) then
                         pomo.show_log = not pomo.show_log
                     end
-
                     reaper.ImGui_PopStyleColor(ctx, 4)
                     reaper.ImGui_PopFont(ctx)
+
                     if pomo.show_log then
                         reaper.ImGui_Dummy(ctx, 0, 4)
-                        local log_h = math.max(40, math.min(120, #pomo.session_log * 40 + 10))
 
+                        local log_avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
+                        local filter_pad  = 20
+                        local clear_btn_w = pomo.log_filter ~= "" and 24 or 1
+                        local input_w_log = log_avail_w - filter_pad * 2 - clear_btn_w - (clear_btn_w > 0 and 6 or 0)
+                        reaper.ImGui_SetCursorPosX(ctx, filter_pad)
+                        reaper.ImGui_SetNextItemWidth(ctx, input_w_log)
+                        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 5, 6)
+                        reaper.ImGui_PushFont(ctx, italic_font, 14)
+                        local _, new_filter = reaper.ImGui_InputTextWithHint(
+                            ctx, "##log_filter", "Пошук завдань...", pomo.log_filter
+                        )
+                        if reaper.ImGui_IsItemActive(ctx) then
+                            pomo.log_filter = new_filter
+                        end
+                        reaper.ImGui_PopFont(ctx)
+                        reaper.ImGui_PopStyleVar(ctx)
+
+                        if pomo.log_filter ~= "" then
+                            reaper.ImGui_SameLine(ctx, nil, 6)
+                            reaper.ImGui_PushFont(ctx, tab_font, 14)
+                            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 8, 6)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x1A1A1AFF)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x7A1A1AFF)
+                            if reaper.ImGui_Button(ctx, "✕##clear_log_filter") then
+                                pomo.log_filter = ""
+                            end
+                            reaper.ImGui_PopStyleColor(ctx, 2)
+                            reaper.ImGui_PopFont(ctx)
+                            reaper.ImGui_PopStyleVar(ctx)
+                        end
+
+                        reaper.ImGui_Dummy(ctx, 0, 4)
+
+                        local filter_lc    = utf8_to_lower(pomo.log_filter)
+                        local filtered_log = {}
+                        for li = #pomo.session_log, 1, -1 do
+                            local e = pomo.session_log[li]
+                            if filter_lc == "" then
+                                table.insert(filtered_log, e)
+                            else
+                                local mode_lbl = e.mode == "work" and "pomodoro"
+                                    or e.mode == "short_break" and "коротка перерва"
+                                    or "довга перерва"
+                                local haystack = utf8_to_lower(mode_lbl
+                                    .. " " .. (e.task_name or "")
+                                    .. " " .. e.completed_at)
+                                if haystack:find(filter_lc, 1, true) then
+                                    table.insert(filtered_log, e)
+                                end
+                            end
+                        end
+
+                        local log_h = math.max(60, math.min(220, #filtered_log * 52 + 10))
                         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ChildBg(), 0x171717FF)
                         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_ChildRounding(), 8.0)
-                        if reaper.ImGui_BeginChild(ctx, "##pomo_log", avail_w - 15, log_h, 1) then
-                            for li = #pomo.session_log, 1, -1 do
-                                local entry = pomo.session_log[li]
-                                local dur_min = math.floor(entry.duration_sec / 60)
-                                local lline = string.format("  %s — %d хв о %s",
-                                    entry.mode == "work" and "Pomodoro"
-                                    or entry.mode == "short_break" and "Коротка перерва"
-                                    or "Довга перерва",
-                                    dur_min, entry.completed_at)
-
-                                reaper.ImGui_PushFont(ctx, tab_font, 16)
-                                reaper.ImGui_TextColored(ctx, 0x888888FF, lline)
+                        if reaper.ImGui_BeginChild(ctx, "##pomo_log", log_avail_w - 15, log_h, 1) then
+                            if #filtered_log == 0 then
+                                reaper.ImGui_Dummy(ctx, 0, 8)
+                                reaper.ImGui_PushFont(ctx, tab_font, 13)
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x444444FF)
+                                local no_msg = "Нічого не знайдено"
+                                reaper.ImGui_SetCursorPosX(ctx,
+                                    (log_avail_w - reaper.ImGui_CalcTextSize(ctx, no_msg)) * 0.5)
+                                reaper.ImGui_Text(ctx, no_msg)
+                                reaper.ImGui_PopStyleColor(ctx, 1)
                                 reaper.ImGui_PopFont(ctx)
+                            else
+                                for _, entry in ipairs(filtered_log) do
+                                    local dur_min = math.floor(entry.duration_sec / 60)
+                                    local mode_lbl_log = entry.mode == "work" and "Pomodoro"
+                                        or entry.mode == "short_break" and "Коротка перерва"
+                                        or "Довга перерва"
+
+                                    local lline1
+                                    if entry.task_name and entry.task_name ~= "" then
+                                        lline1 = string.format("  %s [%s] — %d хв",
+                                            mode_lbl_log, entry.task_name, dur_min)
+                                    else
+                                        lline1 = string.format("  %s — %d хв", mode_lbl_log, dur_min)
+                                    end
+                                    local lline2 = "  " .. entry.completed_at
+
+                                    reaper.ImGui_PushFont(ctx, tab_font, 15)
+                                    reaper.ImGui_TextColored(ctx, 0xAAAAAAFF, lline1)
+                                    reaper.ImGui_PopFont(ctx)
+
+                                    reaper.ImGui_PushFont(ctx, tab_font, 12)
+                                    reaper.ImGui_TextColored(ctx, 0x555555FF, lline2)
+                                    reaper.ImGui_PopFont(ctx)
+
+                                    reaper.ImGui_Dummy(ctx, 0, 2)
+                                end
                             end
                             reaper.ImGui_EndChild(ctx)
                         end
                         reaper.ImGui_PopStyleColor(ctx, 1)
                         reaper.ImGui_PopStyleVar(ctx)
-                        reaper.ImGui_Dummy(ctx, 0, 20)
+
+                        reaper.ImGui_Dummy(ctx, 0, 8)
+                        reaper.ImGui_SetCursorPosX(ctx, filter_pad)
+                        reaper.ImGui_PushFont(ctx, tab_font, 14)
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x171717FF)
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), GetGeneralColorHEX())
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x171717FF)
+                        local save_lbl = (pomo.log_filter ~= "")
+                            and "Зберегти відфільтрований журнал"
+                            or "Зберегти журнал"
+                        if reaper.ImGui_Button(ctx, save_lbl .. "##save_log", log_avail_w - filter_pad * 2 - 15, 40) then
+                            if reaper.JS_Dialog_BrowseForSaveFile then
+                                local def_path = reaper.GetProjectPath("") .. "/pomodoro_log.txt"
+                                local ok, filepath = reaper.JS_Dialog_BrowseForSaveFile(
+                                    "Зберегти журнал сесій", def_path, "pomodoro_log.txt",
+                                    "Text files (*.txt)\0*.txt\0All files (*.*)\0*.*\0"
+                                )
+                                if ok == 1 and filepath ~= "" then
+                                    if not filepath:match("%.txt$") then
+                                        filepath = filepath .. ".txt"
+                                    end
+                                    local lines = {}
+                                    if pomo.log_filter ~= "" then
+                                        table.insert(lines, "Фільтр: " .. pomo.log_filter)
+                                        table.insert(lines, string.rep("-", 40))
+                                    end
+                                    table.insert(lines, "Журнал Pomodoro")
+                                    table.insert(lines, string.rep("=", 40))
+                                    for _, entry in ipairs(filtered_log) do
+                                        local dur_min = math.floor(entry.duration_sec / 60)
+                                        local mode_lbl_log = entry.mode == "work" and "Pomodoro"
+                                            or entry.mode == "short_break" and "Коротка перерва"
+                                            or "Довга перерва"
+                                        local l1
+                                        if entry.task_name and entry.task_name ~= "" then
+                                            l1 = string.format("%s [%s] — %d хв", mode_lbl_log, entry.task_name, dur_min)
+                                        else
+                                            l1 = string.format("%s — %d хв", mode_lbl_log, dur_min)
+                                        end
+                                        table.insert(lines, l1)
+                                        table.insert(lines, entry.completed_at)
+                                        table.insert(lines, "")
+                                    end
+                                    local f = io.open(filepath, "w")
+                                    if f then
+                                        f:write(table.concat(lines, "\n"))
+                                        f:close()
+                                    end
+                                end
+                            end
+                        end
+                        reaper.ImGui_PopStyleColor(ctx, 3)
+                        reaper.ImGui_PopFont(ctx)
+
+                        reaper.ImGui_Dummy(ctx, 0, 14)
                     end
                 end
                 -- ======= КНОПКА НАЛАШТУВАНЬ =======
