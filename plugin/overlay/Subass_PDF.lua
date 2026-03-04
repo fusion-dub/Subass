@@ -344,30 +344,42 @@ local function perform_search()
     STATE.search_results = {}
     STATE.search_index = 0
     if not STATE.search_text or STATE.search_text == "" then return end
-    
-    local query = STATE.search_text:lower()
+
+    local upper_to_lower = {
+        ["А"]="а",["Б"]="б",["В"]="в",["Г"]="г",["Ґ"]="ґ",["Д"]="д",["Е"]="е",["Є"]="є",
+        ["Ж"]="ж",["З"]="з",["И"]="и",["І"]="і",["Ї"]="ї",["Й"]="й",["К"]="к",
+        ["Л"]="л",["М"]="м",["Н"]="н",["О"]="о",["П"]="п",["Р"]="р",["С"]="с",
+        ["Т"]="т",["У"]="у",["Ф"]="ф",["Х"]="х",["Ц"]="ц",["Ч"]="ч",["Ш"]="ш",
+        ["Щ"]="щ",["Ь"]="ь",["Ю"]="ю",["Я"]="я", 
+    }
+    local function lower_unicode(s)
+        s = s:lower()
+        return (s:gsub("([%z\1-\127\194-\244][\128-\191]*)", function(c)
+            return upper_to_lower[c] or c
+        end))
+    end
+
+    local query = lower_unicode(STATE.search_text)
     for p_idx, page in ipairs(STATE.metadata.pages) do
         local items = page.items or {}
         local full_text = ""
         local item_starts = {}
         local item_ends = {}
-        
-        -- Build per-page full text and track item positions
+
         for i_idx, item in ipairs(items) do
             local start_pos = #full_text + 1
             full_text = full_text .. (item.text or "") .. " "
             item_starts[i_idx] = start_pos
             item_ends[i_idx] = #full_text - 1
         end
-        
-        full_text = full_text:lower()
-        
+
+        full_text = lower_unicode(full_text)
+
         local search_pos = 1
         while true do
             local s, e = full_text:find(query, search_pos, true)
             if not s then break end
-            
-            -- Find which items overlap with [s, e]
+
             local start_item, end_item
             for i_idx = 1, #items do
                 if not start_item and s <= item_ends[i_idx] then
@@ -377,19 +389,19 @@ local function perform_search()
                     end_item = i_idx
                 end
             end
-            
+
             if start_item and end_item then
                 table.insert(STATE.search_results, {
-                    page = p_idx, 
-                    start_item = start_item, 
+                    page = p_idx,
+                    start_item = start_item,
                     end_item = end_item,
-                    item = start_item -- Fallback/Backward compatibility for scroll logic
+                    item = start_item
                 })
             end
             search_pos = e + 1
         end
     end
-    
+
     if #STATE.search_results > 0 then
         STATE.search_index = 1
         STATE.scroll_to_search = true
