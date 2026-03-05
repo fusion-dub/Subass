@@ -1548,7 +1548,10 @@ local function loop()
                         -- Search Filter
                         reaper.ImGui_SetNextItemWidth(ctx, -5)
                         local filter_changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, "##dict_filter_input", "Пошук у словнику...", dict_filter)
-                        if filter_changed then dict_filter = new_filter end
+                        if filter_changed then 
+                            dict_filter = new_filter 
+                            entry_selection = {} -- Clear selection on filter change
+                        end
                         
                         reaper.ImGui_Dummy(ctx, 0, 5)
                         
