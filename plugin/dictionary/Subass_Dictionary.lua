@@ -2,7 +2,7 @@
 -- @version 1.7
 -- @author Fusion (Fusion Dub)
 -- @about Dictionary of slang, idioms and terminology for dubbing.
- 
+
 local ctx = reaper.ImGui_CreateContext('Subass Dictionary')
 local font_main = reaper.ImGui_CreateFont('sans-serif', 15)
 local font_tabs = reaper.ImGui_CreateFont('sans-serif', 17)
