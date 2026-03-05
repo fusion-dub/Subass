@@ -2,7 +2,7 @@
 -- @version 1.7
 -- @author Fusion (Fusion Dub)
 -- @about Dictionary of slang, idioms and terminology for dubbing.
-
+ 
 local ctx = reaper.ImGui_CreateContext('Subass Dictionary')
 local font_main = reaper.ImGui_CreateFont('sans-serif', 15)
 local font_tabs = reaper.ImGui_CreateFont('sans-serif', 17)
@@ -59,6 +59,44 @@ local function json_decode(s)
     
     local parse_val -- forward declaration
     
+    local function parse_string()
+        local result = {}
+        pos = pos + 1 -- skip "
+        while pos <= #s do
+            local char = s:sub(pos, pos)
+            if char == '"' then
+                pos = pos + 1
+                return table.concat(result)
+            elseif char == "\\" then
+                local next_char = s:sub(pos + 1, pos + 1)
+                if next_char == '"' then table.insert(result, '"')
+                elseif next_char == "\\" then table.insert(result, "\\")
+                elseif next_char == "/" then table.insert(result, "/")
+                elseif next_char == "b" then table.insert(result, "\b")
+                elseif next_char == "f" then table.insert(result, "\f")
+                elseif next_char == "n" then table.insert(result, "\n")
+                elseif next_char == "r" then table.insert(result, "\r")
+                elseif next_char == "t" then table.insert(result, "\t")
+                elseif next_char == "u" then
+                    local hex = s:sub(pos + 2, pos + 5)
+                    local cp = tonumber(hex, 16)
+                    if cp then
+                        -- Simple conversion for basic plane
+                        if cp < 128 then table.insert(result, string.char(cp))
+                        elseif cp < 2048 then table.insert(result, string.char(192 + (cp >> 6), 128 + (cp & 63)))
+                        else table.insert(result, string.char(224 + (cp >> 12), 128 + ((cp >> 6) & 63), 128 + (cp & 63))) end
+                    end
+                    pos = pos + 4
+                end
+                pos = pos + 2
+            else
+                table.insert(result, char)
+                pos = pos + 1
+            end
+        end
+        return table.concat(result)
+    end
+    
     local parse_object = function()
         local obj = {}
         pos = pos + 1 -- skip {
@@ -66,10 +104,10 @@ local function json_decode(s)
             skip_ws()
             if s:sub(pos, pos) == "}" then pos = pos + 1 return obj end
             
-            local key = s:match('^%s*"(.-)"%s*:', pos)
-            if not key then break end
-            
-            pos = s:find(":", pos) + 1
+            local key = parse_string()
+            skip_ws()
+            if s:sub(pos, pos) ~= ":" then break end
+            pos = pos + 1
             obj[key] = parse_val()
             
             skip_ws()
@@ -117,11 +155,7 @@ local function json_decode(s)
         elseif char == "[" then
             return parse_array()
         elseif char == '"' then
-            local val = s:match('^"(.-)"', pos)
-            if val then 
-                pos = pos + #val + 2
-                return val
-            end
+            return parse_string()
         elseif s:match('^true', pos) then 
             pos = pos + 4
             return true
@@ -143,7 +177,8 @@ local function json_decode(s)
     end
     
     local ok, res = pcall(parse_val)
-    return (ok and res) and res or { entries = {} }
+    if ok and type(res) == "table" then return res end
+    return {}
 end
 
 local glossary_data = { entries = {} }
@@ -229,7 +264,12 @@ local function utf8_lower(s)
                 elseif codepoint == 1168 then codepoint = 1169 -- Ghe
                 end
                 
-                table.insert(res, utf8.char(codepoint))
+                if utf8 and utf8.char then
+                    table.insert(res, utf8.char(codepoint))
+                else
+                    -- Fallback to string.char if only ASCII, or just skip if missing utf8 library for high codes
+                    if codepoint < 128 then table.insert(res, string.char(codepoint)) end
+                end
                 i = i + seq_len
             else
                 table.insert(res, string.char(b))
@@ -301,6 +341,16 @@ local new_dict_name = ""
 local rename_dict_idx = nil
 local rename_dict_name = ""
 
+local function check_dict_name_exists(name, exclude_idx)
+    if not name or name == "" then return false end
+    for i, d in ipairs(user_dicts_data.dictionaries) do
+        if i ~= exclude_idx and d.name == name then
+            return true
+        end
+    end
+    return false
+end
+
 local function import_dict_csv()
     local retval, filename = reaper.GetUserFileNameForRead(data_path, "Виберіть .csv файл", ".csv")
     if not retval or filename == "" then return end
@@ -309,19 +359,12 @@ local function import_dict_csv()
     if not f then return end
     
     local base_name = filename:match("([^/\\]+)%.[a-zA-Z0-9]+$") or "Імпортований словник"
+    base_name = base_name:match("^%s*(.-)%s*$") -- Trim whitespace
     local name = base_name
     local counter = 1
-    local exists = true
-    while exists do
-        exists = false
-        for _, d in ipairs(user_dicts_data.dictionaries) do
-            if d.name == name then
-                name = base_name .. " (" .. counter .. ")"
-                counter = counter + 1
-                exists = true
-                break
-            end
-        end
+    while check_dict_name_exists(name) do
+        name = base_name .. " (" .. counter .. ")"
+        counter = counter + 1
     end
     local counter_id = 1
     local new_dict = { id = "dict_" .. os.time(), name = name, entries = {} }
@@ -1379,16 +1422,21 @@ local function loop()
                         reaper.ImGui_Text(ctx, "Назва нового словника:")
                         _, new_dict_name = reaper.ImGui_InputText(ctx, "##new_dict_name", new_dict_name)
                         if reaper.ImGui_Button(ctx, "Створити", 130) then
-                            if new_dict_name ~= "" then
-                                table.insert(user_dicts_data.dictionaries, 1, {
-                                    id = "dict_" .. os.time(),
-                                    name = new_dict_name,
-                                    entries = {}
-                                })
-                                save_user_dicts()
-                                update_last_selected_dict(1)
-                                new_dict_name = ""
-                                reaper.ImGui_CloseCurrentPopup(ctx)
+                            local trimmed_name = (new_dict_name or ""):match("^%s*(.-)%s*$")
+                            if trimmed_name and trimmed_name ~= "" then
+                                if check_dict_name_exists(trimmed_name) then
+                                    reaper.MB("Словник з такою назвою вже існує!", "Помилка", 0)
+                                else
+                                    table.insert(user_dicts_data.dictionaries, 1, {
+                                        id = "dict_" .. os.time(),
+                                        name = trimmed_name,
+                                        entries = {}
+                                    })
+                                    save_user_dicts()
+                                    update_last_selected_dict(1)
+                                    new_dict_name = ""
+                                    reaper.ImGui_CloseCurrentPopup(ctx)
+                                end
                             end
                         end
                         reaper.ImGui_EndPopup(ctx)
@@ -1402,13 +1450,18 @@ local function loop()
                         reaper.ImGui_Text(ctx, "Перейменувати словник:")
                         _, rename_dict_name = reaper.ImGui_InputText(ctx, "##rename_dict_name", rename_dict_name)
                         if reaper.ImGui_Button(ctx, "Зберегти", 100) then
-                            if rename_dict_name ~= "" and user_dicts_data.dictionaries[rename_dict_idx] then
-                                user_dicts_data.dictionaries[rename_dict_idx].name = rename_dict_name
-                                save_user_dicts()
-                                move_dict_to_top(rename_dict_idx)
-                                rename_dict_idx = nil
-                                rename_dict_name = ""
-                                reaper.ImGui_CloseCurrentPopup(ctx)
+                            local trimmed_name = (rename_dict_name or ""):match("^%s*(.-)%s*$")
+                            if rename_dict_idx and trimmed_name and trimmed_name ~= "" and user_dicts_data.dictionaries[rename_dict_idx] then
+                                if check_dict_name_exists(trimmed_name, rename_dict_idx) then
+                                    reaper.MB("Словник з такою назвою вже існує!", "Помилка", 0)
+                                else
+                                    user_dicts_data.dictionaries[rename_dict_idx].name = trimmed_name
+                                    save_user_dicts()
+                                    move_dict_to_top(rename_dict_idx)
+                                    rename_dict_idx = nil
+                                    rename_dict_name = ""
+                                    reaper.ImGui_CloseCurrentPopup(ctx)
+                                end
                             end
                         end
                         reaper.ImGui_SameLine(ctx)
@@ -1435,8 +1488,8 @@ local function loop()
                         
                         if name_w > list_w then
                             local truncated = ""
-                            local ok, f, s, idx = pcall(utf8.codes, display_name)
-                            if ok then
+                            local ok, f, s, idx = pcall(function() return utf8.codes(display_name) end)
+                            if ok and f then
                                 for _, code in f, s, idx do
                                     local char = utf8.char(code)
                                     if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > list_w then
@@ -1514,8 +1567,8 @@ local function loop()
                         
                         if header_dict_w > header_avail_w and header_avail_w > 0 then
                             local truncated = ""
-                            local ok, f, s, idx = pcall(utf8.codes, header_dict_name)
-                            if ok then
+                            local ok, f, s, idx = pcall(function() return utf8.codes(header_dict_name) end)
+                            if ok and f then
                                 for _, code in f, s, idx do
                                     local char = utf8.char(code)
                                     if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > header_avail_w then
