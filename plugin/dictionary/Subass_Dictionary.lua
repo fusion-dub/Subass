@@ -1979,10 +1979,19 @@ local function loop()
                             end
 
                             if to_remove then
-                                if reaper.MB("Видалити цей запис?", "Підтвердження", 1) == 1 then
-                                    local ent_to_del = active_dict.entries[to_remove]
-                                    if ent_to_del and ent_to_del.uid then
-                                        entry_selection[ent_to_del.uid] = nil
+                                local entry = active_dict.entries[to_remove]
+                                local is_empty = true
+                                if entry then
+                                    if (entry.word and entry.word:gsub("%s+", "") ~= "") or
+                                       (entry.replacement and entry.replacement:gsub("%s+", "") ~= "") or
+                                       (entry.comment and entry.comment:gsub("%s+", "") ~= "") then
+                                        is_empty = false
+                                    end
+                                end
+
+                                if is_empty or reaper.MB("Видалити цей запис?", "Підтвердження", 1) == 1 then
+                                    if entry and entry.uid then
+                                        entry_selection[entry.uid] = nil
                                     end
                                     table.remove(active_dict.entries, to_remove)
                                     save_user_dicts()
