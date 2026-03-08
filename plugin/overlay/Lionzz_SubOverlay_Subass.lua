@@ -554,6 +554,180 @@ local function parse_to_tokens(text)
     return tokens
 end
 
+-- =============================================================================
+-- DICT: User Dictionary module (SubOverlay copy)
+-- =============================================================================
+local DICT = {
+    lookup = {},
+    last_proj_id = -1
+}
+
+local function json_decode(str)
+    if not str or str == "" then return nil end
+    local pos = 1
+    local function skip_whitespace() while pos <= #str and str:sub(pos, pos):match("%s") do pos = pos + 1 end end
+    local decode_value
+    local function decode_string()
+        pos = pos + 1
+        local res = ""
+        while pos <= #str do
+            local char = str:sub(pos, pos)
+            if char == '"' then pos = pos + 1 return res
+            elseif char == '\\' then
+                local next_char = str:sub(pos + 1, pos + 1)
+                if next_char == 'n' then res = res .. "\n" elseif next_char == 'r' then res = res .. "\r" elseif next_char == 't' then res = res .. "\t" else res = res .. next_char end
+                pos = pos + 2
+            else res = res .. char pos = pos + 1 end
+        end
+        return res
+    end
+    local function decode_number()
+        local start = pos
+        while pos <= #str and str:sub(pos, pos):match("[%d%.%-%+eE]") do pos = pos + 1 end
+        return tonumber(str:sub(start, pos - 1)) or 0
+    end
+    local function decode_array()
+        pos = pos + 1
+        local res = {}
+        skip_whitespace()
+        if str:sub(pos, pos) == "]" then pos = pos + 1 return res end
+        while pos <= #str do
+            table.insert(res, decode_value())
+            skip_whitespace()
+            local char = str:sub(pos, pos)
+            if char == "]" then pos = pos + 1 return res elseif char == "," then pos = pos + 1 end
+        end
+        return res
+    end
+    local function decode_object()
+        pos = pos + 1
+        local res = {}
+        skip_whitespace()
+        if str:sub(pos, pos) == "}" then pos = pos + 1 return res end
+        while pos <= #str do
+            skip_whitespace()
+            local key = decode_value()
+            if key == nil then break end
+            skip_whitespace()
+            if str:sub(pos, pos) == ":" then pos = pos + 1 end
+            skip_whitespace()
+            res[tostring(key)] = decode_value()
+            skip_whitespace()
+            local char = str:sub(pos, pos)
+            if char == "}" then pos = pos + 1 return res elseif char == "," then pos = pos + 1 else break end
+        end
+        return res
+    end
+    decode_value = function()
+        skip_whitespace()
+        local char = str:sub(pos, pos)
+        if char == "{" then return decode_object()
+        elseif char == "[" then return decode_array()
+        elseif char == '"' then return decode_string()
+        elseif char == "t" and str:sub(pos, pos+3) == "true" then pos = pos + 4 return true
+        elseif char == "f" and str:sub(pos, pos+4) == "false" then pos = pos + 5 return false
+        elseif char == "n" and str:sub(pos, pos+3) == "null" then pos = pos + 4 return nil
+        else return decode_number() end
+    end
+    local ok, res = pcall(decode_value)
+    if ok then return res else return nil end
+end
+
+local function check_and_load_dictionaries()
+    local current_proj_id = reaper.GetProjectStateChangeCount(0)
+    local _, dict_update_str = reaper.GetProjExtState(0, "Subass_Notes", "dict_last_update")
+    
+    if DICT.last_proj_id == current_proj_id and DICT.last_dict_update == dict_update_str then
+        return
+    end
+    
+    DICT.last_proj_id = current_proj_id
+    DICT.last_dict_update = dict_update_str
+    DICT.lookup = {}
+    
+    local _, raw_sel = reaper.GetProjExtState(0, "Subass_Notes", "selected_dict_ids")
+    if not raw_sel or raw_sel == "" then return end
+    local selected_arr = json_decode(raw_sel)
+    if type(selected_arr) ~= "table" then return end
+    
+    local selected_set = {}
+    for _, id in ipairs(selected_arr) do selected_set[id] = true end
+
+    local script_path = ({reaper.get_action_context()})[2]
+    local base_dir = script_path:match("^(.*[\\/])") or ""
+    -- Go up one dir from overlay to access dictionary data
+    local dict_file = base_dir .. "../dictionary/data/user_dictionaries.json"
+    
+    local f = io.open(dict_file, "r")
+    if not f then return end
+    local content = f:read("*a")
+    f:close()
+    
+    local decoded = json_decode(content)
+    if type(decoded) == "table" and type(decoded.dictionaries) == "table" then
+        for _, d in ipairs(decoded.dictionaries) do
+            if selected_set[d.id] and d.entries then
+                for _, entry in ipairs(d.entries) do
+                    local w = entry.word
+                    if w and w ~= "" then
+                        local comment = (entry.comment and entry.comment ~= "") and entry.comment or ("Слово з \"" .. d.name .. "\" словника")
+                        local repl = (entry.replacement and entry.replacement ~= "") and entry.replacement or w
+                        DICT.lookup[utf8_lower(w)] = { replacement = repl, comment = comment }
+                    end
+                end
+            end
+        end
+    end
+end
+check_and_load_dictionaries()
+
+local function process_dictionary_tokens(tokens)
+    if not DICT.lookup then return tokens end
+    local has_any = false
+    for _ in pairs(DICT.lookup) do has_any = true; break end
+    if not has_any then return tokens end
+
+    local new_tokens = {}
+    for _, tok in ipairs(tokens) do
+        if not tok.is_newline then
+            local segments = get_words_and_separators(tok.text)
+            for _, seg in ipairs(segments) do
+                if seg.is_word then
+                    local entry = DICT.lookup[utf8_lower(seg.text):gsub("́", "")] -- strip acute for lookup
+                    if entry then
+                        table.insert(new_tokens, {
+                            text = entry.replacement,
+                            orig_text = seg.text,
+                            comment = entry.comment,
+                            is_newline = false,
+                            b = tok.b, s = tok.s, u = tok.u, i = tok.i,
+                            meta_t1 = tok.meta_t1, meta_t2 = tok.meta_t2,
+                            meta_id = tok.meta_id, alpha = tok.alpha
+                        })
+                    else
+                        table.insert(new_tokens, {
+                            text = seg.text, orig_text = seg.text, comment = tok.comment,
+                            is_newline = false, b = tok.b, s = tok.s, u = tok.u, i = tok.i,
+                            meta_t1 = tok.meta_t1, meta_t2 = tok.meta_t2,
+                            meta_id = tok.meta_id, alpha = tok.alpha
+                        })
+                    end
+                else
+                    table.insert(new_tokens, {
+                        text = seg.text, orig_text = seg.text, comment = tok.comment,
+                        is_newline = false, b = tok.b, s = tok.s, u = tok.u, i = tok.i,
+                        meta_t1 = tok.meta_t1, meta_t2 = tok.meta_t2,
+                        meta_id = tok.meta_id, alpha = tok.alpha
+                    })
+                end
+            end
+        else
+            table.insert(new_tokens, tok)
+        end
+    end
+    return new_tokens
+end
+
 local function process_assimilation_tokens(tokens)
     for _, tok in ipairs(tokens) do
         if not tok.is_newline then
@@ -2302,6 +2476,12 @@ local function loop()
             corr_tokens = parse_to_tokens(tagged_text)
         end
 
+        -- DICTIONARY REPLACEMENT
+        check_and_load_dictionaries()
+        current_tokens = process_dictionary_tokens(current_tokens)
+        if next_tokens then next_tokens = process_dictionary_tokens(next_tokens) end
+        if next2_tokens then next2_tokens = process_dictionary_tokens(next2_tokens) end
+
         -- ASSIMILATION (Works on tokens)
         -- Use LOCAL setting instead of global ExtState
         if show_assimilation then
@@ -2348,6 +2528,7 @@ local function loop()
             if #context_lines > 0 then
                 local full_text = table.concat(context_lines, "\n")
                 other_actors_tokens = parse_to_tokens(full_text)
+                other_actors_tokens = process_dictionary_tokens(other_actors_tokens)
                 if show_assimilation then
                     other_actors_tokens = process_assimilation_tokens(other_actors_tokens)
                 end
