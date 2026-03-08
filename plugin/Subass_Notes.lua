@@ -55,6 +55,7 @@ local cfg = {
 
     karaoke_mode = (get_set("karaoke_mode", "0") == "1" or get_set("karaoke_mode", 0) == 1),
     all_caps = (get_set("all_caps", "0") == "1" or get_set("all_caps", 0) == 1),
+    all_caps_acute = (get_set("all_caps_acute", "0") == "1" or get_set("all_caps_acute", 0) == 1),
     show_actor_name_infront = (get_set("show_actor_name_infront", "0") == "1" or get_set("show_actor_name_infront", 0) == 1),
     wave_bg = (get_set("wave_bg", "1") == "1" or get_set("wave_bg", 1) == 1),
     wave_bg_progress = (get_set("wave_bg_progress", "0") == "1" or get_set("wave_bg_progress", 0) == 1),
@@ -1425,6 +1426,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "karaoke_mode", cfg.karaoke_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "auto_startup", cfg.auto_startup and "1" or "0", true)
     reaper.SetExtState(section_name, "all_caps", cfg.all_caps and "1" or "0", true)
+    reaper.SetExtState(section_name, "all_caps_acute", cfg.all_caps_acute and "1" or "0", true)
     reaper.SetExtState(section_name, "show_actor_name_infront", cfg.show_actor_name_infront and "1" or "0", true)
 
     reaper.SetExtState(section_name, "wave_bg", cfg.wave_bg and "1" or "0", true)
@@ -3661,7 +3663,7 @@ end
 --- Draw text string, automatically rendering manual stress marks where the combining acute accent (U+0301) is found.
 --- @param text string The string to draw
 --- @param use_all_caps boolean? Whether to force uppercase
-local function draw_text_with_stress_marks(text, use_all_caps)
+local function draw_text_with_stress_marks(text, use_all_caps, use_stress_caps)
     if not text or text == "" then return end
     
     local d_text = text
@@ -3696,6 +3698,10 @@ local function draw_text_with_stress_marks(text, use_all_caps)
         
         local char_str = d_text:sub(i, char_end)
         if has_stress then
+            if use_stress_caps and not use_all_caps then
+                char_str = utf8_upper(char_str)
+            end
+            
             local w_base = gfx.measurestr(char_str)
             local h_base = gfx.texth
             local char_start_x = gfx.x
@@ -3712,6 +3718,43 @@ local function draw_text_with_stress_marks(text, use_all_caps)
             i = next_char_start
         end
     end
+end
+
+local function apply_accent_caps(text)
+    if not text or not text:find(acute) then return text end
+    
+    local d_text = text
+    local i = 1
+    local res = {}
+    local len = #d_text
+    while i <= len do
+        local b = d_text:byte(i)
+        local char_len = 1
+        if b >= 240 then char_len = 4
+        elseif b >= 224 then char_len = 3
+        elseif b >= 192 then char_len = 2
+        end
+        
+        local char_str = d_text:sub(i, i + char_len - 1)
+        local next_char_start = i + char_len
+        
+        local has_stress = false
+        if next_char_start <= len then
+            if d_text:byte(next_char_start) == 204 and d_text:byte(next_char_start+1) == 129 then
+                has_stress = true
+            end
+        end
+        
+        if has_stress then
+            table.insert(res, utf8_upper(char_str))
+            table.insert(res, acute)
+            i = next_char_start + 2
+        else
+            table.insert(res, char_str)
+            i = next_char_start
+        end
+    end
+    return table.concat(res)
 end
 
 --- Strip HTML tags and entities
@@ -15365,7 +15408,9 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
             end
         end
         gfx.setfont(font_slot, effective_font, base_size, f_flags)
-        local measure_text = span.text:gsub(acute, "")
+        local measure_text = span.text
+        if cfg.all_caps_acute and not cfg.all_caps then measure_text = apply_accent_caps(measure_text) end
+        measure_text = measure_text:gsub(acute, "")
         if cfg.all_caps then measure_text = utf8_upper(measure_text) end
         span.width = gfx.measurestr(measure_text)
         span.height = gfx.texth
@@ -15462,7 +15507,11 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
         local segments = get_words_and_separators(span.text)
         local temp_x = cursor_x
         for _, seg in ipairs(segments) do
-            local measure_text = seg.text:gsub(acute, "")
+            local text_for_render = seg.text
+            if cfg.all_caps_acute and not cfg.all_caps then
+                text_for_render = apply_accent_caps(text_for_render)
+            end
+            local measure_text = text_for_render:gsub(acute, "")
             if cfg.all_caps then measure_text = utf8_upper(measure_text) end
             local sw = gfx.measurestr(measure_text)
             if seg.is_word and (not dict_modal.show) then
@@ -15493,7 +15542,7 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
                 UI_STATE.tooltip_state.text, UI_STATE.tooltip_state.immediate = span.comment, true
             end
         end
-        draw_text_with_stress_marks(span.text, cfg.all_caps)
+        draw_text_with_stress_marks(span.text, cfg.all_caps, cfg.all_caps_acute)
         if span.comment then
             local sr, sg, sb, sa = gfx.r, gfx.g, gfx.b, gfx.a
             set_color(UI.GET_P_COLOR(0.15))
@@ -17600,6 +17649,11 @@ local function draw_settings()
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, "Режим ВЕЛИКИМИ ЛІТЕРАМИ", cfg.all_caps, "Весь текст відображатиметься ВЕЛИКИМИ ЛІТЕРАМИ.") then
         cfg.all_caps = not cfg.all_caps
+        save_settings()
+    end
+    y_cursor = y_cursor + S(35)
+    if checkbox(x_start, y_cursor, "Відображати нАголоси з великої літери", cfg.all_caps_acute, "Букви з символом наголосу відображатимуться з ВЕЛИКОЇ ЛІТЕРИ.") then
+        cfg.all_caps_acute = not cfg.all_caps_acute
         save_settings()
     end
     y_cursor = y_cursor + S(35)
