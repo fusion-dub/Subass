@@ -15,6 +15,7 @@ local close_requested = false
 local cached_current, cached_next, cached_next2, cached_start, cached_stop = nil, nil, nil, nil, nil
 local external_ass_lines = {}           -- База даних реплік з Subass_Notes.lua
 local last_external_sync_time = 0       -- Час останньої синхронізації
+local token_cache = { current = {}, next1 = {}, next2 = {}, corr = {}, oact = {} }
 
 -- Кеш координат відеовікна
 local video_cache_valid = false
@@ -559,7 +560,8 @@ end
 -- =============================================================================
 local DICT = {
     lookup = {},
-    last_dict_update = ""
+    last_dict_update = "",
+    last_update_ts = 0 -- Local TS for cache invalidation
 }
 
 local function json_decode(str)
@@ -641,6 +643,7 @@ local function check_and_load_dictionaries()
     end
     
     DICT.last_dict_update = dict_update_str
+    DICT.last_update_ts = reaper.time_precise()
     DICT.lookup = {}
     
     local _, raw_sel = reaper.GetProjExtState(0, "Subass_Notes", "selected_dict_ids")
@@ -686,45 +689,32 @@ local function process_dictionary_tokens(tokens)
     for _ in pairs(DICT.lookup) do has_any = true; break end
     if not has_any then return tokens end
 
-    local new_tokens = {}
     for _, tok in ipairs(tokens) do
         if not tok.is_newline then
             local segments = get_words_and_separators(tok.text)
+            local new_text = ""
+            local found_replacement = false
             for _, seg in ipairs(segments) do
                 if seg.is_word then
-                    local entry = DICT.lookup[utf8_lower(seg.text):gsub("́", "")] -- strip acute for lookup
+                    local entry = DICT.lookup[utf8_lower(seg.text):gsub("́", "")]
                     if entry then
-                        table.insert(new_tokens, {
-                            text = entry.replacement,
-                            orig_text = seg.text,
-                            comment = entry.comment,
-                            is_newline = false,
-                            b = tok.b, s = tok.s, u = tok.u, i = tok.i,
-                            meta_t1 = tok.meta_t1, meta_t2 = tok.meta_t2,
-                            meta_id = tok.meta_id, alpha = tok.alpha
-                        })
+                        new_text = new_text .. entry.replacement
+                        -- If multiple replacements in one token, the last one's comment wins
+                        -- (usually a token is just one word anyway)
+                        tok.comment = entry.comment 
+                        tok.orig_text = seg.text
+                        found_replacement = true
                     else
-                        table.insert(new_tokens, {
-                            text = seg.text, orig_text = seg.text, comment = tok.comment,
-                            is_newline = false, b = tok.b, s = tok.s, u = tok.u, i = tok.i,
-                            meta_t1 = tok.meta_t1, meta_t2 = tok.meta_t2,
-                            meta_id = tok.meta_id, alpha = tok.alpha
-                        })
+                        new_text = new_text .. seg.text
                     end
                 else
-                    table.insert(new_tokens, {
-                        text = seg.text, orig_text = seg.text, comment = tok.comment,
-                        is_newline = false, b = tok.b, s = tok.s, u = tok.u, i = tok.i,
-                        meta_t1 = tok.meta_t1, meta_t2 = tok.meta_t2,
-                        meta_id = tok.meta_id, alpha = tok.alpha
-                    })
+                    new_text = new_text .. seg.text
                 end
             end
-        else
-            table.insert(new_tokens, tok)
+            tok.text = new_text
         end
     end
-    return new_tokens
+    return tokens
 end
 
 local function process_assimilation_tokens(tokens)
@@ -2458,78 +2448,74 @@ local function loop()
             -- current, nextreg, start_pos, stop_pos = cached_current, cached_next, cached_start, cached_stop
         -- end
 
-        -- PARSE TO TOKENS (Handles comments, newlines, etc.)
-        local current_tokens = parse_to_tokens(current)
-        local next_tokens = parse_to_tokens(nextreg)
-        local next2_tokens = parse_to_tokens(nextreg2 or "")
+        -- PARSE TO TOKENS (With Caching)
+        local function get_cached_tokens(cache_key, text, dict_ts, assim_flag, cache_obj)
+            local key = text .. tostring(dict_ts) .. tostring(assim_flag)
+            if cache_obj.key == key then return cache_obj.tokens end
+            
+            local tokens = parse_to_tokens(text)
+            tokens = process_dictionary_tokens(tokens)
+            if assim_flag then tokens = process_assimilation_tokens(tokens) end
+            
+            cache_obj.key = key
+            cache_obj.tokens = tokens
+            return tokens
+        end
+
+        check_and_load_dictionaries()
+        local current_tokens = get_cached_tokens("cur", current, DICT.last_update_ts, show_assimilation, token_cache.current)
+        local next_tokens = get_cached_tokens("n1", nextreg, DICT.last_update_ts, show_assimilation, token_cache.next1)
+        local next2_tokens = get_cached_tokens("n2", nextreg2 or "", DICT.last_update_ts, show_assimilation, token_cache.next2)
         
         -- FETCH AND PARSE CORRECTIONS
         local corr_list = get_current_corrections(pos, start_pos, stop_pos)
         local corr_tokens = {}
         if #corr_list > 0 then
-            -- Inject metadata into text for remote edit support
             local tagged_text = ""
             for _, m in ipairs(corr_list) do
                 tagged_text = tagged_text .. string.format("{\\meta_t1:%.3f\\meta_t2:%.3f\\meta_id:%d}%s\n", m.pos, m.pos, m.id or -1, m.name)
             end
-            corr_tokens = parse_to_tokens(tagged_text)
-        end
-
-        -- DICTIONARY REPLACEMENT
-        check_and_load_dictionaries()
-        current_tokens = process_dictionary_tokens(current_tokens)
-        if next_tokens then next_tokens = process_dictionary_tokens(next_tokens) end
-        if next2_tokens then next2_tokens = process_dictionary_tokens(next2_tokens) end
-
-        -- ASSIMILATION (Works on tokens)
-        -- Use LOCAL setting instead of global ExtState
-        if show_assimilation then
-            current_tokens = process_assimilation_tokens(current_tokens)
-            next_tokens = process_assimilation_tokens(next_tokens)
-            next2_tokens = process_assimilation_tokens(next2_tokens)
+            corr_tokens = get_cached_tokens("corr", tagged_text, DICT.last_update_ts, show_assimilation, token_cache.corr)
         end
 
         -- FETCH OTHER ACTORS (Context)
         local other_actors_tokens = {}
         if show_other_actors and #external_ass_lines > 0 then
-            local context_lines = {}
+            local context_ids = ""
+            local overlapping_lines = {}
             for _, l in ipairs(external_ass_lines) do
-                -- Check overlap
                 if pos >= l.t1 and pos <= l.t2 then
-                    -- Filter out current main line
                     local is_main = false
                     if l.rgn_idx then
-                        -- If we have an ID, use it for precise filtering
-                        if main_region_ids and main_region_ids[l.rgn_idx] then
-                            is_main = true
-                        end
+                        if main_region_ids and main_region_ids[l.rgn_idx] then is_main = true end
                     elseif start_pos and math.abs(l.t1 - start_pos) < 0.1 then 
-                        -- Fallback for items (tracks) or cases without IDs
                         is_main = true 
                     end
                     
                     if not is_main and l.text and l.text ~= "" then
-                        local entry = ""
-                        -- Inject metadata for remote editing
-                        -- Use -1 for ID if not available
-                        local meta = string.format("{\\meta_t1:%.3f\\meta_t2:%.3f\\meta_id:%d}", l.t1, l.t2, l.rgn_idx or -1)
-                        
-                        if show_actor_name and l.actor ~= "" then
-                            entry = meta .. "{\\alpha:128}[" .. l.actor .. "]{\\alpha:255} " .. l.text
-                        else
-                            entry = meta .. l.text
-                        end
-                        table.insert(context_lines, entry)
+                        context_ids = context_ids .. (l.rgn_idx or l.t1) .. ","
+                        table.insert(overlapping_lines, l)
                     end
                 end
             end
             
-            if #context_lines > 0 then
-                local full_text = table.concat(context_lines, "\n")
-                other_actors_tokens = parse_to_tokens(full_text)
-                other_actors_tokens = process_dictionary_tokens(other_actors_tokens)
-                if show_assimilation then
-                    other_actors_tokens = process_assimilation_tokens(other_actors_tokens)
+            if #overlapping_lines > 0 then
+                local oact_key = context_ids .. tostring(DICT.last_update_ts) .. tostring(show_assimilation)
+                if token_cache.oact.key == oact_key then
+                    other_actors_tokens = token_cache.oact.tokens
+                else
+                    local context_entries = {}
+                    for _, l in ipairs(overlapping_lines) do
+                        local meta = string.format("{\\meta_t1:%.3f\\meta_t2:%.3f\\meta_id:%d}", l.t1, l.t2, l.rgn_idx or -1)
+                        local entry = (show_actor_name and l.actor ~= "") and (meta .. "{\\alpha:128}[" .. l.actor .. "]{\\alpha:255} " .. l.text) or (meta .. l.text)
+                        table.insert(context_entries, entry)
+                    end
+                    local full_text = table.concat(context_entries, "\n")
+                    other_actors_tokens = parse_to_tokens(full_text)
+                    other_actors_tokens = process_dictionary_tokens(other_actors_tokens)
+                    if show_assimilation then other_actors_tokens = process_assimilation_tokens(other_actors_tokens) end
+                    token_cache.oact.key = oact_key
+                    token_cache.oact.tokens = other_actors_tokens
                 end
             end
         end
