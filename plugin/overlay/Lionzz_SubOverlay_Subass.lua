@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.2.0
+-- @version 0.2.1
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -60,16 +60,16 @@ local padding_y = 3                     -- відступи для фону пі
 local current_font_index = 1            -- номер шрифту
 local font_scale = 30                   -- розмір шрифту
 local text_color   = 0xFFFFFFFF         -- колір тексту
-local shadow_color = 0x000000FF         -- колір тіні
+local shadow_color = 0x0000005B         -- колір тіні
 local second_font_index = 1             -- номер шрифту для другого рядка
 local second_font_scale = 22            -- розмір другого рядка
 local second_text_color = 0xDDF4FFFF    -- колір другого рядка
-local second_shadow_color = 0x000000CC  -- колір тіні другого рядка
+local second_shadow_color = 0x0000005B  -- колір тіні другого рядка
 
 local corr_font_index = 1
 local corr_font_scale = 18
 local corr_text_color = 0xFF4444AB      -- Червоний за дефолтом
-local corr_shadow_color = 0x000000FF
+local corr_shadow_color = 0x0000005B
 local corr_offset = 12
 local line_spacing_main = 6             -- міжрядковий інтервал (пікселі)
 local line_spacing_corr = 6             -- міжрядковий інтервал для правок
@@ -91,6 +91,8 @@ local bottom_offset = 24                -- відступ від низу вік
 local show_assimilation = true          -- показувати асиміляцію (незалежно від Subass Notes)
 local always_show_next = true           -- завжди показувати наступну репліку (навіть у прогалинах)
 local fill_gaps = false                 -- показувати найближчий регіон/ітем між об'єктами
+local all_caps = false                  -- режим великих літер
+local all_caps_acute = false            -- режим наголосів великими літерами
 local show_tooltips = true              -- показувати підказки
 local tooltip_delay = 0.5
 local tooltip_state = {}
@@ -117,7 +119,7 @@ local show_other_actors = true          -- показувати репліки �
 local oact_font_index = 1
 local oact_font_scale = 18              -- невеликий шрифт
 local oact_text_color = 0xFFF9EAFF      -- світло-сірий
-local oact_shadow_color = 0x000000CC    -- чорна тінь
+local oact_shadow_color = 0x0000005B    -- чорна тінь
 local oact_offset = 12                  -- відступ від інших реплік (або до основної)
 local line_spacing_oact = 6             -- міжрядковий інтервал
 
@@ -237,6 +239,44 @@ local function utf8_capitalize(s)
     local seq_len = 1
     if b >= 240 then seq_len = 4 elseif b >= 224 then seq_len = 3 elseif b >= 192 then seq_len = 2 end
     return utf8_upper(s:sub(1, seq_len)) .. s:sub(seq_len + 1)
+end
+
+local function apply_accent_caps(text)
+    local acute = "́" -- U+0301
+    if not text or not text:find(acute) then return text end
+    
+    local d_text = text
+    local i = 1
+    local res = {}
+    local len = #d_text
+    while i <= len do
+        local b = d_text:byte(i)
+        local char_len = 1
+        if b >= 240 then char_len = 4
+        elseif b >= 224 then char_len = 3
+        elseif b >= 192 then char_len = 2
+        end
+        
+        local char_str = d_text:sub(i, i + char_len - 1)
+        local next_char_start = i + char_len
+        
+        local has_stress = false
+        if next_char_start <= len then
+            if d_text:byte(next_char_start) == 204 and d_text:byte(next_char_start+1) == 129 then
+                has_stress = true
+            end
+        end
+        
+        if has_stress then
+            table.insert(res, utf8_upper(char_str))
+            table.insert(res, acute)
+            i = next_char_start + 2
+        else
+            table.insert(res, char_str)
+            i = next_char_start
+        end
+    end
+    return table.concat(res)
 end
 
 local function get_words_and_separators(text)
@@ -569,6 +609,8 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "show_assimilation", tostring(show_assimilation), true)
     reaper.SetExtState(SETTINGS_SECTION, "always_show_next", tostring(always_show_next), true)
     reaper.SetExtState(SETTINGS_SECTION, "fill_gaps", tostring(fill_gaps), true)
+    reaper.SetExtState(SETTINGS_SECTION, "all_caps", tostring(all_caps), true)
+    reaper.SetExtState(SETTINGS_SECTION, "all_caps_acute", tostring(all_caps_acute), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_tooltips", tostring(show_tooltips), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_to_video", tostring(attach_to_video), true)
     reaper.SetExtState(SETTINGS_SECTION, "attach_to_video_h", tostring(attach_to_video_h), true)
@@ -650,6 +692,8 @@ local function load_settings()
     show_assimilation = (reaper.GetExtState(SETTINGS_SECTION, "show_assimilation") ~= "false")
     always_show_next = (reaper.GetExtState(SETTINGS_SECTION, "always_show_next") ~= "false")
     fill_gaps = (reaper.GetExtState(SETTINGS_SECTION, "fill_gaps") == "true")
+    all_caps = (reaper.GetExtState(SETTINGS_SECTION, "all_caps") == "true")
+    all_caps_acute = (reaper.GetExtState(SETTINGS_SECTION, "all_caps_acute") == "true")
     show_tooltips = (reaper.GetExtState(SETTINGS_SECTION, "show_tooltips") ~= "false")
     attach_to_video = (reaper.GetExtState(SETTINGS_SECTION, "attach_to_video") == "true")
     attach_to_video_h = (reaper.GetExtState(SETTINGS_SECTION, "attach_to_video_h") ~= "false")
@@ -941,6 +985,12 @@ local function draw_context_menu()
         end
         fill_gaps             = add_change(reaper.ImGui_Checkbox(ctx, "Заповнювати пробіли", fill_gaps))
         tooltip("Дозволяє відображати рядки і за межами регіонів/ітемів")
+        
+        all_caps              = add_change(reaper.ImGui_Checkbox(ctx, "Режим ВЕЛИКИМИ ЛІТЕРАМИ", all_caps))
+        tooltip("Весь текст відображатиметься ВЕЛИКИМИ ЛІТЕРАМИ")
+
+        all_caps_acute        = add_change(reaper.ImGui_Checkbox(ctx, "Відображати нАголоси з великої літери", all_caps_acute))
+        tooltip("Букви з символом наголосу відображатимуться з ВЕЛИКОЇ ЛІТЕРИ")
         reaper.ImGui_Separator(ctx)
         flags.NoResize        = add_change(reaper.ImGui_Checkbox(ctx, "Не змінювати розміри", flags.NoResize))
         tooltip("Вимикає можливість змінювати розміри вікна")
@@ -1148,7 +1198,10 @@ local function calculate_line_count(tokens, font_index, font_scale, win_w)
         else
             local f_italic = font_objects_italic[font_index] or font_objects_italic[1]
             if tok.i then reaper.ImGui_PushFont(ctx, f_italic, font_scale) end
-            local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
+            local text_to_measure = tok.text
+            if all_caps then text_to_measure = utf8_upper(text_to_measure)
+            elseif all_caps_acute then text_to_measure = apply_accent_caps(text_to_measure) end
+            local w = reaper.ImGui_CalcTextSize(ctx, text_to_measure)
             if tok.i then reaper.ImGui_PopFont(ctx) end
             
             if enable_wrap and current_line_width + w > max_width and current_line_width > 0 then
@@ -1186,7 +1239,10 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
             -- Measure with correct font
             local f_italic = font_objects_italic[font_index] or font_objects_italic[1]
             if tok.i then reaper.ImGui_PushFont(ctx, f_italic, font_scale) end
-            local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
+            local text_to_measure = tok.text
+            if all_caps then text_to_measure = utf8_upper(text_to_measure)
+            elseif all_caps_acute then text_to_measure = apply_accent_caps(text_to_measure) end
+            local w = reaper.ImGui_CalcTextSize(ctx, text_to_measure)
             if tok.i then reaper.ImGui_PopFont(ctx) end
 
             local space_w = space_w_main -- Simplify: use main font space width to avoid constant switching for spaces
@@ -1212,7 +1268,10 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
         for i, tok in ipairs(line) do
             local f_italic = font_objects_italic[font_index] or font_objects_italic[1]
             if tok.i then reaper.ImGui_PushFont(ctx, f_italic, font_scale) end
-            local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
+            local text_to_measure = tok.text
+            if all_caps then text_to_measure = utf8_upper(text_to_measure)
+            elseif all_caps_acute then text_to_measure = apply_accent_caps(text_to_measure) end
+            local w = reaper.ImGui_CalcTextSize(ctx, text_to_measure)
             if tok.i then reaper.ImGui_PopFont(ctx) end
             
             line_total_w = line_total_w + w
@@ -1247,7 +1306,10 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                 -- Measure (again, needed for positioning)
                 local f_italic = font_objects_italic[font_index] or font_objects_italic[1]
                 if tok.i then reaper.ImGui_PushFont(ctx, f_italic, font_scale) end
-                local w = reaper.ImGui_CalcTextSize(ctx, tok.text)
+                local text_to_measure = tok.text
+                if all_caps then text_to_measure = utf8_upper(text_to_measure)
+                elseif all_caps_acute then text_to_measure = apply_accent_caps(text_to_measure) end
+                local w = reaper.ImGui_CalcTextSize(ctx, text_to_measure)
                 if tok.i then reaper.ImGui_PopFont(ctx) end
 
                 -- 1. Interaction (Invisible Button)
@@ -1313,7 +1375,10 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                     if tok.i then
                         reaper.ImGui_PushFont(ctx, font_italic, font_scale)
                     end
-                    reaper.ImGui_DrawList_AddText(draw_list, x, y, draw_color, tok.text)
+                    local text_to_draw = tok.text
+                    if all_caps then text_to_draw = utf8_upper(text_to_draw)
+                    elseif all_caps_acute then text_to_draw = apply_accent_caps(text_to_draw) end
+                    reaper.ImGui_DrawList_AddText(draw_list, x, y, draw_color, text_to_draw)
                     if tok.i then
                         reaper.ImGui_PopFont(ctx)
                     end
@@ -1344,6 +1409,13 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                     for _, rg in ipairs(tok.assimilation_ranges) do
                         local before_text = tok.text:sub(1, rg.start_idx - 1)
                         local match_text = tok.text:sub(rg.start_idx, rg.stop_idx)
+                        if all_caps then
+                            before_text = utf8_upper(before_text)
+                            match_text = utf8_upper(match_text)
+                        elseif all_caps_acute then
+                            before_text = apply_accent_caps(before_text)
+                            match_text = apply_accent_caps(match_text)
+                        end
                         local f_italic = font_objects_italic[font_index] or font_objects_italic[1]
                         if tok.i then reaper.ImGui_PushFont(ctx, f_italic, font_scale) end
                         local offset_w, _ = reaper.ImGui_CalcTextSize(ctx, before_text)
