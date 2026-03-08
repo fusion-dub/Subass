@@ -3863,7 +3863,9 @@ end
 -- =============================================================================
 local DICT = {
     selected_ids = {}, -- set: { [id] = true }
-    dicts = {}         -- {id, name}
+    dicts = {},        -- {id, name}
+    cached_lookup = nil,
+    last_update_ts = ""
 }
 
 -- Load persisted selection from project ExtState
@@ -3896,8 +3898,12 @@ DICT._proj_id = STATS.get_project_id and STATS.get_project_id() or reaper.GetPro
 function DICT.save_selected()
     local ids = {}
     for id in pairs(DICT.selected_ids) do table.insert(ids, id) end
+    local ts = tostring(reaper.time_precise())
     reaper.SetProjExtState(0, section_name, "selected_dict_ids", STATS.json_encode(ids))
-    reaper.SetProjExtState(0, section_name, "dict_last_update", tostring(reaper.time_precise()))
+    reaper.SetProjExtState(0, section_name, "dict_last_update", ts)
+    DICT.last_update_ts = ts
+    -- Invalidate lookup cache
+    DICT.cached_lookup = nil
 end
 
 function DICT.is_selected(id)
@@ -3913,7 +3919,7 @@ function DICT.toggle(id)
     DICT.save_selected()
 end
 
-function DICT.load()
+function DICT.load(dont_push)
     -- Resolve path relative to this script's location
     local script_path = ({reaper.get_action_context()})[2]
     local base_dir = script_path:match("^(.*[\\/])") or ""
@@ -3933,12 +3939,34 @@ function DICT.load()
             end
         end
     end
-    reaper.SetProjExtState(0, section_name, "dict_last_update", tostring(reaper.time_precise()))
+    
+    if not dont_push then
+        local ts = tostring(reaper.time_precise())
+        reaper.SetProjExtState(0, section_name, "dict_last_update", ts)
+        DICT.last_update_ts = ts
+    else
+        DICT.last_update_ts = reaper.GetProjExtState(0, section_name, "dict_last_update")
+    end
+    -- Invalidate lookup cache
+    DICT.cached_lookup = nil
 end
+
+function DICT.check_sync()
+    local external_ts = reaper.GetProjExtState(0, section_name, "dict_last_update")
+    if external_ts ~= "" and external_ts ~= DICT.last_update_ts then
+        DICT.load(true)
+    end
+end
+
 DICT.load() -- populate dicts at startup
 
 -- Build a flat lookup: { [word_lowercase] = {replacement, comment} } from all active dicts
 function DICT.get_lookup_table()
+    local current_ts = reaper.GetProjExtState(0, section_name, "dict_last_update")
+    if DICT.cached_lookup and DICT.last_update_ts == current_ts then
+        return DICT.cached_lookup
+    end
+
     local lookup = {}
     for _, d in ipairs(DICT.dicts) do
         if DICT.is_selected(d.id) then
@@ -3949,11 +3977,14 @@ function DICT.get_lookup_table()
                         and entry.comment
                         or ("Слово з \"" .. d.name .. "\" словника")
                     local repl = (entry.replacement and entry.replacement ~= "") and entry.replacement or w
-                    lookup[utf8_lower(w)] = { replacement = repl, comment = comment }
+                    lookup[utf8_lower(w):gsub(acute, "")] = { replacement = repl, comment = comment }
                 end
             end
         end
     end
+    
+    DICT.cached_lookup = lookup
+    DICT.last_update_ts = current_ts
     return lookup
 end
 
@@ -14681,7 +14712,7 @@ local function draw_file()
         end
         
         -- Add "Словники" submenu from user_dictionaries.json
-        DICT.load() -- refresh from file each time menu opens
+        DICT.check_sync() -- refresh from file if updated externally
         local dict_count = #DICT.dicts
         if dict_count > 0 then
             local dict_menu_items = {}
@@ -21920,6 +21951,11 @@ local function main()
     end
 
     UI_STATE.last_mouse_cap = gfx.mouse_cap
+    
+    -- Sync dictionaries periodically (every frames or when switching tabs)
+    if UI_STATE.current_tab ~= UI_STATE.last_tab then
+        DICT.check_sync()
+    end
 
     reaper.defer(main)
 end
