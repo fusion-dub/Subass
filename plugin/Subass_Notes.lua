@@ -1531,6 +1531,31 @@ end
 -- Helper to open URLs safely (fallback if SWS not installed)
 local UTILS = {}
 
+--- Split text into words and separators for interaction
+--- @param text string Input text
+--- @return table List of segments {text, is_word}
+function UTILS.get_words_and_separators(text)
+    local result = {}
+    local pos = 1
+    -- Includes Cyrillic, Latin, apostrophes, and hyphens for compound words
+    local pattern = "[%a\128-\255\'%-]+[\128-\255]*"
+    
+    while pos <= #text do
+        local s, e = text:find(pattern, pos)
+        if s then
+            if s > pos then
+                table.insert(result, {text = text:sub(pos, s-1), is_word = false})
+            end
+            table.insert(result, {text = text:sub(s, e), is_word = true})
+            pos = e + 1
+        else
+            table.insert(result, {text = text:sub(pos), is_word = false})
+            break
+        end
+    end
+    return result
+end
+
 function UTILS.show_privacy_policy()
     reaper.ClearConsole()
     local version = GL.script_title or "Unknown"
@@ -2151,32 +2176,6 @@ local function parse_ass_timestamp(str)
     if not h then return 0 end
     return (tonumber(h) * 3600) + (tonumber(m) * 60) + tonumber(s) + (tonumber(cs) / 100)
 end
-
---- Split text into words and separators for interaction
---- @param text string Input text
---- @return table List of segments {text, is_word}
-local function get_words_and_separators(text)
-    local result = {}
-    local pos = 1
-    -- Includes Cyrillic, Latin, apostrophes, and hyphens for compound words
-    local pattern = "[%a\128-\255\'%-]+[\128-\255]*"
-    
-    while pos <= #text do
-        local s, e = text:find(pattern, pos)
-        if s then
-            if s > pos then
-                table.insert(result, {text = text:sub(pos, s-1), is_word = false})
-            end
-            table.insert(result, {text = text:sub(s, e), is_word = true})
-            pos = e + 1
-        else
-            table.insert(result, {text = text:sub(pos), is_word = false})
-            break
-        end
-    end
-    return result
-end
-
 
 local sws_alert_shown = false
 
@@ -3986,6 +3985,102 @@ function DICT.get_lookup_table()
     DICT.cached_lookup = lookup
     DICT.last_update_ts = current_ts
     return lookup
+end
+
+
+function UTILS.apply_text_transforms(line_spans, no_assimilation)
+    if not line_spans or line_spans.transformed then return line_spans end
+    local current_spans = line_spans
+
+    -- 1. ASSIMILATION
+    if cfg.text_assimilations and not no_assimilation then
+        local rules = {
+            -- 1. Найдовші ланцюжки та специфічні спрощення (4 та 3 літери)
+            {"ться", "цця"},
+            {"стськ", "сськ"},
+            {"нтськ", "нськ"},
+            {"нтст", "нст"},
+            {"стці", "сці"},
+            {"стч", "шч"},
+            {"стд", "зд"},
+            {"стс", "сс"},
+
+            -- 2. Специфічні випадки дієслів (3 літери)
+            {"шся", "сся"},
+            {"чся", "цся"},
+
+            -- 3. Подвійні приголосні на межі (2 літери)
+            {"жці", "зці"},
+            {"чці", "цці"},
+            {"тці", "цці"},
+            {"зж", "жж"},
+            {"зш", "шш"},
+            {"сш", "шш"},
+            {"зч", "жч"},
+            {"сч", "шч"},
+            {"тч", "чч"},
+            {"дч", "чч"},
+            {"тс", "ц"} 
+        }
+        local new_spans = {}
+        local function process_text(text, span, orig_word)
+            if text == "" then return end
+            local b_pos, b_rule = nil, nil
+            local l_text = utf8_lower(text)
+            for _, r in ipairs(rules) do
+                local p = l_text:find(r[1], 1, true)
+                if p and (not b_pos or p < b_pos) then b_pos, b_rule = p, r end
+            end
+            if b_pos then
+                local before = text:sub(1, b_pos - 1)
+                local m_len = #b_rule[1]
+                local original_match = text:sub(b_pos, b_pos + m_len - 1)
+                local remainder = text:sub(b_pos + m_len)
+                local repl = b_rule[2]
+                if original_match == utf8_upper(original_match) then repl = utf8_upper(repl)
+                elseif original_match == utf8_capitalize(utf8_lower(original_match)) then repl = utf8_capitalize(repl) end
+                if before ~= "" then table.insert(new_spans, {text=before, b=span.b, i=span.i, u=span.u, s=span.s, orig_word=orig_word, comment=span.comment}) end
+                table.insert(new_spans, {text = repl, b=span.b, i=span.i, u=false, u_wave=true, s=span.s, orig_word=orig_word, comment=span.comment})
+                process_text(remainder, span, orig_word)
+            else
+                table.insert(new_spans, {text=text, b=span.b, i=span.i, u=span.u, s=span.s, orig_word=orig_word, comment=span.comment})
+            end
+        end
+        for _, span in ipairs(current_spans) do
+            local segments = UTILS.get_words_and_separators(span.text)
+            for _, seg in ipairs(segments) do
+                if seg.is_word and (not dict_modal.show) then process_text(seg.text, span, seg.text:gsub(acute, ""))
+                else table.insert(new_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, comment=span.comment}) end
+            end
+        end
+        current_spans = new_spans
+    end
+
+    -- 2. DICTIONARY
+    local dict_lookup = DICT.get_lookup_table()
+    local has_dict = false
+    for _ in pairs(dict_lookup) do has_dict = true; break end
+    if has_dict then
+        local dict_spans = {}
+        for _, span in ipairs(current_spans) do
+            local segments = UTILS.get_words_and_separators(span.text)
+            for _, seg in ipairs(segments) do
+                if seg.is_word then
+                    local entry = dict_lookup[utf8_lower(seg.text):gsub(acute, "")]
+                    if entry then
+                        table.insert(dict_spans, {text = entry.replacement, orig_word = seg.text, comment = entry.comment, b = span.b, i = span.i, u = span.u, s = span.s, u_wave = span.u_wave})
+                    else
+                        table.insert(dict_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, u_wave = span.u_wave, comment=span.comment, orig_word=span.orig_word})
+                    end
+                else
+                    table.insert(dict_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, u_wave = span.u_wave, comment=span.comment, orig_word=span.orig_word})
+                end
+            end
+        end
+        current_spans = dict_spans
+    end
+    current_spans.transformed = true
+    return current_spans
 end
 
 --- Strip HTML tags and entities
@@ -15721,102 +15816,9 @@ local function draw_prompter_drawer(input_queue)
 end
 
 local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name, base_size, no_assimilation, actor_name, available_w, content_offset_left, content_offset_right)
-    -- ASSIMILATION LOGIC
-    if cfg.text_assimilations and not no_assimilation then
-        local rules = {
-            -- 1. Найдовші ланцюжки та специфічні спрощення (4 та 3 літери)
-            {"ться", "цця"},
-            {"стськ", "сськ"},
-            {"нтськ", "нськ"},
-            {"нтст", "нст"},
-            {"стці", "сці"},
-            {"стч", "шч"},
-            {"стд", "зд"},
-            {"стс", "сс"},
-
-            -- 2. Специфічні випадки дієслів (3 літери)
-            {"шся", "сся"},
-            {"чся", "цся"},
-
-            -- 3. Подвійні приголосні на межі (2 літери)
-            {"жці", "зці"},
-            {"чці", "цці"},
-            {"тці", "цці"},
-            {"зж", "жж"},
-            {"зш", "шш"},
-            {"сш", "шш"},
-            {"зч", "жч"},
-            {"сч", "шч"},
-            {"тч", "чч"},
-            {"дч", "чч"},
-            {"тс", "ц"} 
-        }
-
-        local new_spans = {}
-        local function process_text(text, style_span, orig_word)
-            if text == "" then return end
-            local best_pos, best_rule = nil, nil
-            local l_text = utf8_lower(text)
-            for _, r in ipairs(rules) do
-                local p = l_text:find(r[1], 1, true)
-                if p and (not best_pos or p < best_pos) then best_pos, best_rule = p, r end
-            end
-            
-            if best_pos then
-                local before = text:sub(1, best_pos - 1)
-                local match_len = #best_rule[1]
-                local original_match = text:sub(best_pos, best_pos + match_len - 1)
-                local remainder = text:sub(best_pos + match_len)
-                local replacement = best_rule[2]
-                if original_match == utf8_upper(original_match) then replacement = utf8_upper(replacement)
-                elseif original_match == utf8_capitalize(utf8_lower(original_match)) then replacement = utf8_capitalize(replacement) end
-                if before ~= "" then table.insert(new_spans, {text=before, b=style_span.b, i=style_span.i, u=style_span.u, s=style_span.s, orig_word=orig_word, comment=style_span.comment}) end
-                table.insert(new_spans, {text = replacement, b=style_span.b, i=style_span.i, u=false, u_wave=true, s=style_span.s, orig_word=orig_word, comment=style_span.comment})
-                process_text(remainder, style_span, orig_word)
-            else
-                table.insert(new_spans, {text=text, b=style_span.b, i=style_span.i, u=style_span.u, s=style_span.s, orig_word=orig_word, comment=style_span.comment})
-            end
-        end
-
-        for _, span in ipairs(line_spans) do
-            local segments = get_words_and_separators(span.text)
-            for _, seg in ipairs(segments) do
-                if seg.is_word and (not dict_modal.show) then process_text(seg.text, span, seg.text:gsub(acute, ""))
-                else table.insert(new_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, comment=span.comment}) end
-            end
-        end
-        line_spans = new_spans
-    end
-
-    -- === DICTIONARY WORD REPLACEMENT ===
-    do
-        local dict_lookup = DICT.get_lookup_table()
-        local has_any = false
-        for _ in pairs(dict_lookup) do has_any = true; break end
-        if has_any then
-            local dict_spans = {}
-            for _, span in ipairs(line_spans) do
-                local segments = get_words_and_separators(span.text)
-                for _, seg in ipairs(segments) do
-                    if seg.is_word then
-                        local entry = dict_lookup[utf8_lower(seg.text):gsub(acute, "")]
-                        if entry then
-                            table.insert(dict_spans, {
-                                text    = entry.replacement,
-                                b=span.b, i=span.i, u=span.u, s=span.s,
-                                comment = entry.comment,
-                                orig_word = seg.text,
-                            })
-                        else
-                            table.insert(dict_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, comment=span.comment, orig_word=span.orig_word})
-                        end
-                    else
-                        table.insert(dict_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, comment=span.comment, orig_word=span.orig_word})
-                    end
-                end
-            end
-            line_spans = dict_spans
-        end
+    -- Optimization: Apply transformations only once (usually pre-applied in cache)
+    if not line_spans.transformed then
+        line_spans = UTILS.apply_text_transforms(line_spans, no_assimilation)
     end
     -- === END DICTIONARY WORD REPLACEMENT ===
     
@@ -15935,7 +15937,7 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
         gfx.setfont(font_slot, effective_font, base_size, f_flags)
         gfx.x, gfx.y = cursor_x, y_base
         
-        local segments = get_words_and_separators(span.text)
+        local segments = UTILS.get_words_and_separators(span.text)
         local temp_x = cursor_x
         for _, seg in ipairs(segments) do
             local text_for_render = seg.text
@@ -16477,14 +16479,17 @@ local function draw_prompter_slider(input_queue)
 
     local state_count = reaper.GetProjectStateChangeCount(0)
     local marker_state = prompter_drawer.marker_cache.count
+    local dict_ts = DICT.last_update_ts or ""
+    
     if prompter_slider_cache.state_count ~= state_count or prompter_slider_cache.marker_state ~= marker_state or prompter_slider_cache.w ~= available_w or 
        prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
-       prompter_slider_cache.p_corr ~= cfg.p_corr or 
+       prompter_slider_cache.p_corr ~= cfg.p_corr or prompter_slider_cache.dict_ts ~= dict_ts or
        prompter_slider_cache.p_lheight ~= cfg.p_lheight or prompter_slider_cache.c_lheight ~= cfg.c_lheight then
         
         prompter_slider_cache.state_count, prompter_slider_cache.marker_state, prompter_slider_cache.w, prompter_slider_cache.fsize, prompter_slider_cache.font = state_count, marker_state, available_w, cfg.p_fsize, cfg.p_font
         prompter_slider_cache.project_id = reaper.GetProjectName(0, "")
         prompter_slider_cache.p_corr = cfg.p_corr
+        prompter_slider_cache.dict_ts = dict_ts
         prompter_slider_cache.p_lheight = cfg.p_lheight
         prompter_slider_cache.c_lheight = cfg.c_lheight
         prompter_slider_cache.items, prompter_slider_cache.total_h = {}, 0
@@ -16508,7 +16513,8 @@ local function draw_prompter_slider(input_queue)
                 local p_lines = parse_prompter_to_lines(rgn.name)
                 local flattened = {}
                 for _, pl in ipairs(p_lines) do
-                    for _, span in ipairs(pl) do table.insert(flattened, span) end
+                    local t_spans = UTILS.apply_text_transforms(pl)
+                    for _, span in ipairs(t_spans) do table.insert(flattened, span) end
                 end
                 
                 local target_fsize = cfg.p_fsize
@@ -16547,7 +16553,9 @@ local function draw_prompter_slider(input_queue)
                 local p_lines = parse_prompter_to_lines(name)
                 local flattened = {}
                 for _, pl in ipairs(p_lines) do
-                    for _, span in ipairs(pl) do table.insert(flattened, span) end
+                    -- Pre-process (no assimilation for corrections)
+                    local t_spans = UTILS.apply_text_transforms(pl, true)
+                    for _, span in ipairs(t_spans) do table.insert(flattened, span) end
                 end
                 
                 gfx.setfont(F.cor, cfg.p_font, S(cfg.c_fsize))
