@@ -559,7 +559,7 @@ end
 -- =============================================================================
 local DICT = {
     lookup = {},
-    last_proj_id = -1
+    last_dict_update = ""
 }
 
 local function json_decode(str)
@@ -634,14 +634,12 @@ local function json_decode(str)
 end
 
 local function check_and_load_dictionaries()
-    local current_proj_id = reaper.GetProjectStateChangeCount(0)
     local _, dict_update_str = reaper.GetProjExtState(0, "Subass_Notes", "dict_last_update")
     
-    if DICT.last_proj_id == current_proj_id and DICT.last_dict_update == dict_update_str then
+    if dict_update_str ~= "" and DICT.last_dict_update == dict_update_str then
         return
     end
     
-    DICT.last_proj_id = current_proj_id
     DICT.last_dict_update = dict_update_str
     DICT.lookup = {}
     
@@ -672,7 +670,8 @@ local function check_and_load_dictionaries()
                     if w and w ~= "" then
                         local comment = (entry.comment and entry.comment ~= "") and entry.comment or ("Слово з \"" .. d.name .. "\" словника")
                         local repl = (entry.replacement and entry.replacement ~= "") and entry.replacement or w
-                        DICT.lookup[utf8_lower(w)] = { replacement = repl, comment = comment }
+                        -- Standardize keys: lowercase + strip accents
+                        DICT.lookup[utf8_lower(w):gsub("́", "")] = { replacement = repl, comment = comment }
                     end
                 end
             end
