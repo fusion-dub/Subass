@@ -2837,9 +2837,7 @@ function DEADLINE.sync_project()
     if not proj_path then return end
 
     -- Normalize path for consistent key lookup
-    if not proj_path:match("^PTR:") then
-        proj_path = DEADLINE.normalize_path(proj_path)
-    end
+    proj_path = DEADLINE.normalize_path(proj_path)
 
     -- Load and sync
     local global_data = DEADLINE.load_global()
@@ -2847,10 +2845,10 @@ function DEADLINE.sync_project()
 
     -- MIGRATION: Check if we have an entry for this project as "unsaved" (via pointer)
     local proj_ptr, _ = reaper.EnumProjects(-1)
-    local ptr_id = "PTR:" .. tostring(proj_ptr)
+    local ptr_id = DEADLINE.normalize_path("PTR:" .. tostring(proj_ptr))
     local ptr_entry = global_data[ptr_id]
     
-    if ptr_entry and not proj_path:match("^PTR:") then
+    if ptr_entry and not proj_path:match("^ptr:") then
         -- Move deadline from temporary pointer ID to the real project path
         local norm_proj_path = DEADLINE.normalize_path(proj_path)
         global_data[norm_proj_path] = {
