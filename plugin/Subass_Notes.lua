@@ -3857,6 +3857,104 @@ local function apply_accent_caps(text)
     return table.concat(res)
 end
 
+
+-- =============================================================================
+-- DICT: User Dictionary module (reads from Subass_Dictionary data)
+-- =============================================================================
+local DICT = {
+    selected_ids = {}, -- set: { [id] = true }
+    dicts = {}         -- {id, name}
+}
+
+-- Load persisted selection from project ExtState
+function DICT.dict_load_selection()
+    DICT.selected_ids = {}
+    local _, raw = reaper.GetProjExtState(0, section_name, "selected_dict_ids")
+    if raw and raw ~= "" then
+        local decoded = STATS.json_decode(raw)
+        if type(decoded) == "table" then
+            for _, id in ipairs(decoded) do
+                DICT.selected_ids[id] = true
+            end
+        end
+    end
+    DICT._last_proj_id = reaper.GetProjectStateChangeCount(0)
+end
+DICT.dict_load_selection()
+
+function DICT.reload_if_project_changed()
+    -- Detect project switch (state change count resets on new project)
+    local current_proj_id = STATS.get_project_id and STATS.get_project_id() or reaper.GetProjectPath("")
+    if DICT._proj_id ~= current_proj_id then
+        DICT._proj_id = current_proj_id
+        DICT.dict_load_selection()
+        DICT.load() -- refresh dict list for this project
+    end
+end
+DICT._proj_id = STATS.get_project_id and STATS.get_project_id() or reaper.GetProjectPath("")
+
+function DICT.save_selected()
+    local ids = {}
+    for id in pairs(DICT.selected_ids) do table.insert(ids, id) end
+    reaper.SetProjExtState(0, section_name, "selected_dict_ids", STATS.json_encode(ids))
+end
+
+function DICT.is_selected(id)
+    return DICT.selected_ids[id] == true
+end
+
+function DICT.toggle(id)
+    if DICT.selected_ids[id] then
+        DICT.selected_ids[id] = nil
+    else
+        DICT.selected_ids[id] = true
+    end
+    DICT.save_selected()
+end
+
+function DICT.load()
+    -- Resolve path relative to this script's location
+    local script_path = ({reaper.get_action_context()})[2]
+    local base_dir = script_path:match("^(.*[\\/])") or ""
+    local dict_file = base_dir .. "dictionary/data/user_dictionaries.json"
+
+    local f = io.open(dict_file, "r")
+    if not f then DICT.dicts = {} return end
+    local content = f:read("*a")
+    f:close()
+
+    DICT.dicts = {}
+    local decoded = STATS.json_decode(content)
+    if type(decoded) == "table" and type(decoded.dictionaries) == "table" then
+        for _, d in ipairs(decoded.dictionaries) do
+            if d.id and d.name then
+                table.insert(DICT.dicts, { id = d.id, name = d.name, entries = d.entries or {} })
+            end
+        end
+    end
+end
+DICT.load() -- populate dicts at startup
+
+-- Build a flat lookup: { [word_lowercase] = {replacement, comment} } from all active dicts
+function DICT.get_lookup_table()
+    local lookup = {}
+    for _, d in ipairs(DICT.dicts) do
+        if DICT.is_selected(d.id) then
+            for _, entry in ipairs(d.entries or {}) do
+                local w = entry.word
+                if w and w ~= "" then
+                    local comment = (entry.comment and entry.comment ~= "")
+                        and entry.comment
+                        or ("Слово з \"" .. d.name .. "\" словника")
+                    local repl = (entry.replacement and entry.replacement ~= "") and entry.replacement or w
+                    lookup[utf8_lower(w)] = { replacement = repl, comment = comment }
+                end
+            end
+        end
+    end
+    return lookup
+end
+
 --- Strip HTML tags and entities
 local function clean_html(html)
     if not html then return "" end
@@ -13926,7 +14024,32 @@ local function draw_file()
         y_cursor = y_cursor + S(25)
     end
     
+    -- Active Dictionaries Row
+    do
+        local active_dict_names = {}
+        for _, d in ipairs(DICT.dicts) do
+            if DICT.is_selected(d.id) then
+                table.insert(active_dict_names, d.name)
+            end
+        end
+        if #active_dict_names > 0 then
+            y_cursor = y_cursor + S(5)
+            local ad_y = get_y(y_cursor)
+            if ad_y + S(20) > start_y and ad_y < gfx.h then
+                gfx.setfont(F.tip)
+                set_color(UI.C_LIGHT_GREY)
+                local ad_str = "Активні словники: " .. table.concat(active_dict_names, ", ")
+                ad_str = fit_text_width(ad_str, gfx.w - padding * 2)
+                gfx.x = padding
+                gfx.y = ad_y
+                gfx.drawstr(ad_str)
+            end
+            y_cursor = y_cursor + S(20)
+        end
+    end
+    
     y_cursor = y_cursor + S(25)
+
     
     -- Actor Filter (if loaded)
     if UI_STATE.ass_file_loaded then
@@ -14438,13 +14561,33 @@ local function draw_file()
             menu = menu .. "|>Змінити дабера|" .. table.concat(dubber_menu_items, "|") .. "|<"
         end
         
+        -- Add "Словники" submenu from user_dictionaries.json
+        DICT.load() -- refresh from file each time menu opens
+        local dict_count = #DICT.dicts
+        if dict_count > 0 then
+            local dict_menu_items = {}
+            for _, d in ipairs(DICT.dicts) do
+                local prefix = DICT.is_selected(d.id) and "!" or ""
+                -- Escape pipes in names
+                local safe_name = d.name:gsub("|", "\\|")
+                table.insert(dict_menu_items, prefix .. safe_name)
+            end
+            menu = menu .. "||>Словники|" .. table.concat(dict_menu_items, "|") .. "|<"
+        else
+            menu = menu .. "||#Словники (немає словників)"
+        end
+        
         menu = menu .. "||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
         
         -- Mapping logic for dynamic menu
+        -- Fixed items: 1=delete regions, 2=calc replicas, 3=remove accents, 4=dubbers dashboard, 5=deadlines, 6=export SRT, 7=export ASS
         local dubber_count = has_dubbers and #DUBBERS.data.names or 0
+        -- After fixed 7 items come dubber items (if any), then dict items, then dock
+        local dict_start = 7 + dubber_count + (dict_count > 0 and 1 or 0) -- first dict item ret value (1-indexed menu)
+        local dock_ret = dict_start + dict_count + (dict_count > 0 and 0 or 0)
         
         if ret == 1 then
             delete_all_regions()
@@ -14465,7 +14608,16 @@ local function draw_file()
             -- Handle Dubber Selection
             local selected_name = DUBBERS.data.names[ret - 7]
             DUBBERS.select_dubber(selected_name)
-        elseif ret == 8 + dubber_count then
+        elseif dict_count > 0 and ret >= dict_start and ret < dict_start + dict_count then
+            -- Handle Dictionary Toggle (multi-select)
+            local dict_idx = ret - dict_start + 1
+            local selected_dict = DICT.dicts[dict_idx]
+            if selected_dict then
+                DICT.toggle(selected_dict.id)
+                local state = DICT.is_selected(selected_dict.id) and "✓ Увімкнено" or "Вимкнено"
+                show_snackbar(selected_dict.name .. ": " .. state, "info")
+            end
+        elseif ret == dock_ret then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
@@ -14483,9 +14635,6 @@ local function draw_file()
     UI_STATE.target_scroll_y = draw_scrollbar(gfx.w - 10, start_y, 10, avail_h, last_file_h, avail_h, UI_STATE.target_scroll_y)
 end
 
--- =============================================================================
--- UI: PROMPTER TAB (MAIN SUBTITLE DISPLAY)
--- =============================================================================
 -- =============================================================================
 -- KARAOKE MODE HELPERS
 -- =============================================================================
@@ -15488,6 +15637,38 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
         end
         line_spans = new_spans
     end
+
+    -- === DICTIONARY WORD REPLACEMENT ===
+    do
+        local dict_lookup = DICT.get_lookup_table()
+        local has_any = false
+        for _ in pairs(dict_lookup) do has_any = true; break end
+        if has_any then
+            local dict_spans = {}
+            for _, span in ipairs(line_spans) do
+                local segments = get_words_and_separators(span.text)
+                for _, seg in ipairs(segments) do
+                    if seg.is_word then
+                        local entry = dict_lookup[utf8_lower(seg.text):gsub(acute, "")]
+                        if entry then
+                            table.insert(dict_spans, {
+                                text    = entry.replacement,
+                                b=span.b, i=span.i, u=span.u, s=span.s,
+                                comment = entry.comment,
+                                orig_word = seg.text,
+                            })
+                        else
+                            table.insert(dict_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, comment=span.comment, orig_word=span.orig_word})
+                        end
+                    else
+                        table.insert(dict_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, comment=span.comment, orig_word=span.orig_word})
+                    end
+                end
+            end
+            line_spans = dict_spans
+        end
+    end
+    -- === END DICTIONARY WORD REPLACEMENT ===
     
     local total_w, pending_karaoke_comp = 0, 0
     for i, span in ipairs(line_spans) do
@@ -18189,7 +18370,7 @@ local function draw_settings()
 
     -- Footer
     set_color(UI.C_TXT)
-    local footer_txt = "Відкрити: Політику конфіденційності"
+    local footer_txt = "Відкрити 'Політику конфіденційності'"
     s_text(x_start, y_cursor, footer_txt, F.std)
 
     -- Click handler
@@ -21425,9 +21606,11 @@ local function main()
         -- Reset and load
         load_project_data()
         load_session_state(current_project_id)
+        DICT.reload_if_project_changed() -- Reload dict selection for this project
         DEADLINE.project_deadline = nil -- Reset before sync
         DEADLINE.sync_project() -- Synchronize local state with global registry
         DEADLINE.project_deadline = DEADLINE.get()
+
         DUBBERS.load() -- Reload dubber data for this project
         DUBBERS.last_project_id = current_project_id
         
@@ -21530,11 +21713,16 @@ local function main()
             draw_text_editor(input_queue)
         else
             if UI_STATE.current_tab == 1 then 
+                if UI_STATE.last_tab ~= 1 then
+                    DICT.load()
+                end
                 if UI_STATE.inside_window then handle_drag_drop() end
                 draw_file()
             elseif UI_STATE.current_tab == 2 then draw_table(input_queue)
             elseif UI_STATE.current_tab == 3 then draw_prompter(input_queue) 
             elseif UI_STATE.current_tab == 4 then draw_settings() end
+            
+            UI_STATE.last_tab = UI_STATE.current_tab
             
             -- Draw Tabs LAST (Z-Index top)
             draw_tabs()
