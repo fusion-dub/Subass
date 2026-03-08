@@ -18942,7 +18942,7 @@ local function draw_table(input_queue)
     local prev_text = table_filter_state.text
     local filter_placeholder = OTHER.find_replace_state.show 
         and "Фільтр (Текст для заміни)..." 
-        or "Фільтр (Текст, Актор або ID | можна кілька)..."
+        or "Фільтр (Текст, Актор або ID. Умова або ʼ|ʼ, умова та ʼ&ʼ)..."
     ui_text_input(filter_x, filter_y, filter_w - counter_reserve, filter_h, table_filter_state, filter_placeholder, input_queue)
 
     -- Display results count in the top-right corner of filter input
@@ -19400,73 +19400,91 @@ local function draw_table(input_queue)
         local use_case = OTHER.find_replace_state.case_sensitive
         local is_replace_mode = OTHER.find_replace_state.show
         
-        -- Split query by "|" for multi-filter (only when NOT in replace mode)
-        local queries = {}
+        -- Split query by "|" for multi-filter (OR groups)
+        local or_groups = {}
         if not is_replace_mode and query:find("|", 1, true) then
             for part in query:gmatch("[^|]+") do
-                local trimmed = part:match("^%s*(.-)%s*$") -- Trim whitespace
-                if trimmed ~= "" then
-                    table.insert(queries, trimmed)
+                local trimmed = part:match("^%s*(.-)%s*$")
+                if trimmed ~= "" then table.insert(or_groups, trimmed) end
+            end
+        elseif query ~= "" then
+            table.insert(or_groups, query)
+        end
+
+        -- Parse each OR group into sub-queries (AND logic)
+        local queries = {} -- Table of tables: { {and_term1, and_term2}, {or_term2_alone} }
+        for _, group in ipairs(or_groups) do
+            local and_terms = {}
+            if group:find("&", 1, true) then
+                for part in group:gmatch("[^&]+") do
+                    local trimmed = part:match("^%s*(.-)%s*$")
+                    if trimmed ~= "" then table.insert(and_terms, trimmed) end
                 end
+            else
+                table.insert(and_terms, group)
             end
-        else
-            -- Single query mode (replace mode or no pipe separator)
-            if query ~= "" then
-                table.insert(queries, query)
-            end
+            if #and_terms > 0 then table.insert(queries, and_terms) end
         end
 
         for _, line in ipairs(raw_data) do
-            local target_text = line.text or line.name or "" -- Robust text selection
+            local target_text = line.text or line.name or ""
             local any_match = false
             local h_text, h_actor, h_index
             
-            -- If no queries, show all
             if #queries == 0 then
                 any_match = true
             else
-                -- Check each query part (OR logic)
-                for _, q in ipairs(queries) do
-                    local q_lower = utf8_lower(q)
-                    local q_clean = strip_accents(q_lower)
-                    local text_match, actor_match, index_match = false, false, false
+                -- Check each OR group
+                for _, and_group in ipairs(queries) do
+                    local all_and_matched = true
                     
-                    if use_case then
-                        text_match = target_text:find(q, 1, true)
-                        if text_match and not h_text then h_text = {target_text:find(q, 1, true)} end
-                        if show_actor and line.actor then
-                            actor_match = line.actor:find(q, 1, true)
-                            if actor_match and not h_actor then h_actor = {line.actor:find(q, 1, true)} end
-                        end
-                        index_match = tostring(line.index or ""):find(q, 1, true)
-                        if index_match and not h_index then h_index = {tostring(line.index or ""):find(q, 1, true)} end
-                    else
-                        local clean_text = strip_accents(utf8_lower(strip_tags(target_text)))
-                        text_match = clean_text:find(q_clean, 1, true)
-                        if text_match and not h_text then 
-                            local s, e = utf8_find_accent_blind(target_text, q)
-                            if s then h_text = {s, e} end
-                        end
-                        if show_actor and line.actor then
-                            local clean_actor = strip_accents(utf8_lower(line.actor))
-                            actor_match = clean_actor:find(q_clean, 1, true)
-                            if actor_match and not h_actor then
-                                local s, e = utf8_find_accent_blind(line.actor, q)
-                                if s then h_actor = {s, e} end
+                    -- All terms in this group must match (AND logic)
+                    for _, q in ipairs(and_group) do
+                        local q_lower = utf8_lower(q)
+                        local q_clean = strip_accents(q_lower)
+                        local text_match, actor_match, index_match = false, false, false
+                        
+                        if use_case then
+                            text_match = target_text:find(q, 1, true)
+                            if text_match and not h_text then h_text = {target_text:find(q, 1, true)} end
+                            if show_actor and line.actor then
+                                actor_match = line.actor:find(q, 1, true)
+                                if actor_match and not h_actor then h_actor = {line.actor:find(q, 1, true)} end
+                            end
+                            index_match = tostring(line.index or ""):find(q, 1, true)
+                            if index_match and not h_index then h_index = {tostring(line.index or ""):find(q, 1, true)} end
+                        else
+                            local clean_text = strip_accents(utf8_lower(strip_tags(target_text)))
+                            text_match = clean_text:find(q_clean, 1, true)
+                            if text_match and not h_text then 
+                                local s, e = utf8_find_accent_blind(target_text, q)
+                                if s then h_text = {s, e} end
+                            end
+                            if show_actor and line.actor then
+                                local clean_actor = strip_accents(utf8_lower(line.actor))
+                                actor_match = clean_actor:find(q_clean, 1, true)
+                                if actor_match and not h_actor then
+                                    local s, e = utf8_find_accent_blind(line.actor, q)
+                                    if s then h_actor = {s, e} end
+                                end
+                            end
+                            local idx_str = tostring(line.index or "")
+                            index_match = idx_str:lower():find(q_clean, 1, true)
+                            if index_match and not h_index then
+                                local s, e = idx_str:lower():find(q_clean, 1, true)
+                                if s then h_index = {s, e} end
                             end
                         end
-                        local idx_str = tostring(line.index or "")
-                        index_match = idx_str:lower():find(q_clean, 1, true)
-                        if index_match and not h_index then
-                            local s, e = idx_str:lower():find(q_clean, 1, true)
-                            if s then h_index = {s, e} end
+                        
+                        if not (text_match or (not is_replace_mode and (actor_match or index_match))) then
+                            all_and_matched = false
+                            break -- This AND group failed
                         end
                     end
                     
-                    -- Match if text OR (actor/index when not in replace mode)
-                    if text_match or (not is_replace_mode and (actor_match or index_match)) then
+                    if all_and_matched then
                         any_match = true
-                        break -- Found a match, no need to check other queries
+                        break -- Found a matching OR group
                     end
                 end
             end
