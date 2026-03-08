@@ -1528,6 +1528,7 @@ end
 
 -- Helper to open URLs safely (fallback if SWS not installed)
 local UTILS = {}
+
 local global_coroutine = nil
 local global_async_pool = {} -- { { id=str, out_file=str, done_file=str, callback=func } }
 
@@ -6064,6 +6065,31 @@ local function apply_item_coloring(reset)
         show_snackbar("Розфарбовано " .. colored .. " айтемів", "success")
     else
         show_snackbar("Розфарбування скинуто (" .. colored .. ")", "success")
+    end
+end
+
+--- Remove all accent marks for selected actors
+function UTILS.remove_all_acute_for_selected_actors()
+    if not ass_lines or not ass_actors then return end
+    
+    local lines_to_change = {}
+    for _, line in ipairs(ass_lines) do
+        if line.actor and ass_actors[line.actor] == true then
+            if (line.text or ""):find(acute, 1, true) then
+                table.insert(lines_to_change, line)
+            end
+        end
+    end
+    
+    if #lines_to_change > 0 then
+        push_undo("Видалення наголосів (" .. #lines_to_change .. ")")
+        for _, line in ipairs(lines_to_change) do
+            line.text = line.text:gsub(acute, "")
+        end
+        rebuild_regions()
+        show_snackbar("Наголоси видалено (" .. #lines_to_change .. ")", "success")
+    else
+        show_snackbar("Наголосів не знайдено для вибраних акторів", "info")
     end
 end
 
@@ -14256,7 +14282,7 @@ local function draw_file()
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "Видалити ВСІ регіони||Розрахувати репліки по акторам|Відкрити мою Статистику||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS|<"
+        local menu = "|>Особливі дії|Видалити ВСІ регіони||Розрахувати репліки по акторам|Очистити репліки від наголосів|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS|<"
         
         -- Add "Change Dubber" submenu if dubbers exist
         local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
@@ -14282,7 +14308,7 @@ local function draw_file()
         elseif ret == 2 then
             UTILS.calc_track_items_by_actor()
         elseif ret == 3 then
-            UTILS.launch_python_script("stats/subass_stats.py")
+            UTILS.remove_all_acute_for_selected_actors()
         elseif ret == 4 then
             DUBBERS.show_dashboard = true
             DUBBERS.load()
