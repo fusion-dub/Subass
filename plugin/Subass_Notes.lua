@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.4.2
+-- @version 5.5.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.4.2",
+    script_title = "Subass Notes v5.5.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -1800,84 +1800,6 @@ function UTILS.get_win_py_exe(py_exe)
     return py_exe
 end
 
---- Підготовка даних для експорту субтитрів (фільтрація, сортування, генерація імені файлу)
---- @param ext string Розширення файлу (напр. ".srt", ".ass")
---- @return table|nil, string|nil Список реплік та запропоноване ім'я файлу (або nil у разі переривання)
-function UTILS.prepare_export_data(ext)
-    if not reaper.JS_Dialog_BrowseForSaveFile then
-        local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
-        if not has_reapack then
-            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
-        else
-            msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
-        end
-        reaper.MB(msg, "Відсутні компоненти", 0)
-        return nil, nil
-    end
-
-    -- Filter enabled lines
-    local out_lines = {}
-    local selected_actors = {}
-    
-    for _, l in ipairs(ass_lines) do
-        if l.enabled then
-            table.insert(out_lines, l)
-            if l.actor and l.actor ~= "" then
-                selected_actors[l.actor] = true
-            end
-        end
-    end
-
-    table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
-
-    if #out_lines == 0 then
-        show_snackbar("Немає активних реплік для експорту", "info")
-        return nil, nil
-    end
-
-    -- Construct filename
-    local _, proj_path = reaper.EnumProjects(-1)
-    local proj_name = "Project"
-    if proj_path and proj_path ~= "" then
-        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
-    end
-
-    local actors_list = {}
-    for act in pairs(selected_actors) do
-        table.insert(actors_list, act)
-    end
-    table.sort(actors_list)
-    
-    local total_actors = 0
-    for _ in pairs(ass_actors) do total_actors = total_actors + 1 end
-    
-    local suffix = ""
-    if #actors_list > 0 and #actors_list < total_actors then
-        -- Limit to first 100 actors to avoid super long filenames
-        local limit = 100
-        local parts = {}
-        for i = 1, math.min(#actors_list, limit) do
-            table.insert(parts, actors_list[i])
-        end
-        suffix = "_" .. table.concat(parts, "_")
-        if #actors_list > limit then
-            suffix = suffix .. "_etc"
-        end
-    else
-        suffix = "_All"
-    end
-    
-    -- Clean filename chars (Sanitize illegal chars, allow unicode)
-    suffix = suffix:gsub("[<>:\"/\\|?*]", "_")
-    
-    local total_replicas, total_words = UTILS.calculate_lines_stats(out_lines)
-    local stats_suffix = string.format("_%d_реплік_%d_слів", total_replicas, total_words)
-    
-    local default_filename = proj_name .. suffix .. stats_suffix .. ext
-    
-    return out_lines, default_filename
-end
-
 --- Draw a vertical scrollbar with drag interaction
 --- @param x number X position
 --- @param y number Y position
@@ -2482,6 +2404,84 @@ local function draw_snackbar()
     gfx.x = snack_x + padding
     gfx.y = snack_y + padding / 2
     gfx.drawstr(UI_STATE.snackbar_state.text)
+end
+
+--- Підготовка даних для експорту субтитрів (фільтрація, сортування, генерація імені файлу)
+--- @param ext string Розширення файлу (напр. ".srt", ".ass")
+--- @return table|nil, string|nil Список реплік та запропоноване ім'я файлу (або nil у разі переривання)
+function UTILS.prepare_export_data(ext)
+    if not reaper.JS_Dialog_BrowseForSaveFile then
+        local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
+        if not has_reapack then
+            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
+        else
+            msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
+        end
+        reaper.MB(msg, "Відсутні компоненти", 0)
+        return nil, nil
+    end
+
+    -- Filter enabled lines
+    local out_lines = {}
+    local selected_actors = {}
+    
+    for _, l in ipairs(ass_lines) do
+        if l.enabled then
+            table.insert(out_lines, l)
+            if l.actor and l.actor ~= "" then
+                selected_actors[l.actor] = true
+            end
+        end
+    end
+
+    table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
+
+    if #out_lines == 0 then
+        show_snackbar("Немає активних реплік для експорту", "info")
+        return nil, nil
+    end
+
+    -- Construct filename
+    local _, proj_path = reaper.EnumProjects(-1)
+    local proj_name = "Project"
+    if proj_path and proj_path ~= "" then
+        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
+    end
+
+    local actors_list = {}
+    for act in pairs(selected_actors) do
+        table.insert(actors_list, act)
+    end
+    table.sort(actors_list)
+    
+    local total_actors = 0
+    for _ in pairs(ass_actors) do total_actors = total_actors + 1 end
+    
+    local suffix = ""
+    if #actors_list > 0 and #actors_list < total_actors then
+        -- Limit to first 100 actors to avoid super long filenames
+        local limit = 100
+        local parts = {}
+        for i = 1, math.min(#actors_list, limit) do
+            table.insert(parts, actors_list[i])
+        end
+        suffix = "_" .. table.concat(parts, "_")
+        if #actors_list > limit then
+            suffix = suffix .. "_etc"
+        end
+    else
+        suffix = "_All"
+    end
+    
+    -- Clean filename chars (Sanitize illegal chars, allow unicode)
+    suffix = suffix:gsub("[<>:\"/\\|?*]", "_")
+    
+    local total_replicas, total_words = UTILS.calculate_lines_stats(out_lines)
+    local stats_suffix = string.format("_%d_реплік_%d_слів", total_replicas, total_words)
+    
+    local default_filename = proj_name .. suffix .. stats_suffix .. ext
+    
+    return out_lines, default_filename
 end
 
 -- ═══════════════════════════════════════════════════════════════
@@ -20099,9 +20099,7 @@ local function draw_table(input_queue)
                             end
                         end
                     end
-                end
-            -- Fixed duplicate block logic
-                    
+                end     
             elseif (gfx.mouse_cap & 2 == 2) and (UI_STATE.last_mouse_cap & 2 == 0) and not mouse_in_menu then
                 -- Right Click on Row (with safety check)
                 if gfx.mouse_x < avail_w and
@@ -20136,15 +20134,24 @@ local function draw_table(input_queue)
                     -- If only markers are selected
                     if ass_count == 0 and marker_count > 0 then
                         if marker_count == 1 then
-                            menu_str = "Видалити правку"
+                            menu_str = "Копіювати початковий час||Видалити правку"
                         else
                             menu_str = "Видалити правки"
                         end
                         
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                         local ret = gfx.showmenu(menu_str)
-                        if ret == 1 then
-                            delete_logic()
+                        if marker_count == 1 then
+                            if ret == 1 then
+                                set_clipboard(line.t1_str)
+                                show_snackbar("Скопійовано: " .. line.t1_str, "info")
+                            elseif ret == 2 then
+                                delete_logic()
+                            end
+                        else
+                            if ret == 1 then
+                                delete_logic()
+                            end
                         end
 
                     -- Mixed Selection (Markers + ASS lines)
@@ -20172,11 +20179,14 @@ local function draw_table(input_queue)
                         table.insert(menu_items, "<")
                         
                         local has_merge = #sel_indices > 1 and #sel_indices <= 5
+                        local has_single = #sel_indices == 1
+                        
                         if has_merge then
                             table.insert(menu_items, "Об'єднати репліки в одну")
                         end
                         
-                        if #sel_indices == 1 then
+                        if has_single then
+                            table.insert(menu_items, "Копіювати початковий час")
                             table.insert(menu_items, "Продублювати репліку")
                             table.insert(menu_items, "|Видалити репліку")
                         else
@@ -20265,17 +20275,17 @@ local function draw_table(input_queue)
                                 last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
                                 show_snackbar("Репліки об'єднано (" .. #selected_entries .. ")", "success")
                             end
-                        elseif (has_merge and ret == rename_end_idx + 2) or (not has_merge and ret == rename_end_idx + 1) then
-                            -- Duplicate or Delete Selected Replicas
-                            if #sel_indices == 1 and ret == rename_end_idx + 1 then
-                                -- Duplicate Logic
+                        elseif has_single then
+                            if ret == rename_end_idx + 1 then
+                                set_clipboard(line.t1_str)
+                                show_snackbar("Скопійовано: " .. line.t1_str, "info")
+                            elseif ret == rename_end_idx + 2 then
                                 duplicate_logic(sel_indices[1])
-                            else
-                                -- Delete Logic
+                            elseif ret == rename_end_idx + 3 then
                                 delete_logic()
                             end
-                        elseif (has_merge and ret == rename_end_idx + 3) or (not has_merge and ret == rename_end_idx + 2) then
-                            -- Delete Selected Replicas (if it was offset by Duplicate)
+                        elseif (has_merge and ret == rename_end_idx + 2) or (not has_merge and ret == rename_end_idx + 1) then
+                            -- Delete Selected Replicas
                             delete_logic()
                         end
                     end -- End of selection type check
