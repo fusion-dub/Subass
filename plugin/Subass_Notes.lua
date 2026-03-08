@@ -7218,7 +7218,25 @@ function DUBBERS.export_as_ass(deadline_str)
         proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
     end
     
-    local default_filename = proj_name .. "_Distribution.ass"
+    -- Construct dictionary metadata & get names
+    local active_dicts = {}
+    local active_dict_names = {}
+    if DICT and DICT.dicts then
+        for _, d in ipairs(DICT.dicts) do
+            if DICT.is_selected(d.id) then
+                table.insert(active_dicts, d)
+                table.insert(active_dict_names, d.name)
+            end
+        end
+    end
+    local json_dicts = (#active_dicts > 0) and STATS.json_encode({ dicts = active_dicts }) or nil
+    
+    local default_filename = proj_name .. "_Distribution"
+    if #active_dict_names > 0 then
+        default_filename = default_filename .. "_" .. table.concat(active_dict_names, "_")
+    end
+    default_filename = default_filename .. ".ass"
+    
     if deadline_str then
         default_filename = deadline_str .. " " .. default_filename
     end
@@ -7291,6 +7309,11 @@ function DUBBERS.export_as_ass(deadline_str)
                     file:write(format_dialogue({
                         t1 = 0, t2 = 0, actor = "SubassMetadata", text = json_meta, enabled = true
                     }) .. "\n")
+                    if json_dicts then
+                        file:write(format_dialogue({
+                            t1 = 0, t2 = 0, actor = "SubassDict", text = json_dicts, enabled = true
+                        }) .. "\n")
+                    end
                     
                     local out_lines = {}
                     for _, l in ipairs(ass_lines) do table.insert(out_lines, l) end
@@ -7309,6 +7332,9 @@ function DUBBERS.export_as_ass(deadline_str)
             file:write("Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
             file:write("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
             file:write(string.format("Dialogue: 0,0:00:00.00,0:00:00.00,Default,SubassMetadata,0,0,0,,%s\n", json_meta))
+            if json_dicts then
+                file:write(string.format("Dialogue: 0,0:00:00.00,0:00:00.00,Default,SubassDict,0,0,0,,%s\n", json_dicts))
+            end
             
             local out_lines = {}
             for _, l in ipairs(ass_lines) do table.insert(out_lines, l) end
@@ -8119,6 +8145,25 @@ local function export_as_ass()
     local out_lines, default_filename = UTILS.prepare_export_data(".ass")
     if not out_lines then return end
 
+    -- Construct dictionary metadata & get names
+    local active_dicts = {}
+    local active_dict_names = {}
+    if DICT and DICT.dicts then
+        for _, d in ipairs(DICT.dicts) do
+            if DICT.is_selected(d.id) then
+                table.insert(active_dicts, d)
+                table.insert(active_dict_names, d.name)
+            end
+        end
+    end
+    local json_dicts = (#active_dicts > 0) and STATS.json_encode({ dicts = active_dicts }) or nil
+    
+    if #active_dict_names > 0 then
+        -- Insert dictionary names before the .ass extension
+        local base = default_filename:gsub("%.ass$", "")
+        default_filename = base .. "_" .. table.concat(active_dict_names, "_") .. ".ass"
+    end
+
     -- Save Dialog
     local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Експорт в ASS", "", default_filename, "ASS files (.ass)\0*.ass\0All Files (*.*)\0*.*\0")
     
@@ -8181,9 +8226,11 @@ local function export_as_ass()
                 end
                 
                 if section_name == "Events" then
-                    -- Normal Export doesn't usually need the SubassMetadata line unless we want to persist assignments
-                    -- But let's keep it consistent if it was there
-                    -- For now, just write dialogues
+                    if json_dicts then
+                        file:write(format_dialogue({
+                            t1 = 0, t2 = 0, actor = "SubassDict", text = json_dicts, enabled = true
+                        }) .. "\n")
+                    end
                     for _, l in ipairs(out_lines) do
                         file:write(format_dialogue(l) .. "\n")
                     end
@@ -8195,6 +8242,9 @@ local function export_as_ass()
             file:write("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
             file:write("Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
             file:write("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+            if json_dicts then
+                file:write(string.format("Dialogue: 0,0:00:00.00,0:00:00.00,Default,SubassDict,0,0,0,,%s\n", json_dicts))
+            end
             for _, l in ipairs(out_lines) do
                 file:write(format_dialogue(l) .. "\n")
             end
@@ -8774,6 +8824,73 @@ local function import_ass(file_path, dont_rebuild)
                     local chosen = dubber_names[ret - 1]
                     selected_dubber_actors = assignments[chosen] or {}
                     show_snackbar("Режим дабера: " .. chosen, "info")
+                end
+            end
+        end
+    end
+
+    -- Dictionary metadata detection
+    local dict_str = content:match("Dialogue:[^,]+,[^,]+,[^,]+,[^,]+,SubassDict,[^,]+,[^,]+,[^,]+,,([^\n]+)")
+    if dict_str then
+        dict_str = dict_str:gsub("\\N", "\n"):gsub("\\n", "\n")
+        local success, imported_payload = pcall(function() return STATS.json_decode(dict_str) end)
+        if success and type(imported_payload) == "table" then
+            local imported_dicts = imported_payload.dicts or imported_payload
+            if type(imported_dicts) == "table" and #imported_dicts > 0 then
+                -- Load existing dictionaries
+                local script_path = ({reaper.get_action_context()})[2]
+                local base_dir = script_path:match("^(.*[\\/])") or ""
+                local dict_file = base_dir .. "dictionary/data/user_dictionaries.json"
+                
+                local existing_data = { dictionaries = {} }
+                local f = io.open(dict_file, "r")
+                if f then
+                    local fc = f:read("*a")
+                    f:close()
+                    local dec = STATS.json_decode(fc)
+                    if type(dec) == "table" and type(dec.dictionaries) == "table" then
+                        existing_data = dec
+                    end
+                end
+                
+                -- Merge imported dicts into existing
+                local existing_map = {}
+                for i, d in ipairs(existing_data.dictionaries) do
+                    if d.id then existing_map[d.id] = i end
+                end
+                
+                local imported_ids = {}
+                local modified = false
+                for _, imp_d in ipairs(imported_dicts) do
+                    if type(imp_d) == "table" and imp_d.id and imp_d.name then
+                        table.insert(imported_ids, imp_d.id)
+                        if existing_map[imp_d.id] then
+                            -- Replace existing with imported
+                            existing_data.dictionaries[existing_map[imp_d.id]] = imp_d
+                        else
+                            -- Add new
+                            table.insert(existing_data.dictionaries, imp_d)
+                        end
+                        modified = true
+                    end
+                end
+                
+                if modified then
+                    local fw = io.open(dict_file, "w")
+                    if fw then
+                        fw:write(STATS.json_encode(existing_data))
+                        fw:close()
+                    end
+                end
+                
+                -- Activate imported dictionaries
+                if DICT then
+                    for _, id in ipairs(imported_ids) do
+                        DICT.selected_ids[id] = true
+                    end
+                    DICT.save_selected()
+                    DICT.load()
+                    show_snackbar("Імпортовано та активовано словників: " .. #imported_ids, "success")
                 end
             end
         end
@@ -14570,8 +14687,8 @@ local function draw_file()
             local dict_menu_items = {}
             for _, d in ipairs(DICT.dicts) do
                 local prefix = DICT.is_selected(d.id) and "!" or ""
-                -- Escape pipes in names
-                local safe_name = d.name:gsub("|", "\\|")
+                -- Visually replace pipes in names for menu display (since | is the separator)
+                local safe_name = d.name:gsub("|", "¦")
                 table.insert(dict_menu_items, prefix .. safe_name)
             end
             menu = menu .. "||>Словники|" .. table.concat(dict_menu_items, "|") .. "|<"
