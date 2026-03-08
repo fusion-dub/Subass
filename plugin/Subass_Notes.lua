@@ -3897,6 +3897,7 @@ function DICT.save_selected()
     local ids = {}
     for id in pairs(DICT.selected_ids) do table.insert(ids, id) end
     reaper.SetProjExtState(0, section_name, "selected_dict_ids", STATS.json_encode(ids))
+    reaper.SetProjExtState(0, section_name, "dict_last_update", tostring(reaper.time_precise()))
 end
 
 function DICT.is_selected(id)
@@ -3932,6 +3933,7 @@ function DICT.load()
             end
         end
     end
+    reaper.SetProjExtState(0, section_name, "dict_last_update", tostring(reaper.time_precise()))
 end
 DICT.load() -- populate dicts at startup
 
