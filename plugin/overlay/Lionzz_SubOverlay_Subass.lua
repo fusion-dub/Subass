@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.2.1
+-- @version 0.2.2
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -2038,6 +2038,7 @@ local function get_current_and_next_items(track)
     local last_overlapping_idx = 0
     local found_overlap = false
     
+    local overlapping_items = {}
     for i, item in ipairs(items_table) do
         if pos >= item.start and pos < item.stop then
             local i_name = item.name
@@ -2045,6 +2046,7 @@ local function get_current_and_next_items(track)
                 i_name = format_actor_string(i_name, item.start, item.stop, nil)
             end
             table.insert(current_list, i_name)
+            table.insert(overlapping_items, item)
             if not start_pos then start_pos = item.start end
             stop_pos = item.stop
             last_overlapping_idx = i
@@ -2072,7 +2074,13 @@ local function get_current_and_next_items(track)
                 next_item2 = ni2_name
             end
         end
-        return current, next_item, start_pos, stop_pos, next_item2, 0, 0, {}
+
+        local current_ids = {} 
+        for _, item in ipairs(overlapping_items or {}) do 
+            -- Store item pointer as string key for stable lookup
+            current_ids[tostring(item.it)] = true 
+        end
+        return current, next_item, start_pos, stop_pos, next_item2, 0, 0, current_ids
     end
 
     -- Fallback / Gap logic
@@ -2108,7 +2116,9 @@ local function get_current_and_next_items(track)
                 next_item2 = ni2_name
             end
         end
-        return current, next_item, items_table[nearest_idx].start, items_table[nearest_idx].stop, next_item2, 0, 0, {}
+        local current_ids = {}
+        if items_table[nearest_idx] then current_ids[tostring(items_table[nearest_idx].it)] = true end
+        return current, next_item, items_table[nearest_idx].start, items_table[nearest_idx].stop, next_item2, 0, 0, current_ids
     end
 
     if always_show_next then
@@ -2500,17 +2510,20 @@ local function loop()
             end
             
             if #overlapping_lines > 0 then
-                local oact_key = context_ids .. tostring(DICT.last_update_ts) .. tostring(show_assimilation)
+                local context_entries = {}
+                for _, l in ipairs(overlapping_lines) do
+                    local meta = string.format("{\\meta_t1:%.3f\\meta_t2:%.3f\\meta_id:%d}", l.t1, l.t2, l.rgn_idx or -1)
+                    local entry = (show_actor_name and l.actor ~= "") and (meta .. "{\\alpha:128}[" .. l.actor .. "]{\\alpha:255} " .. l.text) or (meta .. l.text)
+                    table.insert(context_entries, entry)
+                end
+                local full_text = table.concat(context_entries, "\n")
+                
+                -- CACHE KEY: Must include full text content to detect changes!
+                local oact_key = full_text .. tostring(DICT.last_update_ts) .. tostring(show_assimilation)
+                
                 if token_cache.oact.key == oact_key then
                     other_actors_tokens = token_cache.oact.tokens
                 else
-                    local context_entries = {}
-                    for _, l in ipairs(overlapping_lines) do
-                        local meta = string.format("{\\meta_t1:%.3f\\meta_t2:%.3f\\meta_id:%d}", l.t1, l.t2, l.rgn_idx or -1)
-                        local entry = (show_actor_name and l.actor ~= "") and (meta .. "{\\alpha:128}[" .. l.actor .. "]{\\alpha:255} " .. l.text) or (meta .. l.text)
-                        table.insert(context_entries, entry)
-                    end
-                    local full_text = table.concat(context_entries, "\n")
                     other_actors_tokens = parse_to_tokens(full_text)
                     other_actors_tokens = process_dictionary_tokens(other_actors_tokens)
                     if show_assimilation then other_actors_tokens = process_assimilation_tokens(other_actors_tokens) end
