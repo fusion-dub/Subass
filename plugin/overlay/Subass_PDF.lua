@@ -595,6 +595,16 @@ local function process_pdf(pdf_file)
     end
     
     local pdf_name = pdf_file:match("([^/\\]+)$") or "temp_doc"
+    
+    -- Warning for Word files
+    local ext = pdf_file:match("%.([^%.]+)$")
+    if ext then
+        ext = ext:lower()
+        if ext == "doc" or ext == "docx" then
+            reaper.MB("Плагін може не розпізнати цей файл, рекомендуємо вручну конвертувати його в PDF", "Попередження", 0)
+        end
+    end
+    
     local output_dir = prj_cache .. "/" .. pdf_name
     reaper.RecursiveCreateDirectory(output_dir, 0)
     
