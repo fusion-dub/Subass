@@ -2335,6 +2335,9 @@ local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
     local force_close = reaper.GetExtState("Subass_Global", "ForceCloseComplementary")
     if force_close == "1" or force_close == "Lionzz_SubOverlay_Subass.lua" then 
+        if force_close == "Lionzz_SubOverlay_Subass.lua" then
+            reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
+        end
         win_open = false
     end
     reaper.ImGui_PushFont(ctx, ui_font, UI_FONT_SCALE)
@@ -2393,7 +2396,7 @@ local function loop()
     end
 
     local visible, open = reaper.ImGui_Begin(ctx, "SubOverlay", win_open, window_flags)
-    win_open = open
+    if not open then win_open = false end
 
     if visible then
         local new_win_w, new_win_h = reaper.ImGui_GetWindowSize(ctx)
