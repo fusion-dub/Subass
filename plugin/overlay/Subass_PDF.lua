@@ -861,7 +861,8 @@ local function draw_gui()
     reaper.ImGui_SetNextWindowSize(ctx, 600, 800, reaper.ImGui_Cond_FirstUseEver())
     
     push_theme(ctx)
-    local visible, open = reaper.ImGui_Begin(ctx, 'Subass PDF Reader', true)
+    local visible, open = reaper.ImGui_Begin(ctx, 'Subass PDF Reader', STATE.window_open)
+    if not open then STATE.window_open = false end
     
     if visible then
         local doc = get_active_doc()
@@ -1172,6 +1173,9 @@ local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
     local force_close = reaper.GetExtState("Subass_Global", "ForceCloseComplementary")
     if force_close == "1" or force_close == "Subass_PDF.lua" then 
+        if force_close == "Subass_PDF.lua" then
+            reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
+        end
         STATE.window_open = false
     end
     -- Check for project tab switch
