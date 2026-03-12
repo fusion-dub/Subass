@@ -1,5 +1,5 @@
 -- @description Notepad від imnotbad
--- @version 1.2
+-- @version 1.1
 -- @author imnotbad
 
 --==============================================================
@@ -1608,7 +1608,7 @@ local function loop()
     local flags = reaper.ImGui_WindowFlags_MenuBar()
         | reaper.ImGui_WindowFlags_NoCollapse()
 
-    local visible, open = reaper.ImGui_Begin(ctx, "Notepad v1.2", notepad_open, flags)
+    local visible, open = reaper.ImGui_Begin(ctx, "Notepad v1.1", notepad_open, flags)
     if not open then notepad_open = false end
 
     if visible then
