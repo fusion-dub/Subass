@@ -1,5 +1,5 @@
 -- @description Subass PDF Reader (ReaImGui PDF Module)
--- @version 1.1
+-- @version 1.2
 -- @author Fusion (Fusion Dub)
 -- @about Displays PDF pages in REAPER with interactive metadata. Requires ReaImGui and Python with PyMuPDF.
 
@@ -137,30 +137,140 @@ local function pop_theme(ctx)
 end
 
 local STATE = {
-    pdf_path = "",
-    cache_dir = "",
-    metadata = nil,
-    current_page = 1,
-    textures = {},
+    documents = {}, -- List of {pdf_name, metadata, cache_dir, current_page, textures, zoom, last_scroll_y}
+    active_doc_idx = 0,
+    
     is_loading = false,
     status_msg = "Готово",
     window_open = true,
     show_debug_boxes = false,
     async_pool = {},
-    zoom = 1.0,
     current_proj = nil,
     search_open = false,
     search_text = "",
     search_results = {},
     search_index = 0,
     scroll_to_search = false,
+    scroll_to_search_target = nil,
+    
+    context_item = nil,
+    context_doc = nil,
+    trigger_context_menu = false,
     notes_cmd_id = nil,
-    async_pool = {}
 }
 
 -- =============================================================================
 -- UTILS
 -- =============================================================================
+
+local function truncate_text(text, max_len)
+    if not text then return "" end
+    if #text <= max_len then return text end
+    
+    local name = text:match("(.*)%.") or text
+    local ext = text:match("%.([^%.]+)$") or ""
+    if ext ~= "" then ext = "." .. ext end
+    
+    local available_for_name = max_len - #ext - 3 -- 3 for "..."
+    if available_for_name < 3 then 
+        -- If extension is too long or name is too short, just do simple truncation
+        return text:sub(1, max_len - 3) .. "..."
+    end
+    
+    local truncated_name = name:sub(1, available_for_name)
+    -- Simple UTF-8 aware truncation
+    while #truncated_name > 0 and (truncated_name:byte(-1) >= 128 and truncated_name:byte(-1) < 192) do
+        truncated_name = truncated_name:sub(1, -2)
+    end
+    
+    return truncated_name .. "..." .. ext
+end
+
+local function unload_textures(textures)
+    if not textures then return end
+    for _, tex in pairs(textures) do
+        if reaper.ImGui_Detach then pcall(reaper.ImGui_Detach, ctx, tex) end
+        if reaper.ImGui_DeleteTexture then pcall(reaper.ImGui_DeleteTexture, tex) end
+    end
+end
+
+local function get_active_doc()
+    if STATE.active_doc_idx > 0 and STATE.documents[STATE.active_doc_idx] then
+        return STATE.documents[STATE.active_doc_idx]
+    end
+    return nil
+end
+
+local function simple_json_encode(v)
+    if type(v) == "string" then
+        return '"' .. v:gsub('"', '\\"') .. '"'
+    elseif type(v) == "number" or type(v) == "boolean" then
+        return tostring(v)
+    elseif type(v) == "table" then
+        local is_array = #v > 0
+        local parts = {}
+        if is_array then
+            for _, item in ipairs(v) do
+                table.insert(parts, simple_json_encode(item))
+            end
+            return "[" .. table.concat(parts, ",") .. "]"
+        else
+            for k, val in pairs(v) do
+                table.insert(parts, string.format('"%s":%s', k, simple_json_encode(val)))
+            end
+            return "{" .. table.concat(parts, ",") .. "}"
+        end
+    end
+    return "null"
+end
+
+local function save_project_state(proj)
+    proj = proj or 0
+    local docs_to_save = {}
+    for _, doc in ipairs(STATE.documents) do
+        table.insert(docs_to_save, {
+            pdf_name = doc.pdf_name,
+            current_page = doc.current_page,
+            zoom = doc.zoom,
+            scroll_y = doc.scroll_y or 0,
+            search_text = doc.search_text or "",
+            search_index = doc.search_index or 0,
+            search_open = doc.search_open or false
+        })
+    end
+    
+    local history = simple_json_encode(docs_to_save)
+    reaper.SetProjExtState(proj, "Subass_PDF", "doc_history", history)
+    
+    local active = get_active_doc()
+    reaper.SetProjExtState(proj, "Subass_PDF", "last_pdf", active and active.pdf_name or "")
+end
+
+
+local function switch_to_document(idx)
+    if idx == STATE.active_doc_idx then return end
+    
+    -- Save current scroll before switching (captured continuously in draw_gui)
+    local current = get_active_doc()
+    if current then
+        unload_textures(current.textures)
+        current.textures = {}
+    end
+    
+    STATE.active_doc_idx = idx
+    local new_doc = get_active_doc()
+    if new_doc then
+        STATE.status_msg = "Переключено на: " .. new_doc.pdf_name
+        new_doc.needs_scroll_restore = 20 -- Retry restoration for 20 frames
+        
+        -- Trigger search re-calculation if search was open
+        if new_doc.search_open and new_doc.search_text ~= "" and (not new_doc.search_results or #new_doc.search_results == 0) then
+            perform_search(new_doc)
+        end
+
+        save_project_state()
+    end
+end
 
 local function get_notes_cmd_id()
     if STATE.notes_cmd_id then return STATE.notes_cmd_id end
@@ -340,10 +450,20 @@ local function parse_url(str)
     return nil
 end
 
-local function perform_search()
-    STATE.search_results = {}
-    STATE.search_index = 0
-    if not STATE.search_text or STATE.search_text == "" then return end
+local function scroll_to_search(search_result)
+    if search_result then
+        STATE.scroll_to_search = true
+        STATE.scroll_to_search_target = search_result
+    end
+end
+
+local function perform_search(doc)
+    doc = doc or get_active_doc()
+    if not doc or not doc.metadata then return end
+
+    doc.search_results = {}
+    doc.search_index = 0
+    if not doc.search_text or doc.search_text == "" then return end
 
     local upper_to_lower = {
         ["А"]="а",["Б"]="б",["В"]="в",["Г"]="г",["Ґ"]="ґ",["Д"]="д",["Е"]="е",["Є"]="є",
@@ -359,8 +479,8 @@ local function perform_search()
         end))
     end
 
-    local query = lower_unicode(STATE.search_text)
-    for p_idx, page in ipairs(STATE.metadata.pages) do
+    local query = lower_unicode(doc.search_text)
+    for p_idx, page in ipairs(doc.metadata.pages) do
         local items = page.items or {}
         local full_text = ""
         local item_starts = {}
@@ -391,37 +511,73 @@ local function perform_search()
             end
 
             if start_item and end_item then
-                table.insert(STATE.search_results, {
+                table.insert(doc.search_results, {
                     page = p_idx,
-                    start_item = start_item,
-                    end_item = end_item,
-                    item = start_item
+                    items = {start_item, end_item}
                 })
             end
             search_pos = e + 1
         end
     end
 
-    if #STATE.search_results > 0 then
-        STATE.search_index = 1
-        STATE.scroll_to_search = true
+    local res_count = #doc.search_results
+    if res_count > 0 then
+        doc.search_index = 1
+        scroll_to_search(doc.search_results[1])
     end
 end
 
 -- =============================================================================
 -- PDF ENGINE & CACHE
 -- =============================================================================
-local function load_metadata(output_dir, pdf_name)
+local function load_metadata(output_dir, pdf_name, saved_state, no_switch)
     local f = io.open(output_dir .. "/metadata.json", "r")
     if f then
-        STATE.metadata = json_decode(f:read("*all"))
+        local meta = json_decode(f:read("*all"))
         f:close()
-        STATE.cache_dir = output_dir
-        STATE.status_msg = "Завантажено: " .. pdf_name
-        STATE.current_page = 1
         
-        -- Save to project state so it auto-loads next time
-        reaper.SetProjExtState(0, "Subass_PDF", "last_pdf", pdf_name)
+        -- Check if document already exists in history
+        local existing_idx = 0
+        for i, d in ipairs(STATE.documents) do
+            if d.pdf_name == pdf_name then existing_idx = i; break end
+        end
+        
+        local doc_data = {
+            pdf_name = pdf_name,
+            metadata = meta,
+            cache_dir = output_dir,
+            current_page = saved_state and saved_state.current_page or 1,
+            textures = {},
+            zoom = saved_state and saved_state.zoom or 1.0,
+            scroll_y = saved_state and saved_state.scroll_y or 0,
+            needs_scroll_restore = (saved_state and saved_state.scroll_y and saved_state.scroll_y > 0) and 20 or 0,
+            skip_scroll_capture = 0,
+            search_text = saved_state and saved_state.search_text or "",
+            search_index = saved_state and saved_state.search_index or 0,
+            search_open = saved_state and saved_state.search_open or false,
+            search_results = {}
+        }
+        
+        if doc_data.search_open and doc_data.search_text ~= "" then
+            perform_search(doc_data)
+            if saved_state and saved_state.search_index then
+                doc_data.search_index = math.min(saved_state.search_index, #doc_data.search_results)
+            end
+        end
+        
+        if existing_idx > 0 then
+            -- Update existing
+            unload_textures(STATE.documents[existing_idx].textures)
+            STATE.documents[existing_idx] = doc_data
+            if not no_switch then switch_to_document(existing_idx) end
+        else
+            -- Add new
+            table.insert(STATE.documents, doc_data)
+            if not no_switch then switch_to_document(#STATE.documents) end
+        end
+        
+        if not no_switch then save_project_state() end
+        STATE.status_msg = "Завантажено: " .. pdf_name
         return true
     end
     return false
@@ -438,14 +594,7 @@ local function process_pdf(pdf_file)
         return
     end
     
-    -- Clear old textures safely
-    for _, tex in pairs(STATE.textures) do 
-        if reaper.ImGui_Detach then pcall(reaper.ImGui_Detach, ctx, tex) end
-        if reaper.ImGui_DeleteTexture then pcall(reaper.ImGui_DeleteTexture, tex) end
-    end
-    STATE.textures = {}
-    
-    local pdf_name = pdf_file:match("([^/\\]+)%.[^%.]+$") or "temp_doc"
+    local pdf_name = pdf_file:match("([^/\\]+)$") or "temp_doc"
     local output_dir = prj_cache .. "/" .. pdf_name
     reaper.RecursiveCreateDirectory(output_dir, 0)
     
@@ -475,9 +624,10 @@ end
 -- =============================================================================
 -- DRAWING
 -- =============================================================================
-local function draw_page(page_index, page_data, avail_w)
-    local tex_path = STATE.cache_dir .. "/" .. page_data.image
-    local tex = STATE.textures[page_index]
+local function draw_page(page_index, page_data, avail_w, doc)
+    if not doc then return end
+    local tex_path = doc.cache_dir .. "/" .. page_data.image
+    local tex = doc.textures[page_index]
     
     local tw, th = page_data.width * 2, page_data.height * 2
     if tex and reaper.ImGui_Image_GetSize then
@@ -486,7 +636,7 @@ local function draw_page(page_index, page_data, avail_w)
     end
     
     local padding = 0
-    local scale = ((avail_w - padding * 2) / (page_data.width or tw/2)) * STATE.zoom
+    local scale = ((avail_w - padding * 2) / (page_data.width or tw/2)) * doc.zoom
     local draw_w = (page_data.width or tw/2) * scale
     local draw_h = (page_data.height or th/2) * scale
     
@@ -497,18 +647,20 @@ local function draw_page(page_index, page_data, avail_w)
     local view_center = scroll_y + (win_h / 2)
     
     if view_center >= cursor_y and view_center <= (cursor_y + draw_h) then
-        STATE.current_page = page_index
+        doc.current_page = page_index
     end
     
     -- Handle scrolling to search result even if page is off-screen
-    if STATE.scroll_to_search and STATE.search_open and #STATE.search_results > 0 then
-        local active_res = STATE.search_results[STATE.search_index]
-        if active_res and active_res.page == page_index then
-            local item = page_data.items and page_data.items[active_res.item]
+    if STATE.scroll_to_search and STATE.scroll_to_search_target then
+        local active_res = STATE.scroll_to_search_target
+        if active_res.page == page_index then
+            local item_idx = active_res.items and active_res.items[1] or 1
+            local item = page_data.items and page_data.items[item_idx]
             if item then
                 local target_y = cursor_y + (item.y * scale)
                 reaper.ImGui_SetScrollY(ctx, target_y - (win_h / 2))
                 STATE.scroll_to_search = false
+                STATE.scroll_to_search_target = nil
             end
         end
     end
@@ -518,9 +670,8 @@ local function draw_page(page_index, page_data, avail_w)
         reaper.ImGui_Dummy(ctx, draw_w, draw_h)
         -- Unload texture if it goes out of view to save memory
         if tex then
-            if reaper.ImGui_Detach then pcall(reaper.ImGui_Detach, ctx, tex) end
-            if reaper.ImGui_DeleteTexture then pcall(reaper.ImGui_DeleteTexture, tex) end
-            STATE.textures[page_index] = nil
+            unload_textures({tex})
+            doc.textures[page_index] = nil
         end
         return
     end
@@ -531,20 +682,20 @@ local function draw_page(page_index, page_data, avail_w)
                 -- ReaImGui 0.9+ API
                 local img = reaper.ImGui_CreateImage(tex_path)
                 if reaper.ImGui_Attach then reaper.ImGui_Attach(ctx, img) end
-                STATE.textures[page_index] = img
+                doc.textures[page_index] = img
             elseif reaper.ImGui_CreateTextureFromFile then
                 -- ReaImGui 0.8.x
                 local ok, img = pcall(reaper.ImGui_CreateTextureFromFile, ctx, tex_path)
                 if not ok or not img then ok, img = pcall(reaper.ImGui_CreateTextureFromFile, tex_path) end
-                STATE.textures[page_index] = img
+                doc.textures[page_index] = img
             elseif reaper.ImGui_CreateTexture then
                 -- Legacy (v0.7 and older)
                 local ok, img = pcall(reaper.ImGui_CreateTexture, ctx, tex_path)
                 if not ok or not img then ok, img = pcall(reaper.ImGui_CreateTexture, tex_path) end
-                STATE.textures[page_index] = img
+                doc.textures[page_index] = img
             end
         end
-        tex = STATE.textures[page_index]
+        tex = doc.textures[page_index]
     end
     
     if not tex then 
@@ -572,20 +723,18 @@ local function draw_page(page_index, page_data, avail_w)
         -- Highlight Search Results
         local is_search_match = false
         local is_active_search = false
-        if STATE.search_open and #STATE.search_results > 0 then
-            for r_idx, res in ipairs(STATE.search_results) do
+        if doc.search_open and #doc.search_results > 0 then
+            for r_idx, res in ipairs(doc.search_results) do
                 if res.page == page_index then
                     -- Phrase support: match if index is within start/end range
                     local in_range = false
-                    if res.start_item and res.end_item then
-                        in_range = (i >= res.start_item and i <= res.end_item)
-                    else
-                        in_range = (res.item == i) -- Legacy support
+                    if res.items and #res.items == 2 then
+                        in_range = (i >= res.items[1] and i <= res.items[2])
                     end
 
                     if in_range then
                         is_search_match = true
-                        if r_idx == STATE.search_index then
+                        if r_idx == doc.search_index then
                             is_active_search = true
                         end
                         -- Don't break here, we need to check if it's ALSO an active search 
@@ -596,9 +745,9 @@ local function draw_page(page_index, page_data, avail_w)
         end
 
         if is_active_search then
-            reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + w, y + h, 0xFFFF00FF, 0, 0, 3)
+            reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + w, y + h, 0xFFFF00AA, 0, 0, 3)
         elseif is_search_match then
-            reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + w, y + h, 0xFFFF0088, 0, 0, 2)
+            reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + w, y + h, 0xFFFF0055, 0, 0, 2)
         end
         
         -- Create invisible button for interaction (only if size is valid)
@@ -606,55 +755,12 @@ local function draw_page(page_index, page_data, avail_w)
             reaper.ImGui_SetCursorScreenPos(ctx, x, y)
             reaper.ImGui_InvisibleButton(ctx, "##item_"..page_index.."_"..i, w, h)
             
-            -- Context Menu on Right Click (Item 1 = default right click)
-            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 10, 10)
-            local ctx_open = reaper.ImGui_BeginPopupContextItem(ctx, "##CtxMenu"..page_index.."_"..i, 1)
-            reaper.ImGui_PopStyleVar(ctx)
-            
-            if ctx_open then
-            local time = parse_timecode(item.text)
-            local url = item.url or parse_url(item.text)
-            
-            if time then
-                if reaper.ImGui_MenuItem(ctx, "Швидке переміщення на: " .. item.text) then
-                    reaper.SetEditCurPos(time, true, false)
-                end
-                reaper.ImGui_Separator(ctx)
+            -- Trigger Context Menu
+            if reaper.ImGui_IsItemHovered(ctx) and reaper.ImGui_IsMouseClicked(ctx, 1) then
+                STATE.context_item = item
+                STATE.context_doc = doc
+                STATE.trigger_context_menu = true
             end
-            
-            if url then
-                if reaper.ImGui_MenuItem(ctx, "Відкрити посилання") then
-                    if reaper.CF_ShellExecute then
-                        reaper.CF_ShellExecute(url)
-                    end
-                end
-                reaper.ImGui_Separator(ctx)
-            end
-            
-            if reaper.ImGui_MenuItem(ctx, "Скопіювати") then
-                if reaper.ImGui_SetClipboardText then
-                    reaper.ImGui_SetClipboardText(ctx, item.text)
-                end
-            end
-            if reaper.ImGui_MenuItem(ctx, "Шукати") then
-                STATE.search_open = true
-                STATE.search_text = item.text
-                perform_search()
-            end
-            
-            -- Dictionary Sync (if not a special item)
-            if not time and not url then
-                if reaper.ImGui_MenuItem(ctx, "Переглянути у ГОРОСі") then
-                    local dict_word = item.text:gsub("[%p]+$", ""):gsub("^[%p]+", "")
-                    reaper.SetExtState("SubassSync", "WORD", dict_word, false)
-                    reaper.gmem_write(0, 2) -- Signal DICT script
-                    
-                    -- Switch Docker Tab: Find and focus existing Notes window
-                    focus_notes_window()
-                end
-            end
-            
-            reaper.ImGui_EndPopup(ctx)
         end
         
         if reaper.ImGui_IsItemHovered(ctx) then
@@ -668,7 +774,6 @@ local function draw_page(page_index, page_data, avail_w)
             end
         end
     end
-end
     
     -- Restore cursor position below the image
     reaper.ImGui_SetCursorScreenPos(ctx, start_x, start_y + draw_h)
@@ -685,104 +790,249 @@ local function draw_gui()
     end
     
     if visible then
+        local doc = get_active_doc()
+
+        -- Item Context Menu (Global scope - stable definition)
+        reaper.ImGui_PushID(ctx, "GlobalContextScope")
+        
+        -- Trigger (must be in same scope as BeginPopup)
+        if STATE.trigger_context_menu then
+            reaper.ImGui_OpenPopup(ctx, "ItemContextMenu")
+            STATE.trigger_context_menu = false
+        end
+
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 10, 10)
+        if reaper.ImGui_BeginPopup(ctx, "ItemContextMenu") then
+            local item = STATE.context_item
+            local d = STATE.context_doc
+            if item and d then
+                local time = parse_timecode(item.text)
+                local url = item.url or parse_url(item.text)
+                if time then
+                    if reaper.ImGui_MenuItem(ctx, "Швидке переміщення на: " .. item.text) then
+                        reaper.SetEditCurPos(time, true, false)
+                    end
+                    reaper.ImGui_Separator(ctx)
+                end
+                if url then
+                    if reaper.ImGui_MenuItem(ctx, "Відкрити посилання") then
+                        if reaper.CF_ShellExecute then reaper.CF_ShellExecute(url) end
+                    end
+                    reaper.ImGui_Separator(ctx)
+                end
+                if reaper.ImGui_MenuItem(ctx, "Скопіювати") then
+                    if reaper.ImGui_SetClipboardText then reaper.ImGui_SetClipboardText(ctx, item.text) end
+                end
+                if reaper.ImGui_MenuItem(ctx, "Шукати") then
+                    d.search_open = true
+                    d.search_text = item.text
+                    perform_search(d)
+                    save_project_state()
+                end
+                if not time and not url then
+                    if reaper.ImGui_MenuItem(ctx, "Переглянути у ГОРОСі") then
+                        local dict_word = item.text:gsub("[%p]+$", ""):gsub("^[%p]+", "")
+                        reaper.SetExtState("SubassSync", "WORD", dict_word, false)
+                        reaper.gmem_write(0, 2)
+                        focus_notes_window()
+                    end
+                end
+            end
+            reaper.ImGui_EndPopup(ctx)
+        end
+        reaper.ImGui_PopStyleVar(ctx)
+        reaper.ImGui_PopID(ctx)
+
         -- Header
         if reaper.ImGui_Button(ctx, "Імпортувати PDF") then
             local file = pick_pdf()
             if file then process_pdf(file) end
         end
-        if STATE.metadata then
+        if doc and doc.metadata then
             -- Search Toggle Button
             reaper.ImGui_SameLine(ctx)
             if reaper.ImGui_Button(ctx, "Шукати") then 
-                STATE.search_open = not STATE.search_open
-                if not STATE.search_open then
-                    STATE.search_results = {}
-                    STATE.search_text = ""
-                    STATE.search_index = 0
+                doc.search_open = not doc.search_open
+                if not doc.search_open then
+                    doc.search_results = {}
+                    doc.search_text = ""
+                    doc.search_index = 0
                 end
+                save_project_state()
             end
             
             reaper.ImGui_SameLine(ctx, 0, 20)
-            reaper.ImGui_Text(ctx, string.format("Зум: %d%%", math.floor(STATE.zoom * 100 + 0.5)))
+            reaper.ImGui_Text(ctx, string.format("Зум: %d%%", math.floor(doc.zoom * 100 + 0.5)))
             reaper.ImGui_SameLine(ctx)
-            if reaper.ImGui_Button(ctx, "-", 24, 0) then STATE.zoom = math.max(0.1, STATE.zoom - 0.1) end
+            if reaper.ImGui_Button(ctx, "-", 24, 0) then doc.zoom = math.max(0.1, doc.zoom - 0.1); save_project_state() end
             reaper.ImGui_SameLine(ctx)
-            if reaper.ImGui_Button(ctx, "+", 24, 0) then STATE.zoom = math.min(5.0, STATE.zoom + 0.1) end
+            if reaper.ImGui_Button(ctx, "+", 24, 0) then doc.zoom = math.min(5.0, doc.zoom + 0.1); save_project_state() end
             
-            -- Right aligned page indicator
-            local page_str = string.format("%d / %d", STATE.current_page, STATE.metadata.page_count)
+            -- Right aligned page indicator and menu
+            local page_str = string.format("%d / %d", doc.current_page, doc.metadata.page_count)
+            local btn_w = 24
             local text_w = reaper.ImGui_CalcTextSize(ctx, page_str)
             local avail_xw = reaper.ImGui_GetContentRegionAvail(ctx)
-            reaper.ImGui_SameLine(ctx, avail_xw - text_w)
+            
+            reaper.ImGui_SameLine(ctx, avail_xw - text_w - btn_w - 5)
             reaper.ImGui_Text(ctx, page_str)
+            
+            reaper.ImGui_SameLine(ctx)
+            if reaper.ImGui_Button(ctx, "≡", btn_w, 0) then
+                reaper.ImGui_OpenPopup(ctx, "DocMenu")
+            end
+            
+            if reaper.ImGui_BeginPopup(ctx, "DocMenu") then
+                -- List all documents
+                for i, d in ipairs(STATE.documents) do
+                    local label = truncate_text(d.pdf_name, 50)
+                    if reaper.ImGui_MenuItem(ctx, label, nil, i == STATE.active_doc_idx) then
+                        switch_to_document(i)
+                    end
+                end
+                
+                reaper.ImGui_Separator(ctx)
+                if reaper.ImGui_MenuItem(ctx, "Закрити документ") then
+                    unload_textures(doc.textures)
+                    table.remove(STATE.documents, STATE.active_doc_idx)
+                    if #STATE.documents > 0 then
+                        STATE.active_doc_idx = math.min(STATE.active_doc_idx, #STATE.documents)
+                    else
+                        STATE.active_doc_idx = 0
+                    end
+                    
+                    -- Hide search when closing documents
+                    doc.search_open = false
+                    doc.search_results = {}
+                    doc.search_text = ""
+                    doc.search_index = 0
+                    
+                    save_project_state()
+                    STATE.status_msg = "Документ закрито"
+                end
+                reaper.ImGui_EndPopup(ctx)
+            end
         end
         
         reaper.ImGui_Separator(ctx)
         
         -- Search Bar Row
-        if STATE.search_open then
+        if doc and doc.search_open then
             reaper.ImGui_SetNextItemWidth(ctx, 200)
             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBg(), 0xFFFFFFFF)
             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x000000FF)
-            local changed, new_text = reaper.ImGui_InputTextWithHint(ctx, "##SearchInput", "Шукати...", STATE.search_text)
+            local changed, new_text = reaper.ImGui_InputTextWithHint(ctx, "##SearchInput", "Шукати...", doc.search_text)
             reaper.ImGui_PopStyleColor(ctx, 2)
             
             if changed then
-                STATE.search_text = new_text
-                perform_search()
+                doc.search_text = new_text
+                perform_search(doc)
+                save_project_state()
             end
             
             reaper.ImGui_SameLine(ctx)
-            local res_count = #STATE.search_results
+            local res_count = doc.search_results and #doc.search_results or 0
             if res_count > 0 then
-                reaper.ImGui_Text(ctx, string.format("%d / %d", STATE.search_index, res_count))
+                reaper.ImGui_Text(ctx, string.format("%d / %d", doc.search_index, res_count))
                 reaper.ImGui_SameLine(ctx)
                 if reaper.ImGui_Button(ctx, "<", 24, 0) then
-                    STATE.search_index = STATE.search_index - 1
-                    if STATE.search_index < 1 then STATE.search_index = res_count end
-                    STATE.scroll_to_search = true
+                    doc.search_index = doc.search_index - 1
+                    if doc.search_index < 1 then doc.search_index = res_count end
+                    scroll_to_search(doc.search_results[doc.search_index])
+                    save_project_state()
                 end
                 reaper.ImGui_SameLine(ctx)
                 if reaper.ImGui_Button(ctx, ">", 24, 0) then
-                    STATE.search_index = STATE.search_index + 1
-                    if STATE.search_index > res_count then STATE.search_index = 1 end
-                    STATE.scroll_to_search = true
+                    doc.search_index = doc.search_index + 1
+                    if doc.search_index > res_count then doc.search_index = 1 end
+                    scroll_to_search(doc.search_results[doc.search_index])
+                    save_project_state()
                 end
             else
                 reaper.ImGui_Text(ctx, "0 / 0")
             end
             
             local avail_xw = reaper.ImGui_GetContentRegionAvail(ctx)
-            reaper.ImGui_SameLine(ctx, avail_xw - 24)
+            reaper.ImGui_SameLine(ctx, avail_xw - 20)
             if reaper.ImGui_Button(ctx, "X", 24, 0) then
-                STATE.search_open = false
-                STATE.search_results = {}
-                STATE.search_text = ""
-                STATE.search_index = 0
+                doc.search_open = false
+                doc.search_results = {}
+                doc.search_text = ""
+                doc.search_index = 0
+                save_project_state()
             end
             
             reaper.ImGui_Separator(ctx)
         end
-        
+
         -- Content Area
+        reaper.ImGui_BeginGroup(ctx) -- Start group to catch drops for any item inside
         if STATE.is_loading then
             reaper.ImGui_Text(ctx, "Обробка... зачекайте, будь ласка.")
-        elseif STATE.metadata then
+            local aw, ah = reaper.ImGui_GetContentRegionAvail(ctx)
+            if ah > 0 then reaper.ImGui_InvisibleButton(ctx, "##LoadingTarget", aw, ah) end
+        elseif doc and doc.metadata then
             local child_flags = reaper.ImGui_ChildFlags_Border and reaper.ImGui_ChildFlags_Border() or 1
             reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 0, 0)
-            reaper.ImGui_BeginChild(ctx, "Viewer", 0, 0, child_flags, reaper.ImGui_WindowFlags_HorizontalScrollbar())
             
-            local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
-            
-            for i, page in ipairs(STATE.metadata.pages) do
-                draw_page(i, page, avail_w)
-                reaper.ImGui_Dummy(ctx, 0, 10)
+            -- Use unique ID per document to avoid scroll bleeding between docs
+            local viewer_id = "Viewer_" .. doc.pdf_name
+            if reaper.ImGui_BeginChild(ctx, viewer_id, 0, 0, child_flags, reaper.ImGui_WindowFlags_HorizontalScrollbar()) then
+                local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
+                for i, page in ipairs(doc.metadata.pages) do
+                    draw_page(i, page, avail_w, doc)
+                    reaper.ImGui_Dummy(ctx, 0, 10)
+                end
+                
+                -- Robust scroll restoration (retry for several frames as layout stabilizes)
+                -- We do this AFTER drawing content so ImGui knows the total height
+                if doc.needs_scroll_restore and doc.needs_scroll_restore > 0 then
+                    reaper.ImGui_SetScrollY(ctx, doc.scroll_y)
+                    doc.needs_scroll_restore = doc.needs_scroll_restore - 1
+                    doc.skip_scroll_capture = 30 -- Wait 30 frames after last restore attempt
+                end
+
+                -- Capture current scroll for persistence (unless we just restored)
+                if not doc.skip_scroll_capture or doc.skip_scroll_capture <= 0 then
+                    local current_scroll = reaper.ImGui_GetScrollY(ctx)
+                    -- Only capture if we are NOT in restoration mode
+                    if not doc.needs_scroll_restore or doc.needs_scroll_restore <= 0 then
+                        doc.scroll_y = current_scroll
+                    end
+                else
+                    doc.skip_scroll_capture = doc.skip_scroll_capture - 1
+                end
+
+                reaper.ImGui_EndChild(ctx)
             end
-            
-            reaper.ImGui_EndChild(ctx)
             reaper.ImGui_PopStyleVar(ctx)
         else
             reaper.ImGui_Text(ctx, "PDF не завантажено. Натисніть 'Імпортувати PDF'.")
+            local aw, ah = reaper.ImGui_GetContentRegionAvail(ctx)
+            if ah > 0 then reaper.ImGui_InvisibleButton(ctx, "##EmptyTarget", aw, ah) end
+        end
+        reaper.ImGui_EndGroup(ctx)
+
+        -- Drag & Drop Target for the content group
+        if reaper.ImGui_BeginDragDropTarget(ctx) then
+            -- 1. Try to accept the drop (released)
+            local dropped, d_count = reaper.ImGui_AcceptDragDropPayloadFiles(ctx)
+            if dropped then
+                for i = 0, d_count - 1 do
+                    local ok, file = reaper.ImGui_GetDragDropPayloadFile(ctx, i)
+                    if ok and file ~= "" then
+                        process_pdf(file)
+                        break -- Only process the first file
+                    end
+                end
+            else
+                -- 2. If not dropped, show hover feedback
+                local hovered, h_count = reaper.ImGui_AcceptDragDropPayloadFiles(ctx, reaper.ImGui_DragDropFlags_AcceptBeforeDelivery())
+                if hovered then
+                    reaper.ImGui_SetTooltip(ctx, "Відпустіть файл для імпорту")
+                end
+            end
+            reaper.ImGui_EndDragDropTarget(ctx)
         end
         
         reaper.ImGui_End(ctx)
@@ -796,27 +1046,63 @@ local function init_from_project()
     local prj_cache = get_project_cache_dir()
     if not prj_cache then return end
     
-    local retval, last_pdf = reaper.GetProjExtState(0, "Subass_PDF", "last_pdf")
-    if retval > 0 and last_pdf ~= "" then
-        local output_dir = prj_cache .. "/" .. last_pdf
+    local retval_hist, history_json = reaper.GetProjExtState(0, "Subass_PDF", "doc_history")
+    local history_data = {}
+    if retval_hist > 0 and history_json ~= "" then
+        history_data = json_decode(history_json) or {}
+    end
+    
+    -- Fallback for migration from older versions (single string list or just last_pdf)
+    if #history_data > 0 and type(history_data[1]) == "string" then
+        local old_names = history_data
+        history_data = {}
+        for _, name in ipairs(old_names) do
+            table.insert(history_data, {pdf_name = name})
+        end
+    elseif #history_data == 0 then
+        local r, last_pdf = reaper.GetProjExtState(0, "Subass_PDF", "last_pdf")
+        if r > 0 and last_pdf ~= "" then table.insert(history_data, {pdf_name = last_pdf}) end
+    end
+
+    for _, doc_state in ipairs(history_data) do
+        local pdf_name = doc_state.pdf_name
+        local output_dir = prj_cache .. "/" .. pdf_name
         if reaper.file_exists(output_dir .. "/metadata.json") then
-            load_metadata(output_dir, last_pdf)
+            -- Use silent load (no_switch=true) to avoid overwriting last_pdf state during bulk load
+            load_metadata(output_dir, pdf_name, doc_state, true)
+        end
+    end
+    
+    -- Set correct active doc from last_pdf
+    local retval_last, last_pdf = reaper.GetProjExtState(0, "Subass_PDF", "last_pdf")
+    if retval_last > 0 and last_pdf ~= "" then
+        for i, d in ipairs(STATE.documents) do
+            if d.pdf_name == last_pdf then
+                -- Final switch to the correct last document
+                STATE.active_doc_idx = i
+                local active = get_active_doc()
+                if active then active.needs_scroll_restore = 20 end
+                break
+            end
         end
     end
 end
 
 local function loop()
     -- Check for project tab switch
-    local active_proj = reaper.EnumProjects(-1)
+    local active_proj, proj_fn = reaper.EnumProjects(-1)
     if active_proj ~= STATE.current_proj then
-        -- Project changed, clear view and try to load new state
-        for _, tex in pairs(STATE.textures) do 
-            if reaper.ImGui_Detach then pcall(reaper.ImGui_Detach, ctx, tex) end
-            if reaper.ImGui_DeleteTexture then pcall(reaper.ImGui_DeleteTexture, tex) end
+        -- Save state of the project we are leaving
+        if STATE.current_proj and reaper.ValidatePtr(STATE.current_proj, "ReaProject*") then
+            save_project_state(STATE.current_proj)
         end
-        STATE.textures = {}
-        STATE.metadata = nil
-        STATE.cache_dir = ""
+        
+        -- Project changed, clear everything
+        for _, doc in ipairs(STATE.documents) do
+            unload_textures(doc.textures)
+        end
+        STATE.documents = {}
+        STATE.active_doc_idx = 0
         STATE.status_msg = "Готово"
         STATE.is_loading = false
         init_from_project()
@@ -826,6 +1112,13 @@ local function loop()
     draw_gui()
     if STATE.window_open then reaper.defer(loop) end
 end
+
+reaper.atexit(function()
+    save_project_state() -- Flush final scroll positions/zoom
+    for _, doc in ipairs(STATE.documents) do
+        unload_textures(doc.textures)
+    end
+end)
 
 init_from_project()
 loop()
