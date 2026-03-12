@@ -104,6 +104,7 @@ local pomo                      = {
     log_filter        = "",
     hidden_sectors    = {},
 }
+local notepad_open = true
 local saved_selection_start     = 0
 local saved_selection_end       = 0
 local confirm_close_tab_index   = nil
@@ -1589,7 +1590,8 @@ end
 --==============================================================
 local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
-    if reaper.GetExtState("Subass_Global", "ForceCloseComplementary") == "1" then 
+    local force_close = reaper.GetExtState("Subass_Global", "ForceCloseComplementary")
+    if force_close == "1" or force_close == "imnotbad_Notepad.lua" then 
         save_data()
         return 
     end
@@ -1603,7 +1605,8 @@ local function loop()
     local flags = reaper.ImGui_WindowFlags_MenuBar()
         | reaper.ImGui_WindowFlags_NoCollapse()
 
-    local visible, open = reaper.ImGui_Begin(ctx, "Notepad v1.1", true, flags)
+    local visible, open = reaper.ImGui_Begin(ctx, "Notepad v1.2", notepad_open, flags)
+    notepad_open = open
 
     if visible then
         --================ MENU =================
@@ -1641,7 +1644,7 @@ local function loop()
                 end
                 reaper.ImGui_Separator(ctx)
                 if reaper.ImGui_MenuItem(ctx, "Закрити Notepad") then
-                    open = false
+                    notepad_open = false
                 end
                 reaper.ImGui_EndMenu(ctx)
             end
@@ -3907,7 +3910,7 @@ local function loop()
         last_save_time = reaper.time_precise()
     end
 
-    if open then reaper.defer(loop) else save_data() end
+    if notepad_open then reaper.defer(loop) else save_data() end
 end
 
 reaper.defer(loop)
