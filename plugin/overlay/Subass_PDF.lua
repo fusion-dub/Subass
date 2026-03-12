@@ -95,7 +95,12 @@ end
 -- =============================================================================
 local ctx = reaper.ImGui_CreateContext('Subass PDF Reader')
 local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])")
-local python_script = script_path .. "subass_pdf_processor.py"
+local function normalize_path(p)
+    if not p then return p end
+    local sep = reaper.GetOS():match("Win") and "\\" or "/"
+    return p:gsub("[/\\]", sep)
+end
+local python_script = normalize_path(script_path .. "subass_pdf_processor.py")
 reaper.gmem_attach("SubassSync")
 
 -- =============================================================================
@@ -368,11 +373,12 @@ local function run_async_command(shell_cmd, callback)
         local bat_cmd = shell_cmd:gsub("%%", "%%%%")
         f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
         f_bat:write('echo DONE > "' .. done_file .. '"\r\n')
-        f_bat:write('set _self=%~f0\r\n')
-        f_bat:write('cmd /c ping 127.0.0.1 -n 2 > NUL & del "%_self%"\r\n')
+        f_bat:write('del "%~f0"\r\n')
         f_bat:close()
 
-        local ps_cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process \\\"' .. bat_file .. '\\\" -WindowStyle Hidden"'
+        -- Use a simpler PowerShell call or just ExecProcess if possible
+        local safe_bat = bat_file:gsub("'", "''")
+        local ps_cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process \'' .. safe_bat .. '\' -WindowStyle Hidden"'
         reaper.ExecProcess(ps_cmd, 0)
     else
         -- Mac/Linux background execution
@@ -411,7 +417,7 @@ end
 local function get_project_cache_dir()
     local prj_path, _ = reaper.GetProjectPath("")
     if prj_path == "" then return nil end
-    local cache = prj_path .. "/subass_pdf_cache"
+    local cache = normalize_path(prj_path .. "/subass_pdf_cache")
     if not reaper.RecursiveCreateDirectory(cache, 0) then return nil end
     return cache
 end
@@ -531,7 +537,8 @@ end
 -- PDF ENGINE & CACHE
 -- =============================================================================
 local function load_metadata(output_dir, pdf_name, saved_state, no_switch)
-    local f = io.open(output_dir .. "/metadata.json", "r")
+    local meta_path = normalize_path(output_dir .. "/metadata.json")
+    local f = io.open(meta_path, "r")
     if f then
         local meta = json_decode(f:read("*all"))
         f:close()
@@ -585,7 +592,8 @@ end
 
 local function process_pdf(pdf_file)
     if not pdf_file or pdf_file == "" then return end
-    if not reaper.file_exists(pdf_file) then return end
+    
+    pdf_file = normalize_path(pdf_file)
     
     STATE.is_loading = STATE.is_loading + 1
     STATE.status_msg = "Обробка..."
@@ -608,15 +616,25 @@ local function process_pdf(pdf_file)
         end
     end
     
-    local output_dir = prj_cache .. "/" .. pdf_name
+    local output_dir = normalize_path(prj_cache .. "/" .. pdf_name)
     reaper.RecursiveCreateDirectory(output_dir, 0)
     
     local cmd = string.format('python3 "%s" "%s" "%s"', python_script, pdf_file, output_dir)
-    if reaper.GetOS():match("Win") then cmd = string.format('python "%s" "%s" "%s"', python_script, pdf_file, output_dir) end
+    if reaper.GetOS():match("Win") then 
+        -- On Windows, 'py' (Python Launcher) is often more reliable than 'python'
+        -- We'll use a CMD trick to try 'py' and fallback to 'python'
+        cmd = string.format('py -3 "%s" "%s" "%s" || python "%s" "%s" "%s"', 
+            python_script, pdf_file, output_dir,
+            python_script, pdf_file, output_dir) 
+    end
     
     run_async_command(cmd, function(output)
         if not load_metadata(output_dir, pdf_name) then
-            STATE.status_msg = "Помилка завантаження метаданих"
+            if output:match("not found") or output:match("not recognized") then
+                STATE.status_msg = "Помилка: Python не знайдено"
+            else
+                STATE.status_msg = "Помилка завантаження метаданих"
+            end
         end
         STATE.is_loading = math.max(0, STATE.is_loading - 1)
         if STATE.is_loading == 0 then STATE.status_msg = "Готово" end
@@ -629,40 +647,40 @@ local function pick_pdf()
         local retval, files_str = reaper.JS_Dialog_BrowseForOpenFiles("Оберіть файл для імпорту", "", "", filter, true)
         
         if retval > 0 and files_str ~= "" then 
-            local lines = {}
-            for line in files_str:gmatch("[^\n\r%z]+") do
-                table.insert(lines, line)
+            local entries = {}
+            for entry in files_str:gmatch("[^\n\r%z]+") do
+                table.insert(entries, entry)
             end
             
-            if #lines == 0 then return nil end
-            if #lines == 1 then return {lines[1]} end
+            if #entries == 0 then return nil end
+            if #entries == 1 then return {entries[1]} end
             
             -- Detect format: 
-            -- On Mac it usually returns full paths: /Path/File1, /Path/File2
-            -- On Win it returns: Dir, File1, File2
-            local is_mac_full_paths = false
-            if lines[2] then
-                local first_char = lines[2]:sub(1,1)
-                local second_char = lines[2]:sub(2,2)
-                if first_char == "/" or second_char == ":" then
-                    is_mac_full_paths = true
-                end
+            --   On Mac it usually returns full paths: /Path/File1, /Path/File2
+            --   On Win it returns: Dir, File1, File2
+            -- Heuristic: If the second entry is NOT an absolute path, it's Windows style (Dir + Filenames)
+            local first = entries[1]
+            local second = entries[2]
+            local is_windows_style = false
+            
+            if second and not (second:match("^/") or second:match("^%a:")) then
+                is_windows_style = true
             end
 
-            if is_mac_full_paths then
-                return lines
-            else
-                -- Dir + Filenames format
-                local dir = lines[1]
+            if is_windows_style then
+                local dir = first
                 if not dir:match("[/\\]$") then
                     local sep = dir:match("\\") and "\\" or "/"
                     dir = dir .. sep
                 end
                 local paths = {}
-                for i = 2, #lines do
-                    table.insert(paths, dir .. lines[i])
+                for i = 2, #entries do
+                    table.insert(paths, dir .. entries[i])
                 end
                 return paths
+            else
+                -- Already full paths (macOS style or multiple absolute paths)
+                return entries
             end
         end
     else
