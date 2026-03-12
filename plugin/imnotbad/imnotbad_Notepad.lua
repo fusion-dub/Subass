@@ -1,5 +1,5 @@
 -- @description Notepad від imnotbad
--- @version 1.1
+-- @version 1.2
 -- @author imnotbad
 
 --==============================================================
@@ -1588,6 +1588,11 @@ end
 -- ГОЛОВНИЙ ЦИКЛ
 --==============================================================
 local function loop()
+    if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
+    if reaper.GetExtState("Subass_Global", "ForceCloseComplementary") == "1" then 
+        save_data()
+        return 
+    end
     local active_style_tooltip = ""
     handle_mac_hotkeys()
 
