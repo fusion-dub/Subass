@@ -900,6 +900,9 @@ local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
     local force_close = reaper.GetExtState("Subass_Global", "ForceCloseComplementary")
     if force_close == "1" or force_close == "Subass_Dictionary.lua" then 
+        if force_close == "Subass_Dictionary.lua" then
+            reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
+        end
         dict_open = false
     end
 
@@ -909,7 +912,7 @@ local function loop()
     Style.push(ctx)
 
     local visible, open = reaper.ImGui_Begin(ctx, 'Subass Dictionary', dict_open, reaper.ImGui_WindowFlags_NoScrollbar())
-    dict_open = open
+    if not open then dict_open = false end
 
     if visible then
         layout_has_player = (current_preview_source ~= nil)
