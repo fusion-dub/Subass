@@ -1174,6 +1174,9 @@ end
 
 local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
+    if reaper.GetExtState("Subass_Global", "ForceCloseComplementary") == "Subass_PDF.lua" then 
+        STATE.window_open = false
+    end
     -- Check for project tab switch
     local active_proj, proj_fn = reaper.EnumProjects(-1)
     if active_proj ~= STATE.current_proj then
