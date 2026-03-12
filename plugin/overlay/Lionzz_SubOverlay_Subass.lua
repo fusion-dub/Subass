@@ -2333,7 +2333,8 @@ end
 -- =========================
 local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
-    if reaper.GetExtState("Subass_Global", "ForceCloseComplementary") == "Lionzz_SubOverlay_Subass.lua" then 
+    local force_close = reaper.GetExtState("Subass_Global", "ForceCloseComplementary")
+    if force_close == "1" or force_close == "Lionzz_SubOverlay_Subass.lua" then 
         win_open = false
     end
     reaper.ImGui_PushFont(ctx, ui_font, UI_FONT_SCALE)
