@@ -896,7 +896,7 @@ local function draw_mini_player(ctx)
 end
 
 local function loop()
-    if not ctx then return end
+    if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
 
     reaper.ImGui_SetNextWindowSize(ctx, WIN_W, WIN_H, reaper.ImGui_Cond_FirstUseEver())
 
