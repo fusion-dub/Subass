@@ -1592,6 +1592,9 @@ local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
     local force_close = reaper.GetExtState("Subass_Global", "ForceCloseComplementary")
     if force_close == "1" or force_close == "imnotbad_Notepad.lua" then 
+        if force_close == "imnotbad_Notepad.lua" then
+            reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
+        end
         save_data()
         return 
     end
@@ -1606,7 +1609,7 @@ local function loop()
         | reaper.ImGui_WindowFlags_NoCollapse()
 
     local visible, open = reaper.ImGui_Begin(ctx, "Notepad v1.2", notepad_open, flags)
-    notepad_open = open
+    if not open then notepad_open = false end
 
     if visible then
         --================ MENU =================
