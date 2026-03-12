@@ -350,7 +350,7 @@ def update_ini():
             elif state == "in":
                 if clean.startswith("item_"):
                     val = clean.split("=", 1)[1]
-                    if "Subass" not in val and val not in ["0", "-1000", "-1001"]:
+                    if "Subass" not in val and "Imnotbad" not in val and val not in ["0", "-1000", "-1001"]:
                          other_items.append(val)
 
         if state == "before":
