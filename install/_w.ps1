@@ -507,7 +507,7 @@ if (Test-Path $menuFile) {
         } elseif ($state -eq "in") {
             if ($line -match "^item_(\d+)=(.*)") {
                 $val = $matches[2]
-                if ($val -notmatch "Subass" -and $val -ne "0" -and $val -ne "-1000" -and $val -ne "-1001") {
+                if ($val -notmatch "Subass" -and $val -notmatch "Imnotbad" -and $val -ne "0" -and $val -ne "-1000" -and $val -ne "-1001") {
                     $otherItems += $val
                 }
             }
