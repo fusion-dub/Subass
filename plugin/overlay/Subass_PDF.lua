@@ -229,8 +229,8 @@ local function simple_json_encode(v)
     return "null"
 end
 
-local function save_project_state()
-    local target_proj = STATE.current_proj
+local function save_project_state(proj, mark_dirty)
+    local target_proj = proj or STATE.current_proj
     if not target_proj or not reaper.ValidatePtr(target_proj, "ReaProject*") then
         target_proj = reaper.EnumProjects(-1)
     end
@@ -254,6 +254,10 @@ local function save_project_state()
     
     local active = get_active_doc()
     reaper.SetProjExtState(target_proj, "Subass_PDF", "last_pdf", active and active.pdf_name or "")
+    
+    if mark_dirty then
+        reaper.MarkProjectDirty(target_proj)
+    end
 end
 
 
@@ -588,7 +592,7 @@ local function load_metadata(output_dir, pdf_name, saved_state, no_switch)
             if not no_switch then switch_to_document(#STATE.documents) end
         end
         
-        if not no_switch then save_project_state() end
+        if not no_switch then save_project_state(nil, true) end
         STATE.status_msg = "Завантажено: " .. pdf_name
         return true
     end
