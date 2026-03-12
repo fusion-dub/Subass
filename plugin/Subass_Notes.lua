@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.5.1
+-- @version 5.6.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.5.1",
+    script_title = "Subass Notes v5.6.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -1470,6 +1470,40 @@ end
 
 --- Serialize and send Prompter data to ExtState for the satellite Overlay script
 
+local function find_satellite_window(title_pattern)
+    if not reaper.JS_Window_ArrayAllChild then return nil end
+    
+    local function find_recursively(parent_hwnd)
+        local arr = reaper.new_array({}, 1024)
+        reaper.JS_Window_ArrayAllChild(parent_hwnd, arr)
+        local children = arr.table()
+        for _, ptr in ipairs(children) do
+            local child = reaper.JS_Window_HandleFromAddress(ptr)
+            local title = reaper.JS_Window_GetTitle(child)
+            if title:find(title_pattern, 1, true) then
+                return child
+            end
+            local found = find_recursively(child)
+            if found then return found end
+        end
+        return nil
+    end
+
+    local found_hwnd = find_recursively(reaper.GetMainHwnd())
+    if not found_hwnd and reaper.JS_Window_ArrayAllTop then
+        local arr = reaper.new_array({}, 1024)
+        reaper.JS_Window_ArrayAllTop(arr)
+        for _, ptr in ipairs(arr.table()) do
+            local hwnd = reaper.JS_Window_HandleFromAddress(ptr)
+            if reaper.JS_Window_GetTitle(hwnd):find(title_pattern, 1, true) then
+                found_hwnd = hwnd
+                break
+            end
+        end
+    end
+    return found_hwnd
+end
+
 local function run_satellite_script(folder, filename, label)
     local sep = package.config:sub(1, 1)
     local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
@@ -1496,6 +1530,46 @@ local function run_satellite_script(folder, filename, label)
         end
         reaper.MB(msg, "Відсутні компоненти", 0)
         return
+    end
+
+    -- Clear the close signal before running any script
+    reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
+
+    -- Check if script is already running
+    local titles = {
+        ["Lionzz_SubOverlay_Subass.lua"] = "SubOverlay",
+        ["Subass_Dictionary.lua"] = "Subass Dictionary",
+        ["imnotbad_Notepad.lua"] = "Notepad",
+        ["Subass_PDF.lua"] = "Subass PDF Reader"
+    }
+    
+    local window_title = titles[filename]
+    if window_title then
+        local hwnd = find_satellite_window(window_title)
+        if hwnd then
+            local choice = reaper.MB(label .. " вже відкрито.\n\n" ..
+                "Так: Перейти до вікна\n" ..
+                "Ні: Закрити вікно та відкрити заново\n" ..
+                "Скасувати: Нічого не робити", 
+                label .. " вже запущено", 3)
+            
+            if choice == 6 then -- Yes: Focus
+                reaper.DockWindowActivate(hwnd)
+                reaper.JS_Window_SetFocus(hwnd)
+                reaper.JS_Window_SetForeground(hwnd)
+                return
+            elseif choice == 7 then -- No: Close
+                -- Signal the script to close itself gracefully
+                reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "1", false)
+                -- Give it a moment and then clear the state so it can be opened again
+                reaper.defer(function()
+                    reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
+                end)
+                return
+            else -- Cancel or other
+                return
+            end
+        end
     end
 
     -- Try to find the Command ID in reaper-kb.ini
@@ -1594,7 +1668,7 @@ function UTILS.show_privacy_policy()
 
 Фундаментальні засади вашого цифрового захисту:
 
-1. ПРИНЦИП АБСОЛЮТНОЇ БЕЗОСОБОВСТІ. Архітектурна логіка скрипта
+1. ПРИНЦИП АБСОЛЮТНОЇ БЕЗОСОБОВІСТЬ. Архітектурна логіка скрипта
 розроблена за принципом "Data Privacy by Design". Це означає, що ми
 не маємо жодної технічної чи юридичної можливості отримати доступ до
 вашої персональної ідентифікації: ми не збираємо справжніх імен,
@@ -1616,7 +1690,7 @@ function UTILS.show_privacy_policy()
 потенційні конфлікти програмного забезпечення, оптимізувати
 використання обчислювальних потужностей та впроваджувати передові
 інновації, що базуються на реальних, а не гіпотетичних потребах
-сучасної пост-продакшн індустрії.
+сучасної постпродакшн індустрії.
 
 Технічний паспорт поточної робочої сесії:
 
