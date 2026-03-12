@@ -1565,10 +1565,6 @@ function UTILS.run_satellite_script(folder, filename, label)
             elseif choice == 7 then -- No: Close
                 -- Signal the script to close itself gracefully
                 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", filename, false)
-                -- Give it a moment and then clear the state so it can be opened again
-                reaper.defer(function()
-                    reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
-                end)
                 return
             else -- Cancel or other
                 return
