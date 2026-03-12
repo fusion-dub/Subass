@@ -1466,11 +1466,15 @@ end
 
 -- =============================================================================
 -- SHARED OVERLAY SYNC
+-- UTILITY FUNCTIONS
 -- =============================================================================
+
+-- Helper to open URLs safely (fallback if SWS not installed)
+local UTILS = {}
 
 --- Serialize and send Prompter data to ExtState for the satellite Overlay script
 
-local function find_satellite_window(title_pattern)
+function UTILS.find_satellite_window(title_pattern)
     if not reaper.JS_Window_ArrayAllChild then return nil end
     
     local function find_recursively(parent_hwnd)
@@ -1504,7 +1508,7 @@ local function find_satellite_window(title_pattern)
     return found_hwnd
 end
 
-local function run_satellite_script(folder, filename, label)
+function UTILS.run_satellite_script(folder, filename, label)
     local sep = package.config:sub(1, 1)
     local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
     local full_path = script_path .. folder .. sep .. filename
@@ -1545,7 +1549,7 @@ local function run_satellite_script(folder, filename, label)
     
     local window_title = titles[filename]
     if window_title then
-        local hwnd = find_satellite_window(window_title)
+        local hwnd = UTILS.find_satellite_window(window_title)
         if hwnd then
             local choice = reaper.MB(label .. " вже відкрито.\n\n" ..
                 "Так: Перейти до вікна\n" ..
@@ -1597,13 +1601,6 @@ local function run_satellite_script(folder, filename, label)
         reaper.MB("REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл " .. filename .. " з папки " .. folder .. "\n\nПісля цього вікно буде відкриватися миттєво з меню.", "Потрібна реєстрація", 0)
     end
 end
-
--- =============================================================================
--- UTILITY FUNCTIONS
--- =============================================================================
-
--- Helper to open URLs safely (fallback if SWS not installed)
-local UTILS = {}
 
 --- Split text into words and separators for interaction
 --- @param text string Input text
@@ -16091,14 +16088,14 @@ local function handle_prompter_context_menu()
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
         
         if ret == 1 then
-            run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею")
+            UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею")
         elseif ret == 2 then
             local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
             if ok and input ~= "" then
                 trigger_dictionary_lookup(input)
             end
         elseif ret == 3 then
-            run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника")
+            UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника")
         elseif ret == 4 then
             cfg.prompter_slider_mode = not cfg.prompter_slider_mode
             save_settings()
@@ -17935,11 +17932,11 @@ local function draw_settings()
                 trigger_dictionary_lookup(input)
             end
         end},
-        {name = "Відкрити Нотатник", tip = "Записник для ваших нотатків", action = function() run_satellite_script("imnotbad", "imnotbad_Notepad.lua", "Нотатник") end}, 
-        {name = "Відкрити Словник", tip = "Словник з корисною інформацією, сленги, асиміляція, відмінки, лайка, тощо. А також Звуковий Глосарій", action = function() run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end}, 
-        {name = "Відкрити SubOverlay від Lionzz", tip = "Допоміжне вікно поверх усього відео (Overlay), що відображає текст поточної репліки прямо перед очима під час запису.", action = function() run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end},
+        {name = "Відкрити Нотатник", tip = "Записник для ваших нотатків", action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_Notepad.lua", "Нотатник") end}, 
+        {name = "Відкрити Словник", tip = "Словник з корисною інформацією, сленги, асиміляція, відмінки, лайка, тощо. А також Звуковий Глосарій", action = function() UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end}, 
+        {name = "Відкрити SubOverlay від Lionzz", tip = "Допоміжне вікно поверх усього відео (Overlay), що відображає текст поточної репліки прямо перед очима під час запису.", action = function() UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end},
         {name = "Відкрити PDF Reader", tip = "Відкриває PDF Рідер в окремому вікні.", action = function() 
-            run_satellite_script("overlay", "Subass_PDF.lua", "PDF Рідер")
+            UTILS.run_satellite_script("overlay", "Subass_PDF.lua", "PDF Рідер")
         end},
         {name = "Режим Режисера", tip = "Перемикає інтерфейс у режим перегляду для режисера: вкладка реплік з активним режимом контролю та зауважень.", color = cfg.director_mode and UI.C_BTN_MEDIUM or nil, action = function() 
             UI_STATE.current_tab = 2 
