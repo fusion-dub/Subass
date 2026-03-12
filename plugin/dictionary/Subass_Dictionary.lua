@@ -1,5 +1,5 @@
 -- @description Subass Dictionary
--- @version 1.7
+-- @version 1.8
 -- @author Fusion (Fusion Dub)
 -- @about Dictionary of slang, idioms and terminology for dubbing.
 
@@ -11,6 +11,7 @@ reaper.ImGui_Attach(ctx, font_tabs)
 
 -- Initial window size
 local WIN_W, WIN_H = 600, 500
+local dict_open = true
 
 -- Tab Persistence
 local last_tab = tonumber(reaper.GetExtState("Subass_Dictionary", "last_tab")) or 0
@@ -897,13 +898,17 @@ end
 
 local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
+    if reaper.GetExtState("Subass_Global", "ForceCloseComplementary") == "Subass_Dictionary.lua" then 
+        dict_open = false
+    end
 
     reaper.ImGui_SetNextWindowSize(ctx, WIN_W, WIN_H, reaper.ImGui_Cond_FirstUseEver())
 
     -- APPLY GLOBAL STYLE
     Style.push(ctx)
 
-    local visible, open = reaper.ImGui_Begin(ctx, 'Subass Dictionary', true, reaper.ImGui_WindowFlags_NoScrollbar())
+    local visible, open = reaper.ImGui_Begin(ctx, 'Subass Dictionary', dict_open, reaper.ImGui_WindowFlags_NoScrollbar())
+    dict_open = open
 
     if visible then
         layout_has_player = (current_preview_source ~= nil)
@@ -2023,7 +2028,7 @@ local function loop()
     -- POP GLOBAL STYLE
     Style.pop(ctx)
 
-    if open and reaper.GetExtState("Subass_Global", "ForceCloseComplementary") ~= "1" then
+    if dict_open then
         reaper.defer(loop)
     end
 end
