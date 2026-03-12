@@ -1173,6 +1173,7 @@ local function init_from_project()
 end
 
 local function loop()
+    if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
     -- Check for project tab switch
     local active_proj, proj_fn = reaper.EnumProjects(-1)
     if active_proj ~= STATE.current_proj then
@@ -1199,9 +1200,6 @@ end
 
 reaper.atexit(function()
     save_project_state() -- Flush final scroll positions/zoom
-    for _, doc in ipairs(STATE.documents) do
-        unload_textures(doc.textures)
-    end
 end)
 
 init_from_project()
