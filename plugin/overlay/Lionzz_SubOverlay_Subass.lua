@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.2.2
+-- @version 0.2.3
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -2332,6 +2332,7 @@ end
 -- Решта основного циклу
 -- =========================
 local function loop()
+    if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
     reaper.ImGui_PushFont(ctx, ui_font, UI_FONT_SCALE)
     reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowBorderSize(), 0)
     
