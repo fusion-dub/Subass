@@ -208,7 +208,7 @@ end
 
 local function simple_json_encode(v)
     if type(v) == "string" then
-        return '"' .. v:gsub('"', '\\"') .. '"'
+        return '"' .. v:gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
     elseif type(v) == "number" or type(v) == "boolean" then
         return tostring(v)
     elseif type(v) == "table" then
@@ -229,8 +229,13 @@ local function simple_json_encode(v)
     return "null"
 end
 
-local function save_project_state(proj)
-    proj = proj or 0
+local function save_project_state()
+    local target_proj = STATE.current_proj
+    if not target_proj or not reaper.ValidatePtr(target_proj, "ReaProject*") then
+        target_proj = reaper.EnumProjects(-1)
+    end
+    if not target_proj then return end
+
     local docs_to_save = {}
     for _, doc in ipairs(STATE.documents) do
         table.insert(docs_to_save, {
@@ -245,10 +250,10 @@ local function save_project_state(proj)
     end
     
     local history = simple_json_encode(docs_to_save)
-    reaper.SetProjExtState(proj, "Subass_PDF", "doc_history", history)
+    reaper.SetProjExtState(target_proj, "Subass_PDF", "doc_history", history)
     
     local active = get_active_doc()
-    reaper.SetProjExtState(proj, "Subass_PDF", "last_pdf", active and active.pdf_name or "")
+    reaper.SetProjExtState(target_proj, "Subass_PDF", "last_pdf", active and active.pdf_name or "")
 end
 
 
@@ -1114,11 +1119,10 @@ end
 
 local function init_from_project()
     STATE.current_proj = reaper.EnumProjects(-1)
+    if not STATE.current_proj or not reaper.ValidatePtr(STATE.current_proj, "ReaProject*") then return end
     
-    local prj_cache = get_project_cache_dir()
-    if not prj_cache then return end
+    local retval_hist, history_json = reaper.GetProjExtState(STATE.current_proj, "Subass_PDF", "doc_history")
     
-    local retval_hist, history_json = reaper.GetProjExtState(0, "Subass_PDF", "doc_history")
     local history_data = {}
     if retval_hist > 0 and history_json ~= "" then
         history_data = json_decode(history_json) or {}
@@ -1132,21 +1136,25 @@ local function init_from_project()
             table.insert(history_data, {pdf_name = name})
         end
     elseif #history_data == 0 then
-        local r, last_pdf = reaper.GetProjExtState(0, "Subass_PDF", "last_pdf")
+        local r, last_pdf = reaper.GetProjExtState(STATE.current_proj, "Subass_PDF", "last_pdf")
         if r > 0 and last_pdf ~= "" then table.insert(history_data, {pdf_name = last_pdf}) end
     end
 
+    local prj_cache = get_project_cache_dir()
+
     for _, doc_state in ipairs(history_data) do
         local pdf_name = doc_state.pdf_name
-        local output_dir = prj_cache .. "/" .. pdf_name
-        if reaper.file_exists(output_dir .. "/metadata.json") then
-            -- Use silent load (no_switch=true) to avoid overwriting last_pdf state during bulk load
-            load_metadata(output_dir, pdf_name, doc_state, true)
+        if prj_cache then
+            local output_dir = normalize_path(prj_cache .. "/" .. pdf_name)
+            if reaper.file_exists(normalize_path(output_dir .. "/metadata.json")) then
+                -- Use silent load (no_switch=true) to avoid overwriting last_pdf state during bulk load
+                load_metadata(output_dir, pdf_name, doc_state, true)
+            end
         end
     end
     
     -- Set correct active doc from last_pdf
-    local retval_last, last_pdf = reaper.GetProjExtState(0, "Subass_PDF", "last_pdf")
+    local retval_last, last_pdf = reaper.GetProjExtState(STATE.current_proj, "Subass_PDF", "last_pdf")
     if retval_last > 0 and last_pdf ~= "" then
         for i, d in ipairs(STATE.documents) do
             if d.pdf_name == last_pdf then
@@ -1166,7 +1174,7 @@ local function loop()
     if active_proj ~= STATE.current_proj then
         -- Save state of the project we are leaving
         if STATE.current_proj and reaper.ValidatePtr(STATE.current_proj, "ReaProject*") then
-            save_project_state(STATE.current_proj)
+            save_project_state()
         end
         
         -- Project changed, clear everything
