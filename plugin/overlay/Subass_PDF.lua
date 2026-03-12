@@ -140,7 +140,7 @@ local STATE = {
     documents = {}, -- List of {pdf_name, metadata, cache_dir, current_page, textures, zoom, last_scroll_y}
     active_doc_idx = 0,
     
-    is_loading = false,
+    is_loading = 0,
     status_msg = "Готово",
     window_open = true,
     show_debug_boxes = false,
@@ -584,13 +584,16 @@ local function load_metadata(output_dir, pdf_name, saved_state, no_switch)
 end
 
 local function process_pdf(pdf_file)
-    STATE.is_loading = true
-    STATE.status_msg = "Обробка файлу..."
+    if not pdf_file or pdf_file == "" then return end
+    if not reaper.file_exists(pdf_file) then return end
+    
+    STATE.is_loading = STATE.is_loading + 1
+    STATE.status_msg = "Обробка..."
     
     local prj_cache = get_project_cache_dir()
     if not prj_cache then
         reaper.ShowMessageBox("Спочатку збережіть ваш проект!", "Помилка", 0)
-        STATE.is_loading = false
+        STATE.is_loading = STATE.is_loading - 1
         return
     end
     
@@ -615,18 +618,56 @@ local function process_pdf(pdf_file)
         if not load_metadata(output_dir, pdf_name) then
             STATE.status_msg = "Помилка завантаження метаданих"
         end
-        STATE.is_loading = false
+        STATE.is_loading = math.max(0, STATE.is_loading - 1)
+        if STATE.is_loading == 0 then STATE.status_msg = "Готово" end
     end)
 end
 
 local function pick_pdf()
     if reaper.APIExists('JS_Dialog_BrowseForOpenFiles') then
-        local filter = "Усі підтримувані файли\0*.pdf;*.docx;*.doc;*.epub;*.mobi;*.txt;*.html;*.xps;*.fb2;*.cbz;*.svg\0PDF файли (*.pdf)\0*.pdf\0Word файли (*.docx, *.doc)\0*.docx;*.doc\0Електронні книги (*.epub, *.mobi, *.fb2)\0*.epub;*.mobi;*.fb2\0Інші (*.txt, *.html, *.svg, *.xps, *.cbz)\0*.txt;*.html;*.svg;*.xps;*.cbz\0Всі файли (*.*)\0*.*\0"
-        local retval, file = reaper.JS_Dialog_BrowseForOpenFiles("Оберіть файл для імпорту", "", "", filter, false)
-        if retval > 0 and file ~= "" then return file end
+        local filter = "Усі підтримувані файли\0*.pdf;*.docx;*.doc;*.epub;*.mobi;*.txt;*.html;*.xps;*.fb2;*.cbz;*.svg;*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0PDF файли (*.pdf)\0*.pdf\0Word файли (*.docx, *.doc)\0*.docx;*.doc\0Зображення (*.png, *.jpg, *.webp, etc)\0*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0Електронні книги (*.epub, *.mobi, *.fb2)\0*.epub;*.mobi;*.fb2\0Інші (*.txt, *.html, *.svg, *.xps, *.cbz)\0*.txt;*.html;*.svg;*.xps;*.cbz\0Всі файли (*.*)\0*.*\0"
+        local retval, files_str = reaper.JS_Dialog_BrowseForOpenFiles("Оберіть файл для імпорту", "", "", filter, true)
+        
+        if retval > 0 and files_str ~= "" then 
+            local lines = {}
+            for line in files_str:gmatch("[^\n\r%z]+") do
+                table.insert(lines, line)
+            end
+            
+            if #lines == 0 then return nil end
+            if #lines == 1 then return {lines[1]} end
+            
+            -- Detect format: 
+            -- On Mac it usually returns full paths: /Path/File1, /Path/File2
+            -- On Win it returns: Dir, File1, File2
+            local is_mac_full_paths = false
+            if lines[2] then
+                local first_char = lines[2]:sub(1,1)
+                local second_char = lines[2]:sub(2,2)
+                if first_char == "/" or second_char == ":" then
+                    is_mac_full_paths = true
+                end
+            end
+
+            if is_mac_full_paths then
+                return lines
+            else
+                -- Dir + Filenames format
+                local dir = lines[1]
+                if not dir:match("[/\\]$") then
+                    local sep = dir:match("\\") and "\\" or "/"
+                    dir = dir .. sep
+                end
+                local paths = {}
+                for i = 2, #lines do
+                    table.insert(paths, dir .. lines[i])
+                end
+                return paths
+            end
+        end
     else
         local retval, file = reaper.GetUserInputs("Імпорт документа", 1, "Шлях до файлу (PDF, Word, EBook, etc):", "")
-        if retval and file ~= "" then return file end
+        if retval and file ~= "" then return {file} end
     end
     return nil
 end
@@ -855,8 +896,12 @@ local function draw_gui()
 
         -- Header
         if reaper.ImGui_Button(ctx, "Імпортувати PDF") then
-            local file = pick_pdf()
-            if file then process_pdf(file) end
+            local files = pick_pdf()
+            if files then 
+                for _, file in ipairs(files) do
+                    process_pdf(file) 
+                end
+            end
         end
         if doc and doc.metadata then
             -- Search Toggle Button
@@ -977,7 +1022,7 @@ local function draw_gui()
 
         -- Content Area
         reaper.ImGui_BeginGroup(ctx) -- Start group to catch drops for any item inside
-        if STATE.is_loading then
+        if STATE.is_loading and STATE.is_loading > 0 then
             reaper.ImGui_Text(ctx, "Обробка... зачекайте, будь ласка.")
             local aw, ah = reaper.ImGui_GetContentRegionAvail(ctx)
             if ah > 0 then reaper.ImGui_InvisibleButton(ctx, "##LoadingTarget", aw, ah) end
@@ -1032,7 +1077,6 @@ local function draw_gui()
                     local ok, file = reaper.ImGui_GetDragDropPayloadFile(ctx, i)
                     if ok and file ~= "" then
                         process_pdf(file)
-                        break -- Only process the first file
                     end
                 end
             else
@@ -1114,7 +1158,7 @@ local function loop()
         STATE.documents = {}
         STATE.active_doc_idx = 0
         STATE.status_msg = "Готово"
-        STATE.is_loading = false
+        STATE.is_loading = 0
         init_from_project()
     end
 
