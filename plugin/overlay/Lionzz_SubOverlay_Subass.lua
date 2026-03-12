@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.2.3
+-- @version 0.2.4
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -2333,6 +2333,9 @@ end
 -- =========================
 local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
+    if reaper.GetExtState("Subass_Global", "ForceCloseComplementary") == "Lionzz_SubOverlay_Subass.lua" then 
+        win_open = false
+    end
     reaper.ImGui_PushFont(ctx, ui_font, UI_FONT_SCALE)
     reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowBorderSize(), 0)
     
@@ -2389,6 +2392,7 @@ local function loop()
     end
 
     local visible, open = reaper.ImGui_Begin(ctx, "SubOverlay", win_open, window_flags)
+    win_open = open
 
     if visible then
         local new_win_w, new_win_h = reaper.ImGui_GetWindowSize(ctx)
@@ -2920,7 +2924,7 @@ local function loop()
     
     reaper.ImGui_PopFont(ctx)
     
-    local continue_running = (open ~= false) and not close_requested and reaper.GetExtState("Subass_Global", "ForceCloseComplementary") ~= "1"
+    local continue_running = (win_open ~= false) and not close_requested
     if continue_running then
         reaper.defer(loop)
     else
