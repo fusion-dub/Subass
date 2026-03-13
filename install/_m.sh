@@ -271,61 +271,62 @@ def update_ini():
         pomodoro_rel = "Subass/imnotbad/imnotbad_Pomodoro.lua"
 
         # 1. Update reaper-kb.ini
+        print(f"Updating/Creating {os.path.basename(kb_file)}...")
+        kb_lines = []
         if os.path.exists(kb_file):
-            print(f"Updating {os.path.basename(kb_file)}...")
             with open(kb_file, 'r', encoding='utf-8', errors='ignore') as f:
                 kb_lines = f.readlines()
+        
+        new_kb_lines = []
+        found_main = found_overlay = found_dict = found_pdf = found_notepad = found_pomodoro = False
+        
+        for line in kb_lines:
+            # Keep unrelated lines
+            if "Subass_Notes.lua" not in line and "Lionzz_SubOverlay_Subass.lua" not in line and "Subass_Dictionary.lua" not in line and "Subass_PDF.lua" not in line and "imnotbad_Notepad.lua" not in line and "imnotbad_Pomodoro.lua" not in line:
+                new_kb_lines.append(line)
+                continue
             
-            new_kb_lines = []
-            found_main = found_overlay = found_dict = found_pdf = found_notepad = found_pomodoro = False
-            
-            for line in kb_lines:
-                # Keep unrelated lines
-                if "Subass_Notes.lua" not in line and "Lionzz_SubOverlay_Subass.lua" not in line and "Subass_Dictionary.lua" not in line and "Subass_PDF.lua" not in line and "imnotbad_Notepad.lua" not in line and "imnotbad_Pomodoro.lua" not in line:
-                    new_kb_lines.append(line)
-                    continue
-                
-                if "Subass_Notes.lua" in line and rel_path in line and not found_main:
-                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
-                    if m: action_id_target = m.group(1)
-                    new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
-                    found_main = True
-                elif "Lionzz_SubOverlay_Subass.lua" in line and overlay_rel in line and not found_overlay:
-                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
-                    if m: overlay_id_target = m.group(1)
-                    new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
-                    found_overlay = True
-                elif "Subass_Dictionary.lua" in line and dict_rel in line and not found_dict:
-                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
-                    if m: dict_id_target = m.group(1)
-                    new_kb_lines.append(f'SCR 4 0 {dict_id_target} "Custom: Subass Dictionary" "{dict_rel}"\n')
-                    found_dict = True
-                elif "Subass_PDF.lua" in line and pdf_rel in line and not found_pdf:
-                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
-                    if m: pdf_id_target = m.group(1)
-                    new_kb_lines.append(f'SCR 4 0 {pdf_id_target} "Custom: Subass PDF Reader" "{pdf_rel}"\n')
-                    found_pdf = True
-                elif "imnotbad_Notepad.lua" in line and notepad_rel in line:
-                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
-                    if m: notepad_id_target = m.group(1)
-                    new_kb_lines.append(f'SCR 4 0 {notepad_id_target} "Custom: Imnotbad Notepad" "{notepad_rel}"\n')
-                    found_notepad = True
-                elif "imnotbad_Pomodoro.lua" in line and pomodoro_rel in line:
-                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
-                    if m: pomodoro_id_target = m.group(1)
-                    new_kb_lines.append(f'SCR 4 0 {pomodoro_id_target} "Custom: Imnotbad Pomodoro" "{pomodoro_rel}"\n')
-                    found_pomodoro = True
+            if "Subass_Notes.lua" in line and rel_path in line and not found_main:
+                m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
+                if m: action_id_target = m.group(1)
+                new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
+                found_main = True
+            elif "Lionzz_SubOverlay_Subass.lua" in line and overlay_rel in line and not found_overlay:
+                m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
+                if m: overlay_id_target = m.group(1)
+                new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
+                found_overlay = True
+            elif "Subass_Dictionary.lua" in line and dict_rel in line and not found_dict:
+                m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
+                if m: dict_id_target = m.group(1)
+                new_kb_lines.append(f'SCR 4 0 {dict_id_target} "Custom: Subass Dictionary" "{dict_rel}"\n')
+                found_dict = True
+            elif "Subass_PDF.lua" in line and pdf_rel in line and not found_pdf:
+                m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
+                if m: pdf_id_target = m.group(1)
+                new_kb_lines.append(f'SCR 4 0 {pdf_id_target} "Custom: Subass PDF Reader" "{pdf_rel}"\n')
+                found_pdf = True
+            elif "imnotbad_Notepad.lua" in line and notepad_rel in line:
+                m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
+                if m: notepad_id_target = m.group(1)
+                new_kb_lines.append(f'SCR 4 0 {notepad_id_target} "Custom: Imnotbad Notepad" "{notepad_rel}"\n')
+                found_notepad = True
+            elif "imnotbad_Pomodoro.lua" in line and pomodoro_rel in line:
+                m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
+                if m: pomodoro_id_target = m.group(1)
+                new_kb_lines.append(f'SCR 4 0 {pomodoro_id_target} "Custom: Imnotbad Pomodoro" "{pomodoro_rel}"\n')
+                found_pomodoro = True
 
-            if not found_main: new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
-            if not found_overlay: new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
-            if not found_dict: new_kb_lines.append(f'SCR 4 0 {dict_id_target} "Custom: Subass Dictionary" "{dict_rel}"\n')
-            if not found_pdf: new_kb_lines.append(f'SCR 4 0 {pdf_id_target} "Custom: Subass PDF Reader" "{pdf_rel}"\n')
-            if not found_notepad: new_kb_lines.append(f'SCR 4 0 {notepad_id_target} "Custom: Imnotbad Notepad" "{notepad_rel}"\n')
-            if not found_pomodoro: new_kb_lines.append(f'SCR 4 0 {pomodoro_id_target} "Custom: Imnotbad Pomodoro" "{pomodoro_rel}"\n')
-            
-            # Use standard UTF-8 WITHOUT BOM (Python default, but being explicit)
-            with open(kb_file, 'w', encoding='utf-8', newline='\n') as f:
-                f.writelines(new_kb_lines)
+        if not found_main: new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
+        if not found_overlay: new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
+        if not found_dict: new_kb_lines.append(f'SCR 4 0 {dict_id_target} "Custom: Subass Dictionary" "{dict_rel}"\n')
+        if not found_pdf: new_kb_lines.append(f'SCR 4 0 {pdf_id_target} "Custom: Subass PDF Reader" "{pdf_rel}"\n')
+        if not found_notepad: new_kb_lines.append(f'SCR 4 0 {notepad_id_target} "Custom: Imnotbad Notepad" "{notepad_rel}"\n')
+        if not found_pomodoro: new_kb_lines.append(f'SCR 4 0 {pomodoro_id_target} "Custom: Imnotbad Pomodoro" "{pomodoro_rel}"\n')
+        
+        # Use standard UTF-8 WITHOUT BOM (Python default, but being explicit)
+        with open(kb_file, 'w', encoding='utf-8', newline='\n') as f:
+            f.writelines(new_kb_lines)
 
         # 2. Update reaper-menu.ini
         print(f"Updating {os.path.basename(menu_file)}...")
