@@ -411,15 +411,18 @@ $dictActionId = "RS9999999999999999999999999999999999999999"
 
 Write-Host-Color "Updating REAPER configuration..." "Cyan"
 
-    if (Test-Path $kbFile) {
-    Write-Host-Color "Updating actions in reaper-kb.ini..." "Cyan"
+    Write-Host-Color "Updating/Creating actions in reaper-kb.ini..." "Cyan"
     $scriptRelativePath = "Subass/Subass_Notes.lua"
     $overlayRelativePath = "Subass/overlay/Lionzz_SubOverlay_Subass.lua"
     $dictRelativePath = "Subass/dictionary/Subass_Dictionary.lua"
     $pdfRelativePath = "Subass/overlay/Subass_PDF.lua"
     $notepadRelativePath = "Subass/imnotbad/imnotbad_Notepad.lua"
     $pomodoroRelativePath = "Subass/imnotbad/imnotbad_Pomodoro.lua"
-    $kbContent = [System.IO.File]::ReadAllLines($kbFile)
+    
+    $kbContent = @()
+    if (Test-Path $kbFile) {
+        $kbContent = [System.IO.File]::ReadAllLines($kbFile)
+    }
     
     $newKb = New-Object System.Collections.Generic.List[string]
     $foundMain = $false
@@ -484,7 +487,6 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
     # Use UTF-8 WITHOUT BOM for REAPER configs
     $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllLines($kbFile, [string[]]$newKb, $utf8NoBOM)
-}
 
 if (-not (Test-Path $menuFile)) {
     [System.IO.File]::WriteAllText($menuFile, "`r`n[Main Extensions]`r`n")
