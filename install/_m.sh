@@ -286,34 +286,34 @@ def update_ini():
                     continue
                 
                 if "Subass_Notes.lua" in line and rel_path in line and not found_main:
-                    m = re.search(r'SCR 4 0 (RS[0-9a-fA-F]+)', line)
+                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
                     if m: action_id_target = m.group(1)
-                    new_kb_lines.append(line)
+                    new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
                     found_main = True
                 elif "Lionzz_SubOverlay_Subass.lua" in line and overlay_rel in line and not found_overlay:
-                    m = re.search(r'SCR 4 0 (RS[0-9a-fA-F]+)', line)
+                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
                     if m: overlay_id_target = m.group(1)
-                    new_kb_lines.append(line)
+                    new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
                     found_overlay = True
                 elif "Subass_Dictionary.lua" in line and dict_rel in line and not found_dict:
-                    m = re.search(r'SCR 4 0 (RS[0-9a-fA-F]+)', line)
+                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
                     if m: dict_id_target = m.group(1)
-                    new_kb_lines.append(line)
+                    new_kb_lines.append(f'SCR 4 0 {dict_id_target} "Custom: Subass Dictionary" "{dict_rel}"\n')
                     found_dict = True
                 elif "Subass_PDF.lua" in line and pdf_rel in line and not found_pdf:
-                    m = re.search(r'SCR 4 0 (RS[0-9a-fA-F]+)', line)
+                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
                     if m: pdf_id_target = m.group(1)
-                    new_kb_lines.append(line)
+                    new_kb_lines.append(f'SCR 4 0 {pdf_id_target} "Custom: Subass PDF Reader" "{pdf_rel}"\n')
                     found_pdf = True
                 elif "imnotbad_Notepad.lua" in line and notepad_rel in line:
-                    m = re.search(r'SCR 4 0 (RS[0-9a-fA-F]+)', line)
+                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
                     if m: notepad_id_target = m.group(1)
-                    new_kb_lines.append(line)
+                    new_kb_lines.append(f'SCR 4 0 {notepad_id_target} "Custom: Imnotbad Notepad" "{notepad_rel}"\n')
                     found_notepad = True
                 elif "imnotbad_Pomodoro.lua" in line and pomodoro_rel in line:
-                    m = re.search(r'SCR 4 0 (RS[0-9a-fA-F]+)', line)
+                    m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
                     if m: pomodoro_id_target = m.group(1)
-                    new_kb_lines.append(line)
+                    new_kb_lines.append(f'SCR 4 0 {pomodoro_id_target} "Custom: Imnotbad Pomodoro" "{pomodoro_rel}"\n')
                     found_pomodoro = True
 
             if not found_main: new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
