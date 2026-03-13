@@ -8635,15 +8635,16 @@ local function import_notes()
                         -- Examples: 2:26, 02:38.080, 1:2:26, 2.30
                         
                         -- Try to match time range format: TIME - TIME - text
-                        -- Pattern: capture timestamp, space-dash-space, another timestamp, space-dash-space, then text
-                        local time1_str, time2_str, note_text = line:match("^([%d:.]+)%s*%-%s*([%d:.]+)%s*%-%s*(.*)$")
+                        local time1_str, time2_str, note_text = line:match("^([%d:%.]+)%s*%-%s*([%d:%.]+)%s*%-%s*(.*)$")
                         
                         if time1_str and time2_str and note_text then
                             -- Time range format: create marker at first time with end time in text
                             local time1 = parse_notes_timestamp(time1_str)
                             local time2 = parse_notes_timestamp(time2_str)
+                            
                             if time1 and time2 then
-                                local full_text = string.format("аж до %s - %s", time2_str, note_text)
+                                -- Normalize to "TIMESTAMP - Text" format for consistent highlighting
+                                local full_text = string.format("%s - %s", time2_str, note_text)
                                 table.insert(raw_notes, {time = time1, text = full_text, actor = current_actor})
                                 matched = true
                             else
@@ -8651,7 +8652,7 @@ local function import_notes()
                             end
                         else
                             -- Try single time format: TIME - text
-                            time1_str, note_text = line:match("^([%d:.]+)%s*%-%s*(.*)$")
+                            time1_str, note_text = line:match("^([%d:%.]+)%s*%-%s*(.*)$")
                             if time1_str and note_text then
                                 local time = parse_notes_timestamp(time1_str)
                                 if time then
@@ -18794,6 +18795,82 @@ local function delete_actor_globally(name)
     return count
 end
 
+function UTILS.update_corr_time_prefix(calc_only, cur_time)
+    -- --- AUTO-ATTACH TIME SELECTION ---
+    if not calc_only then
+        local sel_start, sel_end = reaper.GetSet_LoopTimeRange2(0, false, false, 0, 0, false)
+        if sel_start ~= sel_end and sel_end > sel_start then
+            -- ONLY attach if the selection starts near the current cursor/marker (within 150ms)
+            if math.abs(sel_start - cur_time) < 0.150 then
+                if sel_end ~= director_state.last_time_sel_end then
+                    director_state.last_time_sel_end = sel_end
+                    
+                    local time_str = format_timestamp(sel_end)
+                    local txt = director_state.input.text
+                    
+                    -- Extract optional [actor] prefix and the rest of the text
+                    local prefix, rest = txt:match("^(%[%s*.-%s*%]%s*)(.*)")
+                    if not prefix then
+                        prefix = ""
+                        rest = txt
+                    end
+                    
+                    -- Aggressively remove ANY existing time prefixes to clean up stacked times
+                    while true do
+                        local new_rest = rest:gsub("^%d+[:%.][%d:%.]*%s*-%s*", "")
+                        if new_rest == rest then break end
+                        rest = new_rest
+                    end
+                    
+                    local new_txt = prefix .. time_str .. " - " .. rest
+                    
+                    if director_state.input.text ~= new_txt then
+                        director_state.input.text = new_txt
+                        director_state.input.cursor = #director_state.input.text
+                        director_state.input.anchor = director_state.input.cursor
+                    end
+                end
+            elseif director_state.last_time_sel_end then
+                -- Selection is too far away, and we WERE tracking a selection. Remove it.
+                local txt = director_state.input.text
+                local prefix, rest = txt:match("^(%[%s*.-%s*%]%s*)(.*)")
+                if not prefix then prefix = ""; rest = txt end
+                
+                local cleaned_rest = rest
+                while true do
+                    local new_rest = cleaned_rest:gsub("^%d+[:%.][%d:%.]*%s*-%s*", "")
+                    if new_rest == cleaned_rest then break end
+                    cleaned_rest = new_rest
+                end
+                
+                local new_txt = prefix .. cleaned_rest
+                if director_state.input.text ~= new_txt then
+                    director_state.input.text = new_txt
+                end
+                director_state.last_time_sel_end = nil
+            end
+        elseif director_state.last_time_sel_end then
+            -- No selection, and we WERE tracking one. Remove it.
+            local txt = director_state.input.text
+            local prefix, rest = txt:match("^(%[%s*.-%s*%]%s*)(.*)")
+            if not prefix then prefix = ""; rest = txt end
+            
+            local cleaned_rest = rest
+            while true do
+                local new_rest = cleaned_rest:gsub("^%d+[:%.][%d:%.]*%s*-%s*", "")
+                if new_rest == cleaned_rest then break end
+                cleaned_rest = new_rest
+            end
+            
+            local new_txt = prefix .. cleaned_rest
+            if director_state.input.text ~= new_txt then
+                director_state.input.text = new_txt
+            end
+            director_state.last_time_sel_end = nil
+        end
+    end
+end
+
 local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
     if not calc_only then
         set_color(UI.C_BG)
@@ -18810,64 +18887,67 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     local edit_pos = reaper.GetCursorPosition()
     local cur_time = reaper.GetPlayState() > 0 and play_pos or edit_pos
     
-    -- Only update if time jump or first run
-    -- But first: Validate that the currently held marker ID still exists (it might have been deleted externally)
-    if director_state.last_marker_id then
-        local found_sync = nil
-        for _, m in ipairs(ass_markers) do
-            if m.markindex == director_state.last_marker_id then
-                found_sync = m
-                break
-            end
-        end
-        if not found_sync then
-            director_state.last_marker_id = nil
-            director_state.input.text = ""
-            director_state.input.cursor = 0
-        else
-            -- Sync with external changes (e.g. from modal text editor)
-            if found_sync.name ~= (director_state.original_text or "") then
-                -- Only update input if it hasn't been significantly modified by the user here, 
-                -- or if it was exactly matching the previous state.
-                if director_state.input.text == director_state.original_text then
-                    director_state.input.text = found_sync.name
-                    director_state.input.cursor = #found_sync.name
-                    director_state.input.anchor = director_state.input.cursor
+        -- Only update if time jump or first run
+        -- But first: Validate that the currently held marker ID still exists (it might have been deleted externally)
+        if director_state.last_marker_id then
+            local found_sync = nil
+            for _, m in ipairs(ass_markers) do
+                if m.markindex == director_state.last_marker_id then
+                    found_sync = m
+                    break
                 end
-                director_state.original_text = found_sync.name
             end
-        end
-    end
-
-    if not is_near(cur_time, director_state.last_time) then
-        director_state.last_time = cur_time
-        
-        local found_m = nil
-        for _, m in ipairs(ass_markers) do
-            if is_near(m.pos, cur_time) then
-                found_m = m
-                break
-            end
-        end
-        
-        if found_m then
-            if found_m.markindex ~= director_state.last_marker_id then
-                director_state.last_marker_id = found_m.markindex
-                director_state.input.text = found_m.name
-                director_state.original_text = found_m.name
-                director_state.input.cursor = #found_m.name
-                director_state.input.anchor = director_state.input.cursor -- Reset selection
-            end
-        else
-            if director_state.last_marker_id ~= nil then
+            if not found_sync then
                 director_state.last_marker_id = nil
                 director_state.input.text = ""
-                director_state.original_text = ""
                 director_state.input.cursor = 0
-                director_state.input.anchor = 0 -- Reset selection
+            else
+                -- Sync with external changes (e.g. from modal text editor)
+                if found_sync.name ~= (director_state.original_text or "") then
+                    -- Only update input if it hasn't been significantly modified by the user here, 
+                    -- or if it was exactly matching the previous state.
+                    if director_state.input.text == director_state.original_text then
+                        director_state.input.text = found_sync.name
+                        director_state.input.cursor = #found_sync.name
+                        director_state.input.anchor = director_state.input.cursor
+                    end
+                    director_state.original_text = found_sync.name
+                end
             end
         end
-    end
+
+        if not is_near(cur_time, director_state.last_time) then
+            director_state.last_time = cur_time
+            
+            local found_m = nil
+            for _, m in ipairs(ass_markers) do
+                if is_near(m.pos, cur_time) then
+                    found_m = m
+                    break
+                end
+            end
+            
+            if found_m then
+                if found_m.markindex ~= director_state.last_marker_id then
+                    director_state.last_marker_id = found_m.markindex
+                    director_state.input.text = found_m.name
+                    director_state.original_text = found_m.name
+                    director_state.input.cursor = #found_m.name
+                    director_state.input.anchor = director_state.input.cursor -- Reset selection
+                end
+            else
+                if director_state.last_marker_id ~= nil then
+                    director_state.last_marker_id = nil
+                    director_state.input.text = ""
+                    director_state.original_text = ""
+                    director_state.input.cursor = 0
+                    director_state.input.anchor = 0 -- Reset selection
+                end
+            end
+        end
+    
+    -- --- AUTO-ATTACH TIME SELECTION ---
+    UTILS.update_corr_time_prefix(calc_only, cur_time)
 
     local btn_h = S(24) -- Standard button height
     
@@ -18933,8 +19013,9 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         content = text:gsub("^%[.-%]%s*", "")
                     else
                         -- Fallback: Try pattern "Actor: Text"
+                        -- Ensure that the 'act' we find doesn't look like a number (timestamp part)
                         local s, e, act = string.find(text, "^(.-):%s*")
-                        if s then
+                        if s and not act:match("^%d+$") then
                             table.insert(list, act)
                             content = string.sub(text, e + 1)
                         else
@@ -19382,7 +19463,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     
     -- Recalculate Input Height dynamically based on remaining space
     
-    local min_input_h = S(50)
+    local min_input_h = S(30)
     local input_h = min_input_h
     
     -- Reserve space for save button in Right layout (vertical stacking)
@@ -20921,7 +21002,7 @@ local function draw_table(input_queue)
             
             -- Recalculate height for NEXT frame to ensure smooth resizing
             local needed = draw_director_panel(0, draw_y, gfx.w, h_director, nil, true)
-            if needed < S(100) then needed = S(100) end
+            if needed < S(84) then needed = S(84) end
             
             -- Auto-expand logic: If content needs more than current setting AND we are not resizing
             if not director_resize_drag and needed > h_director then
@@ -20992,7 +21073,7 @@ local function draw_table(input_queue)
             
             if director_resize_drag and gfx.mouse_cap == 1 then
                 local new_h = gfx.h - gfx.mouse_y
-                if new_h < S(120) then new_h = S(120) end
+                if new_h < S(104) then new_h = S(104) end
                 local max_h = gfx.h - S(150)
                 if new_h > max_h then new_h = max_h end
                 cfg.h_director = new_h
@@ -21564,6 +21645,46 @@ function OTHER.handle_remote_commands()
     end
 end
 
+function OTHER.highlight_marker_with_end_time()
+    -- --- GLOBAL: Auto-set time selection from active marker's timestamp ---
+    -- Only trigger when the EDIT CURSOR moves (ignore playback to save CPU)
+    local cur_time = reaper.GetCursorPosition()
+    
+    global_marker_sel_state = global_marker_sel_state or {}
+    
+    -- Only run if the cursor position has changed
+    if cur_time ~= global_marker_sel_state.last_cursor_pos then
+        global_marker_sel_state.last_cursor_pos = cur_time
+        
+        local g_found = nil
+        for _, m in ipairs(ass_markers) do
+            if is_near(m.pos, cur_time) then
+                g_found = m
+                break
+            end
+        end
+
+        if g_found then
+            if g_found.markindex ~= global_marker_sel_state.last_id then
+                global_marker_sel_state.last_id = g_found.markindex
+
+                -- Parse time from marker text (after optional [actor] prefix)
+                local m_rest = g_found.name:match("^%[.-%]%s*(.*)") or g_found.name
+                local ts_str = m_rest:match("^(%d+[:%.][%d:%.]*)%s*-")
+                if ts_str then
+                    local end_secs = parse_notes_timestamp(ts_str)
+                    if end_secs then
+                        reaper.GetSet_LoopTimeRange2(0, true, false, g_found.pos, end_secs, false)
+                    end
+                end
+            end
+        else
+            -- No marker here, clear ID so next marker interaction triggers
+            global_marker_sel_state.last_id = nil
+        end
+    end
+end
+
 --- Automatically trim start/end and check for clipping of newly recorded items
 function OTHER.process_post_recording()
     local play_state = reaper.GetPlayState()
@@ -22001,6 +22122,7 @@ local function main()
     draw_loader()
     
     OTHER.process_post_recording()
+    OTHER.highlight_marker_with_end_time()
 
     gfx.update()
 
