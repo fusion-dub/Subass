@@ -402,8 +402,8 @@ if (Test-Path $stressTool) {
 # 6. Register Action and Menu Item
 $kbFile = Join-Path $reaperPath "reaper-kb.ini"
 $menuFile = Join-Path $reaperPath "reaper-menu.ini"
-$notepadActionId = "RS5555555555555555555555555555555555555555"
 $pomodoroActionId = "RS4444444444444444444444444444444444444444"
+$notepadActionId = "RS5555555555555555555555555555555555555555"
 $pdfActionId = "RS6666666666666666666666666666666666666666"
 $actionId = "RS7777777777777777777777777777777777777777"
 $overlayActionId = "RS8888888888888888888888888888888888888888"
@@ -437,38 +437,38 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
         
         if ($line -match "Subass[/\\]+Subass_Notes.lua") {
             if (-not $foundMain) {
-                if ($line -match "SCR 4 0 (RS[0-9a-fA-F]+)") { $actionId = $matches[1] }
-                $newKb.Add($line)
+                if ($line -match "SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)") { $actionId = $matches[1] }
+                $newKb.Add("SCR 4 0 $actionId ""Custom: Subass Notes"" ""$scriptRelativePath""")
                 $foundMain = $true
             }
         } elseif ($line -match "Subass[/\\]+overlay[/\\]+Lionzz_SubOverlay_Subass.lua") {
             if (-not $foundOverlay) {
-                if ($line -match "SCR 4 0 (RS[0-9a-fA-F]+)") { $overlayActionId = $matches[1] }
-                $newKb.Add($line)
+                if ($line -match "SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)") { $overlayActionId = $matches[1] }
+                $newKb.Add("SCR 4 0 $overlayActionId ""Custom: Subass SubOverlay (Lionzz)"" ""$overlayRelativePath""")
                 $foundOverlay = $true
             }
         } elseif ($line -match "Subass[/\\]+dictionary[/\\]+Subass_Dictionary.lua") {
             if (-not $foundDict) {
-                if ($line -match "SCR 4 0 (RS[0-9a-fA-F]+)") { $dictActionId = $matches[1] }
-                $newKb.Add($line)
+                if ($line -match "SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)") { $dictActionId = $matches[1] }
+                $newKb.Add("SCR 4 0 $dictActionId ""Custom: Subass Dictionary"" ""$dictRelativePath""")
                 $foundDict = $true
             }
         } elseif ($line -match "Subass[/\\]+overlay[/\\]+Subass_PDF.lua") {
             if (-not $foundPdf) {
-                if ($line -match "SCR 4 0 (RS[0-9a-fA-F]+)") { $pdfActionId = $matches[1] }
-                $newKb.Add($line)
+                if ($line -match "SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)") { $pdfActionId = $matches[1] }
+                $newKb.Add("SCR 4 0 $pdfActionId ""Custom: Subass PDF Reader"" ""$pdfRelativePath""")
                 $foundPdf = $true
             }
         } elseif ($line -match "Subass[/\\]+imnotbad[/\\]+imnotbad_Notepad.lua") {
             if (-not $foundNotepad) {
-                if ($line -match "SCR 4 0 (RS[0-9a-fA-F]+)") { $notepadActionId = $matches[1] }
-                $newKb.Add($line)
+                if ($line -match "SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)") { $notepadActionId = $matches[1] }
+                $newKb.Add("SCR 4 0 $notepadActionId ""Custom: Imnotbad Notepad"" ""$notepadRelativePath""")
                 $foundNotepad = $true
             }
         } elseif ($line -match "Subass[/\\]+imnotbad[/\\]+imnotbad_Pomodoro.lua") {
             if (-not $foundPomodoro) {
-                if ($line -match "SCR 4 0 (RS[0-9a-fA-F]+)") { $pomodoroActionId = $matches[1] }
-                $newKb.Add($line)
+                if ($line -match "SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)") { $pomodoroActionId = $matches[1] }
+                $newKb.Add("SCR 4 0 $pomodoroActionId ""Custom: Imnotbad Pomodoro"" ""$pomodoroRelativePath""")
                 $foundPomodoro = $true
             }
         }
