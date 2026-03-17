@@ -7267,15 +7267,23 @@ function STATS.register_plugin_usage()
     local script_path = source:match([[^@?(.*[\\/])]]) or ""
     local full_script_path = script_path .. "stats/subass_extra_stats.py"
     
+    -- Get or generate stable Machine ID
+    local machine_id = reaper.GetExtState(section_name, "MachineID")
+    if not machine_id or machine_id == "" then
+        machine_id = reaper.genGuid("")
+        machine_id = machine_id:gsub("[%{%}%-]", ""):lower()
+        reaper.SetExtState(section_name, "MachineID", machine_id, true)
+    end
+    
     -- Execute in background (Fire-and-Forget)
-    local cmd = string.format('python3 "%s" --register --script_title "%s"', 
-                                full_script_path, GL.script_title)
+    local cmd = string.format('python3 "%s" --register --script_title "%s" --machine_id "%s"', 
+                                full_script_path, GL.script_title, machine_id)
     
     if reaper.GetOS():match("Win") then
         full_script_path = full_script_path:gsub("/", "\\")
         local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
-        cmd = string.format('%s "%s" --register --script_title "%s"', 
-                                    py_exe, full_script_path, GL.script_title)
+        cmd = string.format('%s "%s" --register --script_title "%s" --machine_id "%s"', 
+                                    py_exe, full_script_path, GL.script_title, machine_id)
     end
     
     run_async_command(cmd, nil, true, nil, false)
@@ -10718,6 +10726,23 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
                 cursor = last_char_start - 1
                 anchor = cursor
                 changed = true
+            end
+        -- Delete (Forward Delete, e.g., Fn + Backspace on Mac)
+        elseif char == 6579564 then
+            if has_sel then
+                delete_selection()
+            elseif cursor < #text then
+                local before = text:sub(1, cursor)
+                local after = text:sub(cursor + 1)
+                local next_char_end = 1
+                while next_char_end < #after do
+                    local b = after:byte(next_char_end + 1)
+                    if not b or b < 128 or b >= 192 then break end
+                    next_char_end = next_char_end + 1
+                end
+                text = before .. after:sub(next_char_end + 1)
+                -- cursor doesn't move when forward deleting
+                changed = true
             end 
         -- Navigation
         elseif char == 30064 then -- Up
@@ -10791,7 +10816,7 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
                 cursor = cur
                 if not is_shift then anchor = cursor end
             end
-        elseif char == 6579564 or char == 6647396 then -- Home
+        elseif char == 1752132965 then -- Home
             if not is_multiline or not visual_lines then
                 cursor = 0
             else
@@ -10800,7 +10825,7 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
                 cursor = visual_lines[cur_vi].start_idx
             end
             if not is_shift then anchor = cursor end
-        elseif char == 1701734758 or char == 1752132965 then -- End
+        elseif char == 6647396 then -- End
             if not is_multiline or not visual_lines then
                 cursor = #text
             else
@@ -13417,6 +13442,10 @@ local function get_py_ver()
                         OTHER.rec_state.all_ok = (OTHER.rec_state.sws and OTHER.rec_state.reapack and 
                                                     OTHER.rec_state.js_api and OTHER.rec_state.reaimgui and 
                                                     OTHER.rec_state.python.ok)
+                        
+                        -- Register telemetry once Python is verified
+                        STATS.register_plugin_usage()
+                        
                         -- If everything became OK, we can potentially hide window or re-layout
                         if OTHER.rec_state.all_ok then OTHER.rec_state.show = false end
                     end
@@ -13512,6 +13541,11 @@ local function do_check()
     if py_ver ~= "Checking..." or not reaper.GetOS():match("Win") then
         OTHER.rec_state.python.ok = py_ok
         OTHER.rec_state.python.version = py_ver
+        
+        -- Register telemetry once Python is verified synchronously (macOS/Linux)
+        if py_ok then
+            STATS.register_plugin_usage()
+        end
     end
 
     OTHER.rec_state.all_ok = (OTHER.rec_state.sws and OTHER.rec_state.reapack and 
@@ -15379,7 +15413,25 @@ local function draw_prompter_drawer(input_queue)
             local filter_w = prompter_drawer.width - close_sz - (padding * 3)
             
             -- Filter Input
-            ui_text_input(drawer_x + padding, drawer_top_y + padding, filter_w, close_sz, prompter_drawer.filter, "Пошук...", input_queue)
+            -- Reserve space for results count when filter has text
+            gfx.setfont(F.std)
+            local p_counter_reserve = S(0)
+            if prompter_drawer.filter.text ~= "" and prompter_drawer.filtered_cache.list then
+                local p_count_text = tostring(#prompter_drawer.filtered_cache.list)
+                p_counter_reserve = gfx.measurestr(p_count_text) + S(16)
+            end
+            ui_text_input(drawer_x + padding, drawer_top_y + padding, filter_w - p_counter_reserve, close_sz, prompter_drawer.filter, "Пошук... (|, &)", input_queue)
+
+            -- Draw results count to the right of filter input
+            if p_counter_reserve > 0 then
+                local p_count_text = tostring(#prompter_drawer.filtered_cache.list)
+                local p_count_w = gfx.measurestr(p_count_text)
+                local p_count_x = drawer_x + padding + filter_w - p_count_w - S(8)
+                local p_count_y = drawer_top_y + padding + (close_sz - gfx.texth) / 2
+                set_color(UI.C_TXT_DIM)
+                gfx.x, gfx.y = p_count_x, p_count_y
+                gfx.drawstr(p_count_text)
+            end
             
             -- Close Button next to filter
             local close_x = drawer_x + padding + filter_w + padding
@@ -15430,13 +15482,49 @@ local function draw_prompter_drawer(input_queue)
                 prompter_drawer.filtered_cache.list = {}
                 prompter_drawer.filtered_cache.total_h = 0
                 
+                
+                -- Parse Query into OR/AND groups once
+                local queries = {}
+                local or_terms = {}
+                for term in query:gmatch("[^|]+") do table.insert(or_terms, term) end
+                for _, or_term in ipairs(or_terms) do
+                    local and_terms = {}
+                    for and_part in or_term:gmatch("[^&]+") do
+                        local t = and_part:match("^%s*(.-)%s*$")
+                        if t ~= "" then table.insert(and_terms, t) end
+                    end
+                    if #and_terms > 0 then table.insert(queries, and_terms) end
+                end
+                prompter_drawer.filtered_cache.parsed_queries = queries
+
                 gfx.setfont(F.std)
                 for _, m in ipairs(prompter_drawer.marker_cache.markers) do
                     local full_id = "M" .. tostring(m.markindex)
                     local clean_name = strip_accents(utf8_lower(m.name))
                     local clean_id = utf8_lower(full_id)
                     
-                    if query == "" or clean_id:find(query, 1, true) or clean_name:find(query, 1, true) then
+                    -- Parse Query into OR/AND groups
+                    local any_match = false
+                    if #queries == 0 then
+                        any_match = true
+                    else
+                        for _, and_group in ipairs(queries) do
+                            local all_and_matched = true
+                            for _, q in ipairs(and_group) do
+                                -- Each term must match either the ID or the Name
+                                if not (clean_id:find(q, 1, true) or clean_name:find(q, 1, true)) then
+                                    all_and_matched = false
+                                    break
+                                end
+                            end
+                            if all_and_matched then
+                                any_match = true
+                                break
+                            end
+                        end
+                    end
+                    
+                    if any_match then
                         local lines = {}
                         
                         -- Split by newlines first
@@ -15797,24 +15885,28 @@ local function draw_prompter_drawer(input_queue)
                             local lx = col_text_x + S(5)
                             local ly = line_y + (base_row_h - gfx.texth) / 2
                             
-                            -- Search Highlighting
-                            if #query > 0 then
+                            -- Search Highlighting (Multiple Terms Support)
+                            if prompter_drawer.filtered_cache.parsed_queries and #prompter_drawer.filtered_cache.parsed_queries > 0 then
                                 local low_line = utf8_lower(line_text)
-                                local start_pos = 1
-                                while true do
-                                    local s, e = low_line:find(query, start_pos, true)
-                                    if not s then break end
-                                    
-                                    -- Calculate pixel position of the match
-                                    local prefix = line_text:sub(1, s - 1)
-                                    local match_str = line_text:sub(s, e)
-                                    local px = lx + gfx.measurestr(prefix)
-                                    local pw = gfx.measurestr(match_str)
-                                    
-                                    set_color(UI.C_HILI_YELLOW) -- Yellow highlight
-                                    gfx.rect(px, line_y + S(2), pw, base_row_h - S(4), 1)
-                                    
-                                    start_pos = e + 1
+                                for _, and_group in ipairs(prompter_drawer.filtered_cache.parsed_queries) do
+                                    for _, q in ipairs(and_group) do
+                                        local start_pos = 1
+                                        while true do
+                                            local s, e = low_line:find(q, start_pos, true)
+                                            if not s then break end
+                                            
+                                            -- Calculate pixel position of the match
+                                            local prefix = line_text:sub(1, s - 1)
+                                            local match_str = line_text:sub(s, e)
+                                            local px = lx + gfx.measurestr(prefix)
+                                            local pw = gfx.measurestr(match_str)
+                                            
+                                            set_color(UI.C_HILI_YELLOW) -- Yellow highlight
+                                            gfx.rect(px, line_y + S(2), pw, base_row_h - S(4), 1)
+                                            
+                                            start_pos = e + 1
+                                        end
+                                    end
                                 end
                             end
                             
@@ -22214,7 +22306,6 @@ local function main()
     reaper.defer(main)
 end
 
-STATS.register_plugin_usage()
 update_regions_cache()
 
 reaper.atexit(function()
