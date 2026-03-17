@@ -812,7 +812,11 @@ function STATS.load()
     local decoded = STATS.json_decode(content)
     if type(decoded) == "table" and decoded.project_id then
         STATS.data = decoded
+        -- Ensure critical sub-tables always exist
+        if not STATS.data.metadata then STATS.data.metadata = {} end
+        if not STATS.data.total then STATS.data.total = {} end
         if not STATS.data.duration then STATS.data.duration = {} end
+        if not STATS.data.daily_stats then STATS.data.daily_stats = {} end
     else
         -- Fallback: initialize default structure
         STATS.data = {
