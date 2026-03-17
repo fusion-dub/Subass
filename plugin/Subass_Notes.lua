@@ -9393,6 +9393,7 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
         cleanup_actors()
         rebuild_regions()
         save_project_data(UI_STATE.last_project_id)
+        reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
         show_snackbar("Наголоси додано: " .. changed_lines .. " рядків", "success")
     else
         show_snackbar("Наголоси не потрібні або не знайдені", "info")
@@ -9616,7 +9617,7 @@ local function delete_all_regions()
 
     rebuild_regions()
     save_project_data()
-    DUBBERS.save()
+    DUBBERS.save() -- SAVE ON CHANGE
 
     if show_snackbar then
         show_snackbar("Всі дані та регіони видалено", "error")
@@ -10588,6 +10589,7 @@ function UTILS.calc_track_items_by_actor()
     cleanup_actors()
     rebuild_regions()
     save_project_data()
+    reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
     show_snackbar("Оброблено реплік: " .. changed_count, "success")
 end
 
@@ -14679,6 +14681,7 @@ local function draw_file()
                                 cfg.random_color_actors = true
                                 rebuild_regions()
                                 save_project_data()
+                                reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                             end
                         elseif ret == 2 then
                             local ok, new_name = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", act)
@@ -14710,6 +14713,7 @@ local function draw_file()
                                 cleanup_actors()
                                 rebuild_regions()
                                 save_project_data()
+                                reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                             end
                         elseif ret == 3 then
                             local confirm = reaper.MB("Видалити актора '" .. act .. "' і всі його репліки?", "Підтвердження", 4)
@@ -14732,6 +14736,7 @@ local function draw_file()
                                 cleanup_actors()
                                 rebuild_regions()
                                 save_project_data()
+                                reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                             end
                         end
                         UI_STATE.mouse_handled = true -- Suppress global context menu
@@ -18052,6 +18057,7 @@ local function draw_settings()
         cfg.random_color_actors = not cfg.random_color_actors
         rebuild_regions()
         save_project_data()
+        reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
         save_settings()
     end
     y_cursor = y_cursor + S(35)
@@ -19177,6 +19183,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 end
                 
                 save_project_data(UI_STATE.last_project_id)
+                reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                 show_snackbar("Імпортовано " .. count .. " акторів", "success")
             else
                 show_snackbar("Нових акторів не знайдено", "info")
@@ -19272,6 +19279,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                                 push_undo("Об'єднати актора '" .. actor .. "' з '" .. new_name.. "' (Режисер)")
                                 table.remove(director_actors, i)
                                 save_project_data(UI_STATE.last_project_id)
+                                reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                                 local ops = rename_actor_globally(actor, new_name)
 
                                 -- Force prompter drawer caches to refresh
@@ -19297,6 +19305,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                                 push_undo("Змінити ім'я актора " .. actor .. " -> " .. new_name)
                                 director_actors[i] = new_name
                                 save_project_data(UI_STATE.last_project_id)
+                                reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                                 local ops = rename_actor_globally(actor, new_name)
 
                                 -- Force prompter drawer caches to refresh
@@ -19328,6 +19337,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         push_undo("Видалити актора '" .. actor .. "' (Режисер)")
                         table.remove(director_actors, i)
                         save_project_data(UI_STATE.last_project_id)
+                        reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                         local ops = delete_actor_globally(actor)
 
                         -- Force prompter drawer caches to refresh
@@ -19456,6 +19466,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         push_undo("Додати актора '" .. name .. "' (Режисер)")
                         table.insert(director_actors, name)
                         save_project_data(UI_STATE.last_project_id)
+                        reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                     end
                 end
             end
@@ -19894,6 +19905,7 @@ local function draw_table(input_queue)
             cleanup_actors()
             rebuild_regions()
             save_project_data(UI_STATE.last_project_id)
+            reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
         end
         
         if total_deleted > 0 then
@@ -19938,6 +19950,7 @@ local function draw_table(input_queue)
             cleanup_actors()
             rebuild_regions()
             save_project_data(UI_STATE.last_project_id)
+            reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
             
             table_selection = {}
             table_selection[new_replica.index] = true
