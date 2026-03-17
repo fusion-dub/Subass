@@ -2684,6 +2684,7 @@ end
 --- @param timestamp number|nil Unix timestamp or nil to clear
 function DEADLINE.set(timestamp)
     reaper.SetProjExtState(0, section_name, "project_deadline", timestamp and tostring(timestamp) or "")
+    reaper.MarkProjectDirty(0)
     DEADLINE.project_deadline = timestamp
     
     -- Update global storage
@@ -3969,6 +3970,7 @@ function DICT.save_selected()
     local ts = tostring(reaper.time_precise())
     reaper.SetProjExtState(0, section_name, "selected_dict_ids", STATS.json_encode(ids))
     reaper.SetProjExtState(0, section_name, "dict_last_update", ts)
+    reaper.MarkProjectDirty(0)
     DICT.last_update_ts = ts
     -- Invalidate lookup cache
     DICT.cached_lookup = nil
@@ -7347,6 +7349,7 @@ end
 function DUBBERS.save()
     local json_str = STATS.json_encode(DUBBERS.data)
     reaper.SetProjExtState(0, section_name, "dubber_data", json_str)
+    reaper.MarkProjectDirty(0)
 end
 
 --- Copy distribution result to clipboard
