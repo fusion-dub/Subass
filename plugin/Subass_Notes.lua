@@ -431,7 +431,9 @@ local director_state = {
     original_text = "",
     pending_scroll_id = nil,
     has_recent_notes = false,
-    recent_indices = {}
+    recent_indices = {},
+    scroll_y = 0,
+    target_scroll_y = 0
 }
 
 -- Proximity helper for marker detection
@@ -18607,7 +18609,7 @@ local function draw_settings()
 
     -- Footer
     set_color(UI.C_TXT)
-    local footer_txt = "Відкрити 'Політику конфіденційності'"
+    local footer_txt = "Відкрити \"Політику конфіденційності\""
     s_text(x_start, y_cursor, footer_txt, F.std)
 
     -- Click handler
@@ -19203,6 +19205,23 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         end
     end
 
+    -- --- SCROLL: calculate actor area height limit ---
+    local is_right_layout = (cfg.director_layout == "right")
+    local input_reserve = S(30) + S(10) + (is_right_layout and (S(30) + S(10)) or 0) -- min input + padding + optional save btn
+    local actor_area_bottom = math.max(panel_y + btn_h, panel_y + panel_h - input_reserve) -- always show at least one row
+    if not calc_only and UI_STATE.window_focused and gfx.mouse_wheel ~= 0 and
+       gfx.mouse_x >= panel_x and gfx.mouse_x <= panel_x + panel_w and
+       gfx.mouse_y >= panel_y and gfx.mouse_y <= actor_area_bottom then
+        director_state.target_scroll_y = (director_state.target_scroll_y or 0) - (gfx.mouse_wheel / 120) * S(30)
+        -- Clamp immediately using cached max_scroll from previous frame to prevent overshoot
+        local cached_max = director_state.cached_max_scroll or 0
+        director_state.target_scroll_y = math.max(0, math.min(cached_max, director_state.target_scroll_y))
+        gfx.mouse_wheel = 0
+    end
+    -- Smooth scroll interpolation
+    director_state.scroll_y = (director_state.scroll_y or 0) + ((director_state.target_scroll_y or 0) - (director_state.scroll_y or 0)) * 0.4
+    if math.abs(director_state.scroll_y - director_state.target_scroll_y) < 0.5 then director_state.scroll_y = director_state.target_scroll_y end
+
     for i, actor in ipairs(director_actors) do
         local label = actor
         local w, _ = gfx.measurestr(label)
@@ -19221,40 +19240,44 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
              -- Active state determination
             local is_active = current_actors_set[actor]
             local bg_col = is_active and UI.C_ACCENT_G or UI.C_BTN
+            local sdraw_y = draw_y - math.floor(director_state.scroll_y or 0) -- scrolled Y
             
             -- Hover Check for Right Click
             -- Adjust hit test to relative coords
-            local hover = UI_STATE.window_focused and (gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + btn_w and gfx.mouse_y >= draw_y and gfx.mouse_y <= draw_y + btn_h)
+            local hover = UI_STATE.window_focused and (gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + btn_w and gfx.mouse_y >= sdraw_y and gfx.mouse_y <= sdraw_y + btn_h)
             
-            if draw_btn_inline(draw_x, draw_y, btn_w, btn_h, label, bg_col) then
-                -- Toggle Logic
-                local txt = director_state.input.text
-                local list, _ = get_actors_from_text(txt)
-                local clean = txt:gsub("^%[.-%]%s*", "")
-                
-                if is_active then
-                    -- Toggle Off (Remove from list)
-                    local new_list = {}
-                    for _, a in ipairs(list) do
-                        if a ~= actor then table.insert(new_list, a) end
-                    end
-                    if #new_list > 0 then
-                        director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
+            -- Only draw if inside the visible actor area (with strict clipping to avoid overlapping input)
+            if sdraw_y >= panel_y and sdraw_y + btn_h <= actor_area_bottom then
+                if draw_btn_inline(draw_x, sdraw_y, btn_w, btn_h, label, bg_col) then
+                    -- Toggle Logic
+                    local txt = director_state.input.text
+                    local list, _ = get_actors_from_text(txt)
+                    local clean = txt:gsub("^%[.-%]%s*", "")
+                    
+                    if is_active then
+                        -- Toggle Off (Remove from list)
+                        local new_list = {}
+                        for _, a in ipairs(list) do
+                            if a ~= actor then table.insert(new_list, a) end
+                        end
+                        if #new_list > 0 then
+                            director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
+                        else
+                            director_state.input.text = clean
+                        end
                     else
-                        director_state.input.text = clean
+                        -- Toggle On (Add to list)
+                        table.insert(list, actor)
+                        director_state.input.text = "[" .. table.concat(list, ", ") .. "] " .. clean
                     end
-                else
-                    -- Toggle On (Add to list)
-                    table.insert(list, actor)
-                    director_state.input.text = "[" .. table.concat(list, ", ") .. "] " .. clean
+                    director_state.input.cursor = #director_state.input.text
+                    director_state.input.anchor = director_state.input.cursor
+                    director_state.input.focus = true
                 end
-                director_state.input.cursor = #director_state.input.text
-                director_state.input.anchor = director_state.input.cursor
-                director_state.input.focus = true
-            end
+            end -- clip
             
-            -- Right Click
-            if hover and is_right_mouse_clicked() then
+            -- Right Click (must be in visible area)
+            if hover and sdraw_y >= panel_y and sdraw_y + btn_h <= actor_area_bottom and is_right_mouse_clicked() then
                 -- ... (Context Menu Logic) ...
                 UI_STATE.mouse_handled = true
 
@@ -19380,6 +19403,24 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         end
     end
 
+    -- Clamp scroll after layout is known
+    if not calc_only then
+        local total_actors_h = y + btn_h + S(20) -- total height + bottom padding
+        local viewport_h = actor_area_bottom - panel_y
+        local max_scroll = math.max(0, total_actors_h - viewport_h)
+        director_state.cached_max_scroll = max_scroll  -- cache for next frame pre-clamp
+        director_state.target_scroll_y = math.max(0, math.min(max_scroll, director_state.target_scroll_y or 0))
+        -- Also clamp scroll_y itself to prevent overshoot snap-back
+        director_state.scroll_y = math.max(0, math.min(max_scroll, director_state.scroll_y or 0))
+        -- Draw scrollbar indicator if needed
+        if max_scroll > 0 then
+            local bar_h = math.max(S(20), (viewport_h / total_actors_h) * viewport_h)
+            local bar_y = panel_y + ((director_state.scroll_y or 0) / total_actors_h) * viewport_h
+            set_color(UI.C_TXT_DIM)
+            gfx.rect(panel_x + panel_w - S(4), bar_y, S(3), bar_h, 1)
+        end
+    end
+
     if not calc_only then
         -- Draw # Button (Recent Notes)
         if director_state.has_recent_notes then
@@ -19389,54 +19430,56 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 draw_x = panel_x + x
                 draw_y = panel_y + y
             end
-            
-            if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "#", UI.C_ACCENT_N) then
-                -- Collect Unique Notes
-                local unique_notes = {}
-                local used_text = {}
-                
-                -- 1. Try Recent Indices First
-                local markers_by_id = {}
-                for _, m in ipairs(ass_markers) do markers_by_id[m.markindex] = m end
-                
-                for _, rid in ipairs(director_state.recent_indices) do
-                    local m = markers_by_id[rid]
-                    if m and m.name and m.name ~= "" and not used_text[m.name] then
-                        table.insert(unique_notes, m.name)
-                        used_text[m.name] = true
-                        if #unique_notes >= 15 then break end
-                    end
-                end
-                
-                -- 2. Fill with Newest Markers if space remains
-                if #unique_notes < 15 then
-                    for i = #ass_markers, 1, -1 do
-                        local m = ass_markers[i]
+            local sdraw_y_hash = draw_y - math.floor(director_state.scroll_y or 0)
+            if sdraw_y_hash >= panel_y and sdraw_y_hash + btn_h <= actor_area_bottom then
+                if draw_btn_inline(draw_x, sdraw_y_hash, S(24), btn_h, "#", UI.C_ACCENT_N) then
+                    -- Collect Unique Notes
+                    local unique_notes = {}
+                    local used_text = {}
+                    
+                    -- 1. Try Recent Indices First
+                    local markers_by_id = {}
+                    for _, m in ipairs(ass_markers) do markers_by_id[m.markindex] = m end
+                    
+                    for _, rid in ipairs(director_state.recent_indices) do
+                        local m = markers_by_id[rid]
                         if m and m.name and m.name ~= "" and not used_text[m.name] then
                             table.insert(unique_notes, m.name)
                             used_text[m.name] = true
                             if #unique_notes >= 15 then break end
                         end
                     end
-                end
-                
-                if #unique_notes > 0 then
-                    local menu_items = {}
-                    for _, note in ipairs(unique_notes) do
-                        table.insert(menu_items, (note:gsub("|", "||")))
-                    end
-                    local menu_str = table.concat(menu_items, "|")
                     
-                    gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                    local ret = gfx.showmenu(menu_str)
-                    if ret > 0 and unique_notes[ret] then
-                        director_state.input.text = unique_notes[ret]
-                        director_state.input.cursor = #director_state.input.text
-                        director_state.input.anchor = director_state.input.cursor
-                        director_state.input.focus = true
+                    -- 2. Fill with Newest Markers if space remains
+                    if #unique_notes < 15 then
+                        for i = #ass_markers, 1, -1 do
+                            local m = ass_markers[i]
+                            if m and m.name and m.name ~= "" and not used_text[m.name] then
+                                table.insert(unique_notes, m.name)
+                                used_text[m.name] = true
+                                if #unique_notes >= 15 then break end
+                            end
+                        end
+                    end
+                    
+                    if #unique_notes > 0 then
+                        local menu_items = {}
+                        for _, note in ipairs(unique_notes) do
+                            table.insert(menu_items, (note:gsub("|", "||")))
+                        end
+                        local menu_str = table.concat(menu_items, "|")
+                        
+                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                        local ret = gfx.showmenu(menu_str)
+                        if ret > 0 and unique_notes[ret] then
+                            director_state.input.text = unique_notes[ret]
+                            director_state.input.cursor = #director_state.input.text
+                            director_state.input.anchor = director_state.input.cursor
+                            director_state.input.focus = true
+                        end
                     end
                 end
-            end
+            end -- clip hash
             draw_x = draw_x + S(24) + S(5)
             x = x + S(24) + S(5)
         end
@@ -19448,25 +19491,27 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             draw_x = panel_x + x
             draw_y = panel_y + y
         end
-
-        if draw_btn_inline(draw_x, draw_y, S(24), btn_h, "+", UI.C_ACCENT_N) then
-            local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
-            if ok then
-                -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
-                name = name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
-                
-                if name ~= "" then
-                    -- Check duplication
-                    local exists = false
-                    for _, act in ipairs(director_actors) do
-                        if act == name then exists = true break end
-                    end
+        local sdraw_y_plus = draw_y - math.floor(director_state.scroll_y or 0)
+        if sdraw_y_plus >= panel_y and sdraw_y_plus + btn_h <= actor_area_bottom then
+            if draw_btn_inline(draw_x, sdraw_y_plus, S(24), btn_h, "+", UI.C_ACCENT_N) then
+                local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
+                if ok then
+                    -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
+                    name = name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
                     
-                    if not exists then
-                        push_undo("Додати актора '" .. name .. "' (Режисер)")
-                        table.insert(director_actors, name)
-                        save_project_data(UI_STATE.last_project_id)
-                        reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
+                    if name ~= "" then
+                        -- Check duplication
+                        local exists = false
+                        for _, act in ipairs(director_actors) do
+                            if act == name then exists = true break end
+                        end
+                        
+                        if not exists then
+                            push_undo("Додати актора '" .. name .. "' (Режисер)")
+                            table.insert(director_actors, name)
+                            save_project_data(UI_STATE.last_project_id)
+                            reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
+                        end
                     end
                 end
             end
@@ -19474,27 +19519,20 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     end
     
     -- --- ROW 2: INPUT & SAVE ---
-    x = padding -- Reset X to start of line
-    y = y + btn_h + S(10) -- Move down from last button row
-    draw_x = panel_x + x -- Update absolute draw X
-    draw_y = panel_y + y -- Update absolute draw Y
-    
-    -- Recalculate Input Height dynamically based on remaining space
-    
     local min_input_h = S(30)
-    local input_h = min_input_h
+    local save_btn_space = is_right_layout and (S(30) + S(10)) or 0
+    local input_area_h = min_input_h + padding + save_btn_space
+    local input_draw_x = panel_x + padding
     
-    -- Reserve space for save button in Right layout (vertical stacking)
-    local is_right_layout = (cfg.director_layout == "right")
-    local save_btn_space = is_right_layout and (S(30) + S(10)) or 0 -- Button height + gap
-    
-    if panel_h > (y + min_input_h + padding + save_btn_space) then
-        input_h = panel_h - y - padding - save_btn_space
-    end
+    -- input_draw_y: follows actors if they fit, else pinned to actor_area_bottom
+    -- input_h: always fills from input_draw_y to panel bottom (shrinks smoothly with panel)
+    local natural_input_y = panel_y + y + btn_h + S(10)
+    local input_draw_y = math.min(natural_input_y, actor_area_bottom)
+    local input_h = math.max(min_input_h, (panel_y + panel_h) - input_draw_y - padding - save_btn_space)
     
     if not calc_only then
         local was_focused = director_state.input.focus
-        ui_text_input(draw_x, draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true)
+        ui_text_input(input_draw_x, input_draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true)
     
         -- Check for changes to highlight button
         local has_changes = false
@@ -19510,9 +19548,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         local save_label = director_state.last_marker_id and "Оновити" or "Зберегти"
         
         -- Position save button: vertical stack for Right mode, horizontal for Bottom mode
-        local is_right_layout = (cfg.director_layout == "right")
-        local save_x = is_right_layout and draw_x or (draw_x + input_w + S(10))
-        local save_y = is_right_layout and (draw_y + input_h + S(10)) or draw_y
+        local save_x = is_right_layout and input_draw_x or (input_draw_x + input_w + S(10))
+        local save_y = is_right_layout and (input_draw_y + input_h + S(10)) or input_draw_y
         local save_h = is_right_layout and S(30) or input_h
 
         if is_right_layout then
@@ -19572,8 +19609,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         end
     end
     
-    -- Return total needed height
-    return y + input_h + padding
+    -- Return fixed height = actor viewport + fixed input area (prevents auto-expand with many actors)
+    return (actor_area_bottom - panel_y) + input_area_h
 end
 
 local function draw_table(input_queue)
@@ -20444,7 +20481,10 @@ local function draw_table(input_queue)
     end
     
     -- Smooth Scroll Logic
-    local mouse_in_director = cfg.director_mode and gfx.mouse_y >= gfx.h - h_director
+    local mouse_in_director = cfg.director_mode and (
+        (not (cfg.director_layout == "right") and gfx.mouse_y >= gfx.h - h_director) or
+        ((cfg.director_layout == "right") and gfx.mouse_x >= (cfg.w_director and gfx.w - cfg.w_director or gfx.w - S(300)))
+    )
     if gfx.mouse_wheel ~= 0 and not mouse_in_director then
         UI_STATE.target_scroll_y = UI_STATE.target_scroll_y - (gfx.mouse_wheel * 0.25)
         if UI_STATE.target_scroll_y < 0 then UI_STATE.target_scroll_y = 0 end
@@ -21006,7 +21046,6 @@ local function draw_table(input_queue)
     
     -- Scrollbar
     UI_STATE.target_scroll_y = draw_scrollbar(gfx.w - 10, content_y, 10, avail_h, total_h, avail_h, UI_STATE.target_scroll_y)
-    
     -- Draw Director Panel
     if cfg.director_mode then
         if is_dir_right then
