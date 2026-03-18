@@ -5198,70 +5198,50 @@ local function trigger_dictionary_lookup(word)
     return false
 end
 
+function UTILS.close_all_modals()
+    DUBBERS.show_dashboard = false
+    DEADLINE.dashboard_show = false
+    SEARCH_ITEM.show = false
+    dict_modal.show = false
+end
+
 UTILS.GLOBAL_HOTKEY_ACTIONS = {
-    { label = "Перейти на табу Файл", action = function()
-        UI_STATE.current_tab = 1
-        DUBBERS.show_dashboard = false
-        DEADLINE.dashboard_show = false
-        SEARCH_ITEM.show = false
-    end },
-    { label = "Перейти на табу Репліки", action = function()
-        UI_STATE.current_tab = 2
-        DUBBERS.show_dashboard = false
-        DEADLINE.dashboard_show = false
-        SEARCH_ITEM.show = false
-    end },
-    { label = "Перейти на табу Суфлер", action = function()
-        UI_STATE.current_tab = 3
-        DUBBERS.show_dashboard = false
-        DEADLINE.dashboard_show = false
-        SEARCH_ITEM.show = false
-    end },
-    { label = "Перейти на табу Налаштування", action = function()
-        UI_STATE.current_tab = 4
-        DUBBERS.show_dashboard = false
-        DEADLINE.dashboard_show = false
-        SEARCH_ITEM.show = false
-    end },
+    { label = "Перейти на табу Файл", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 1 end },
+    { label = "Перейти на табу Репліки", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 2 end },
+    { label = "Перейти на табу Суфлер", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 3 end },
+    { label = "Перейти на табу Налаштування", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 4 end },
     { label = "Відкрити Мої Дедлайни", action = function() 
-        DEADLINE.dashboard_show = not DEADLINE.dashboard_show
-        DUBBERS.show_dashboard = false
-        SEARCH_ITEM.show = false
+        local state = not DEADLINE.dashboard_show
+        UTILS.close_all_modals()
+        DEADLINE.dashboard_show = state
     end },
     { label = "Відкрити Розділення по Даберам", action = function()
-        DUBBERS.show_dashboard = not DUBBERS.show_dashboard
-        DEADLINE.dashboard_show = false
-        SEARCH_ITEM.show = false
-        DUBBERS.load()
+        local state = not DUBBERS.show_dashboard
+        UTILS.close_all_modals()
+        DUBBERS.show_dashboard = state
+        if state then DUBBERS.load() end
     end },
     { label = "Перейти в Режим Режисера", action = function()
+        UTILS.close_all_modals()
         UI_STATE.current_tab = 2
         cfg.director_mode = not cfg.director_mode
-        DUBBERS.show_dashboard = false
-        DEADLINE.dashboard_show = false
-        SEARCH_ITEM.show = false
         save_settings()
     end },
     { label = "Відобразити SubOverlay від Lionzz", action = function() UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end },
     { label = "Знайти нове слово в ГОРОСі", action = function() 
         local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
-        if ok and input ~= "" then
-            trigger_dictionary_lookup(input)
-            DUBBERS.show_dashboard = false
-            DEADLINE.dashboard_show = false
-            SEARCH_ITEM.show = false
+        if ok and input ~= "" then 
+            UTILS.close_all_modals()
+            trigger_dictionary_lookup(input) 
         end
     end },
     { label = "Глобальний пошук реплік", action = function()
-        if SEARCH_ITEM.show then
-            SEARCH_ITEM.show = false
-        else
+        local state = not SEARCH_ITEM.show
+        UTILS.close_all_modals()
+        if state then
             SEARCH_ITEM.open()
             SEARCH_ITEM.input.focus = true 
         end
-
-        DUBBERS.show_dashboard = false
-        DEADLINE.dashboard_show = false
     end },
     { label = "Відкрити Нотатник", action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_Notepad.lua", "Нотатник") end },
     { label = "Відкрити Словник", action = function() UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end },
@@ -22383,7 +22363,7 @@ local function main()
                     input_queue[i] = 0
                     goto next_char
                 end
-            elseif not dict_modal.show and not text_editor_state.active then
+            elseif not text_editor_state.active then
                 if not is_any_text_input_focused() then
                 -- Space: Play/Stop
                 if c == 32 then
