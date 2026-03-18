@@ -18886,6 +18886,9 @@ local function delete_actor_globally(name)
             if #new_actors > 0 then
                 new_text = "[" .. table.concat(new_actors, ", ") .. "] " .. clean_text
             end
+
+            -- SetProjectMarker ignores empty strings, so fallback to a space if empty
+            if new_text == "" then new_text = "_пусто_" end
             
             reaper.SetProjectMarker4(0, markindex, isrgn, pos, rgnend, new_text, 0, 0)
             count = count + 1
@@ -19373,8 +19376,17 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 -- ... (Context Menu Logic) ...
                 UI_STATE.mouse_handled = true
 
+                -- Check if multiple actors are currently selected in the input
+                local sel_list, sel_set = get_actors_from_text(director_state.input.text)
+                local has_multiple_selected = (#sel_list > 1)
+
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                 local menu_str2 = "Змінити ім'я||Видалити ім'я"
+                
+                if has_multiple_selected then
+                    menu_str2 = menu_str2 .. "||Видалити вибрані імена (" .. #sel_list .. ")"
+                end
+                
                 local ret2 = gfx.showmenu(menu_str2)
                 if ret2 == 1 then
                     -- RENAME
@@ -19478,6 +19490,52 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         end
                         
                         show_snackbar("Видалено актора та '" .. ops .. "' префіксів (Режисер)", "info")
+                    end
+                elseif ret2 == 3 and has_multiple_selected then
+                    -- BULK DELETE SELECTED
+                    local names_list = table.concat(sel_list, ", ")
+                    local ok = reaper.MB("Ви дійсно хочете видалити ВСІХ вибраних акторів (" .. #sel_list .. ")?\n\nАктори: " .. names_list .. "\n\nЇх префікси будуть видалені з усіх правок.", "Підтвердження", 4)
+                    if ok == 6 then
+                        push_undo("Видалити " .. #sel_list .. " вибраних акторів (Режисер)")
+                        
+                        local total_ops = 0
+                        local to_remove_indices = {}
+                        
+                        -- Process all selected actors
+                        for _, act_to_del in ipairs(sel_list) do
+                            -- Find index in director_actors to remove
+                            for idx, d_act in ipairs(director_actors) do
+                                if d_act == act_to_del then
+                                    table.insert(to_remove_indices, idx)
+                                    break
+                                end
+                            end
+                            -- Delete globally
+                            local ops = delete_actor_globally(act_to_del)
+                            total_ops = total_ops + ops
+                        end
+                        
+                        -- Remove from director_actors (in reverse order to not mess up indices)
+                        table.sort(to_remove_indices, function(a, b) return a > b end)
+                        for _, idx in ipairs(to_remove_indices) do
+                            table.remove(director_actors, idx)
+                        end
+                        
+                        save_project_data(UI_STATE.last_project_id)
+                        reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
+                        
+                        -- Force prompter drawer caches to refresh
+                        prompter_drawer.marker_cache.count = -1
+                        prompter_drawer.filtered_cache.state_count = -1
+                        prompter_drawer.has_markers_cache.count = -1
+                        
+                        -- Clear them from input
+                        local clean = director_state.input.text:gsub("^%[.-%]%s*", "")
+                        director_state.input.text = clean
+                        director_state.input.cursor = #director_state.input.text
+                        director_state.input.anchor = director_state.input.cursor
+                        
+                        show_snackbar("Видалено " .. #sel_list .. " акторів та '" .. total_ops .. "' префіксів", "info")
                     end
                 end
             end
