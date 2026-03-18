@@ -128,6 +128,9 @@ local cfg = {
         "Системний"
     },
     search_item_path = get_set("search_item_path", ""),
+
+    -- hotkeys for 12 actions (string, defaults: 1,2,3,4,5,6,7,8,9,0,-,=)
+    hotkeys = get_set("hotkeys", "1,2,3,4,5,6,7,8,9,0,-,="),
 }
 
 local OTHER = {
@@ -330,7 +333,8 @@ local UI_STATE = {
     inside_window = false, -- Track if mouse is within window bounds
     AUTO_UPDATE_INTERVAL = 21600, -- 6 hours
     last_update_check_time = 0,
-    is_restarting = false
+    is_restarting = false,
+    hotkey_capture_idx = nil -- Which action is waiting for a key press
 }
 
 local DEADLINE = {
@@ -473,7 +477,7 @@ local word_trigger = {
 -- --- Search Item Modal ---
 local SEARCH_ITEM = {
     show = false,
-    input = { text = "", focus = false, cursor = 1, anchor = 1, scroll = 0 },
+    input = { text = "", focus = false, cursor = 0, anchor = 0, scroll = 0 },
     results = nil,
     loading = false,
     scroll_y = 0,
@@ -5194,7 +5198,45 @@ local function trigger_dictionary_lookup(word)
     return false
 end
 
---- Strip HTML tags and entities
+UTILS.GLOBAL_HOTKEY_ACTIONS = {
+    { label = "Перейти на табу Файл", action = function() UI_STATE.current_tab = 1 end },
+    { label = "Перейти на табу Репліки", action = function() UI_STATE.current_tab = 2 end },
+    { label = "Перейти на табу Суфлер", action = function() UI_STATE.current_tab = 3 end },
+    { label = "Перейти на табу Налаштування", action = function() UI_STATE.current_tab = 4 end },
+    { label = "Відкрити Мої Дедлайни", action = function() 
+        DEADLINE.dashboard_show = not DEADLINE.dashboard_show
+    end },
+    { label = "Відкрити Розділення по Даберам", action = function()
+        DUBBERS.show_dashboard = not DUBBERS.show_dashboard
+        DUBBERS.load()
+    end },
+    { label = "Перейти в Режим Режисера", action = function()
+        UI_STATE.current_tab = 2
+        cfg.director_mode = not cfg.director_mode
+        save_settings()
+    end },
+    { label = "Відобразити SubOverlay від Lionzz", action = function() UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end },
+    { label = "Знайти нове слово в ГОРОСі", action = function() 
+        local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
+        if ok and input ~= "" then trigger_dictionary_lookup(input) end
+    end },
+    { label = "Глобальний пошук реплік", action = function()
+        if SEARCH_ITEM.show then
+            SEARCH_ITEM.show = false
+        else
+            SEARCH_ITEM.open()
+            SEARCH_ITEM.input.focus = true 
+        end
+    end },
+    { label = "Відкрити Нотатник", action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_Notepad.lua", "Нотатник") end },
+    { label = "Відкрити Словник", action = function() UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end },
+}
+
+function UTILS.execute_hotkey_action(idx)
+    if UTILS.GLOBAL_HOTKEY_ACTIONS[idx] and UTILS.GLOBAL_HOTKEY_ACTIONS[idx].action then
+        UTILS.GLOBAL_HOTKEY_ACTIONS[idx].action()
+    end
+end
 
 -- =============================================================================
 -- CLIPBOARD OPERATIONS
@@ -10719,7 +10761,7 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
                 local last_char_start = cursor
                 while last_char_start > 1 do
                     local b = before:byte(last_char_start)
-                    if b < 128 or b >= 192 then break end
+                    if not b or b < 128 or b >= 192 then break end
                     last_char_start = last_char_start - 1
                 end
                 text = before:sub(1, last_char_start - 1) .. after
@@ -10799,7 +10841,7 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
                 local cur = cursor
                 while cur > 1 do
                     local b = text:byte(cur)
-                    if b < 128 or b >= 192 then break end
+                    if not b or b < 128 or b >= 192 then break end
                     cur = cur - 1
                 end
                 cursor = cur - 1
@@ -10810,7 +10852,7 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
                 local cur = cursor + 1
                 while cur < #text do
                     local b = text:byte(cur + 1)
-                    if b < 128 or b >= 192 then break end
+                    if not b or b < 128 or b >= 192 then break end
                     cur = cur + 1
                 end
                 cursor = cur
@@ -11582,9 +11624,9 @@ function SEARCH_ITEM.open()
         if cur_pos >= rgn.pos and cur_pos < rgn.rgnend then
             local t = rgn.name:gsub("{.-}", ""):gsub("\\n", " "):gsub("\n", " "):gsub("  +", " "):gsub("^%s+", ""):gsub("%s+$", "")
             SEARCH_ITEM.input.text = t
-            local l = utf8.len(t) or #t
-            SEARCH_ITEM.input.cursor = l + 1
-            SEARCH_ITEM.input.anchor = l + 1
+            local l = #t
+            SEARCH_ITEM.input.cursor = l
+            SEARCH_ITEM.input.anchor = l
             break
         end
     end
@@ -18191,6 +18233,24 @@ local function draw_settings()
         cfg.gui_scale = math.min(5.0, math.floor((cfg.gui_scale + 0.1) * 10 + 0.5) / 10)
         save_settings()
     end
+    y_cursor = y_cursor + S(40)
+
+    -- Hotkeys Button
+    local keys = {}
+    for k in cfg.hotkeys:gmatch("([^,]+)") do table.insert(keys, k) end
+
+    if s_btn(x_start, y_cursor, S(200), S(35), "Гарячі клавіші", "Налаштування глобальних гарячих клавіш для швидкого перемикання лише коли плагін в фокусі") then
+        local menu_str = ""
+        for i, item in ipairs(UTILS.GLOBAL_HOTKEY_ACTIONS) do
+            local key = keys[i] or "?"
+            menu_str = menu_str .. "[" .. key .. "] " .. item.label .. "||"
+        end
+        local ret = gfx.showmenu(menu_str)
+        if ret > 0 then
+            UI_STATE.hotkey_capture_idx = ret
+            show_snackbar("Натисніть клавішу для: " .. UTILS.GLOBAL_HOTKEY_ACTIONS[ret].label, "info")
+        end
+    end
     y_cursor = y_cursor + S(60)
 
     -- ═══════════════════════════════════════════
@@ -22217,9 +22277,67 @@ local function main()
         char = gfx.getchar() -- Consume next
     end
 
-    -- --- UNDO HANDLING (GLOBAL) ---
+    -- --- INPUT HANDLING (GLOBAL & HOTKEYS) ---
     if not text_editor_state.active then
-        for _, c in ipairs(input_queue) do
+        -- 1. Hotkey Assignment Capture
+        if UI_STATE.hotkey_capture_idx and #input_queue > 0 then
+            local char_cap = input_queue[1]
+            local key_str = nil
+            if char_cap >= 48 and char_cap <= 57 then key_str = string.char(char_cap)
+            elseif char_cap == 45 then key_str = "-"
+            elseif char_cap == 61 then key_str = "="
+            end
+            
+            if key_str then
+                local keys = {}
+                for k in cfg.hotkeys:gmatch("([^,]+)") do table.insert(keys, k) end
+                
+                local old_key = keys[UI_STATE.hotkey_capture_idx]
+                -- Find where the NEW key was before and swap
+                local swap_idx = nil
+                for idx, k in ipairs(keys) do
+                    if k == key_str and idx ~= UI_STATE.hotkey_capture_idx then
+                        swap_idx = idx
+                        break
+                    end
+                end
+                
+                if swap_idx then
+                    keys[swap_idx] = old_key
+                    keys[UI_STATE.hotkey_capture_idx] = key_str
+                    cfg.hotkeys = table.concat(keys, ",")
+                    save_settings()
+                    show_snackbar("Клавіші поміняно місцями: [" .. key_str .. "] <-> [" .. (old_key or "?") .. "]", "info")
+                else
+                    keys[UI_STATE.hotkey_capture_idx] = key_str
+                    cfg.hotkeys = table.concat(keys, ",")
+                    save_settings()
+                    show_snackbar("Змінено на [" .. key_str .. "]", "success")
+                end
+            else
+                show_snackbar("Помилка: використовуйте 0-9, - або =", "error")
+            end
+            UI_STATE.hotkey_capture_idx = nil
+            for i=1, #input_queue do input_queue[i] = 0 end -- Clear queue
+        end
+
+        -- 2. Global Hotkeys & Standard Shortcuts
+        for i, c in ipairs(input_queue) do
+            if c == 0 then goto next_char end -- Skip consumed
+
+            -- --- A. High-Priority Global Pass-Through (Save, Record) ---
+            -- These should work even if a text field is focused
+            if c == 19 then -- Ctrl+S (Save)
+                reaper.Main_OnCommand(40026, 0)
+                input_queue[i] = 0
+                goto next_char
+            elseif c == 18 then -- Ctrl+R (Record)
+                reaper.Main_OnCommand(1013, 0)
+                input_queue[i] = 0
+                -- Don't return focus, keep script active for prompter/search
+                goto next_char
+            end
+
             if c == 26 then -- Ctrl+Z / Cmd+Z
                 if not is_any_text_input_focused() then
                     if gfx.mouse_cap & 8 ~= 0 then -- Shift is held
@@ -22227,23 +22345,40 @@ local function main()
                     else
                         undo_action()
                     end
+                    input_queue[i] = 0
+                    goto next_char
                 end
             elseif not dict_modal.show and not text_editor_state.active then
-                -- Global Pass-Through Shortcuts (Standard Defaults)
-                -- Dynamic lookup of user shortcuts is not supported by API
-                local global_cmds = {
-                    [32] = 40044, -- Space: Play/Stop
-                    [19] = 40026, -- Ctrl+S: Save Project
-                    [18] = 1013   -- Ctrl+R: Record
-                }
-                
-                if global_cmds[c] then
-                    if not is_any_text_input_focused() then
-                        reaper.Main_OnCommand(global_cmds[c], 0)
+                if not is_any_text_input_focused() then
+                    -- Space: Play/Stop
+                    if c == 32 then
+                        reaper.Main_OnCommand(40044, 0)
+                        input_queue[i] = 0
                         return_focus_to_reaper(true)
+                        goto next_char
+                    end
+
+                    -- Check User Hotkeys (0-9, -, =)
+                    local char_str = nil
+                    if c >= 48 and c <= 57 then char_str = string.char(c)
+                    elseif c == 45 then char_str = "-"
+                    elseif c == 61 then char_str = "="
+                    end
+
+                    if char_str then
+                        local keys = {}
+                        for k in cfg.hotkeys:gmatch("([^,]+)") do table.insert(keys, k) end
+                        for idx, k in ipairs(keys) do
+                            if k == char_str then
+                                UTILS.execute_hotkey_action(idx)
+                                input_queue[i] = 0
+                                goto next_char
+                            end
+                        end
                     end
                 end
             end
+            ::next_char::
         end
     end
 
