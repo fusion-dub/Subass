@@ -5199,26 +5199,58 @@ local function trigger_dictionary_lookup(word)
 end
 
 UTILS.GLOBAL_HOTKEY_ACTIONS = {
-    { label = "Перейти на табу Файл", action = function() UI_STATE.current_tab = 1 end },
-    { label = "Перейти на табу Репліки", action = function() UI_STATE.current_tab = 2 end },
-    { label = "Перейти на табу Суфлер", action = function() UI_STATE.current_tab = 3 end },
-    { label = "Перейти на табу Налаштування", action = function() UI_STATE.current_tab = 4 end },
+    { label = "Перейти на табу Файл", action = function()
+        UI_STATE.current_tab = 1
+        DUBBERS.show_dashboard = false
+        DEADLINE.dashboard_show = false
+        SEARCH_ITEM.show = false
+    end },
+    { label = "Перейти на табу Репліки", action = function()
+        UI_STATE.current_tab = 2
+        DUBBERS.show_dashboard = false
+        DEADLINE.dashboard_show = false
+        SEARCH_ITEM.show = false
+    end },
+    { label = "Перейти на табу Суфлер", action = function()
+        UI_STATE.current_tab = 3
+        DUBBERS.show_dashboard = false
+        DEADLINE.dashboard_show = false
+        SEARCH_ITEM.show = false
+    end },
+    { label = "Перейти на табу Налаштування", action = function()
+        UI_STATE.current_tab = 4
+        DUBBERS.show_dashboard = false
+        DEADLINE.dashboard_show = false
+        SEARCH_ITEM.show = false
+    end },
     { label = "Відкрити Мої Дедлайни", action = function() 
         DEADLINE.dashboard_show = not DEADLINE.dashboard_show
+        DUBBERS.show_dashboard = false
+        SEARCH_ITEM.show = false
     end },
     { label = "Відкрити Розділення по Даберам", action = function()
         DUBBERS.show_dashboard = not DUBBERS.show_dashboard
+        DEADLINE.dashboard_show = false
+        SEARCH_ITEM.show = false
         DUBBERS.load()
     end },
     { label = "Перейти в Режим Режисера", action = function()
         UI_STATE.current_tab = 2
         cfg.director_mode = not cfg.director_mode
+        DUBBERS.show_dashboard = false
+        DEADLINE.dashboard_show = false
+        SEARCH_ITEM.show = false
         save_settings()
     end },
     { label = "Відобразити SubOverlay від Lionzz", action = function() UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end },
     { label = "Знайти нове слово в ГОРОСі", action = function() 
         local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
-        if ok and input ~= "" then trigger_dictionary_lookup(input) end
+        if ok and input ~= "" then
+            trigger_dictionary_lookup(input)
+            DUBBERS.show_dashboard = false
+            DEADLINE.dashboard_show = false
+            SEARCH_ITEM.show = false
+        end
     end },
     { label = "Глобальний пошук реплік", action = function()
         if SEARCH_ITEM.show then
@@ -5227,6 +5259,9 @@ UTILS.GLOBAL_HOTKEY_ACTIONS = {
             SEARCH_ITEM.open()
             SEARCH_ITEM.input.focus = true 
         end
+
+        DUBBERS.show_dashboard = false
+        DEADLINE.dashboard_show = false
     end },
     { label = "Відкрити Нотатник", action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_Notepad.lua", "Нотатник") end },
     { label = "Відкрити Словник", action = function() UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end },
@@ -22350,27 +22385,34 @@ local function main()
                 end
             elseif not dict_modal.show and not text_editor_state.active then
                 if not is_any_text_input_focused() then
-                    -- Space: Play/Stop
-                    if c == 32 then
-                        reaper.Main_OnCommand(40044, 0)
-                        input_queue[i] = 0
-                        return_focus_to_reaper(true)
-                        goto next_char
-                    end
+                -- Space: Play/Stop
+                if c == 32 then
+                    reaper.Main_OnCommand(40044, 0)
+                    input_queue[i] = 0
+                    return_focus_to_reaper(true)
+                    goto next_char
+                end
 
-                    -- Check User Hotkeys (0-9, -, =)
-                    local char_str = nil
-                    if c >= 48 and c <= 57 then char_str = string.char(c)
-                    elseif c == 45 then char_str = "-"
-                    elseif c == 61 then char_str = "="
-                    end
+                -- Custom REAPER 'R' for Record (added by user request)
+                if c == 82 or c == 114 then -- R / r
+                    reaper.Main_OnCommand(1013, 0)
+                    input_queue[i] = 0
+                    goto next_char
+                end
 
-                    if char_str then
-                        local keys = {}
-                        for k in cfg.hotkeys:gmatch("([^,]+)") do table.insert(keys, k) end
-                        for idx, k in ipairs(keys) do
-                            if k == char_str then
-                                UTILS.execute_hotkey_action(idx)
+                -- Check User Hotkeys (0-9, -, =)
+                local char_str = nil
+                if c >= 48 and c <= 57 then char_str = string.char(c)
+                elseif c == 45 then char_str = "-"
+                elseif c == 61 then char_str = "="
+                end
+
+                if char_str then
+                    local keys = {}
+                    for k in cfg.hotkeys:gmatch("([^,]+)") do table.insert(keys, k) end
+                    for idx, k in ipairs(keys) do
+                        if k == char_str then
+                            UTILS.execute_hotkey_action(idx)
                                 input_queue[i] = 0
                                 goto next_char
                             end
