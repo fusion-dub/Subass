@@ -7471,17 +7471,27 @@ function DUBBERS.save()
     DUBBERS.version = DUBBERS.version + 1
 end
 
-function DUBBERS.exists(name)
-    if not name or name == "" then return false end
+function DUBBERS.validate_name(name, current_name)
+    if not name or name == "" then return false, "Ім'я не може бути порожнім" end
     local n_clean = name:match("^%s*(.-)%s*$")
-    if n_clean == "" then return false end
+    if n_clean == "" then return false, "Ім'я не може бути порожнім" end
+    
+    if n_clean:find("[|&]") then
+        return false, "Ім'я не може містити символи | або &"
+    end
+    
     local n_lower = utf8_lower(n_clean)
-    for _, d in ipairs(DUBBERS.data.names) do
-        if utf8_lower(d:match("^%s*(.-)%s*$")) == n_lower then
-            return true
+    local cur_lower = current_name and utf8_lower(current_name:match("^%s*(.-)%s*$"))
+    
+    if n_lower ~= cur_lower then
+        for _, d in ipairs(DUBBERS.data.names) do
+            if utf8_lower(d:match("^%s*(.-)%s*$")) == n_lower then
+                return false, "Дабер з таким ім'ям вже існує"
+            end
         end
     end
-    return false
+    
+    return true, n_clean
 end
 
 --- Copy distribution result to clipboard
@@ -7825,11 +7835,12 @@ function DUBBERS.draw_dashboard(input_queue)
     if dy + S(25) > header_h and dy < gfx.h then
         if btn(pad, dy, add_w, S(25), "+ Додати дабера", UI.C_BTN, UI.C_TXT) then
             local ok, name = reaper.GetUserInputs("Новий дабер", 1, "Ім'я дабера:", "")
-            if ok and name ~= "" then
-                if DUBBERS.exists(name) then
-                    show_snackbar("Дабер з таким ім'ям вже існує", "error")
+            if ok then
+                local is_valid, res = DUBBERS.validate_name(name)
+                if not is_valid then
+                    if res then show_snackbar(res, "error") end
                 else
-                    table.insert(DUBBERS.data.names, name)
+                    table.insert(DUBBERS.data.names, res)
                     DUBBERS.save()
                 end
             end
@@ -7869,11 +7880,16 @@ function DUBBERS.draw_dashboard(input_queue)
                     DUBBERS.select_dubber(name)
                 elseif ret == 2 then
                     local ok, n_name = reaper.GetUserInputs("Rename", 1, "New name:", name)
-                    if ok and n_name ~= "" then
-                        DUBBERS.data.assignments[n_name] = DUBBERS.data.assignments[name]
-                        DUBBERS.data.assignments[name] = nil
-                        DUBBERS.data.names[i] = n_name
-                        DUBBERS.save()
+                    if ok then
+                        local is_valid, res = DUBBERS.validate_name(n_name, name)
+                        if not is_valid then
+                            if res then show_snackbar(res, "error") end
+                        else
+                            DUBBERS.data.assignments[res] = DUBBERS.data.assignments[name]
+                            DUBBERS.data.assignments[name] = nil
+                            DUBBERS.data.names[i] = res
+                            DUBBERS.save()
+                        end
                     end
                 elseif ret == 3 then
                     if reaper.MB("Видалити '"..name.."'?", "Confirm", 4) == 6 then
@@ -21366,12 +21382,13 @@ local function draw_table(input_queue)
                             
                             if is_new then
                                 local ok, name = reaper.GetUserInputs("Новий дабер", 1, "Ім'я дабера:", "")
-                                if ok and name ~= "" then
-                                    if DUBBERS.exists(name) then
-                                        show_snackbar("Дабер з таким ім'ям вже існує", "error")
+                                if ok then
+                                    local is_valid, res = DUBBERS.validate_name(name)
+                                    if not is_valid then
+                                        if res then show_snackbar(res, "error") end
                                     else
-                                        table.insert(DUBBERS.data.names, name)
-                                        selected_dubber = name
+                                        table.insert(DUBBERS.data.names, res)
+                                        selected_dubber = res
                                     end
                                 end
                             else
