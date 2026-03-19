@@ -20452,7 +20452,7 @@ local function draw_table(input_queue)
         for _, line in ipairs(raw_data) do
             local target_text = line.text or line.name or ""
             local any_match = false
-            local h_text, h_actor, h_index
+            local h_text, h_actor, h_index, h_dubber
             
             if #queries == 0 then
                 any_match = true
@@ -20465,7 +20465,7 @@ local function draw_table(input_queue)
                     for _, q in ipairs(and_group) do
                         local q_lower = utf8_lower(q)
                         local q_clean = strip_accents(q_lower)
-                        local text_match, actor_match, index_match = false, false, false
+                        local text_match, actor_match, index_match, dubber_match = false, false, false, false
                         
                         if use_case then
                             text_match = target_text:find(q, 1, true)
@@ -20474,6 +20474,13 @@ local function draw_table(input_queue)
                                 actor_match = line.actor:find(q, 1, true)
                                 if actor_match and not h_actor then h_actor = {line.actor:find(q, 1, true)} end
                             end
+                            
+                            local dubber_str = act_to_dub[line.actor or ""] or ""
+                            if cfg.col_table_dubber and dubber_str ~= "" then
+                                dubber_match = dubber_str:find(q, 1, true)
+                                if dubber_match and not h_dubber then h_dubber = {dubber_str:find(q, 1, true)} end
+                            end
+                            
                             index_match = tostring(line.index or ""):find(q, 1, true)
                             if index_match and not h_index then h_index = {tostring(line.index or ""):find(q, 1, true)} end
                         else
@@ -20491,6 +20498,16 @@ local function draw_table(input_queue)
                                     if s then h_actor = {s, e} end
                                 end
                             end
+                            
+                            local dubber_str = act_to_dub[line.actor or ""] or ""
+                            if cfg.col_table_dubber and dubber_str ~= "" then
+                                local clean_dubber = strip_accents(utf8_lower(dubber_str))
+                                dubber_match = clean_dubber:find(q_clean, 1, true)
+                                if dubber_match and not h_dubber then
+                                    local s, e = utf8_find_accent_blind(dubber_str, q)
+                                    if s then h_dubber = {s, e} end
+                                end
+                            end
                             local idx_str = tostring(line.index or "")
                             index_match = idx_str:lower():find(q_clean, 1, true)
                             if index_match and not h_index then
@@ -20499,7 +20516,7 @@ local function draw_table(input_queue)
                             end
                         end
                         
-                        if not (text_match or (not is_replace_mode and (actor_match or index_match))) then
+                        if not (text_match or (not is_replace_mode and (actor_match or index_match or dubber_match))) then
                             all_and_matched = false
                             break -- This AND group failed
                         end
@@ -20516,6 +20533,7 @@ local function draw_table(input_queue)
                 line.h_text = h_text -- Store pre-calculated highlight
                 line.h_actor = h_actor
                 line.h_index = h_index
+                line.h_dubber = h_dubber
                 
                 -- Pre-calculate CPS and strings for table view
                 local duration = (line.t2 or 0) - (line.t1 or 0)
@@ -21011,7 +21029,8 @@ local function draw_table(input_queue)
                 end
 
                 if cfg.col_table_dubber then
-                    draw_cell_txt(line.dubber or "", col_ptr); col_ptr = col_ptr + 1
+                    draw_highlighted_text(line.dubber or "", x_off[col_ptr], buf_y_text, x_off[col_ptr+1] - x_off[col_ptr] - 4, row_h_dynamic, line.h_dubber)
+                    col_ptr = col_ptr + 1
                 end
             end
 
