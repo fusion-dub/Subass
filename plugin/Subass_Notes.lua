@@ -92,6 +92,7 @@ local cfg = {
     col_table_start = (get_set("col_table_start", "1") == "1" or get_set("col_table_start", 1) == 1),
     col_table_end = (get_set("col_table_end", "1") == "1" or get_set("col_table_end", 1) == 1),
     col_table_cps = (get_set("col_table_cps", "1") == "1" or get_set("col_table_cps", 1) == 1),
+    col_table_dubber = (get_set("col_table_dubber", "0") == "1" or get_set("col_table_dubber", 0) == 1),
     col_table_actor = (get_set("col_table_actor", "1") == "1" or get_set("col_table_actor", 1) == 1),
     
     show_markers_in_table = (get_set("show_markers_in_table", "1") == "1" or get_set("show_markers_in_table", 1) == 1),
@@ -103,6 +104,7 @@ local cfg = {
     col_w_start = get_set("col_w_start", 75),
     col_w_end = get_set("col_w_end", 73),
     col_w_cps = get_set("col_w_cps", 55),
+    col_w_dubber = get_set("col_w_dubber", 100),
     col_w_actor = get_set("col_w_actor", 100),
 
     gui_scale = get_set("gui_scale", 1.1),
@@ -372,6 +374,7 @@ local DUBBERS = {
         names = {}, -- List of dubber names
         assignments = {} -- Map of dubber_name -> { actor1 = true, actor2 = true }
     },
+    version = 0,
     scroll_y = 0,
     target_scroll_y = 0,
     last_project_id = "" -- Track project changes
@@ -1468,6 +1471,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "col_table_index", cfg.col_table_index and "1" or "0", true)
     reaper.SetExtState(section_name, "col_table_start", cfg.col_table_start and "1" or "0", true)
     reaper.SetExtState(section_name, "col_table_end", cfg.col_table_end and "1" or "0", true)
+    reaper.SetExtState(section_name, "col_table_dubber", cfg.col_table_dubber and "1" or "0", true)
     reaper.SetExtState(section_name, "col_table_cps", cfg.col_table_cps and "1" or "0", true)
     reaper.SetExtState(section_name, "col_table_actor", cfg.col_table_actor and "1" or "0", true)
     reaper.SetExtState(section_name, "reader_mode", cfg.reader_mode and "1" or "0", true)
@@ -1477,6 +1481,14 @@ local function save_settings()
     reaper.SetExtState(section_name, "director_layout", cfg.director_layout, true)
     reaper.SetExtState(section_name, "w_director", tostring(cfg.w_director), true)
     reaper.SetExtState(section_name, "h_director", tostring(cfg.h_director), true)
+
+    reaper.SetExtState(section_name, "col_w_enabled", tostring(cfg.col_w_enabled), true)
+    reaper.SetExtState(section_name, "col_w_index", tostring(cfg.col_w_index), true)
+    reaper.SetExtState(section_name, "col_w_start", tostring(cfg.col_w_start), true)
+    reaper.SetExtState(section_name, "col_w_end", tostring(cfg.col_w_end), true)
+    reaper.SetExtState(section_name, "col_w_dubber", tostring(cfg.col_w_dubber), true)
+    reaper.SetExtState(section_name, "col_w_cps", tostring(cfg.col_w_cps), true)
+    reaper.SetExtState(section_name, "col_w_actor", tostring(cfg.col_w_actor), true)
 
     reaper.SetExtState(section_name, "auto_trim", cfg.auto_trim and "1" or "0", true)
     reaper.SetExtState(section_name, "trim_start", tostring(cfg.trim_start), true)
@@ -6421,6 +6433,7 @@ local function push_undo(label)
     local state = {
         lines = deep_copy_table(ass_lines),
         actors = deep_copy_table(ass_actors),
+        dubbers = deep_copy_table(DUBBERS.data),
         dir_actors = deep_copy_table(director_actors),
         markers = deep_copy_table(ass_markers),
         label = label or "Action"
@@ -6442,6 +6455,7 @@ local function undo_action()
     local current_state = {
         lines = deep_copy_table(ass_lines),
         actors = deep_copy_table(ass_actors),
+        dubbers = deep_copy_table(DUBBERS.data),
         dir_actors = deep_copy_table(director_actors),
         markers = capture_project_markers(),
         label = undo_stack[#undo_stack].label
@@ -6457,8 +6471,10 @@ local function undo_action()
     ass_lines = last_state.lines
     ass_actors = last_state.actors
     ass_markers = last_state.markers
+    if last_state.dubbers then DUBBERS.data = last_state.dubbers end
     if last_state.dir_actors then director_actors = last_state.dir_actors end
     
+    DUBBERS.save()
     cleanup_actors()
     rebuild_regions()
     save_project_data(UI_STATE.last_project_id) -- Sync to metadata
@@ -6474,6 +6490,7 @@ local function redo_action()
     local current_state = {
         lines = deep_copy_table(ass_lines),
         actors = deep_copy_table(ass_actors),
+        dubbers = deep_copy_table(DUBBERS.data),
         dir_actors = deep_copy_table(director_actors),
         markers = capture_project_markers(),
         label = next_state.label
@@ -6487,8 +6504,10 @@ local function redo_action()
     ass_lines = next_state.lines
     ass_actors = next_state.actors
     ass_markers = next_state.markers
+    if next_state.dubbers then DUBBERS.data = next_state.dubbers end
     if next_state.dir_actors then director_actors = next_state.dir_actors end
     
+    DUBBERS.save()
     cleanup_actors()
     rebuild_regions()
     save_project_data(UI_STATE.last_project_id) -- Sync to metadata
@@ -7449,6 +7468,7 @@ function DUBBERS.save()
     local json_str = STATS.json_encode(DUBBERS.data)
     reaper.SetProjExtState(0, section_name, "dubber_data", json_str)
     reaper.MarkProjectDirty(0)
+    DUBBERS.version = DUBBERS.version + 1
 end
 
 --- Copy distribution result to clipboard
@@ -18852,6 +18872,7 @@ local function get_sort_value(item, col, is_ass)
         return dur > 0 and (chars / dur) or 0
     end
     if col == "Актор" or col == "actor" then return utf8_lower(actor) end
+    if col == "Дабер" or col == "dubber" then return utf8_lower(item.dubber or "") end
     if col == "Репліка" or col == "text" then return utf8_lower(txt) end
     
     return 0
@@ -20357,7 +20378,8 @@ local function draw_table(input_queue)
                            table_data_cache.show_markers ~= cfg.show_markers_in_table or
                            table_data_cache.case_sensitive ~= OTHER.find_replace_state.case_sensitive or
                            table_data_cache.is_replace_mode ~= OTHER.find_replace_state.show or
-                           table_data_cache.fr_show ~= OTHER.find_replace_state.show)
+                           table_data_cache.fr_show ~= OTHER.find_replace_state.show or
+                           table_data_cache.dubbers_version ~= DUBBERS.version)
 
     if cache_invalid then
         local raw_data = {}
@@ -20376,6 +20398,23 @@ local function draw_table(input_queue)
                     is_marker = true, marker_color = m.color, markindex = m.markindex,
                     index = "M" .. m.markindex
                 })
+            end
+        end
+
+        local act_to_dub = {}
+        if DUBBERS and DUBBERS.data and DUBBERS.data.assignments then
+            for d_name, assigned in pairs(DUBBERS.data.assignments) do
+                for actor_name, is_on in pairs(assigned) do
+                    if is_on then 
+                        if not act_to_dub[actor_name] then act_to_dub[actor_name] = {} end
+                        table.insert(act_to_dub[actor_name], d_name)
+                    end
+                end
+            end
+            -- Join with commas
+            for actor_name, dubbers in pairs(act_to_dub) do
+                table.sort(dubbers)
+                act_to_dub[actor_name] = table.concat(dubbers, ", ")
             end
         end
 
@@ -20489,6 +20528,7 @@ local function draw_table(input_queue)
                 line.t1_str = reaper.format_timestr(line.t1 or 0, "")
                 line.t2_str = line.is_marker and "" or reaper.format_timestr(line.t2 or 0, "")
                 line.idx_str = tostring(line.index or "")
+                line.dubber = act_to_dub[line.actor or ""] or ""
                 
                 table.insert(filtered, line)
             end
@@ -20533,6 +20573,7 @@ local function draw_table(input_queue)
         table_data_cache.case_sensitive = use_case
         table_data_cache.is_replace_mode = is_replace_mode
         table_data_cache.fr_show = OTHER.find_replace_state.show
+        table_data_cache.dubbers_version = DUBBERS.version
         
         -- Cleanup selection of stale marker indices (only those not in current raw_data)
         -- We do NOT cleanup based on 'filtered' as that would wipe selection during search
@@ -20560,9 +20601,11 @@ local function draw_table(input_queue)
                             last_layout_state.show_markers ~= cfg.show_markers_in_table or
                             last_layout_state.gui_scale ~= cfg.gui_scale or
                             last_layout_state.state_count ~= current_state_count or
+                            last_layout_state.dubbers_version ~= DUBBERS.version or
                             last_layout_state.col_vis_index ~= cfg.col_table_index or
                             last_layout_state.col_vis_start ~= cfg.col_table_start or
                             last_layout_state.col_vis_end ~= cfg.col_table_end or
+                            last_layout_state.col_vis_dubber ~= cfg.col_table_dubber or
                             last_layout_state.col_vis_cps ~= cfg.col_table_cps or
                             last_layout_state.col_vis_actor ~= cfg.col_table_actor or
                             OTHER.col_resize.dragging or
@@ -20570,6 +20613,7 @@ local function draw_table(input_queue)
                             last_layout_state.col_w_index ~= cfg.col_w_index or
                             last_layout_state.col_w_start ~= cfg.col_w_start or
                             last_layout_state.col_w_end ~= cfg.col_w_end or
+                            last_layout_state.col_w_dubber ~= cfg.col_w_dubber or
                             last_layout_state.col_w_cps ~= cfg.col_w_cps or
                             last_layout_state.col_w_actor ~= cfg.col_w_actor or
                             last_layout_state.fr_show ~= OTHER.find_replace_state.show or
@@ -20589,6 +20633,7 @@ local function draw_table(input_queue)
             if cfg.col_table_index then add_col(S(cfg.col_w_index), "col_w_index") end
             if cfg.col_table_start then add_col(S(cfg.col_w_start), "col_w_start") end
             if cfg.col_table_end then add_col(S(cfg.col_w_end), "col_w_end") end
+            if cfg.col_table_dubber then add_col(S(cfg.col_w_dubber), "col_w_dubber") end
             if cfg.col_table_cps then add_col(S(cfg.col_w_cps), "col_w_cps") end
             if cfg.col_table_actor then add_col(S(cfg.col_w_actor), "col_w_actor") end
         end
@@ -20638,17 +20683,20 @@ local function draw_table(input_queue)
             sort_dir = table_sort.dir, gui_scale = cfg.gui_scale,
             show_markers = cfg.show_markers_in_table,
             state_count = current_state_count,
+            dubbers_version = DUBBERS.version,
             x_off = x_off,
             col_keys = col_keys,
             col_w_enabled = cfg.col_w_enabled,
             col_w_index = cfg.col_w_index,
             col_w_start = cfg.col_w_start,
             col_w_end = cfg.col_w_end,
+            col_w_dubber = cfg.col_w_dubber,
             col_w_cps = cfg.col_w_cps,
             col_w_actor = cfg.col_w_actor,
             col_vis_index = cfg.col_table_index,
             col_vis_start = cfg.col_table_start,
             col_vis_end = cfg.col_table_end,
+            col_vis_dubber = cfg.col_table_dubber,
             col_vis_cps = cfg.col_table_cps,
             col_vis_actor = cfg.col_table_actor,
             fr_show = OTHER.find_replace_state.show,
@@ -20961,6 +21009,10 @@ local function draw_table(input_queue)
                 if cfg.col_table_end then
                     draw_cell_txt(line.t2_str, col_ptr); col_ptr = col_ptr + 1
                 end
+
+                if cfg.col_table_dubber then
+                    draw_cell_txt(line.dubber or "", col_ptr); col_ptr = col_ptr + 1
+                end
             end
 
             if not cfg.reader_mode and cfg.col_table_cps then
@@ -21177,11 +21229,41 @@ local function draw_table(input_queue)
                         end
                         table.sort(sorted_actors)
                         
+                        -- Unique actors in selection for Dubber assignment
+                        local selected_actors_map = {}
+                        for p, l in ipairs(ass_lines) do
+                            if table_selection[l.index or p] then
+                                if l.actor and l.actor ~= "" then
+                                    selected_actors_map[l.actor] = true
+                                end
+                            end
+                        end
+                        local selected_actors = {}
+                        for a in pairs(selected_actors_map) do table.insert(selected_actors, a) end
+
+                        -- Re-calculate prefixes
                         local menu_items = { ">Змінити ім'я актора", "-  Нове ім'я -" }
                         for _, a in ipairs(sorted_actors) do
                             table.insert(menu_items, (a:gsub("|", "||")))
                         end
                         table.insert(menu_items, "<")
+
+                        if cfg.col_table_dubber then
+                            table.insert(menu_items, "|>Назначити дабера")
+                            table.insert(menu_items, "- Новий дабер -")
+                            for _, d_name in ipairs(DUBBERS.data.names) do
+                                local is_assigned_to_any = false
+                                for _, actor in ipairs(selected_actors) do
+                                    if DUBBERS.data.assignments[d_name] and DUBBERS.data.assignments[d_name][actor] then
+                                        is_assigned_to_any = true
+                                        break
+                                    end
+                                end
+                                local prefix = is_assigned_to_any and "!" or ""
+                                table.insert(menu_items, prefix .. d_name:gsub("|", "||"))
+                            end
+                            table.insert(menu_items, "<")
+                        end
                         
                         local has_merge = #sel_indices > 1 and #sel_indices <= 5
                         local has_single = #sel_indices == 1
@@ -21199,12 +21281,13 @@ local function draw_table(input_queue)
                         end
                         
                         local menu_str = table.concat(menu_items, "|")
-                        
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                         local ret = gfx.showmenu(menu_str)
                         
                         local actor_count = #sorted_actors
                         local rename_end_idx = 1 + actor_count
+                        local dubber_start_idx = rename_end_idx + 1
+                        local dubber_end_idx = cfg.col_table_dubber and (dubber_start_idx + #DUBBERS.data.names) or rename_end_idx
                         
                         if ret >= 1 and ret <= rename_end_idx then
                             -- Change Actor Name
@@ -21239,8 +21322,44 @@ local function draw_table(input_queue)
                                     show_snackbar("Ім'я актора змінено (" .. #selected_entries .. ")", "success")
                                 end
                             end
-                        elseif has_merge and ret == rename_end_idx + 1 then
-                            -- Merge Replicas
+                        elseif cfg.col_table_dubber and ret >= dubber_start_idx and ret <= dubber_end_idx then
+                            -- Assign Dubber
+                            local d_idx = ret - dubber_start_idx
+                            local selected_dubber
+                            local is_new = (d_idx == 0)
+                            
+                            if is_new then
+                                local ok, name = reaper.GetUserInputs("Новий дабер", 1, "Ім'я дабера:", "")
+                                if ok and name ~= "" then
+                                    table.insert(DUBBERS.data.names, name)
+                                    selected_dubber = name
+                                end
+                            else
+                                selected_dubber = DUBBERS.data.names[d_idx]
+                            end
+                            
+                            if selected_dubber and #selected_actors > 0 then
+                                push_undo("Назначення дабера " .. selected_dubber)
+                                if not DUBBERS.data.assignments[selected_dubber] then DUBBERS.data.assignments[selected_dubber] = {} end
+                                
+                                local all_assigned = true
+                                for _, actor in ipairs(selected_actors) do
+                                    if not DUBBERS.data.assignments[selected_dubber][actor] then
+                                        all_assigned = false
+                                        break
+                                    end
+                                end
+                                
+                                local target_val = not all_assigned
+                                for _, actor in ipairs(selected_actors) do
+                                    DUBBERS.data.assignments[selected_dubber][actor] = target_val
+                                end
+                                
+                                DUBBERS.save()
+                                show_snackbar("Дабера " .. selected_dubber .. (target_val and " призначено" or " видалено"), "success")
+                            end
+                        elseif has_merge and ret == dubber_end_idx + 1 then
+                            -- Merge Replicas logic
                             local selected_entries = {}
                             for p, l in ipairs(ass_lines) do
                                 if table_selection[l.index or p] then
@@ -21281,16 +21400,15 @@ local function draw_table(input_queue)
                                 show_snackbar("Репліки об'єднано (" .. #selected_entries .. ")", "success")
                             end
                         elseif has_single then
-                            if ret == rename_end_idx + 1 then
+                            if ret == dubber_end_idx + 1 then
                                 set_clipboard(line.t1_str)
                                 show_snackbar("Скопійовано: " .. line.t1_str, "info")
-                            elseif ret == rename_end_idx + 2 then
+                            elseif ret == dubber_end_idx + 2 then
                                 duplicate_logic(sel_indices[1])
-                            elseif ret == rename_end_idx + 3 then
+                            elseif ret == dubber_end_idx + 3 then
                                 delete_logic()
                             end
-                        elseif (has_merge and ret == rename_end_idx + 2) or (not has_merge and ret == rename_end_idx + 1) then
-                            -- Delete Selected Replicas
+                        elseif (has_merge and ret == dubber_end_idx + 2) or (not has_merge and ret == dubber_end_idx + 1) then
                             delete_logic()
                         end
                     end -- End of selection type check
@@ -21542,6 +21660,7 @@ local function draw_table(input_queue)
         if cfg.col_table_index then draw_header_cell(col_ptr, "#", x_off[col_ptr], start_y, "index"); col_ptr = col_ptr + 1 end
         if cfg.col_table_start then draw_header_cell(col_ptr, "Початок", x_off[col_ptr], start_y, "start"); col_ptr = col_ptr + 1 end
         if cfg.col_table_end then draw_header_cell(col_ptr, "Кінець", x_off[col_ptr], start_y, "end"); col_ptr = col_ptr + 1 end
+        if cfg.col_table_dubber then draw_header_cell(col_ptr, "Дабер", x_off[col_ptr], start_y, "dubber"); col_ptr = col_ptr + 1 end
         if cfg.col_table_cps then draw_header_cell(col_ptr, "CPS", x_off[col_ptr], start_y, "cps"); col_ptr = col_ptr + 1 end
         if cfg.col_table_actor then draw_header_cell(col_ptr, "Актор", x_off[col_ptr], start_y, "actor"); col_ptr = col_ptr + 1 end
         draw_header_cell(col_ptr, "Репліка", x_off[col_ptr], start_y, "text")
@@ -21556,6 +21675,7 @@ local function draw_table(input_queue)
             {label = "#", key = "col_table_index"},
             {label = "Початок", key = "col_table_start"},
             {label = "Кінець", key = "col_table_end"},
+            {label = "Дабер", key = "col_table_dubber"},
             {label = "CPS", key = "col_table_cps"},
             {label = "Актор", key = "col_table_actor"}
         }
