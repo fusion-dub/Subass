@@ -14996,10 +14996,12 @@ local function draw_file()
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
-        local menu = "|>Особливі дії|Видалити ВСІ регіони||Розрахувати репліки по акторам|Очистити репліки від наголосів|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS|<"
         
-        -- Add "Change Dubber" submenu if dubbers exist
         local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
+        local dubbers_ass = has_dubbers and "||Експортувати як ASS (розділено по даберам)" or ""
+        local menu = "|>Особливі дії|Видалити ВСІ регіони||Розрахувати репліки по акторам|Очистити репліки від наголосів|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS" .. dubbers_ass .. "|<"
+
+        -- Add "Change Dubber" submenu if dubbers exist
         if has_dubbers then
             local dubber_menu_items = {}
             for i, d_name in ipairs(DUBBERS.data.names) do
@@ -15031,10 +15033,11 @@ local function draw_file()
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
         
         -- Mapping logic for dynamic menu
-        -- Fixed items: 1=delete regions, 2=calc replicas, 3=remove accents, 4=dubbers dashboard, 5=deadlines, 6=export SRT, 7=export ASS
+        -- Fixed items: 1=delete regions, 2=calc replicas, 3=remove accents, 4=dubbers dashboard, 5=deadlines, 6=export SRT, 7=export ASS, 8=export ASS (dubbers) if has_dubbers
         local dubber_count = has_dubbers and #DUBBERS.data.names or 0
-        -- After fixed 7 items come dubber items (if any), then dict items, then dock
-        local dict_start = 7 + dubber_count + (dict_count > 0 and 1 or 0) -- first dict item ret value (1-indexed menu)
+        local base_items = has_dubbers and 8 or 7
+        -- After fixed items come dubber selection items (if any), then dict items, then dock
+        local dict_start = base_items + dubber_count + (dict_count > 0 and 1 or 0) -- first dict item ret value (1-indexed menu)
         local dock_ret = dict_start + dict_count + (dict_count > 0 and 0 or 0)
         
         if ret == 1 then
@@ -15052,9 +15055,12 @@ local function draw_file()
             export_as_srt()
         elseif ret == 7 then
             export_as_ass()
-        elseif has_dubbers and ret >= 8 and ret <= 7 + dubber_count then
+        elseif has_dubbers and ret == 8 then
+            DUBBERS.export_as_ass()
+        elseif has_dubbers and ret >= (has_dubbers and 9 or 8) and ret <= base_items + dubber_count then
             -- Handle Dubber Selection
-            local selected_name = DUBBERS.data.names[ret - 7]
+            local offset = has_dubbers and 8 or 7
+            local selected_name = DUBBERS.data.names[ret - offset]
             DUBBERS.select_dubber(selected_name)
         elseif dict_count > 0 and ret >= dict_start and ret < dict_start + dict_count then
             -- Handle Dictionary Toggle (multi-select)
