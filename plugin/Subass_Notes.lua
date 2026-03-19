@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.7.1
+-- @version 5.8
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.7.1",
+    script_title = "Subass Notes v5.8",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -201,6 +201,18 @@ cfg.h_director = get_set("h_director", S(120))
 local is_windows = reaper.GetOS():match("Win") ~= nil
 
 gfx.init(GL.script_title, 600, 400, GL.last_dock_state)
+
+-- Assets Loading
+function OTHER.load_assets()
+    local script_path = debug.getinfo(1, "S").source:match("^@?(.+[/\\])") or ""
+    local loader_img_path = script_path .. "loading.png"
+    if reaper.file_exists(loader_img_path) then
+        gfx.loadimg(97, loader_img_path)
+    end
+end
+
+OTHER.load_assets()
+
 local F = {
     std = 1,
     lrg = 2,
@@ -1470,6 +1482,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "trim_start", tostring(cfg.trim_start), true)
     reaper.SetExtState(section_name, "trim_end", tostring(cfg.trim_end), true)
     reaper.SetExtState(section_name, "check_clipping", cfg.check_clipping and "1" or "0", true)
+    reaper.SetExtState(section_name, "hotkeys", cfg.hotkeys, true)
 
     update_prompter_fonts()
 end
@@ -2288,7 +2301,7 @@ local function set_clipboard(text)
     end
 end
 
---- Draw a global loading overlay with spinner when async tasks are active
+--- Draw a global loading overlay with animated sprite from loading.png
 local function draw_loader()
     if not UI_STATE.script_loading_state.active then return end
     
@@ -2306,22 +2319,41 @@ local function draw_loader()
     local cx, cy = gfx.w / 2, gfx.h / 2
     
     gfx.x = cx - sw / 2
-    gfx.y = cy - sh / 2
+    gfx.y = cy - sh / 2 + 50 -- Nudge text down slightly
     gfx.drawstr(str)
     
-    -- Simple Spinner (Visual)
-    local radius = 20
-    local spinner_y = cy - sh - 30
-    local time = os.clock() * 10
-    
-    for i = 0, 7 do
-        local angle = i * (math.pi / 4) + time
-        local px = cx + math.cos(angle) * radius
-        local py = spinner_y + math.sin(angle) * radius
+    -- Animated Loader Image
+    local loader_w, loader_h = gfx.getimgdim(97)
+    if loader_w > 0 then
+        local num_frames = 14
+        local frame_w = loader_w / num_frames
+        local frame_h = loader_h
+
+        local frame_idx = math.floor(os.clock() * 17) % num_frames
         
-        local alpha = (math.sin(i / 8 * math.pi * 2 + time) + 1) / 2
-        gfx.set(1, 1, 1, alpha)
-        gfx.circle(px, py, 3, 1)
+        -- Scaling to fit UI
+        local dest_h = S(100) -- Base size 100px scaled
+        local dest_w = (frame_w / frame_h) * dest_h
+        
+        local dx = cx - dest_w / 2
+        local dy = cy - sh - dest_h / 2 - 20
+        
+        gfx.blit(97, 1, 0, frame_idx * frame_w, 0, frame_w, frame_h, dx, dy, dest_w, dest_h)
+    else
+        -- Fallback to Simple Spinner if image not found
+        local radius = 20
+        local spinner_y = cy - sh - 30
+        local time = os.clock() * 10
+        
+        for i = 0, 7 do
+            local angle = i * (math.pi / 4) + time
+            local px = cx + math.cos(angle) * radius
+            local py = spinner_y + math.sin(angle) * radius
+            
+            local alpha = (math.sin(i / 8 * math.pi * 2 + time) + 1) / 2
+            gfx.set(1, 1, 1, alpha)
+            gfx.circle(px, py, 3, 1)
+        end
     end
     
     -- Force update to animate
