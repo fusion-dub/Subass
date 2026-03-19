@@ -372,6 +372,31 @@ def search_in_file(file_path, query_norm, max_item_len=60, max_overlaps=5, verbo
     except Exception as e:
         if verbose: print(f"DEBUG: Error processing {file_path}: {e}", file=sys.stderr)
         
+    # 6. Deduplicate Matches (per-project)
+    # Group by: tuple(sorted(file_paths)) and normalized text
+    # Prioritize: Actor > Region > Marker > SWS
+    if matches:
+        dedup_groups = {}
+        for m in matches:
+            paths = tuple(sorted([i["file_path"] for i in m["items"]]))
+            norm_text = normalize_text(m["text"])
+            key = (paths, norm_text)
+            
+            if key not in dedup_groups:
+                dedup_groups[key] = m
+            else:
+                existing = dedup_groups[key]
+                prio_new = 0 if m["actor"] in ["Region", "Marker", "SWS Subtitle"] else 1
+                prio_existing = 0 if existing["actor"] in ["Region", "Marker", "SWS Subtitle"] else 1
+                
+                if prio_new > prio_existing:
+                    dedup_groups[key] = m
+                elif prio_new == prio_existing:
+                    if m.get("similarity", 0) > existing.get("similarity", 0):
+                        dedup_groups[key] = m
+        
+        matches = list(dedup_groups.values())
+
     if matches:
         mtime = os.path.getmtime(file_path)
         max_sim = max(m.get('similarity', 0) for m in matches)
