@@ -7471,6 +7471,19 @@ function DUBBERS.save()
     DUBBERS.version = DUBBERS.version + 1
 end
 
+function DUBBERS.exists(name)
+    if not name or name == "" then return false end
+    local n_clean = name:match("^%s*(.-)%s*$")
+    if n_clean == "" then return false end
+    local n_lower = utf8_lower(n_clean)
+    for _, d in ipairs(DUBBERS.data.names) do
+        if utf8_lower(d:match("^%s*(.-)%s*$")) == n_lower then
+            return true
+        end
+    end
+    return false
+end
+
 --- Copy distribution result to clipboard
 --- @param extended boolean if true, adds per-actor stats and totals
 function DUBBERS.copy_to_clipboard(extended)
@@ -7813,8 +7826,12 @@ function DUBBERS.draw_dashboard(input_queue)
         if btn(pad, dy, add_w, S(25), "+ Додати дабера", UI.C_BTN, UI.C_TXT) then
             local ok, name = reaper.GetUserInputs("Новий дабер", 1, "Ім'я дабера:", "")
             if ok and name ~= "" then
-                table.insert(DUBBERS.data.names, name)
-                DUBBERS.save()
+                if DUBBERS.exists(name) then
+                    show_snackbar("Дабер з таким ім'ям вже існує", "error")
+                else
+                    table.insert(DUBBERS.data.names, name)
+                    DUBBERS.save()
+                end
             end
         end
     end
@@ -21350,8 +21367,12 @@ local function draw_table(input_queue)
                             if is_new then
                                 local ok, name = reaper.GetUserInputs("Новий дабер", 1, "Ім'я дабера:", "")
                                 if ok and name ~= "" then
-                                    table.insert(DUBBERS.data.names, name)
-                                    selected_dubber = name
+                                    if DUBBERS.exists(name) then
+                                        show_snackbar("Дабер з таким ім'ям вже існує", "error")
+                                    else
+                                        table.insert(DUBBERS.data.names, name)
+                                        selected_dubber = name
+                                    end
                                 end
                             else
                                 selected_dubber = DUBBERS.data.names[d_idx]
