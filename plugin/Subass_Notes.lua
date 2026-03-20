@@ -211,11 +211,6 @@ function OTHER.load_assets()
     if reaper.file_exists(loader_img_path) then
         gfx.loadimg(97, loader_img_path)
     end
-    
-    local deadline_img_path = script_path .. "deadline.png"
-    if reaper.file_exists(deadline_img_path) then
-        gfx.loadimg(99, deadline_img_path)
-    end
 end
 
 OTHER.load_assets()
@@ -14375,34 +14370,6 @@ local function draw_file()
     local btn_h = S(40)
     
     local y_cursor = 0
-    
-    -- Draw Deadline GIF if not is_narrow and deadline is soon
-    if not is_narrow and DEADLINE.project_deadline then
-        local days = math.ceil((DEADLINE.project_deadline - os.time()) / 86400)
-        if days <= 1 then
-            local deadline_w = S(105)
-            local padding = S(20)
-            local dx = gfx.w - padding - deadline_w
-            local gif_size = S(33) -- Square size for the cat
-            local gx = dx + (deadline_w - gif_size) - S(16)
-            local gy = get_y(y_cursor) - S(24)
-            
-            if gy + gif_size > start_y - gif_size and gy < gfx.h then
-                local img_w, img_h = gfx.getimgdim(99)
-                if img_w > 0 then
-                    local num_frames = 3
-                    local fw = img_w / num_frames
-                    local fh = img_h
-                    local fy = 0
-                    local total_steps = num_frames * 2
-                    local step = math.floor(os.clock() * 4) % total_steps
-                    local fidx = step < num_frames and step or 0
-                    gfx.blit(99, 1, 0, fidx * fw, fy, fw, fh, gx, gy, gif_size, gif_size)
-                end
-            end
-        end
-    end
-    
     local cur_y = get_y(y_cursor)
     
     -- Calculate widths based on mode
