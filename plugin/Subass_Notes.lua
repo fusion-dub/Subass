@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.8
+-- @version 5.9
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.8",
+    script_title = "Subass Notes v5.9",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -210,6 +210,11 @@ function OTHER.load_assets()
     local loader_img_path = script_path .. "loading.png"
     if reaper.file_exists(loader_img_path) then
         gfx.loadimg(97, loader_img_path)
+    end
+    
+    local deadline_img_path = script_path .. "deadline.png"
+    if reaper.file_exists(deadline_img_path) then
+        gfx.loadimg(99, deadline_img_path)
     end
 end
 
@@ -2341,7 +2346,7 @@ local function draw_loader()
         local frame_w = loader_w / num_frames
         local frame_h = loader_h
 
-        local frame_idx = math.floor(os.clock() * 17) % num_frames
+        local frame_idx = math.floor(os.clock() * 13) % num_frames
         
         -- Scaling to fit UI
         local dest_h = S(100) -- Base size 100px scaled
@@ -14370,6 +14375,34 @@ local function draw_file()
     local btn_h = S(40)
     
     local y_cursor = 0
+    
+    -- Draw Deadline GIF if not is_narrow and deadline is soon
+    if not is_narrow and DEADLINE.project_deadline then
+        local days = math.ceil((DEADLINE.project_deadline - os.time()) / 86400)
+        if days <= 1 then
+            local deadline_w = S(105)
+            local padding = S(20)
+            local dx = gfx.w - padding - deadline_w
+            local gif_size = S(40) -- Square size for the cat
+            local gx = dx + (deadline_w - gif_size) - S(16)
+            local gy = get_y(y_cursor) - S(29)
+            
+            if gy + gif_size > start_y - gif_size and gy < gfx.h then
+                local img_w, img_h = gfx.getimgdim(99)
+                if img_w > 0 then
+                    local num_frames = 3
+                    local fw = img_w / num_frames
+                    local fh = img_h
+                    local fy = 0
+                    local total_steps = num_frames * 2
+                    local step = math.floor(os.clock() * 4) % total_steps
+                    local fidx = step < num_frames and step or 0
+                    gfx.blit(99, 1, 0, fidx * fw, fy, fw, fh, gx, gy, gif_size, gif_size)
+                end
+            end
+        end
+    end
+    
     local cur_y = get_y(y_cursor)
     
     -- Calculate widths based on mode
@@ -21301,7 +21334,7 @@ local function draw_table(input_queue)
                         table.insert(menu_items, "<")
 
                         if cfg.col_table_dubber then
-                            table.insert(menu_items, "|>Назначити дабера")
+                            table.insert(menu_items, "|>Призначити дабера")
                             table.insert(menu_items, "- Новий дабер -")
                             for _, d_name in ipairs(DUBBERS.data.names) do
                                 local is_assigned_to_any = false
@@ -21396,7 +21429,7 @@ local function draw_table(input_queue)
                             end
                             
                             if selected_dubber and #selected_actors > 0 then
-                                push_undo("Назначення дабера " .. selected_dubber)
+                                push_undo("Призначення дабера " .. selected_dubber)
                                 if not DUBBERS.data.assignments[selected_dubber] then DUBBERS.data.assignments[selected_dubber] = {} end
                                 
                                 local all_assigned = true
