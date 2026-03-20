@@ -14383,9 +14383,9 @@ local function draw_file()
             local deadline_w = S(105)
             local padding = S(20)
             local dx = gfx.w - padding - deadline_w
-            local gif_size = S(40) -- Square size for the cat
+            local gif_size = S(33) -- Square size for the cat
             local gx = dx + (deadline_w - gif_size) - S(16)
-            local gy = get_y(y_cursor) - S(29)
+            local gy = get_y(y_cursor) - S(24)
             
             if gy + gif_size > start_y - gif_size and gy < gfx.h then
                 local img_w, img_h = gfx.getimgdim(99)
