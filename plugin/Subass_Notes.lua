@@ -2330,7 +2330,6 @@ local function set_clipboard(text)
     end
 end
 
---- Draw a global loading overlay with animated sprite from loading.png
 local function draw_loader()
     if not UI_STATE.script_loading_state.active then 
         UI_STATE.script_loading_state.loader_idx = nil
@@ -7628,7 +7627,13 @@ function DUBBERS.refresh_conflicts()
                                               r2.actor, tostring(r2.row_id), gap_abs, 
                                               gap < 0 and " накладається" or " пауза")
                     if not DUBBERS.conflicts[r1.row_id] or DUBBERS.conflicts[r1.row_id].level < level then
-                        DUBBERS.conflicts[r1.row_id] = {level = level, partner_id = r2.row_id, msg = msg1}
+                        DUBBERS.conflicts[r1.row_id] = {
+                            level = level, 
+                            partner_id = r2.row_id, 
+                            partner_actor = r2.actor,
+                            time = r1.finish,
+                            msg = msg1
+                        }
                     end
                     
                     -- Mark R2
@@ -7636,7 +7641,13 @@ function DUBBERS.refresh_conflicts()
                                               r1.actor, tostring(r1.row_id), gap_abs, 
                                               gap < 0 and " накладається" or " пауза")
                     if not DUBBERS.conflicts[r2.row_id] or DUBBERS.conflicts[r2.row_id].level < level then
-                        DUBBERS.conflicts[r2.row_id] = {level = level, partner_id = r1.row_id, msg = msg2}
+                        DUBBERS.conflicts[r2.row_id] = {
+                            level = level, 
+                            partner_id = r1.row_id, 
+                            partner_actor = r1.actor,
+                            time = r2.start,
+                            msg = msg2
+                        }
                     end
                 end
             end
@@ -7930,6 +7941,12 @@ end
 --- Draw Dubber Distribution Dashboard
 --- @param input_queue table Queue of character/keyboard inputs
 function DUBBERS.draw_dashboard(input_queue)
+    -- AUTO-REFRESH on open
+    if not DUBBERS.dashboard_initialized then
+        DUBBERS.refresh_conflicts()
+        DUBBERS.dashboard_initialized = true
+    end
+    
     local pad = S(20)
     UI_STATE.mouse_handled = true -- Block interaction with background
     
@@ -7978,6 +7995,57 @@ function DUBBERS.draw_dashboard(input_queue)
     local actors_h = rows * actor_item_h
     local total_content_h = actors_start_relative + actors_h + pad + S(40) -- EXTRA PADDING AT BOTTOM
     
+    -- --- CONFLICT AGGREGATION FOR TOOLTIPS ---
+    local dubber_conflicts = {} -- name -> { partner1, partner2, ... }
+    local actor_conflicts = {}  -- name -> { partner1, partner2, ... }
+    
+    if DUBBERS.conflicts then
+        -- Index lines for fast lookup
+        local line_map = {}
+        if ass_lines then
+            for _, l in ipairs(ass_lines) do if l.index then line_map[l.index] = l end end
+        end
+        
+        -- Use sets for unique names
+        local d_sets = {}
+        local a_sets = {}
+        
+        for row_id, c in pairs(DUBBERS.conflicts) do
+            local line = line_map[row_id]
+            if line then
+                local act = line.actor
+                local p_act = c.partner_actor or "?"
+                
+                -- Use pre-calculated actor_to_dubbers
+                local dbs = actor_to_dubbers[act] or {}
+                local dubber = dbs[1] -- Primary dubber
+                
+                if dubber then
+                    -- Actor Aggregation (Unique partners for this actor)
+                    if not a_sets[act] then a_sets[act] = {} end
+                    a_sets[act][p_act] = true
+                    
+                    -- Dubber Aggregation (Unique conflicting actors for this dubber)
+                    if not d_sets[dubber] then d_sets[dubber] = {} end
+                    d_sets[dubber][act] = true
+                    d_sets[dubber][p_act] = true
+                end
+            end
+        end
+        
+        -- Convert sets to sorted lists
+        for act, names in pairs(a_sets) do
+            local list = {}
+            for n in pairs(names) do table.insert(list, "• " .. n) end
+            table.sort(list); actor_conflicts[act] = list
+        end
+        for d, names in pairs(d_sets) do
+            local list = {}
+            for n in pairs(names) do table.insert(list, "• " .. n) end
+            table.sort(list); dubber_conflicts[d] = list
+        end
+    end
+
     local view_h = gfx.h - header_h
     local max_scroll = math.max(0, total_content_h - view_h)
     
@@ -8037,6 +8105,20 @@ function DUBBERS.draw_dashboard(input_queue)
             -- Draw Row Background
             set_color(bg, is_active and 0.9 or 0.3)
             gfx.rect(dx, item_y, d_col_w - S(5), dubber_item_h - S(4), 1)
+            
+            -- Conflict Indication (Little dot at top-right)
+            local d_conf = dubber_conflicts[name]
+            if d_conf and #d_conf > 0 then
+                local dot_sz = S(4)
+                set_color(UI.C_ORANGE, 0.8)
+                gfx.circle(dx + (d_col_w - S(5)) - dot_sz*2, item_y + dot_sz*2, dot_sz/2, 1)
+                
+                -- Tooltip logic
+                if gfx.mouse_x >= dx and gfx.mouse_x <= dx + d_col_w and
+                   gfx.mouse_y >= item_y and gfx.mouse_y <= item_y + dubber_item_h and gfx.mouse_y > header_h then
+                    UI_STATE.tooltip_state.text = "КОНФЛІКТИ (ПЕРСОНАЖІ):\n" .. table.concat(d_conf, "\n")
+                end
+            end
             
             -- Selection Logic
             if is_mouse_clicked() and gfx.mouse_x >= dx and gfx.mouse_x <= dx + d_col_w and
@@ -8122,6 +8204,20 @@ function DUBBERS.draw_dashboard(input_queue)
                 set_color(UI.C_ROW, 0.2 * fade)
             end
             gfx.rect(ax, cur_ay, actor_col_w - S(5), actor_item_h - S(5), 1)
+            
+            -- Conflict Indication (Actor Card dot at top-right)
+            local a_conf = actor_conflicts[act]
+            if a_conf and #a_conf > 0 then
+                local dot_sz = S(4)
+                set_color(UI.C_ORANGE, 0.8)
+                gfx.circle(ax + (actor_col_w - S(5)) - dot_sz*2, cur_ay + dot_sz*2, dot_sz/2, 1)
+                
+                -- Tooltip logic
+                if gfx.mouse_x >= ax and gfx.mouse_x <= ax + actor_col_w and
+                   gfx.mouse_y >= cur_ay and gfx.mouse_y <= cur_ay + actor_item_h and gfx.mouse_y > header_h then
+                    UI_STATE.tooltip_state.text = "КОНФЛІКТУЄ З:\n" .. table.concat(a_conf, "\n")
+                end
+            end
             
             -- Light Border for assigned actors
             if has_any_assignment then
@@ -22713,6 +22809,8 @@ local function main()
 
         DUBBERS.load() -- Reload dubber data for this project
         DUBBERS.last_project_id = current_project_id
+        DUBBERS.conflicts = {} 
+        DUBBERS.dashboard_initialized = false
         
         -- Immediate cache update after loading
         update_regions_cache()
