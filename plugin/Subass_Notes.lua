@@ -68,6 +68,8 @@ local cfg = {
     p_align = get_set("p_align", "center"),
     p_valign = get_set("p_valign", "center"),
     p_font = get_set("p_font", "Arial"),
+    show_dubber_conflicts = (get_set("show_dubber_conflicts", "1") == "1" or get_set("show_dubber_conflicts", 1) == 1),
+    dubber_conflict_threshold = tonumber(get_set("dubber_conflict_threshold", 5.0)) or 5.0,
     p_info = (get_set("p_info", "1") == "1" or get_set("p_info", 1) == 1),
     p_progress = (get_set("p_progress", "1") == "1" or get_set("p_progress", 1) == 1),
     auto_srt_split = get_set("auto_srt_split", "():"),
@@ -1409,6 +1411,8 @@ local function save_settings()
     reaper.SetExtState(section_name, "t_ar_b", tostring(cfg.t_ar_b), true)
     reaper.SetExtState(section_name, "t_ar_alpha", tostring(cfg.t_ar_alpha), true)
     reaper.SetExtState(section_name, "t_r_size", cfg.t_r_size, true)
+    reaper.SetExtState(section_name, "show_dubber_conflicts", cfg.show_dubber_conflicts and "1" or "0", true)
+    reaper.SetExtState(section_name, "dubber_conflict_threshold", tostring(cfg.dubber_conflict_threshold), true)
 
     -- Invalidate prompter cache when settings change (like wrap length)
     if draw_prompter_cache then
@@ -7471,6 +7475,111 @@ function DUBBERS.save()
     DUBBERS.version = DUBBERS.version + 1
 end
 
+DUBBERS.conflicts = {}
+
+function DUBBERS.refresh_conflicts()
+    DUBBERS.conflicts = {}
+    local threshold = cfg.dubber_conflict_threshold or 5.0 -- Safety gap in seconds
+    
+    if not ass_lines or #ass_lines == 0 then return end
+    
+    -- 1. Pre-calculate assignment counts per actor
+    local actor_dubber_count = {}
+    local has_any_dubber = false
+
+    if DUBBERS.data and DUBBERS.data.assignments then
+        for _, actors in pairs(DUBBERS.data.assignments) do
+            has_any_dubber = true
+            for actor, is_on in pairs(actors) do
+                if is_on == true then
+                    actor_dubber_count[actor] = (actor_dubber_count[actor] or 0) + 1
+                end
+            end
+        end
+    end
+
+    if not has_any_dubber then return end
+
+    -- 2. Collect all replicas assigned to SINGLE dubbers
+    local reps = {}
+    for i, line in ipairs(ass_lines) do
+        local actor = line.actor
+        if actor and actor ~= "" then
+            -- SKIP if actor has multiple dubbers assigned (Crowd/Masovka)
+            if (actor_dubber_count[actor] or 0) > 1 then
+                goto next_line
+            end
+            
+            -- Find which dubber is assigned to this actor
+            local dubber = nil
+            if DUBBERS.data and DUBBERS.data.assignments then
+                for d_name, actors in pairs(DUBBERS.data.assignments) do
+                    if actors[actor] == true then
+                        dubber = d_name
+                        break
+                    end
+                end
+            end
+            
+            if dubber then
+                table.insert(reps, {
+                    row_id = line.index or i,
+                    start = line.t1 or 0,
+                    finish = line.t2 or 0,
+                    actor = actor,
+                    dubber = dubber
+                })
+            end
+        end
+        ::next_line::
+    end
+    
+    if #reps < 2 then return end
+    
+    -- 2. Group by dubber
+    local groups = {}
+    for _, r in ipairs(reps) do
+        if not groups[r.dubber] then groups[r.dubber] = {} end
+        table.insert(groups[r.dubber], r)
+    end
+    
+    -- 3. Analyze each dubber's timeline
+    for dubber, d_reps in pairs(groups) do
+        -- Sort chronologically
+        table.sort(d_reps, function(a, b) return a.start < b.start end)
+        
+        for i = 1, #d_reps - 1 do
+            local r1 = d_reps[i]
+            local r2 = d_reps[i+1]
+            
+            -- Only conflict between DIFFERENT characters
+            if r1.actor ~= r2.actor then
+                local gap = r2.start - r1.finish
+                if gap < threshold then
+                    local level = gap < 0 and 2 or 1
+                    local gap_abs = math.abs(gap)
+                    
+                    -- Mark R1
+                    local msg1 = string.format("Конфлікт: %s (репліка #%s, %.1fс%s)", 
+                                              r2.actor, tostring(r2.row_id), gap_abs, 
+                                              gap < 0 and " накладається" or " пауза")
+                    if not DUBBERS.conflicts[r1.row_id] or DUBBERS.conflicts[r1.row_id].level < level then
+                        DUBBERS.conflicts[r1.row_id] = {level = level, partner_id = r2.row_id, msg = msg1}
+                    end
+                    
+                    -- Mark R2
+                    local msg2 = string.format("Конфлікт: %s (репліка #%s, %.1fс%s)", 
+                                              r1.actor, tostring(r1.row_id), gap_abs, 
+                                              gap < 0 and " накладається" or " пауза")
+                    if not DUBBERS.conflicts[r2.row_id] or DUBBERS.conflicts[r2.row_id].level < level then
+                        DUBBERS.conflicts[r2.row_id] = {level = level, partner_id = r1.row_id, msg = msg2}
+                    end
+                end
+            end
+        end
+    end
+end
+
 function DUBBERS.validate_name(name, current_name)
     if not name or name == "" then return false, "Ім'я не може бути порожнім" end
     local n_clean = name:match("^%s*(.-)%s*$")
@@ -9152,6 +9261,7 @@ local function import_ass(file_path, dont_rebuild)
                         for actor, is_on in pairs(assigned_actors) do
                             if type(actor) == "string" then
                                 DUBBERS.data.assignments[name][actor] = (is_on == true)
+                                DUBBERS.version = DUBBERS.version + 1
                             end
                         end
                     end
@@ -18792,6 +18902,31 @@ local function draw_settings()
     end
 
     y_cursor = y_cursor + S(60)
+    
+    if checkbox(x_start, y_cursor, "Відображати конфлікти Дабер-Персонаж", cfg.show_dubber_conflicts, "Показувати конфлікти між різними акторами/персонажами одного дабера (накладки та тісні паузи) у колонці 'Дабер'") then
+        cfg.show_dubber_conflicts = not cfg.show_dubber_conflicts
+        if not cfg.show_dubber_conflicts then DUBBERS.conflicts = {} end
+        DUBBERS.version = DUBBERS.version + 1
+        save_settings()
+    end
+    y_cursor = y_cursor + S(45)
+    
+    if cfg.show_dubber_conflicts then
+        s_text(x_start + S(30), y_cursor, string.format("Поріг паузи: %.1fс", cfg.dubber_conflict_threshold), F.std, "Якщо пауза між репліками одного дабера (але різних персонажів) менша за цей поріг, то вони вважаються конфліктом")
+        if s_btn(x_start + S(225), y_cursor - S(10), S(30), S(30), "－") then
+            cfg.dubber_conflict_threshold = math.max(0.1, cfg.dubber_conflict_threshold - 0.5)
+            DUBBERS.version = DUBBERS.version + 1
+            save_settings()
+        end
+        if s_btn(x_start + S(260), y_cursor - S(10), S(30), S(30), "＋") then
+            cfg.dubber_conflict_threshold = math.min(30.0, cfg.dubber_conflict_threshold + 0.5)
+            DUBBERS.version = DUBBERS.version + 1
+            save_settings()
+        end
+        y_cursor = y_cursor + S(45)
+    end
+    
+    y_cursor = y_cursor + S(25)
 
     -- ═══════════════════════════════════════════
     -- 11. ЗАПИС ТА АВТО-ПІДРІЗАННЯ (Recording)
@@ -20637,6 +20772,8 @@ local function draw_table(input_queue)
                 table_selection[idx] = nil
             end
         end
+
+        DUBBERS.refresh_conflicts()
     end
 
     local data_source = table_data_cache.list
@@ -21062,7 +21199,41 @@ local function draw_table(input_queue)
                 end
 
                 if cfg.col_table_dubber then
-                    draw_highlighted_text(line.dubber or "", x_off[col_ptr], buf_y_text, x_off[col_ptr+1] - x_off[col_ptr] - 4, row_h_dynamic, line.h_dubber)
+                    local dx, dw = x_off[col_ptr], x_off[col_ptr+1] - x_off[col_ptr]
+                    local conflict = cfg.show_dubber_conflicts and DUBBERS.conflicts[original_idx] or nil
+                    if conflict then
+                        local alpha = 0.25 -- Subtle tint
+                        set_color({1, 0.8, 0}, alpha) -- Unified Yellow/Orange tint for all conflicts
+                        gfx.rect(dx, buf_y, dw, row_h_dynamic, 1)
+                        
+                        -- Tooltip on hover
+                        if row_hover and gfx.mouse_x >= dx and gfx.mouse_x < dx + dw then
+                            local tip_id = "dub_conf_" .. original_idx
+                            if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                                UI_STATE.tooltip_state.hover_id = tip_id
+                                UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                            end
+                            UI_STATE.tooltip_state.text = conflict.msg
+                            UI_STATE.tooltip_state.immediate = true
+                            
+                            -- Click to Jump
+                            if is_mouse_clicked(1) then
+                                for j, l in ipairs(data_source) do
+                                    if (l.index or j) == conflict.partner_id then
+                                        local target_layout = table_layout_cache[j]
+                                        if target_layout then
+                                            UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, target_layout.y - (avail_h / 2) + (target_layout.h / 2)))
+                                            table_selection = {[conflict.partner_id] = true} -- Select partner
+                                            show_snackbar("Перехід до конфлікту #" .. tostring(conflict.partner_id), "info")
+                                            UI_STATE.mouse_handled = true -- Prevent other actions
+                                        end
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    draw_highlighted_text(line.dubber or "", dx, buf_y_text, dw - 4, row_h_dynamic, line.h_dubber)
                     col_ptr = col_ptr + 1
                 end
             end
@@ -21410,6 +21581,7 @@ local function draw_table(input_queue)
                                 local target_val = not all_assigned
                                 for _, actor in ipairs(selected_actors) do
                                     DUBBERS.data.assignments[selected_dubber][actor] = target_val
+                                    DUBBERS.version = DUBBERS.version + 1
                                 end
                                 
                                 DUBBERS.save()
@@ -21596,7 +21768,7 @@ local function draw_table(input_queue)
         gfx.rect(0, start_y, avail_w, h_header, 1)
     end
     
-    local function draw_header_cell(idx, label, x, y, col_name)
+    local function draw_header_cell(idx, label, x, y, col_name, tooltip)
         -- Clamp next_x to avail_w to prevent overlap with Director Panel
         local next_start = x_off[idx + 1] or avail_w
         local next_x = math.min(next_start, avail_w)
@@ -21673,6 +21845,16 @@ local function draw_table(input_queue)
                     end
                 end
             end
+            
+            if tooltip then
+                local tip_id = "hdr_" .. col_name
+                if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                    UI_STATE.tooltip_state.hover_id = tip_id
+                    UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                end
+                UI_STATE.tooltip_state.text = tooltip
+                UI_STATE.tooltip_state.immediate = true
+            end
         end
         
         -- Draw resize handle highlight
@@ -21717,7 +21899,18 @@ local function draw_table(input_queue)
         if cfg.col_table_index then draw_header_cell(col_ptr, "#", x_off[col_ptr], start_y, "index"); col_ptr = col_ptr + 1 end
         if cfg.col_table_start then draw_header_cell(col_ptr, "Початок", x_off[col_ptr], start_y, "start"); col_ptr = col_ptr + 1 end
         if cfg.col_table_end then draw_header_cell(col_ptr, "Кінець", x_off[col_ptr], start_y, "end"); col_ptr = col_ptr + 1 end
-        if cfg.col_table_dubber then draw_header_cell(col_ptr, "Дабер", x_off[col_ptr], start_y, "dubber"); col_ptr = col_ptr + 1 end
+        
+        if cfg.col_table_dubber then 
+            local conflict_count = 0
+            if DUBBERS and DUBBERS.conflicts then
+                for _ in pairs(DUBBERS.conflicts) do conflict_count = conflict_count + 1 end
+                conflict_count = math.floor(conflict_count / 2) -- Pairs
+            end
+            local tip = conflict_count > 0 and ("Всього конфліктів: " .. conflict_count) or "Конфліктів не виявлено"
+            draw_header_cell(col_ptr, "Дабер", x_off[col_ptr], start_y, "dubber", tip)
+            col_ptr = col_ptr + 1 
+        end
+        
         if cfg.col_table_cps then draw_header_cell(col_ptr, "CPS", x_off[col_ptr], start_y, "cps"); col_ptr = col_ptr + 1 end
         if cfg.col_table_actor then draw_header_cell(col_ptr, "Актор", x_off[col_ptr], start_y, "actor"); col_ptr = col_ptr + 1 end
         draw_header_cell(col_ptr, "Репліка", x_off[col_ptr], start_y, "text")
