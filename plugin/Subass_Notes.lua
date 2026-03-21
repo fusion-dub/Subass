@@ -206,16 +206,28 @@ local is_windows = reaper.GetOS():match("Win") ~= nil
 
 gfx.init(GL.script_title, 600, 400, GL.last_dock_state)
 
+-- Loader Configuration
+OTHER.LOADERS_CFG = {
+    { path = "loading.png",  buf = 97, frames = 14, fps = 10, frame_w = 500, zoom = 1,    weight = 1 },
+    { path = "loading2.png", buf = 96, frames = 12, fps = 10, frame_w = 400, zoom = 1.25, weight = 0.75 },
+    { path = "loading3.png", buf = 95, frames = 8,  fps = 10, frame_w = 500, zoom = 1,    weight = 0.1 },
+    { path = "loading4.png", buf = 94, frames = 8,  fps = 10, frame_w = 68,  zoom = 1.75, weight = 0.001 }
+}
+
 -- Assets Loading
 function OTHER.load_assets()
     local script_path = debug.getinfo(1, "S").source:match("^@?(.+[/\\])") or ""
-    local loader_img_path = script_path .. "loading.png"
-    if reaper.file_exists(loader_img_path) then
-        gfx.loadimg(97, loader_img_path)
+    
+    for _, loader in ipairs(OTHER.LOADERS_CFG) do
+        local full_path = script_path .. loader.path
+        if reaper.file_exists(full_path) then
+            gfx.loadimg(loader.buf, full_path)
+        end
     end
 end
 
 OTHER.load_assets()
+math.randomseed(math.floor(reaper.time_precise() * 1000))
 
 local F = {
     std = 1,
@@ -327,7 +339,8 @@ local UI_STATE = {
     
     script_loading_state = {
         active = false,
-        text = ""
+        text = "",
+        loader_idx = nil -- 1 or 2, picked randomly when activated
     },
     
     tooltip_state = {
@@ -2319,7 +2332,11 @@ end
 
 --- Draw a global loading overlay with animated sprite from loading.png
 local function draw_loader()
-    if not UI_STATE.script_loading_state.active then return end
+    if not UI_STATE.script_loading_state.active then 
+        UI_STATE.script_loading_state.loader_idx = nil
+        UI_STATE.script_loading_state.start_time = nil
+        return 
+    end
     
     -- Overlay
     gfx.set(0, 0, 0, 0.7)
@@ -2339,27 +2356,74 @@ local function draw_loader()
     gfx.drawstr(str)
     
     -- Animated Loader Image
-    local loader_w, loader_h = gfx.getimgdim(97)
-    if loader_w > 0 then
-        local num_frames = 14
-        local frame_w = loader_w / num_frames
-        local frame_h = loader_h
-
-        local frame_idx = math.floor(os.clock() * 13) % num_frames
+    if not UI_STATE.script_loading_state.loader_idx then
+        -- Count how many loaders actually loaded and their weights
+        local available_loaders = {}
+        local total_weight = 0
+        for i, cfg in ipairs(OTHER.LOADERS_CFG) do
+            local w, h = gfx.getimgdim(cfg.buf)
+            if w > 0 then 
+                table.insert(available_loaders, i) 
+                total_weight = total_weight + (cfg.weight or 1)
+            end
+        end
         
-        -- Scaling to fit UI
-        local dest_h = S(100) -- Base size 100px scaled
-        local dest_w = (frame_w / frame_h) * dest_h
+        if #available_loaders > 0 then
+            math.randomseed(os.time())
+            local rnd = math.random() * total_weight
+            local current_weight = 0
+            for _, idx in ipairs(available_loaders) do
+                local cfg = OTHER.LOADERS_CFG[idx]
+                current_weight = current_weight + (cfg.weight or 1)
+                if rnd <= current_weight then
+                    UI_STATE.script_loading_state.loader_idx = idx
+                    break
+                end
+            end
+            -- Fallback
+            UI_STATE.script_loading_state.loader_idx = UI_STATE.script_loading_state.loader_idx or available_loaders[1]
+        end
+    end
+    
+    local l_idx = UI_STATE.script_loading_state.loader_idx
+    local image_drawn = false
+    
+    if l_idx and OTHER.LOADERS_CFG[l_idx] then
+        local l_cfg = OTHER.LOADERS_CFG[l_idx]
+        local buf = l_cfg.buf
+        local num_frames = l_cfg.frames
+        local frame_w_orig = l_cfg.frame_w
         
-        local dx = cx - dest_w / 2
-        local dy = cy - sh - dest_h / 2 - 20
-        
-        gfx.blit(97, 1, 0, frame_idx * frame_w, 0, frame_w, frame_h, dx, dy, dest_w, dest_h)
-    else
+        local img_w, img_h = gfx.getimgdim(buf)
+        if img_w > 0 then
+            local frame_w = frame_w_orig or (img_w / num_frames)
+            local frame_h = img_h
+            if not UI_STATE.script_loading_state.start_time then
+                UI_STATE.script_loading_state.start_time = reaper.time_precise()
+            end
+            local elapsed = reaper.time_precise() - UI_STATE.script_loading_state.start_time
+            
+            local fps = l_cfg.fps or 12
+            local frame_idx = math.floor(elapsed * fps) % num_frames
+            local zoom = l_cfg.zoom or 1
+            
+            -- Scaling to fit UI
+            local dest_h = S(100) * zoom -- Base size 100px scaled
+            local dest_w = (frame_w / frame_h) * dest_h
+            
+            local dx = cx - dest_w / 2
+            local dy = cy - sh - dest_h / 2 - 20
+            
+            gfx.blit(buf, 1, 0, frame_idx * frame_w, 0, frame_w, frame_h, dx, dy, dest_w, dest_h)
+            image_drawn = true
+        end
+    end
+    
+    if not image_drawn then
         -- Fallback to Simple Spinner if image not found
         local radius = 20
         local spinner_y = cy - sh - 30
-        local time = os.clock() * 10
+        local time = reaper.time_precise() * 10
         
         for i = 0, 7 do
             local angle = i * (math.pi / 4) + time
