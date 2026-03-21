@@ -8279,6 +8279,7 @@ function DUBBERS.draw_dashboard(input_queue)
                             if not DUBBERS.data.assignments[selected_dubber] then DUBBERS.data.assignments[selected_dubber] = {} end
                             DUBBERS.data.assignments[selected_dubber][act] = not (DUBBERS.data.assignments[selected_dubber][act])
                             DUBBERS.save()
+                            DUBBERS.refresh_conflicts()
                         end
                     else
                         show_snackbar("Список даберів порожній", "error")
@@ -8290,6 +8291,7 @@ function DUBBERS.draw_dashboard(input_queue)
                         if not DUBBERS.data.assignments[active_dubber] then DUBBERS.data.assignments[active_dubber] = {} end
                         DUBBERS.data.assignments[active_dubber][act] = not is_assigned
                         DUBBERS.save()
+                        DUBBERS.refresh_conflicts()
                     else
                         show_snackbar("Оберіть дабера зверху", "info")
                     end
