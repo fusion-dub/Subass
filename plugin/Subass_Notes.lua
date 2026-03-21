@@ -209,8 +209,8 @@ gfx.init(GL.script_title, 600, 400, GL.last_dock_state)
 -- Loader Configuration
 OTHER.LOADERS_CFG = {
     { path = "loading.png",  buf = 97, frames = 14, fps = 10, frame_w = 500, zoom = 1,    weight = 1 },
-    { path = "loading2.png", buf = 96, frames = 12, fps = 10, frame_w = 400, zoom = 1.25, weight = 0.75 },
-    { path = "loading3.png", buf = 95, frames = 8,  fps = 10, frame_w = 500, zoom = 1,    weight = 0.1 },
+    { path = "loading2.png", buf = 96, frames = 12, fps = 10, frame_w = 400, zoom = 1.25, weight = 0.5 },
+    { path = "loading3.png", buf = 95, frames = 8,  fps = 10, frame_w = 500, zoom = 1,    weight = 0.01 },
     { path = "loading4.png", buf = 94, frames = 8,  fps = 10, frame_w = 68,  zoom = 1.75, weight = 0.001 }
 }
 
