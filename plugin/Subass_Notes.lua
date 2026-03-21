@@ -1111,6 +1111,67 @@ end
 -- DATA STRUCTURES
 -- =============================================================================
 
+-- Global Actor Color Registry
+OTHER.global_actor_colors_limit = 100
+OTHER.global_actor_colors = {}
+OTHER.global_actor_color_names = {} -- Track order for LRU (Least Recently Used) pruning
+
+function OTHER.save_global_actor_colors()
+    local dump = {}
+    for i = 1, math.min(#OTHER.global_actor_color_names, OTHER.global_actor_colors_limit) do
+        local name = OTHER.global_actor_color_names[i]
+        local col = OTHER.global_actor_colors[name]
+        if col then
+            table.insert(dump, name .. ":" .. tostring(col))
+        end
+    end
+    reaper.SetExtState(section_name, "global_actor_colors", table.concat(dump, "⟊"), true)
+end
+
+function OTHER.update_global_actor_color(name, col)
+    if not name or name == "" then return end
+    
+    -- Update value
+    OTHER.global_actor_colors[name] = col
+    
+    -- Update order (Move to front)
+    for i, existing_name in ipairs(OTHER.global_actor_color_names) do
+        if existing_name == name then
+            table.remove(OTHER.global_actor_color_names, i)
+            break
+        end
+    end
+    table.insert(OTHER.global_actor_color_names, 1, name)
+    
+    -- Prune list
+    if #OTHER.global_actor_color_names > OTHER.global_actor_colors_limit then
+        local removed = table.remove(OTHER.global_actor_color_names)
+        OTHER.global_actor_colors[removed] = nil
+    end
+    
+    OTHER.save_global_actor_colors()
+end
+
+function OTHER.load_global_actor_colors()
+    local str = reaper.GetExtState(section_name, "global_actor_colors")
+    OTHER.global_actor_colors = {}
+    OTHER.global_actor_color_names = {}
+    if str ~= "" then
+        -- Add trailing ⟊ for easy matching if not present
+        if not str:match("⟊$") then str = str .. "⟊" end 
+        for entry in str:gmatch("(.-)⟊") do
+            local name, col = entry:match("^(.-):(%d+)$")
+            if name and col and not OTHER.global_actor_colors[name] then
+                OTHER.global_actor_colors[name] = tonumber(col)
+                table.insert(OTHER.global_actor_color_names, name)
+            end
+        end
+    end
+end
+
+-- Initialize Registry
+OTHER.load_global_actor_colors()
+
 -- ASS/Subtitle Data
 local ass_lines = {}
 local ass_actors = {}
@@ -6142,6 +6203,10 @@ sanitize_indices()
 local function get_actor_color(actor)
     if not actor or actor == "" or not cfg.random_color_actors then return 0 end
     if ASS.actor_colors[actor] then return ASS.actor_colors[actor] end
+    if OTHER.global_actor_colors[actor] then 
+        ASS.actor_colors[actor] = OTHER.global_actor_colors[actor]
+        return OTHER.global_actor_colors[actor] 
+    end
     
     -- Try to recover an existing color from REAPER regions for this actor before randomizing
     if regions then
@@ -15127,7 +15192,10 @@ local function draw_file()
                             if current_native == 0 then current_native = 2500134 end
                             local retval, color = reaper.GR_SelectColor(reaper.GetMainHwnd(), current_native)
                             if retval > 0 then
-                                ASS.actor_colors[act] = color | 0x1000000
+                                local final_color = color | 0x1000000
+                                ASS.actor_colors[act] = final_color
+                                OTHER.update_global_actor_color(act, final_color)
+                                
                                 cfg.random_color_actors = true
                                 rebuild_regions()
                                 save_project_data()
