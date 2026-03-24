@@ -10468,6 +10468,7 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
     local current_line = {}
     local current_w = 0
     local is_first_line = true
+    local last_was_space = true -- Track if we are at a word boundary
     
     for _, seg in ipairs(segments) do
         local tokens = {}
@@ -10514,7 +10515,8 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
             
             local effective_max_w = (is_first_line and first_line_indent) and (max_w - first_line_indent) or max_w
             
-            if not is_space and current_w > 0 and current_w + token_w > effective_max_w then
+            -- Break only if we are at a word boundary (current token is NOT a space, but PREVIOUS one WAS)
+            if not is_space and last_was_space and current_w > 0 and current_w + token_w > effective_max_w then
                 table.insert(lines, current_line)
                 current_line = {}
                 current_w = 0
@@ -10567,6 +10569,7 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
                 end
                 current_w = current_w + token_w
             end
+            last_was_space = is_space
         end
     end
     
