@@ -759,8 +759,8 @@ local function process_euphonics_tokens(tokens)
     end
 
     local prev_char = nil
-    local has_pause = false
-    local has_hard_pause = false
+    local has_pause = true -- Start of subtitle is a pause
+    local has_hard_pause = true -- Start of subtitle is a hard pause
     local prev_after_vowel = false
 
     for i, tok in ipairs(tokens) do
@@ -781,7 +781,7 @@ local function process_euphonics_tokens(tokens)
                         if c then 
                             next_char = utf8_lower(c)
                             next_word_low = utf8_lower(tokens[j].text)
-                            if next_char:match("[%.'!%?]") or next_char == "—" or next_char == ":" then
+                            if next_char:match("[%.'!%?%+=%*#]") or next_char == "—" or next_char == ":" then
                                 followed_by_hard_pause = true
                             end
                             break 
@@ -857,9 +857,9 @@ local function process_euphonics_tokens(tokens)
                         last_was_vowel = is_vowel(low_c)
                         has_pause = false
                         has_hard_pause = false
-                    elseif low_c:match("[%.,;!%?%(%)%-\"]") or low_c == "—" or low_c == ":" then
+                    elseif low_c:match("[%.,;!%?%(%)%-\"%+=%*#]") or low_c == "—" or low_c == ":" then
                         has_pause = true
-                        if low_c:match("[%.'!%?]") or low_c == "—" or low_c == ":" then
+                        if low_c:match("[%.'!%?%+=%*#]") or low_c == "—" or low_c == ":" then
                             has_hard_pause = true
                         end
                     end
@@ -869,9 +869,9 @@ local function process_euphonics_tokens(tokens)
                 for _, cp in utf8.codes(tok.text) do
                     local c = utf8.char(cp)
                     local low_c = utf8_lower(c)
-                    if low_c:match("[%.,;!%?%(%)%-\"]") or low_c == "—" or low_c == ":" then
+                    if low_c:match("[%.,;!%?%(%)%-\"%+=%*#]") or low_c == "—" or low_c == ":" then
                         has_pause = true
-                        if low_c:match("[%.'!%?]") or low_c == "—" or low_c == ":" then
+                        if low_c:match("[%.'!%?%+=%*#]") or low_c == "—" or low_c == ":" then
                             has_hard_pause = true
                         end
                     elseif not low_c:match("%s") then
@@ -885,8 +885,8 @@ local function process_euphonics_tokens(tokens)
         else
             -- Newline
             prev_char = nil
-            has_pause = false
-            has_hard_pause = false
+            has_pause = true
+            has_hard_pause = true
             prev_after_vowel = false
         end
     end
