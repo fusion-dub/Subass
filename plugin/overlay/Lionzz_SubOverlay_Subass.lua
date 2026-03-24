@@ -736,7 +736,19 @@ local function process_euphonics_tokens(tokens)
         ["А"]=true,["Е"]=true,["Є"]=true,["И"]=true,["І"]=true,
         ["Ї"]=true,["О"]=true,["У"]=true,["Ю"]=true,["Я"]=true
     }
-    local function last_non_space_char(s)
+    local function is_vowel(char)
+        if not char then return false end
+        return vowels_uk[utf8_lower(char)] == true
+    end
+    local function get_first_char(s)
+        if not s or s == "" then return nil end
+        local trimmed = s:match("^%s*(.-)$")
+        if not trimmed or trimmed == "" then return nil end
+        local off = utf8.offset(trimmed, 2)
+        if off then return trimmed:sub(1, off-1) end
+        return trimmed
+    end
+    local function get_last_char(s)
         if not s or s == "" then return nil end
         local trimmed = s:match("^(.-)%s*$")
         if not trimmed or trimmed == "" then return nil end
@@ -744,32 +756,97 @@ local function process_euphonics_tokens(tokens)
         if not offset then return nil end
         return trimmed:sub(offset)
     end
-    local prev_text = ""
-    for _, tok in ipairs(tokens) do
+
+    local prev_char = nil
+    local has_pause = false
+    local has_hard_pause = false
+
+    for i, tok in ipairs(tokens) do
         if not tok.is_newline then
-            local prev_char = utf8_lower(last_non_space_char(prev_text) or "")
-            local prev_is_vowel = vowels_uk[prev_char]
-            local w = tok.text
-            local low = utf8_lower(w)
-            local changed = nil
-            if low == "в" then
-                if not prev_is_vowel then changed = "у" end
-            elseif low == "у" then
-                if prev_is_vowel then changed = "в" end
-            elseif low == "й" then
-                if not prev_is_vowel then changed = "і" end
-            elseif low == "і" then
-                if prev_is_vowel then changed = "й" end
+            local is_space = tok.text:match("^%s+$") ~= nil
+            if not is_space then
+                local w = tok.text
+                local low = utf8_lower(w)
+                local changed = nil
+
+                -- Look ahead for the next word's first character (skipping whitespace/newlines)
+                local next_char = nil
+                for j = i + 1, #tokens do
+                    if not tokens[j].is_newline and tokens[j].text:match("%S") then
+                        next_char = get_first_char(tokens[j].text)
+                        if next_char then next_char = utf8_lower(next_char); break end
+                    end
+                end
+
+                local prev_is_vowel = is_vowel(prev_char)
+                local next_is_vowel = is_vowel(next_char)
+                local next_is_consonant = next_char and not next_is_vowel
+
+                -- Ukrainian Euphonics Rules (Advanced Pause Awareness)
+                if low == "в" then
+                    -- Use 'у' between consonants OR at start of sentence (hard pause) before consonant
+                    if next_is_consonant and (not prev_is_vowel or has_hard_pause) then
+                        changed = "у"
+                    end
+                elseif low == "у" then
+                    if prev_is_vowel and (next_is_vowel or next_is_consonant) then
+                        changed = "в"
+                    end
+                elseif low == "і" then
+                    -- Use 'й' between vowels or after vowel before consonant (ONLY across soft pauses like comma)
+                    if prev_is_vowel and not has_hard_pause and (next_is_vowel or next_is_consonant) then
+                        changed = "й"
+                    end
+                elseif low == "й" then
+                    if not prev_is_vowel or has_pause then
+                        changed = "і"
+                    end
+                end
+
+                if changed and changed ~= low then
+                    if w == utf8_upper(w) then changed = utf8_upper(changed) end
+                    tok.orig_text = tok.orig_text or tok.text
+                    tok.text = changed
+                    tok.assimilation_ranges = {{start_idx = 1, stop_idx = #changed}}
+                end
+                
+                -- Update context from the word (phonetic and pause)
+                for _, cp in utf8.codes(w) do
+                    local c = utf8.char(cp)
+                    local low_c = utf8_lower(c)
+                    if low_c:match("[%a\128-\255]") then
+                        prev_char = low_c
+                        has_pause = false
+                        has_hard_pause = false
+                    elseif low_c:match("[%.,;!%?%(%)%-\"]") or low_c == "—" or low_c == ":" then
+                        has_pause = true
+                        if low_c:match("[%.'!%?]") or low_c == "—" or low_c == ":" then
+                            has_hard_pause = true
+                        end
+                    end
+                end
+            else
+                -- Separator/Spaces/Punctuation token
+                for _, cp in utf8.codes(tok.text) do
+                    local c = utf8.char(cp)
+                    local low_c = utf8_lower(c)
+                    if low_c:match("[%.,;!%?%(%)%-\"]") or low_c == "—" or low_c == ":" then
+                        has_pause = true
+                        if low_c:match("[%.'!%?]") or low_c == "—" or low_c == ":" then
+                            has_hard_pause = true
+                        end
+                    elseif not low_c:match("%s") then
+                        prev_char = low_c
+                        has_pause = false
+                        has_hard_pause = false
+                    end
+                end
             end
-            if changed and changed ~= low then
-                if w == utf8_upper(w) then changed = utf8_upper(changed) end
-                tok.orig_text = tok.orig_text or tok.text
-                tok.text = changed
-                tok.assimilation_ranges = {{start_idx = 1, stop_idx = #changed}}
-            end
-            prev_text = tok.text
         else
-            prev_text = ""
+            -- Newline
+            prev_char = nil
+            has_pause = false
+            has_hard_pause = false
         end
     end
     return tokens
