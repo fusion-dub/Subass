@@ -4339,46 +4339,112 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
         end
 
         local euph_spans = {}
-        for idx, span in ipairs(current_spans) do
+        -- Pre-tokenize all spans into a flat list of segments to allow look-ahead
+        local all_segments = {}
+        for _, span in ipairs(current_spans) do
             local segs = UTILS.get_words_and_separators(span.text)
             for _, seg in ipairs(segs) do
-                if seg.is_word then
-                    local w = seg.text
-                    local low = utf8_lower(w)
-                    local changed = nil
+                seg.span = span -- Keep reference for cloning properties
+                table.insert(all_segments, seg)
+            end
+        end
 
-                    -- Get previous context: last char before this span
-                    local prev_char = nil
-                    if idx > 1 then
-                        for back = idx - 1, 1, -1 do
-                            local c = last_char(current_spans[back].text)
-                            if c then prev_char = utf8_lower(c); break end
+        local function is_vowel(char)
+            if not char then return false end
+            return vowels_uk[utf8_lower(char)] == true
+        end
+
+        local function get_first_char(s)
+            if not s or s == "" then return nil end
+            local trimmed = s:match("^%s*(.-)$")
+            if not trimmed or trimmed == "" then return nil end
+            local off = utf8.offset(trimmed, 2)
+            if off then return trimmed:sub(1, off - 1) end
+            return trimmed
+        end
+
+        local prev_char = nil
+        local has_pause = false
+
+        for i, seg in ipairs(all_segments) do
+            if seg.is_word then
+                local w = seg.text
+                local low = utf8_lower(w)
+                local changed = nil
+
+                -- Look ahead for the next word's first character
+                local next_char = nil
+                for j = i + 1, #all_segments do
+                    local c = get_first_char(all_segments[j].text)
+                    if c then next_char = utf8_lower(c); break end
+                end
+
+                local low_next = next_char and utf8_lower(next_char)
+                local prev_is_vowel = is_vowel(prev_char)
+                local next_is_vowel = is_vowel(next_char)
+                local next_is_consonant = next_char and not next_is_vowel
+
+                -- Ukrainian Euphonics Rules (Advanced Pause Awareness)
+                if low == "в" then
+                    -- Use 'у' between consonants OR at start of sentence (hard pause) before consonant
+                    if next_is_consonant and (not prev_is_vowel or has_hard_pause) then
+                        changed = "у"
+                    end
+                elseif low == "у" then
+                    -- Use 'в' between vowels or after vowel before consonant
+                    if prev_is_vowel and (next_is_vowel or next_is_consonant) then
+                        changed = "в"
+                    end
+                elseif low == "і" then
+                    -- Use 'й' between vowels or after vowel before consonant (ONLY across soft pauses like comma)
+                    if prev_is_vowel and not has_hard_pause and (next_is_vowel or next_is_consonant) then
+                        changed = "й"
+                    end
+                elseif low == "й" then
+                    -- Use 'і' after consonant or after any pause
+                    if not prev_is_vowel or has_pause then
+                        changed = "і"
+                    end
+                end
+
+                if changed and changed ~= low then
+                    if w == utf8_upper(w) then changed = utf8_upper(changed) end
+                    table.insert(euph_spans, clone_span(seg.span, {text = changed, orig_word = w, u = false, u_wave = true}))
+                else
+                    table.insert(euph_spans, clone_span(seg.span, {text = w}))
+                end
+                
+                -- Update context from the word (phonetic and pause)
+                for _, cp in utf8.codes(w) do
+                    local c = utf8.char(cp)
+                    local low_c = utf8_lower(c)
+                    if low_c:match("[%a\128-\255]") then
+                        prev_char = low_c
+                        has_pause = false
+                        has_hard_pause = false
+                    elseif low_c:match("[%.,;!%?%(%)%-\"]") or low_c == "—" or low_c == ":" then
+                        has_pause = true
+                        if low_c:match("[%.'!%?]") or low_c == "—" or low_c == ":" then
+                            has_hard_pause = true
                         end
                     end
-                    local prev_is_vowel = prev_char and vowels_uk[prev_char]
-
-                    -- Rule: в -> у after consonant or at phrase start; у -> в after vowel
-                    if low == "в" then
-                        if prev_is_vowel then changed = w -- stays в after vowel
-                        elseif prev_char == nil or not prev_is_vowel then changed = "у" end
-                    elseif low == "у" then
-                        if prev_is_vowel then changed = "в" end
-                    -- Rule: й -> і after consonant or at phrase start; і -> й after vowel
-                    elseif low == "й" then
-                        if not prev_is_vowel then changed = "і" end
-                    elseif low == "і" then
-                        if prev_is_vowel then changed = "й" end
+                end
+            else
+                -- Separator (spaces, punctuation)
+                table.insert(euph_spans, clone_span(seg.span, {text = seg.text}))
+                for _, cp in utf8.codes(seg.text) do
+                    local c = utf8.char(cp)
+                    local low_c = utf8_lower(c)
+                    if low_c:match("[%.,;!%?%(%)%-\"]") or low_c == "—" or low_c == ":" then
+                        has_pause = true
+                        if low_c:match("[%.'!%?]") or low_c == "—" or low_c == ":" then
+                            has_hard_pause = true
+                        end
+                    elseif not low_c:match("%s") then
+                        prev_char = low_c
+                        has_pause = false
+                        has_hard_pause = false
                     end
-
-                    if changed and changed ~= w then
-                        -- Preserve original capitalisation
-                        if w == utf8_upper(w) then changed = utf8_upper(changed) end
-                        table.insert(euph_spans, clone_span(span, {text = changed, orig_word = w, u = false, u_wave = true}))
-                    else
-                        table.insert(euph_spans, clone_span(span, {text = w}))
-                    end
-                else
-                    table.insert(euph_spans, clone_span(span, {text = seg.text}))
                 end
             end
         end
@@ -10515,12 +10581,49 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
             
             local effective_max_w = (is_first_line and first_line_indent) and (max_w - first_line_indent) or max_w
             
-            -- Break only if we are at a word boundary (current token is NOT a space, but PREVIOUS one WAS)
-            if not is_space and last_was_space and current_w > 0 and current_w + token_w > effective_max_w then
-                table.insert(lines, current_line)
-                current_line = {}
-                current_w = 0
-                is_first_line = false
+            -- Trigger wrap if any part of a word overflows the line
+            if not is_space and current_w + token_w > effective_max_w and current_w > 0 then
+                if last_was_space then
+                    -- Normal word-boundary break
+                    table.insert(lines, current_line)
+                    current_line = {}
+                    current_w = 0
+                    is_first_line = false
+                else
+                    -- Mid-word overflow! Backtrack to previous space in current line
+                    local last_space_idx = nil
+                    for j = #current_line, 1, -1 do
+                        if current_line[j].text:match("%s$") then
+                            last_space_idx = j
+                            break
+                        end
+                    end
+                    
+                    if last_space_idx then
+                        -- Everything after last_space_idx is part of the current word
+                        local word_parts = {}
+                        for j = last_space_idx + 1, #current_line do
+                            table.insert(word_parts, current_line[j])
+                        end
+                        -- Remove from current line
+                        for j = #current_line, last_space_idx + 1, -1 do
+                            table.remove(current_line, j)
+                        end
+                        
+                        table.insert(lines, current_line)
+                        current_line = word_parts
+                        current_w = 0
+                        for _, p in ipairs(word_parts) do current_w = current_w + (p.width or 0) end
+                        is_first_line = false
+                    else
+                        -- Entire line is one long word that doesn't fit. 
+                        -- Move to new line (already ensured current_w > 0)
+                        table.insert(lines, current_line)
+                        current_line = {}
+                        current_w = 0
+                        is_first_line = false
+                    end
+                end
             end
             
             -- Skip leading spaces on a new line to avoid indenting wrapped text
@@ -10554,10 +10657,12 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
                 
                 if can_merge then
                     last_seg.text = last_seg.text .. token
+                    last_seg.width = (last_seg.width or 0) + token_w
                 else
                     local new_seg = {}
                     for k, v in pairs(seg) do new_seg[k] = v end
                     new_seg.text = token
+                    new_seg.width = token_w
                     -- clear flags
                     new_seg.b = seg.b or seg.is_bold
                     new_seg.i = seg.i or seg.is_italic
