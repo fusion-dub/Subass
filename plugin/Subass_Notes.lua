@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 5.9
+-- @version 6.0
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v5.9",
+    script_title = "Subass Notes v6.0",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -9246,11 +9246,28 @@ local function import_notes()
     -- Create markers
     push_undo("Імпорт правок")
     
+    -- Build lookup of existing markers
+    update_marker_cache()
+    local existing_markers = {}
+    for _, m in ipairs(prompter_drawer.marker_cache.markers) do
+        local key = string.format("%.3f_%s", m.pos, m.name)
+        existing_markers[key] = true
+    end
+
+    local created_count = 0
+    local skipped_count = 0
+
     reaper.PreventUIRefresh(1)
     reaper.Undo_BeginBlock()
     for _, note in ipairs(notes) do
-        -- Always create marker (not region)
-        reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, reaper.ColorToNative(255, 200, 100) | 0x1000000)
+        local key = string.format("%.3f_%s", note.time, note.text)
+        if not existing_markers[key] then
+            -- Always create marker (not region)
+            reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, reaper.ColorToNative(255, 200, 100) | 0x1000000)
+            created_count = created_count + 1
+        else
+            skipped_count = skipped_count + 1
+        end
     end
     reaper.Undo_EndBlock("Імпорт правок", -1)
     reaper.PreventUIRefresh(-1)
@@ -9261,7 +9278,11 @@ local function import_notes()
     prompter_drawer.filtered_cache.state_count = -1
     prompter_drawer.has_markers_cache.count = -1
 
-    show_snackbar("Створено маркерів: " .. #notes, "success")
+    local msg = "Створено маркерів: " .. created_count
+    if skipped_count > 0 then
+        msg = msg .. " (пропущено існуючих: " .. skipped_count .. ")"
+    end
+    show_snackbar(msg, "success")
     UI_STATE.ass_file_loaded = true -- Enable Actor view
 end
 
@@ -9275,6 +9296,13 @@ local function import_notes_from_csv(file_path)
         retval, file = reaper.GetUserFileNameForRead("", "Імпорт правок з CSV", "*.csv")
         if not retval or not file then return end
     end
+
+    UI_STATE.current_file_name = file:match("([^/\\]+)$")
+    UI_STATE.current_file_path = file
+    
+    -- Check for deadline in filename
+    local dl = DEADLINE.parse_from_name(UI_STATE.current_file_name)
+    if dl then DEADLINE.set(dl) end
     
     local f = io.open(file, "r")
     if not f then
@@ -9397,10 +9425,27 @@ local function import_notes_from_csv(file_path)
     -- Create markers
     push_undo("Імпорт правок з CSV")
     
+    -- Build lookup of existing markers
+    update_marker_cache()
+    local existing_markers = {}
+    for _, m in ipairs(prompter_drawer.marker_cache.markers) do
+        local key = string.format("%.3f_%s", m.pos, m.name)
+        existing_markers[key] = true
+    end
+
+    local created_count = 0
+    local skipped_count = 0
+
     reaper.PreventUIRefresh(1)
     reaper.Undo_BeginBlock()
     for _, note in ipairs(notes) do
-        reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, reaper.ColorToNative(255, 200, 100) | 0x1000000)
+        local key = string.format("%.3f_%s", note.time, note.text)
+        if not existing_markers[key] then
+            reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, reaper.ColorToNative(255, 200, 100) | 0x1000000)
+            created_count = created_count + 1
+        else
+            skipped_count = skipped_count + 1
+        end
     end
     reaper.Undo_EndBlock("Імпорт правок з CSV", -1)
     reaper.PreventUIRefresh(-1)
@@ -9411,7 +9456,11 @@ local function import_notes_from_csv(file_path)
     prompter_drawer.filtered_cache.state_count = -1
     prompter_drawer.has_markers_cache.count = -1
 
-    show_snackbar("Створено маркерів: " .. #notes, "success")
+    local msg = "Створено маркерів: " .. created_count
+    if skipped_count > 0 then
+        msg = msg .. " (пропущено існуючих: " .. skipped_count .. ")"
+    end
+    show_snackbar(msg, "success")
 end
 
 --- Import ASS/SSA subtitle file, parsing styles and events
@@ -19513,6 +19562,142 @@ function UTILS.update_corr_time_prefix(calc_only, cur_time)
     end
 end
 
+--- Helper to export markers to CSV
+function UTILS.export_markers_to_csv(markers, deadline_str)
+    if not reaper.JS_Dialog_BrowseForSaveFile then
+        local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
+        local has_reapack = reaper.ReaPack_GetOwner ~= nil
+        if not has_reapack then
+            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
+        else
+            msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
+        end
+        reaper.MB(msg, "Відсутні компоненти", 0)
+        return
+    end
+
+    if #markers == 0 then
+        show_snackbar("Немає правок для експорту", "info")
+        return
+    end
+
+    -- Отримуємо ім'я проекту для дефолтної назви файлу
+    local _, proj_path = reaper.EnumProjects(-1)
+    local proj_name = "Project"
+    if proj_path and proj_path ~= "" then
+        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
+    end
+    
+    local default_filename = proj_name .. "_правки.csv"
+    if deadline_str then
+        default_filename = deadline_str .. " " .. proj_name .. "_правки.csv"
+    end
+
+    -- Відкриваємо діалог збереження файлу
+    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти маркери як CSV", "", default_filename, "CSV files (.csv)\0*.csv\0All Files (*.*)\0*.*\0")
+    
+    if retval == 1 and filename ~= "" then
+        if not filename:match("%.csv$") then filename = filename .. ".csv" end
+        
+        local file = io.open(filename, "w")
+        if not file then
+            reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
+            return
+        end
+        
+        file:write("#,Name,Start,Color\n")
+        for _, m in ipairs(markers) do
+            local marker_id = "M" .. m.markindex
+            local time_str = reaper.format_timestr(m.pos, "")
+            local escaped_name = m.name
+            if m.name:match('[,"\n\r]') then
+                escaped_name = '"' .. m.name:gsub('"', '""') .. '"'
+            end
+            
+            local color_str = ""
+            if m.color and m.color > 0 then
+                local r = (m.color & 0xFF)
+                local g = (m.color >> 8) & 0xFF
+                local b = (m.color >> 16) & 0xFF
+                color_str = string.format("%02X%02X%02X", r, g, b)
+            end
+            
+            file:write(string.format("%s,%s,%s,%s\n", marker_id, escaped_name, time_str, color_str))
+        end
+        file:close()
+        show_snackbar("Експортовано " .. #markers .. " правок у CSV", "success")
+    end
+end
+
+
+function UTILS.copy_markers_to_clipboard(markers)
+    if #markers > 0 then
+        local groups = {}
+        local no_actor_key = "-- без актора --"
+        local actors_list = {} -- Keep track of actors found for sorting
+        local seen_actors = {}
+
+        for _, m in ipairs(markers) do
+            local text = m.name
+            local list, _ = get_actors_from_text(text)
+            local content = ""
+            
+            if #list > 0 then
+                content = text:gsub("^%[.-%]%s*", "")
+            else
+                -- Fallback: Try pattern "Actor: Text"
+                -- Ensure that the 'act' we find doesn't look like a number (timestamp part)
+                local s, e, act = string.find(text, "^(.-):%s*")
+                if s and not act:match("^%d+$") then
+                    table.insert(list, act)
+                    content = string.sub(text, e + 1)
+                else
+                    content = text
+                    table.insert(list, no_actor_key)
+                end
+            end
+
+            for _, actor in ipairs(list) do
+                if not groups[actor] then
+                    groups[actor] = {}
+                    if not seen_actors[actor] then
+                        table.insert(actors_list, actor)
+                        seen_actors[actor] = true
+                    end
+                end
+                table.insert(groups[actor], {time = m.pos, text = content})
+            end
+        end
+
+        -- Sort actors alphabetically, but put no_actor_key last
+        table.sort(actors_list, function(a, b)
+            if a == no_actor_key then return false end
+            if b == no_actor_key then return true end
+            return a < b
+        end)
+
+        local out_lines = {}
+        for _, act in ipairs(actors_list) do
+            -- Clean actor name: remove VS16 and trim spaces
+            local clean_act = act:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
+            table.insert(out_lines, "⭐ " .. clean_act)
+            -- Sort markers by time
+            table.sort(groups[act], function(a, b) return a.time < b.time end)
+            
+            for _, entry in ipairs(groups[act]) do
+                local time_str = reaper.format_timestr(entry.time, "")
+                table.insert(out_lines, time_str .. " - " .. entry.text)
+            end
+            table.insert(out_lines, "") -- Empty line between groups
+        end
+        
+        set_clipboard(table.concat(out_lines, "\n"))
+        show_snackbar("Скопійовано " .. #markers .. " правок", "success")
+    else
+        show_snackbar("Немає правок для копіювання", "info")
+    end
+end
+
 local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
     if not calc_only then
         set_color(UI.C_BG)
@@ -19633,158 +19818,26 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
         local dock_check = gfx.dock(-1) > 0 and "!" or ""
         local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
-        local menu_str = "Копіювати правки в буфер||Експортувати правки в CSV|Імпортувати імена акторів з субтитрів||" .. layout_label .. "|Закрити вікно"
+        local menu_str = "Копіювати правки в буфер||>Експортувати правки в CSV|Просто експорт|Експорт з дедлайном|<|Імпортувати імена акторів з субтитрів||" .. layout_label .. "|Закрити вікно"
         
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local ret = gfx.showmenu(menu_str)
-        
+
         if ret == 1 then
             -- Copy
-            if #ass_markers > 0 then
-                local groups = {}
-                local no_actor_key = "-- без актора --"
-                local actors_list = {} -- Keep track of actors found for sorting
-                local seen_actors = {}
-
-                for _, m in ipairs(ass_markers) do
-                    local text = m.name
-                    local list, _ = get_actors_from_text(text)
-                    local content = ""
-                    
-                    if #list > 0 then
-                        content = text:gsub("^%[.-%]%s*", "")
-                    else
-                        -- Fallback: Try pattern "Actor: Text"
-                        -- Ensure that the 'act' we find doesn't look like a number (timestamp part)
-                        local s, e, act = string.find(text, "^(.-):%s*")
-                        if s and not act:match("^%d+$") then
-                            table.insert(list, act)
-                            content = string.sub(text, e + 1)
-                        else
-                            content = text
-                            table.insert(list, no_actor_key)
-                        end
-                    end
-
-                    for _, actor in ipairs(list) do
-                        if not groups[actor] then
-                            groups[actor] = {}
-                            if not seen_actors[actor] then
-                                table.insert(actors_list, actor)
-                                seen_actors[actor] = true
-                            end
-                        end
-                        table.insert(groups[actor], {time = m.pos, text = content})
-                    end
-                end
-
-                -- Sort actors alphabetically, but put no_actor_key last
-                table.sort(actors_list, function(a, b)
-                    if a == no_actor_key then return false end
-                    if b == no_actor_key then return true end
-                    return a < b
-                end)
-
-                local out_lines = {}
-                for _, act in ipairs(actors_list) do
-                    -- Clean actor name: remove VS16 and trim spaces
-                    local clean_act = act:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
-                    table.insert(out_lines, "⭐ " .. clean_act)
-                    -- Sort markers by time
-                    table.sort(groups[act], function(a, b) return a.time < b.time end)
-                    
-                    for _, entry in ipairs(groups[act]) do
-                        local time_str = reaper.format_timestr(entry.time, "")
-                        table.insert(out_lines, time_str .. " - " .. entry.text)
-                    end
-                    table.insert(out_lines, "") -- Empty line between groups
-                end
-                
-                set_clipboard(table.concat(out_lines, "\n"))
-                show_snackbar("Скопійовано " .. #ass_markers .. " правок", "success")
-            else
-                show_snackbar("Немає правок для копіювання", "info")
-            end
+            UTILS.copy_markers_to_clipboard(ass_markers)
         elseif ret == 2 then
-            if not reaper.JS_Dialog_BrowseForSaveFile then
-                local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
-                if not has_reapack then
-                    msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
-                else
-                    msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
-                end
-                reaper.MB(msg, "Відсутні компоненти", 0)
-                return -- STRICT STOP
-            end
-
-            if #ass_markers == 0 then
-                show_snackbar("Немає правок для експорту", "info")
-                return
-            end
-
-            -- Отримуємо ім'я проекту для дефолтної назви файлу
-            local _, proj_path = reaper.EnumProjects(-1)
-            local proj_name = "Project"
-            if proj_path and proj_path ~= "" then
-                -- Витягуємо ім'я файлу без шляху та розширення (кейс-незалежно)
-                proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
-            end
-            local default_filename = proj_name .. "_правки.csv"
-
-            -- Відкриваємо діалог збереження файлу
-            local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти маркери як CSV", "", default_filename, "CSV files (.csv)\0*.csv\0All Files (*.*)\0*.*\0")
-            
-            if retval == 1 and filename ~= "" then
-                -- Додаємо розширення .csv якщо його немає
-                if not filename:match("%.csv$") then
-                    filename = filename .. ".csv"
-                end
-                
-                -- Відкриваємо файл для запису
-                local file = io.open(filename, "w")
-                if not file then
-                    reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
-                    return
-                end
-                
-                -- Записуємо заголовок CSV
-                file:write("#,Name,Start,Color\n")
-                
-                -- Перебираємо всі маркери (вже захоплені в ass_markers)
-                for _, m in ipairs(ass_markers) do
-                    -- Формуємо ID маркера (M + номер)
-                    local marker_id = "M" .. m.markindex
-                    
-                    -- Конвертуємо позицію у стандартний формат (H:M:S.ms)
-                    local time_str = reaper.format_timestr(m.pos, "")
-                    
-                    -- Екрануємо назву якщо містить коми, лапки або переходи на новий рядок
-                    local escaped_name = m.name
-                    if m.name:match('[,"\n\r]') then
-                        escaped_name = '"' .. m.name:gsub('"', '""') .. '"'
-                    end
-                    
-                    -- Конвертуємо колір з BGR у RGB hex формат без #
-                    local color_str = ""
-                    if m.color and m.color > 0 then
-                        local r = (m.color & 0xFF)
-                        local g = (m.color >> 8) & 0xFF
-                        local b = (m.color >> 16) & 0xFF
-                        color_str = string.format("%02X%02X%02X", r, g, b)
-                    end
-                    
-                    -- Записуємо рядок у CSV
-                    file:write(string.format("%s,%s,%s,%s\n", 
-                        marker_id,
-                        escaped_name,
-                        time_str,
-                        color_str))
-                end
-                
-                file:close()
-                show_snackbar("Експортовано " .. #ass_markers .. " правок у CSV", "success")
-            end
+            -- Просто експорт
+            UTILS.export_markers_to_csv(ass_markers)
         elseif ret == 3 then
+            -- Експорт з дедлайном
+            DEADLINE.open_picker(nil, function(ts)
+                if not ts then return end
+                local dt = os.date("*t", ts)
+                local d_str = string.format("[%02d.%02d.%02d]", dt.day, dt.month, dt.year % 100)
+                UTILS.export_markers_to_csv(ass_markers, d_str)
+            end)
+        elseif ret == 4 then
             -- Import
             local existing = {}
             for _, a in ipairs(director_actors) do existing[a] = true end
@@ -19817,7 +19870,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             else
                 show_snackbar("Нових акторів не знайдено", "info")
             end
-        elseif ret == 4 then
+        elseif ret == 5 then
             -- Toggle Layout
             if cfg.director_layout == "right" then
                 cfg.director_layout = "bottom"
@@ -19826,7 +19879,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             end
             save_settings() -- Save state immediately
             last_layout_state.state_count = -1 -- Force redraw
-        elseif ret == 5 then
+        elseif ret == 6 then
             cfg.director_mode = not cfg.director_mode
             save_settings()
         end
