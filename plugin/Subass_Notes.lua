@@ -4351,7 +4351,8 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
 
         local function is_vowel(char)
             if not char then return false end
-            return vowels_uk[utf8_lower(char)] == true
+            local low_char = utf8_lower(char)
+            return vowels_uk[low_char] == true or low_char:match("[aeiouy]") ~= nil
         end
 
         local function get_first_char(s)
@@ -4403,7 +4404,8 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                        next_word_low:match("^тв") or next_word_low:match("^зв") or 
                        next_word_low:match("^хв") or next_word_low:match("^ст") or
                        next_word_low:match("^сх") or next_word_low:match("^сп") or
-                       next_word_low:match("^ск") then
+                       next_word_low:match("^ск") or
+                       next_word_low:match("^v") or next_word_low:match("^w") then
                         is_heavy_cluster = true
                     end
                 end
