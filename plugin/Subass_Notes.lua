@@ -4365,8 +4365,8 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
         end
 
         local prev_char = nil
-        local has_pause = false
-        local has_hard_pause = false
+        local has_pause = true -- Start of subtitle is a pause
+        local has_hard_pause = true -- Start of subtitle is a hard pause
         local prev_after_vowel = false
 
         for i, seg in ipairs(all_segments) do
@@ -4386,7 +4386,7 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                         next_char = utf8_lower(c)
                         next_word_low = utf8_lower(s.text)
                         -- Detect if this next thing is a hard pause (before any word)
-                        if next_char:match("[%.'!%?]") or next_char == "—" or next_char == ":" then
+                        if next_char:match("[%.'!%?%+=%*#]") or next_char == "—" or next_char == ":" then
                             followed_by_hard_pause = true
                         end
                         break 
@@ -4461,9 +4461,9 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                         last_was_vowel = is_vowel(low_c)
                         has_pause = false
                         has_hard_pause = false
-                    elseif low_c:match("[%.,;!%?%(%)%-\"]") or low_c == "—" or low_c == ":" then
+                    elseif low_c:match("[%.,;!%?%(%)%-\"%+=%*#]") or low_c == "—" or low_c == ":" then
                         has_pause = true
-                        if low_c:match("[%.'!%?]") or low_c == "—" or low_c == ":" then
+                        if low_c:match("[%.'!%?%+=%*#]") or low_c == "—" or low_c == ":" then
                             has_hard_pause = true
                         end
                     end
@@ -4474,9 +4474,9 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                 for _, cp in utf8.codes(seg.text) do
                     local c = utf8.char(cp)
                     local low_c = utf8_lower(c)
-                    if low_c:match("[%.,;!%?%(%)%-\"]") or low_c == "—" or low_c == ":" then
+                    if low_c:match("[%.,;!%?%(%)%-\"%+=%*#]") or low_c == "—" or low_c == ":" then
                         has_pause = true
-                        if low_c:match("[%.'!%?]") or low_c == "—" or low_c == ":" then
+                        if low_c:match("[%.'!%?%+=%*#]") or low_c == "—" or low_c == ":" then
                             has_hard_pause = true
                         end
                     elseif not low_c:match("%s") then
@@ -4486,6 +4486,12 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                         has_hard_pause = false
                     end
                 end
+            end
+            
+            if seg.is_newline then
+                has_pause = true
+                has_hard_pause = true
+                prev_after_vowel = false
             end
         end
         current_spans = euph_spans
