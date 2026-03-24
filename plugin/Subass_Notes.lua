@@ -57,6 +57,7 @@ local cfg = {
     karaoke_mode = (get_set("karaoke_mode", "0") == "1" or get_set("karaoke_mode", 0) == 1),
     all_caps = (get_set("all_caps", "0") == "1" or get_set("all_caps", 0) == 1),
     all_caps_acute = (get_set("all_caps_acute", "0") == "1" or get_set("all_caps_acute", 0) == 1),
+    p_soft_n = (get_set("p_soft_n", "0") == "1" or get_set("p_soft_n", 0) == 1),
     show_actor_name_infront = (get_set("show_actor_name_infront", "0") == "1" or get_set("show_actor_name_infront", 0) == 1),
     wave_bg = (get_set("wave_bg", "1") == "1" or get_set("wave_bg", 1) == 1),
     wave_bg_progress = (get_set("wave_bg_progress", "0") == "1" or get_set("wave_bg_progress", 0) == 1),
@@ -1527,6 +1528,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "text_assimilations", cfg.text_assimilations and "1" or "0", true)
     reaper.SetExtState(section_name, "text_euphonics", cfg.text_euphonics and "1" or "0", true)
     reaper.SetExtState(section_name, "fix_CP1251", cfg.fix_CP1251 and "1" or "0", true)
+    reaper.SetExtState(section_name, "p_soft_n", cfg.p_soft_n and "1" or "0", true)
 
     reaper.SetExtState(section_name, "karaoke_mode", cfg.karaoke_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "auto_startup", cfg.auto_startup and "1" or "0", true)
@@ -5695,11 +5697,18 @@ local function parse_prompter_to_lines(str)
     local global_comment = nil
     local has_text = false
     
-    -- Wrap long text first (configurable max length)
+    -- Normalize/Flatten newlines before wrapping if soft mode is enabled
+    if cfg.p_soft_n then
+        str = str:gsub("\\n", " "):gsub("\n", " "):gsub("\\N", " ")
+    end
+
+    -- Wrap long text (configurable max length)
     str = wrap_long_text(str, cfg.wrap_length)
     
-    -- Normalize newlines
-    str = str:gsub("\\n", "\\N"):gsub("\n", "\\N")
+    -- Final normalization for non-soft mode or any remaining \n
+    if not cfg.p_soft_n then
+        str = str:gsub("\\n", "\\N"):gsub("\n", "\\N")
+    end
     
     while cursor <= #str do
         -- Check for tag start '{', HTML '<', or newline '\N'
@@ -17317,7 +17326,8 @@ local function draw_prompter_slider(input_queue)
                 local rgn = raw.data
                 local p_lines = parse_prompter_to_lines(rgn.name)
                 local flattened = {}
-                for _, pl in ipairs(p_lines) do
+                for i, pl in ipairs(p_lines) do
+                    if i > 1 and #flattened > 0 then table.insert(flattened, {text=" "}) end
                     local t_spans = UTILS.apply_text_transforms(pl)
                     for _, span in ipairs(t_spans) do table.insert(flattened, span) end
                 end
@@ -17357,7 +17367,8 @@ local function draw_prompter_slider(input_queue)
                 if name == "" then name = "<пусто>" end
                 local p_lines = parse_prompter_to_lines(name)
                 local flattened = {}
-                for _, pl in ipairs(p_lines) do
+                for i, pl in ipairs(p_lines) do
+                    if i > 1 and #flattened > 0 then table.insert(flattened, {text=" "}) end
                     -- Pre-process (no assimilation for corrections)
                     local t_spans = UTILS.apply_text_transforms(pl, true)
                     for _, span in ipairs(t_spans) do table.insert(flattened, span) end
@@ -18917,6 +18928,11 @@ local function draw_settings()
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, "Режим ВЕЛИКИМИ ЛІТЕРАМИ", cfg.all_caps, "Весь текст відображатиметься ВЕЛИКИМИ ЛІТЕРАМИ.") then
         cfg.all_caps = not cfg.all_caps
+        save_settings()
+    end
+    y_cursor = y_cursor + S(35)
+    if checkbox(x_start, y_cursor, "М'які переноси (ігнорувати \\N)", cfg.p_soft_n, "Символи розриву рядка \\N, \\n та звичайні ентери будуть ігноруватися, а текст переноситиметься автоматично залежно від ширини вікна та налаштування \"Довжина рядка\".") then
+        cfg.p_soft_n = not cfg.p_soft_n
         save_settings()
     end
     y_cursor = y_cursor + S(35)
