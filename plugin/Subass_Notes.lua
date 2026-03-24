@@ -51,6 +51,7 @@ local cfg = {
     always_next = (get_set("always_next", "1") == "1" or get_set("always_next", 1) == 1),
     random_color_actors = (get_set("random_color_actors", "1") == "1" or get_set("random_color_actors", 1) == 1),
     text_assimilations = (get_set("text_assimilations", "1") == "1" or get_set("text_assimilations", 1) == 1),
+    text_euphonics = (get_set("text_euphonics", "0") == "1" or get_set("text_euphonics", 0) == 1),
     fix_CP1251 = (get_set("fix_CP1251", "0") == "1" or get_set("fix_CP1251", 0) == 1),
 
     karaoke_mode = (get_set("karaoke_mode", "0") == "1" or get_set("karaoke_mode", 0) == 1),
@@ -1524,6 +1525,7 @@ local function save_settings()
 
     reaper.SetExtState(section_name, "random_color_actors", cfg.random_color_actors and "1" or "0", true)
     reaper.SetExtState(section_name, "text_assimilations", cfg.text_assimilations and "1" or "0", true)
+    reaper.SetExtState(section_name, "text_euphonics", cfg.text_euphonics and "1" or "0", true)
     reaper.SetExtState(section_name, "fix_CP1251", cfg.fix_CP1251 and "1" or "0", true)
 
     reaper.SetExtState(section_name, "karaoke_mode", cfg.karaoke_mode and "1" or "0", true)
@@ -4305,7 +4307,73 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
         current_spans = new_spans
     end
 
-    -- 2. DICTIONARY
+    -- 2. EUPHONICS (в/у та й/і чергування)
+    if cfg.text_euphonics and not no_assimilation then
+        local vowels_uk = {
+            ["а"] = true, ["е"] = true, ["є"] = true, ["и"] = true, ["і"] = true,
+            ["ї"] = true, ["о"] = true, ["у"] = true, ["ю"] = true, ["я"] = true,
+            ["А"] = true, ["Е"] = true, ["Є"] = true, ["И"] = true, ["І"] = true,
+            ["Ї"] = true, ["О"] = true, ["У"] = true, ["Ю"] = true, ["Я"] = true
+        }
+        -- 7th vowel apostrophe is not a letter, skip
+        -- Helpers to get last / first visible char, ignoring spaces
+        local function last_char(s)
+            if not s or s == "" then return nil end
+            local trimmed = s:match("^(.-)%s*$")
+            if not trimmed or trimmed == "" then return nil end
+            local offset = utf8.offset(trimmed, -1)
+            if not offset then return nil end
+            return trimmed:sub(offset)
+        end
+
+        local euph_spans = {}
+        for idx, span in ipairs(current_spans) do
+            local segs = UTILS.get_words_and_separators(span.text)
+            for _, seg in ipairs(segs) do
+                if seg.is_word then
+                    local w = seg.text
+                    local low = utf8_lower(w)
+                    local changed = nil
+
+                    -- Get previous context: last char before this span
+                    local prev_char = nil
+                    if idx > 1 then
+                        for back = idx - 1, 1, -1 do
+                            local c = last_char(current_spans[back].text)
+                            if c then prev_char = utf8_lower(c); break end
+                        end
+                    end
+                    local prev_is_vowel = prev_char and vowels_uk[prev_char]
+
+                    -- Rule: в -> у after consonant or at phrase start; у -> в after vowel
+                    if low == "в" then
+                        if prev_is_vowel then changed = w -- stays в after vowel
+                        elseif prev_char == nil or not prev_is_vowel then changed = "у" end
+                    elseif low == "у" then
+                        if prev_is_vowel then changed = "в" end
+                    -- Rule: й -> і after consonant or at phrase start; і -> й after vowel
+                    elseif low == "й" then
+                        if not prev_is_vowel then changed = "і" end
+                    elseif low == "і" then
+                        if prev_is_vowel then changed = "й" end
+                    end
+
+                    if changed and changed ~= w then
+                        -- Preserve original capitalisation
+                        if w == utf8_upper(w) then changed = utf8_upper(changed) end
+                        table.insert(euph_spans, {text = changed, b = span.b, i = span.i, u = false, u_wave = true, s = span.s, orig_word = w, comment = span.comment})
+                    else
+                        table.insert(euph_spans, {text = w, b = span.b, i = span.i, u = span.u, s = span.s, orig_word = span.orig_word, comment = span.comment})
+                    end
+                else
+                    table.insert(euph_spans, {text = seg.text, b = span.b, i = span.i, u = span.u, s = span.s, comment = span.comment})
+                end
+            end
+        end
+        current_spans = euph_spans
+    end
+
+    -- 3. DICTIONARY
     local dict_lookup = DICT.get_lookup_table()
     local has_dict = false
     for _ in pairs(dict_lookup) do has_dict = true; break end
@@ -18694,6 +18762,11 @@ local function draw_settings()
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, "Показувати асиміляцію", cfg.text_assimilations, "Відображати фонетичні підказки (асиміляції) в тексті.") then
         cfg.text_assimilations = not cfg.text_assimilations
+        save_settings()
+    end
+    y_cursor = y_cursor + S(35)
+    if checkbox(x_start, y_cursor, "Показувати чергування в/у та й/і", cfg.text_euphonics, "Відображати еуфонічні підказки: відображати варіант в/у та й/і на основі попереднього звуку.") then
+        cfg.text_euphonics = not cfg.text_euphonics
         save_settings()
     end
     y_cursor = y_cursor + S(35)
