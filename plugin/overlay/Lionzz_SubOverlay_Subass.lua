@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.2.4
+-- @version 0.2.5
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -90,6 +90,7 @@ local align_vertical = false            -- вирівнювання по вер�
 local align_bottom = true               -- вирівнювання по низу
 local bottom_offset = 24                -- відступ від низу вікна
 local show_assimilation = true          -- показувати асиміляцію (незалежно від Subass Notes)
+local show_euphonics = false            -- показувати чергування в/у та й/і
 local always_show_next = true           -- завжди показувати наступну репліку (навіть у прогалинах)
 local fill_gaps = false                 -- показувати найближчий регіон/ітем між об'єктами
 local all_caps = false                  -- режим великих літер
@@ -728,6 +729,52 @@ local function process_assimilation_tokens(tokens)
     return tokens
 end
 
+local function process_euphonics_tokens(tokens)
+    local vowels_uk = {
+        ["а"]=true,["е"]=true,["є"]=true,["и"]=true,["і"]=true,
+        ["ї"]=true,["о"]=true,["у"]=true,["ю"]=true,["я"]=true,
+        ["А"]=true,["Е"]=true,["Є"]=true,["И"]=true,["І"]=true,
+        ["Ї"]=true,["О"]=true,["У"]=true,["Ю"]=true,["Я"]=true
+    }
+    local function last_non_space_char(s)
+        if not s or s == "" then return nil end
+        local trimmed = s:match("^(.-)%s*$")
+        if not trimmed or trimmed == "" then return nil end
+        local offset = utf8.offset(trimmed, -1)
+        if not offset then return nil end
+        return trimmed:sub(offset)
+    end
+    local prev_text = ""
+    for _, tok in ipairs(tokens) do
+        if not tok.is_newline then
+            local prev_char = utf8_lower(last_non_space_char(prev_text) or "")
+            local prev_is_vowel = vowels_uk[prev_char]
+            local w = tok.text
+            local low = utf8_lower(w)
+            local changed = nil
+            if low == "в" then
+                if not prev_is_vowel then changed = "у" end
+            elseif low == "у" then
+                if prev_is_vowel then changed = "в" end
+            elseif low == "й" then
+                if not prev_is_vowel then changed = "і" end
+            elseif low == "і" then
+                if prev_is_vowel then changed = "й" end
+            end
+            if changed and changed ~= low then
+                if w == utf8_upper(w) then changed = utf8_upper(changed) end
+                tok.orig_text = tok.orig_text or tok.text
+                tok.text = changed
+                tok.assimilation_ranges = {{start_idx = 1, stop_idx = #changed}}
+            end
+            prev_text = tok.text
+        else
+            prev_text = ""
+        end
+    end
+    return tokens
+end
+
 local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "NoTitle", tostring(flags.NoTitle), true)
     reaper.SetExtState(SETTINGS_SECTION, "HideBackground", tostring(flags.HideBackground), true)
@@ -770,6 +817,7 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "align_bottom", tostring(align_bottom), true)
     reaper.SetExtState(SETTINGS_SECTION, "bottom_offset", tostring(bottom_offset), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_assimilation", tostring(show_assimilation), true)
+    reaper.SetExtState(SETTINGS_SECTION, "show_euphonics", tostring(show_euphonics), true)
     reaper.SetExtState(SETTINGS_SECTION, "always_show_next", tostring(always_show_next), true)
     reaper.SetExtState(SETTINGS_SECTION, "fill_gaps", tostring(fill_gaps), true)
     reaper.SetExtState(SETTINGS_SECTION, "all_caps", tostring(all_caps), true)
@@ -853,6 +901,7 @@ local function load_settings()
     align_bottom = (reaper.GetExtState(SETTINGS_SECTION, "align_bottom") ~= "false")
     bottom_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "bottom_offset")) or 24
     show_assimilation = (reaper.GetExtState(SETTINGS_SECTION, "show_assimilation") ~= "false")
+    show_euphonics = (reaper.GetExtState(SETTINGS_SECTION, "show_euphonics") == "true")
     always_show_next = (reaper.GetExtState(SETTINGS_SECTION, "always_show_next") ~= "false")
     fill_gaps = (reaper.GetExtState(SETTINGS_SECTION, "fill_gaps") == "true")
     all_caps = (reaper.GetExtState(SETTINGS_SECTION, "all_caps") == "true")
@@ -1106,6 +1155,13 @@ local function draw_context_menu()
             changes = changes + 1
         end
         tooltip("Вмикає відображення асимільованого тексту в оверлеї (незалежно від Subass Notes)")
+
+        local euph_changed, new_euph = reaper.ImGui_Checkbox(ctx, "Показувати чергування в/у та й/і", show_euphonics)
+        if euph_changed then
+            show_euphonics = new_euph
+            changes = changes + 1
+        end
+        tooltip("Відображати еуфонічні підказки: в/у та й/і на основі попереднього звуку")
 
         reaper.ImGui_Separator(ctx)
         align_center          = add_change(reaper.ImGui_Checkbox(ctx, "Центрування по горизонталі", align_center))
@@ -1567,8 +1623,8 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                     reaper.ImGui_DrawList_AddLine(draw_list, temp_x, st_y, temp_x + w, st_y, text_color, 1.2)
                 end
 
-                -- ASSIMILATION WAVY UNDERLINE
-                if show_assimilation and tok.assimilation_ranges and #tok.assimilation_ranges > 0 then
+                -- ASSIMILATION / EUPHONICS WAVY UNDERLINE
+                if (show_assimilation or show_euphonics) and tok.assimilation_ranges and #tok.assimilation_ranges > 0 then
                     for _, rg in ipairs(tok.assimilation_ranges) do
                         local before_text = tok.text:sub(1, rg.start_idx - 1)
                         local match_text = tok.text:sub(rg.start_idx, rg.stop_idx)
@@ -2468,13 +2524,14 @@ local function loop()
         -- end
 
         -- PARSE TO TOKENS (With Caching)
-        local function get_cached_tokens(cache_key, text, dict_ts, assim_flag, cache_obj)
-            local key = text .. tostring(dict_ts) .. tostring(assim_flag)
+        local function get_cached_tokens(cache_key, text, dict_ts, assim_flag, euph_flag, cache_obj)
+            local key = text .. tostring(dict_ts) .. tostring(assim_flag) .. tostring(euph_flag)
             if cache_obj.key == key then return cache_obj.tokens end
             
             local tokens = parse_to_tokens(text)
             tokens = process_dictionary_tokens(tokens)
             if assim_flag then tokens = process_assimilation_tokens(tokens) end
+            if euph_flag then tokens = process_euphonics_tokens(tokens) end
             
             cache_obj.key = key
             cache_obj.tokens = tokens
@@ -2482,9 +2539,9 @@ local function loop()
         end
 
         check_and_load_dictionaries()
-        local current_tokens = get_cached_tokens("cur", current, DICT.last_update_ts, show_assimilation, token_cache.current)
-        local next_tokens = get_cached_tokens("n1", nextreg, DICT.last_update_ts, show_assimilation, token_cache.next1)
-        local next2_tokens = get_cached_tokens("n2", nextreg2 or "", DICT.last_update_ts, show_assimilation, token_cache.next2)
+        local current_tokens = get_cached_tokens("cur", current, DICT.last_update_ts, show_assimilation, show_euphonics, token_cache.current)
+        local next_tokens = get_cached_tokens("n1", nextreg, DICT.last_update_ts, show_assimilation, show_euphonics, token_cache.next1)
+        local next2_tokens = get_cached_tokens("n2", nextreg2 or "", DICT.last_update_ts, show_assimilation, show_euphonics, token_cache.next2)
         
         -- FETCH AND PARSE CORRECTIONS
         local corr_list = get_current_corrections(pos, start_pos, stop_pos)
@@ -2494,7 +2551,8 @@ local function loop()
             for _, m in ipairs(corr_list) do
                 tagged_text = tagged_text .. string.format("{\\meta_t1:%.3f\\meta_t2:%.3f\\meta_id:%d}%s\n", m.pos, m.pos, m.id or -1, m.name)
             end
-            corr_tokens = get_cached_tokens("corr", tagged_text, DICT.last_update_ts, show_assimilation, token_cache.corr)
+            -- Disable assimilation and euphonics for corrections
+            corr_tokens = get_cached_tokens("corr", tagged_text, DICT.last_update_ts, false, false, token_cache.corr)
         end
 
         -- FETCH OTHER ACTORS (Context)
@@ -2528,7 +2586,7 @@ local function loop()
                 local full_text = table.concat(context_entries, "\n")
                 
                 -- CACHE KEY: Must include full text content to detect changes!
-                local oact_key = full_text .. tostring(DICT.last_update_ts) .. tostring(show_assimilation)
+                local oact_key = full_text .. tostring(DICT.last_update_ts) .. tostring(show_assimilation) .. tostring(show_euphonics)
                 
                 if token_cache.oact.key == oact_key then
                     other_actors_tokens = token_cache.oact.tokens
@@ -2536,6 +2594,7 @@ local function loop()
                     other_actors_tokens = parse_to_tokens(full_text)
                     other_actors_tokens = process_dictionary_tokens(other_actors_tokens)
                     if show_assimilation then other_actors_tokens = process_assimilation_tokens(other_actors_tokens) end
+                    if show_euphonics then other_actors_tokens = process_euphonics_tokens(other_actors_tokens) end
                     token_cache.oact.key = oact_key
                     token_cache.oact.tokens = other_actors_tokens
                 end
