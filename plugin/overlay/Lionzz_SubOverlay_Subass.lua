@@ -1161,7 +1161,7 @@ local function draw_context_menu()
             show_euphonics = new_euph
             changes = changes + 1
         end
-        tooltip("Відображати еуфонічні підказки: в/у та й/і на основі попереднього звуку")
+        tooltip("Відображати евфонічні підказки: в/у та й/і на основі попереднього звуку")
 
         reaper.ImGui_Separator(ctx)
         align_center          = add_change(reaper.ImGui_Checkbox(ctx, "Центрування по горизонталі", align_center))
