@@ -4434,8 +4434,9 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                         changed = "й"
                     end
                 elseif low == "й" then
-                    -- Use 'і' after consonant or after any pause
-                    if not prev_is_vowel or has_pause then
+                    -- Use 'і' after consonant (non-vowel-like) or after hard pause
+                    local prev_is_vowel_like = prev_is_vowel or (prev_char == "в" and prev_after_vowel)
+                    if not prev_is_vowel_like or has_hard_pause then
                         changed = "і"
                     end
                 end
