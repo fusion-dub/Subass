@@ -760,6 +760,7 @@ local function process_euphonics_tokens(tokens)
     local prev_char = nil
     local has_pause = false
     local has_hard_pause = false
+    local prev_after_vowel = false
 
     for i, tok in ipairs(tokens) do
         if not tok.is_newline then
@@ -771,30 +772,61 @@ local function process_euphonics_tokens(tokens)
 
                 -- Look ahead for the next word's first character (skipping whitespace/newlines)
                 local next_char = nil
+                local next_word_low = nil
+                local followed_by_hard_pause = false
                 for j = i + 1, #tokens do
                     if not tokens[j].is_newline and tokens[j].text:match("%S") then
-                        next_char = get_first_char(tokens[j].text)
-                        if next_char then next_char = utf8_lower(next_char); break end
+                        local c = get_first_char(tokens[j].text)
+                        if c then 
+                            next_char = utf8_lower(c)
+                            next_word_low = utf8_lower(tokens[j].text)
+                            if next_char:match("[%.'!%?]") or next_char == "—" or next_char == ":" then
+                                followed_by_hard_pause = true
+                            end
+                            break 
+                        end
                     end
                 end
 
                 local prev_is_vowel = is_vowel(prev_char)
                 local next_is_vowel = is_vowel(next_char)
                 local next_is_consonant = next_char and not next_is_vowel
+                
+                local is_heavy_cluster = false
+                if next_word_low then
+                    if next_word_low:match("^в") or next_word_low:match("^ф") or 
+                       next_word_low:match("^льв") or next_word_low:match("^св") or 
+                       next_word_low:match("^тв") or next_word_low:match("^зв") or 
+                       next_word_low:match("^хв") or next_word_low:match("^ст") or
+                       next_word_low:match("^сх") or next_word_low:match("^сп") or
+                       next_word_low:match("^ск") then
+                        is_heavy_cluster = true
+                    end
+                end
 
-                -- Ukrainian Euphonics Rules (Advanced Pause Awareness)
+                -- Ukrainian Euphonics Rules (Refined Phonetic Awareness)
                 if low == "в" then
-                    -- Use 'у' between consonants OR at start of sentence (hard pause) before consonant
-                    if next_is_consonant and (not prev_is_vowel or has_hard_pause) then
+                    -- MANDATORY 'у' before heavy clusters (в, ф, льв, св, зв, хв, тв, ст)
+                    -- OR standard rule: between consonants / start of sentence
+                    if is_heavy_cluster then
+                        changed = "у"
+                    elseif next_is_consonant and (not prev_is_vowel or has_hard_pause) and not followed_by_hard_pause then
                         changed = "у"
                     end
                 elseif low == "у" then
+                    -- Use 'в' between vowels or after vowel before consonant
+                    -- BUT block it before heavy clusters
                     if prev_is_vowel and (next_is_vowel or next_is_consonant) then
-                        changed = "в"
+                        if is_heavy_cluster then
+                            -- Block
+                        else
+                            changed = "в"
+                        end
                     end
                 elseif low == "і" then
-                    -- Use 'й' between vowels or after vowel before consonant (ONLY across soft pauses like comma)
-                    if prev_is_vowel and not has_hard_pause and (next_is_vowel or next_is_consonant) then
+                    -- Use 'й' after vowel or vowel-like [w] sound (trailing 'в' after vowel)
+                    local prev_is_vowel_like = prev_is_vowel or (prev_char == "в" and prev_after_vowel)
+                    if prev_is_vowel_like and not has_hard_pause and (next_is_vowel or next_is_consonant) then
                         changed = "й"
                     end
                 elseif low == "й" then
@@ -811,11 +843,14 @@ local function process_euphonics_tokens(tokens)
                 end
                 
                 -- Update context from the word (phonetic and pause)
+                local last_was_vowel = false
                 for _, cp in utf8.codes(w) do
                     local c = utf8.char(cp)
                     local low_c = utf8_lower(c)
                     if low_c:match("[%a\128-\255]") then
+                        prev_after_vowel = (low_c == "в" and last_was_vowel)
                         prev_char = low_c
+                        last_was_vowel = is_vowel(low_c)
                         has_pause = false
                         has_hard_pause = false
                     elseif low_c:match("[%.,;!%?%(%)%-\"]") or low_c == "—" or low_c == ":" then
@@ -836,6 +871,7 @@ local function process_euphonics_tokens(tokens)
                             has_hard_pause = true
                         end
                     elseif not low_c:match("%s") then
+                        prev_after_vowel = false
                         prev_char = low_c
                         has_pause = false
                         has_hard_pause = false
@@ -847,6 +883,7 @@ local function process_euphonics_tokens(tokens)
             prev_char = nil
             has_pause = false
             has_hard_pause = false
+            prev_after_vowel = false
         end
     end
     return tokens
