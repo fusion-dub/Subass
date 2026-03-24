@@ -10451,16 +10451,23 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
     local is_first_line = true
     
     for _, seg in ipairs(segments) do
-        local words = {}
-        for w in seg.text:gmatch("%S+") do table.insert(words, w) end
+        local tokens = {}
+        -- Extract leading spaces if any
+        local leading_sp = seg.text:match("^(%s+)")
+        if leading_sp then table.insert(tokens, leading_sp) end
         
-        if #words == 0 and #seg.text > 0 then
-            table.insert(words, seg.text)
+        -- Extract words and their trailing spaces
+        for word, sp in seg.text:gmatch("(%S+)(%s*)") do
+            table.insert(tokens, word)
+            if sp ~= "" then table.insert(tokens, sp) end
         end
         
-        for i, w in ipairs(words) do
-            local test_word = (i > 1 or current_w > 0) and (" " .. w) or w
-            if #words == 1 and seg.text:sub(1,1) ~= " " and current_w == 0 then test_word = w end
+        if #tokens == 0 and #seg.text > 0 then
+            table.insert(tokens, seg.text)
+        end
+        
+        for _, token in ipairs(tokens) do
+            local is_space = token:match("^%s+$") ~= nil
             
             -- Apply font based on segment/header status for measurement
             local f_flags, effective_font = 0, font_name
@@ -10483,61 +10490,64 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
             gfx.setfont(font_slot, effective_font, base_size, f_flags)
             
             -- Ignore stress marks for layout measurement
-            local measure_word_for_width = test_word:gsub(acute, "")
-            local word_w = gfx.measurestr(measure_word_for_width)
+            local measure_word_for_width = token:gsub(acute, "")
+            local token_w = gfx.measurestr(measure_word_for_width)
             
             local effective_max_w = (is_first_line and first_line_indent) and (max_w - first_line_indent) or max_w
             
-            if current_w + word_w > effective_max_w and current_w > 0 then
+            if not is_space and current_w > 0 and current_w + token_w > effective_max_w then
                 table.insert(lines, current_line)
                 current_line = {}
                 current_w = 0
                 is_first_line = false
-                test_word = w
-                word_w = gfx.measurestr((test_word:gsub(acute, "")))
             end
             
-            local last_seg = current_line[#current_line]
-            
-            -- Helper to compare colors
-            local colors_match = false
-            if not last_seg then
-            elseif not last_seg.color and not seg.color then
-                colors_match = true
-            elseif last_seg.color and seg.color then
-                colors_match = (last_seg.color[1] == seg.color[1] and 
-                                last_seg.color[2] == seg.color[2] and 
-                                last_seg.color[3] == seg.color[3])
-            end
-
-            local can_merge = last_seg and 
-                (last_seg.is_link == seg.is_link) and 
-                (last_seg.is_plain == seg.is_plain) and 
-                ((last_seg.b or last_seg.is_bold) == (seg.b or seg.is_bold)) and
-                ((last_seg.i or last_seg.is_italic) == (seg.i or seg.is_italic)) and
-                ((last_seg.u or false) == (seg.u or false)) and
-                ((last_seg.u_wave or false) == (seg.u_wave or false)) and
-                ((last_seg.s or false) == (seg.s or false)) and
-                (last_seg.comment == seg.comment) and
-                (last_seg.word == seg.word) and
-                colors_match
-            
-            if can_merge then
-                last_seg.text = last_seg.text .. test_word
+            -- Skip leading spaces on a new line to avoid indenting wrapped text
+            if current_w == 0 and is_space and #lines > 0 then
+                -- skip this token
             else
-                local new_seg = {}
-                for k, v in pairs(seg) do new_seg[k] = v end
-                new_seg.text = test_word
-                -- Ensure both old and new flag names are present for compatibility
-                new_seg.b = seg.b or seg.is_bold
-                new_seg.i = seg.i or seg.is_italic
-                new_seg.is_bold = new_seg.b
-                new_seg.is_italic = new_seg.i
-                new_seg.is_plain = seg.is_plain or false  -- Explicitly preserve is_plain
+                local last_seg = current_line[#current_line]
                 
-                table.insert(current_line, new_seg)
+                -- Helper to compare colors
+                local colors_match = false
+                if not last_seg then
+                elseif not last_seg.color and not seg.color then
+                    colors_match = true
+                elseif last_seg.color and seg.color then
+                    colors_match = (last_seg.color[1] == seg.color[1] and 
+                                    last_seg.color[2] == seg.color[2] and 
+                                    last_seg.color[3] == seg.color[3])
+                end
+
+                local can_merge = last_seg and 
+                    (last_seg.is_link == seg.is_link) and 
+                    (last_seg.is_plain == seg.is_plain) and 
+                    ((last_seg.b or last_seg.is_bold) == (seg.b or seg.is_bold)) and
+                    ((last_seg.i or last_seg.is_italic) == (seg.i or seg.is_italic)) and
+                    ((last_seg.u or false) == (seg.u or false)) and
+                    ((last_seg.u_wave or false) == (seg.u_wave or false)) and
+                    ((last_seg.s or false) == (seg.s or false)) and
+                    (last_seg.comment == seg.comment) and
+                    (last_seg.word == seg.word) and
+                    colors_match
+                
+                if can_merge then
+                    last_seg.text = last_seg.text .. token
+                else
+                    local new_seg = {}
+                    for k, v in pairs(seg) do new_seg[k] = v end
+                    new_seg.text = token
+                    -- clear flags
+                    new_seg.b = seg.b or seg.is_bold
+                    new_seg.i = seg.i or seg.is_italic
+                    new_seg.is_bold = new_seg.b
+                    new_seg.is_italic = new_seg.i
+                    new_seg.is_plain = seg.is_plain or false  -- Explicitly preserve is_plain
+                    
+                    table.insert(current_line, new_seg)
+                end
+                current_w = current_w + token_w
             end
-            current_w = current_w + word_w
         end
     end
     
@@ -18765,7 +18775,7 @@ local function draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Показувати чергування в/у та й/і", cfg.text_euphonics, "Відображати еуфонічні підказки: відображати варіант в/у та й/і на основі попереднього звуку.") then
+    if checkbox(x_start, y_cursor, "Показувати чергування в/у та й/і", cfg.text_euphonics, "Відображати евфонічні підказки: відображати варіант в/у та й/і на основі попереднього звуку.") then
         cfg.text_euphonics = not cfg.text_euphonics
         save_settings()
     end
