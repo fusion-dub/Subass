@@ -4243,6 +4243,15 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
     if not line_spans or line_spans.transformed then return line_spans end
     local current_spans = line_spans
 
+    local function clone_span(span, overrides)
+        local n = {}
+        for k, v in pairs(span) do n[k] = v end
+        if overrides then
+            for k, v in pairs(overrides) do n[k] = v end
+        end
+        return n
+    end
+
     -- 1. ASSIMILATION
     if cfg.text_assimilations and not no_assimilation then
         local rules = {
@@ -4290,18 +4299,19 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                 local repl = b_rule[2]
                 if original_match == utf8_upper(original_match) then repl = utf8_upper(repl)
                 elseif original_match == utf8_capitalize(utf8_lower(original_match)) then repl = utf8_capitalize(repl) end
-                if before ~= "" then table.insert(new_spans, {text=before, b=span.b, i=span.i, u=span.u, s=span.s, orig_word=orig_word, comment=span.comment}) end
-                table.insert(new_spans, {text = repl, b=span.b, i=span.i, u=false, u_wave=true, s=span.s, orig_word=orig_word, comment=span.comment})
+                
+                if before ~= "" then table.insert(new_spans, clone_span(span, {text=before, orig_word=orig_word})) end
+                table.insert(new_spans, clone_span(span, {text = repl, u=false, u_wave=true, orig_word=orig_word}))
                 process_text(remainder, span, orig_word)
             else
-                table.insert(new_spans, {text=text, b=span.b, i=span.i, u=span.u, s=span.s, orig_word=orig_word, comment=span.comment})
+                table.insert(new_spans, clone_span(span, {text=text, orig_word=orig_word}))
             end
         end
         for _, span in ipairs(current_spans) do
             local segments = UTILS.get_words_and_separators(span.text)
             for _, seg in ipairs(segments) do
                 if seg.is_word and (not dict_modal.show) then process_text(seg.text, span, seg.text:gsub(acute, ""))
-                else table.insert(new_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, comment=span.comment}) end
+                else table.insert(new_spans, clone_span(span, {text=seg.text})) end
             end
         end
         current_spans = new_spans
@@ -4361,12 +4371,12 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                     if changed and changed ~= w then
                         -- Preserve original capitalisation
                         if w == utf8_upper(w) then changed = utf8_upper(changed) end
-                        table.insert(euph_spans, {text = changed, b = span.b, i = span.i, u = false, u_wave = true, s = span.s, orig_word = w, comment = span.comment})
+                        table.insert(euph_spans, clone_span(span, {text = changed, orig_word = w, u = false, u_wave = true}))
                     else
-                        table.insert(euph_spans, {text = w, b = span.b, i = span.i, u = span.u, s = span.s, orig_word = span.orig_word, comment = span.comment})
+                        table.insert(euph_spans, clone_span(span, {text = w}))
                     end
                 else
-                    table.insert(euph_spans, {text = seg.text, b = span.b, i = span.i, u = span.u, s = span.s, comment = span.comment})
+                    table.insert(euph_spans, clone_span(span, {text = seg.text}))
                 end
             end
         end
@@ -4385,12 +4395,12 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                 if seg.is_word then
                     local entry = dict_lookup[utf8_lower(seg.text):gsub(acute, "")]
                     if entry then
-                        table.insert(dict_spans, {text = entry.replacement, orig_word = seg.text, comment = entry.comment, b = span.b, i = span.i, u = span.u, s = span.s, u_wave = span.u_wave})
+                        table.insert(dict_spans, clone_span(span, {text = entry.replacement, orig_word = seg.text, comment = entry.comment}))
                     else
-                        table.insert(dict_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, u_wave = span.u_wave, comment=span.comment, orig_word=span.orig_word})
+                        table.insert(dict_spans, clone_span(span, {text=seg.text}))
                     end
                 else
-                    table.insert(dict_spans, {text=seg.text, b=span.b, i=span.i, u=span.u, s=span.s, u_wave = span.u_wave, comment=span.comment, orig_word=span.orig_word})
+                    table.insert(dict_spans, clone_span(span, {text=seg.text}))
                 end
             end
         end
@@ -10554,6 +10564,11 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
     if #current_line > 0 then
         table.insert(lines, current_line)
     end
+    
+    for _, l in ipairs(lines) do
+        l.transformed = true
+    end
+    
     return lines
 end
 
@@ -17271,7 +17286,8 @@ local function draw_prompter_slider(input_queue)
     if prompter_slider_cache.state_count ~= state_count or prompter_slider_cache.marker_state ~= marker_state or prompter_slider_cache.w ~= available_w or 
        prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
        prompter_slider_cache.p_corr ~= cfg.p_corr or prompter_slider_cache.dict_ts ~= dict_ts or
-       prompter_slider_cache.p_lheight ~= cfg.p_lheight or prompter_slider_cache.c_lheight ~= cfg.c_lheight then
+       prompter_slider_cache.p_lheight ~= cfg.p_lheight or prompter_slider_cache.c_lheight ~= cfg.c_lheight or
+       prompter_slider_cache.text_assimilations ~= cfg.text_assimilations or prompter_slider_cache.text_euphonics ~= cfg.text_euphonics then
         
         prompter_slider_cache.state_count, prompter_slider_cache.marker_state, prompter_slider_cache.w, prompter_slider_cache.fsize, prompter_slider_cache.font = state_count, marker_state, available_w, cfg.p_fsize, cfg.p_font
         prompter_slider_cache.project_id = reaper.GetProjectName(0, "")
@@ -17279,6 +17295,8 @@ local function draw_prompter_slider(input_queue)
         prompter_slider_cache.dict_ts = dict_ts
         prompter_slider_cache.p_lheight = cfg.p_lheight
         prompter_slider_cache.c_lheight = cfg.c_lheight
+        prompter_slider_cache.text_assimilations = cfg.text_assimilations
+        prompter_slider_cache.text_euphonics = cfg.text_euphonics
         prompter_slider_cache.items, prompter_slider_cache.total_h = {}, 0
         
         local raw_items = {}
