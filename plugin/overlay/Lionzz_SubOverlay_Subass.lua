@@ -825,20 +825,23 @@ local function process_euphonics_tokens(tokens)
                             changed = "в"
                         end
                     end
-                elseif low == "і" then
+                elseif low == "і" or low == "й" then
                     -- Use 'й' after vowel or vowel-like [w] sound (trailing 'в' after vowel)
-                    -- BUT avoid 'й' before я, ю, є, ї, й
+                    -- BUT avoid 'й' before і, я, ю, є, ї, й.
+                    -- AND avoid triple 'і' by using 'та'.
                     local prev_is_vowel_like = prev_is_vowel or (prev_char == "в" and prev_after_vowel)
-                    local next_is_glide = next_char and utf8_lower(next_char):match("[яюєїй]")
-                    if prev_is_vowel_like and not has_hard_pause and (next_is_vowel or next_is_consonant) and not next_is_glide then
-                        changed = "й"
-                    end
-                elseif low == "й" then
-                    -- Use 'і' after consonant (non-vowel-like) or after hard pause OR before я, ю, є, ї, й
-                    local prev_is_vowel_like = prev_is_vowel or (prev_char == "в" and prev_after_vowel)
-                    local next_is_glide = next_char and utf8_lower(next_char):match("[яюєїй]")
-                    if not prev_is_vowel_like or has_hard_pause or next_is_glide then
-                        changed = "і"
+                    local next_is_glide = next_char and utf8_lower(next_char):match("[іяюєїй]")
+                    
+                    if prev_char == "і" and next_char == "і" then
+                        changed = "та"
+                    elseif low == "і" then
+                        if prev_is_vowel_like and not has_hard_pause and (next_is_vowel or next_is_consonant) and not next_is_glide then
+                            changed = "й"
+                        end
+                    elseif low == "й" then
+                        if not prev_is_vowel_like or has_hard_pause or next_is_glide then
+                            changed = "і"
+                        end
                     end
                 elseif low == "з" or low == "із" or low == "зі" then
                     local next_is_vowel = is_vowel(next_char)
@@ -871,15 +874,6 @@ local function process_euphonics_tokens(tokens)
                         changed = "б"
                     else
                         changed = "би"
-                    end
-                elseif low == "ж" or low == "же" then
-                    local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
-                    -- Avoid 'ж' before sibilants/shipliants (ж, ш, ч, щ, з, с, ц)
-                    local next_is_sibilant = next_char and utf8_lower(next_char):match("[жшчщзсц]")
-                    if prev_is_vowel_like and not next_is_sibilant then
-                        changed = "ж"
-                    else
-                        changed = "же"
                     end
                 end
                 
@@ -1316,12 +1310,12 @@ local function draw_context_menu()
         end
         tooltip("Вмикає відображення асимільованого тексту в оверлеї (незалежно від Subass Notes)")
 
-        local euph_changed, new_euph = reaper.ImGui_Checkbox(ctx, "Показувати чергування в/у, й/і, з/із/зі, б/би, ж/же", show_euphonics)
+        local euph_changed, new_euph = reaper.ImGui_Checkbox(ctx, "Показувати чергування в/у, й/і, з/із/зі, б/би", show_euphonics)
         if euph_changed then
             show_euphonics = new_euph
             changes = changes + 1
         end
-        tooltip("Відображати евфонічні підказки: в/у, й/і, з/із/зі, б/би та ж/же на основі оточення")
+        tooltip("Відображати евфонічні підказки: в/у, й/і, з/із/зі та б/би на основі оточення")
 
         reaper.ImGui_Separator(ctx)
         align_center          = add_change(reaper.ImGui_Checkbox(ctx, "Центрування по горизонталі", align_center))
