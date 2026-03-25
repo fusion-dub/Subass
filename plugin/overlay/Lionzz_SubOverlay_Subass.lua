@@ -823,7 +823,7 @@ local function process_euphonics_tokens(tokens)
                 elseif low == "у" then
                     -- Use 'в' between vowels or after vowel before consonant
                     -- BUT block it before heavy clusters
-                    if prev_is_vowel and (next_is_vowel or next_is_consonant) then
+                    if prev_is_vowel and not has_hard_pause and (next_is_vowel or next_is_consonant) then
                         if is_heavy_cluster then
                             -- Block
                         else
@@ -900,9 +900,9 @@ local function process_euphonics_tokens(tokens)
                         last_was_vowel = is_vowel(low_c)
                         has_pause = false
                         has_hard_pause = false
-                    elseif low_c:match("[%.,;!%?%(%)%-\"%+=%*#]") or low_c == "—" or low_c == ":" then
+                    elseif low_c:match("[%.,;!%?%(%)%-\"%+=%*#%[%]]") or low_c == "—" or low_c == ":" then
                         has_pause = true
-                        if low_c:match("[%.'!%?%+=%*#]") or low_c == "—" or low_c == ":" then
+                        if low_c:match("[%.'!%?%+=%*#%[%]]") or low_c == "—" or low_c == ":" then
                             has_hard_pause = true
                         end
                     end
@@ -912,9 +912,9 @@ local function process_euphonics_tokens(tokens)
                 for _, cp in utf8.codes(tok.text) do
                     local c = utf8.char(cp)
                     local low_c = utf8_lower(c)
-                    if low_c:match("[%.,;!%?%(%)%-\"%+=%*#]") or low_c == "—" or low_c == ":" then
+                    if low_c:match("[%.,;!%?%(%)%-\"%+=%*#%[%]]") or low_c == "—" or low_c == ":" then
                         has_pause = true
-                        if low_c:match("[%.'!%?%+=%*#]") or low_c == "—" or low_c == ":" then
+                        if low_c:match("[%.'!%?%+=%*#%[%]]") or low_c == "—" or low_c == ":" then
                             has_hard_pause = true
                         end
                     elseif not low_c:match("%s") then
