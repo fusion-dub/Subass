@@ -835,7 +835,7 @@ local function process_euphonics_tokens(tokens)
                     -- BUT avoid 'й' before і, я, ю, є, ї, й.
                     -- AND avoid triple 'і' by using 'та'.
                     local prev_is_vowel_like = prev_is_vowel or (prev_char == "в" and prev_after_vowel)
-                    local next_is_glide = next_char and utf8_lower(next_char):match("[іяюєїй]")
+                    local next_is_glide = next_char and string.find("іяюєїй", utf8_lower(next_char), 1, true)
                     
                     if prev_char == "і" and next_char == "і" then
                         changed = "та"
@@ -850,7 +850,7 @@ local function process_euphonics_tokens(tokens)
                     end
                 elseif low == "з" or low == "із" or low == "зі" then
                     local next_is_vowel = is_vowel(next_char)
-                    local next_is_sibilant = next_char and utf8_lower(next_char):match("[сзшжчщц]")
+                    local next_is_sibilant = next_char and string.find("сзшжчщц", utf8_lower(next_char), 1, true)
                     local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
                     
                     local next_starts_with_cluster = false
@@ -874,7 +874,7 @@ local function process_euphonics_tokens(tokens)
                 elseif low == "б" or low == "би" then
                     local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
                     -- Avoid 'б' before labials (б, п, в, ф, м) for easier pronunciation
-                    local next_is_labial = next_char and utf8_lower(next_char):match("[бпвфм]")
+                    local next_is_labial = next_char and string.find("бпвфм", utf8_lower(next_char), 1, true)
                     if prev_is_vowel_like and not next_is_labial then
                         changed = "б"
                     else
