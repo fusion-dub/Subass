@@ -4429,20 +4429,23 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                             changed = "в"
                         end
                     end
-                elseif low == "і" then
+                elseif low == "і" or low == "й" then
                     -- Use 'й' after vowel or vowel-like [w] sound (trailing 'в' after vowel)
-                    -- BUT avoid 'й' before я, ю, є, ї, й
+                    -- BUT avoid 'й' before і, я, ю, є, ї, й.
+                    -- AND avoid triple 'і' by using 'та'.
                     local prev_is_vowel_like = prev_is_vowel or (prev_char == "в" and prev_after_vowel)
-                    local next_is_glide = next_char and utf8_lower(next_char):match("[яюєїй]")
-                    if prev_is_vowel_like and not has_hard_pause and (next_is_vowel or next_is_consonant) and not next_is_glide then
-                        changed = "й"
-                    end
-                elseif low == "й" then
-                    -- Use 'і' after consonant (non-vowel-like) or after hard pause OR before я, ю, є, ї, й
-                    local prev_is_vowel_like = prev_is_vowel or (prev_char == "в" and prev_after_vowel)
-                    local next_is_glide = next_char and utf8_lower(next_char):match("[яюєїй]")
-                    if not prev_is_vowel_like or has_hard_pause or next_is_glide then
-                        changed = "і"
+                    local next_is_glide = next_char and utf8_lower(next_char):match("[іяюєїй]")
+                    
+                    if prev_char == "і" and next_char == "і" then
+                        changed = "та"
+                    elseif low == "і" then
+                        if prev_is_vowel_like and not has_hard_pause and (next_is_vowel or next_is_consonant) and not next_is_glide then
+                            changed = "й"
+                        end
+                    elseif low == "й" then
+                        if not prev_is_vowel_like or has_hard_pause or next_is_glide then
+                            changed = "і"
+                        end
                     end
                 elseif low == "з" or low == "із" or low == "зі" then
                     local next_is_vowel = is_vowel(next_char)
@@ -4475,15 +4478,6 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                         changed = "б"
                     else
                         changed = "би"
-                    end
-                elseif low == "ж" or low == "же" then
-                    local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
-                    -- Avoid 'ж' before sibilants/shipliants (ж, ш, ч, щ, з, с, ц)
-                    local next_is_sibilant = next_char and utf8_lower(next_char):match("[жшчщзсц]")
-                    if prev_is_vowel_like and not next_is_sibilant then
-                        changed = "ж"
-                    else
-                        changed = "же"
                     end
                 end
 
@@ -19008,7 +19002,7 @@ local function draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Показувати чергування в/у, й/і, з/зі/із, б/би, ж/же", cfg.text_euphonics, "Відображати евфонічні підказки: відображати варіант в/у, й/і, з/зі/із, б/би та ж/же на основі оточення.") then
+    if checkbox(x_start, y_cursor, "Показувати чергування в/у, й/і, з/зі/із, б/би", cfg.text_euphonics, "Відображати евфонічні підказки: відображати варіант в/у, й/і, з/зі/із та б/би на основі оточення.") then
         cfg.text_euphonics = not cfg.text_euphonics
         save_settings()
     end
