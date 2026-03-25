@@ -794,7 +794,7 @@ local function process_euphonics_tokens(tokens)
                 local next_is_consonant = next_char and not next_is_vowel
                 
                 local is_heavy_cluster = false
-                if next_word_low then
+                if next_word_low and next_char then
                     if next_word_low:match("^в") or next_word_low:match("^ф") or 
                        next_word_low:match("^льв") or next_word_low:match("^св") or 
                        next_word_low:match("^тв") or next_word_low:match("^зв") or 
@@ -803,6 +803,11 @@ local function process_euphonics_tokens(tokens)
                        next_word_low:match("^ск") or
                        next_word_low:match("^v") or next_word_low:match("^w") then
                         is_heavy_cluster = true
+                    end
+                    -- General: any 2-consonant cluster at start (тр, кр, пр, гр, бр, etc.)
+                    if not is_heavy_cluster and next_is_consonant then
+                        local c2 = get_first_char(next_word_low:sub(#next_char + 1))
+                        if c2 and not is_vowel(c2) then is_heavy_cluster = true end
                     end
                 end
 
