@@ -837,6 +837,29 @@ local function process_euphonics_tokens(tokens)
                     if not prev_is_vowel_like or has_hard_pause then
                         changed = "і"
                     end
+                elseif low == "з" or low == "із" or low == "зі" then
+                    local next_is_vowel = is_vowel(next_char)
+                    local next_is_sibilant = next_char and utf8_lower(next_char):match("[сзшжчщц]")
+                    local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
+                    
+                    local next_starts_with_cluster = false
+                    if next_word_low then
+                        local first = get_first_char(next_word_low)
+                        if first then
+                            local second = get_first_char(next_word_low:sub(#first + 1))
+                            if second and not is_vowel(first) and not is_vowel(second) then
+                                next_starts_with_cluster = true
+                            end
+                        end
+                    end
+
+                    if next_starts_with_cluster then
+                        changed = "зі"
+                    elseif next_is_sibilant or (not prev_is_vowel_like and not next_is_vowel and next_char) then
+                        changed = "із"
+                    else
+                        changed = "з"
+                    end
                 end
 
                 if changed and changed ~= low then
@@ -1272,12 +1295,12 @@ local function draw_context_menu()
         end
         tooltip("Вмикає відображення асимільованого тексту в оверлеї (незалежно від Subass Notes)")
 
-        local euph_changed, new_euph = reaper.ImGui_Checkbox(ctx, "Показувати чергування в/у та й/і", show_euphonics)
+        local euph_changed, new_euph = reaper.ImGui_Checkbox(ctx, "Показувати чергування в/у, й/і, з/із/зі", show_euphonics)
         if euph_changed then
             show_euphonics = new_euph
             changes = changes + 1
         end
-        tooltip("Відображати евфонічні підказки: в/у та й/і на основі попереднього звуку")
+        tooltip("Відображати евфонічні підказки: в/у, й/і та з/із/зі на основі попереднього звуку")
 
         reaper.ImGui_Separator(ctx)
         align_center          = add_change(reaper.ImGui_Checkbox(ctx, "Центрування по горизонталі", align_center))
