@@ -827,14 +827,17 @@ local function process_euphonics_tokens(tokens)
                     end
                 elseif low == "і" then
                     -- Use 'й' after vowel or vowel-like [w] sound (trailing 'в' after vowel)
+                    -- BUT avoid 'й' before я, ю, є, ї, й
                     local prev_is_vowel_like = prev_is_vowel or (prev_char == "в" and prev_after_vowel)
-                    if prev_is_vowel_like and not has_hard_pause and (next_is_vowel or next_is_consonant) then
+                    local next_is_glide = next_char and utf8_lower(next_char):match("[яюєїй]")
+                    if prev_is_vowel_like and not has_hard_pause and (next_is_vowel or next_is_consonant) and not next_is_glide then
                         changed = "й"
                     end
                 elseif low == "й" then
-                    -- Use 'і' after consonant (non-vowel-like) or after hard pause
+                    -- Use 'і' after consonant (non-vowel-like) or after hard pause OR before я, ю, є, ї, й
                     local prev_is_vowel_like = prev_is_vowel or (prev_char == "в" and prev_after_vowel)
-                    if not prev_is_vowel_like or has_hard_pause then
+                    local next_is_glide = next_char and utf8_lower(next_char):match("[яюєїй]")
+                    if not prev_is_vowel_like or has_hard_pause or next_is_glide then
                         changed = "і"
                     end
                 elseif low == "з" or low == "із" or low == "зі" then
