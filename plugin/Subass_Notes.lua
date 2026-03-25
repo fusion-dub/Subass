@@ -4464,6 +4464,20 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                     else
                         changed = "з"
                     end
+                elseif low == "б" or low == "би" then
+                    local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
+                    if prev_is_vowel_like then
+                        changed = "б"
+                    else
+                        changed = "би"
+                    end
+                elseif low == "ж" or low == "же" then
+                    local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
+                    if prev_is_vowel_like then
+                        changed = "ж"
+                    else
+                        changed = "же"
+                    end
                 end
 
                 if changed and changed ~= low then
@@ -18987,7 +19001,7 @@ local function draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Показувати чергування в/у, й/і, з/зі/із", cfg.text_euphonics, "Відображати евфонічні підказки: відображати варіант в/у, й/і та з/зі/із на основі попереднього звуку.") then
+    if checkbox(x_start, y_cursor, "Показувати чергування в/у, й/і, з/зі/із, б/би, ж/же", cfg.text_euphonics, "Відображати евфонічні підказки: відображати варіант в/у, й/і, з/зі/із, б/би та ж/же на основі оточення.") then
         cfg.text_euphonics = not cfg.text_euphonics
         save_settings()
     end
