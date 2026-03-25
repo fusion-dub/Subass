@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.0
+-- @version 6.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v6.0",
+    script_title = "Subass Notes v6.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -4427,7 +4427,7 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                 elseif low == "у" then
                     -- Use 'в' between vowels or after vowel before consonant
                     -- BUT block it before heavy clusters
-                    if prev_is_vowel and (next_is_vowel or next_is_consonant) then
+                    if prev_is_vowel and not has_hard_pause and (next_is_vowel or next_is_consonant) then
                         if is_heavy_cluster then
                             -- Block
                         else
@@ -4504,9 +4504,9 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                         last_was_vowel = is_vowel(low_c)
                         has_pause = false
                         has_hard_pause = false
-                    elseif low_c:match("[%.,;!%?%(%)%-\"%+=%*#]") or low_c == "—" or low_c == ":" then
+                    elseif low_c:match("[%.,;!%?%(%)%-\"%+=%*#%[%]]") or low_c == "—" or low_c == ":" then
                         has_pause = true
-                        if low_c:match("[%.'!%?%+=%*#]") or low_c == "—" or low_c == ":" then
+                        if low_c:match("[%.'!%?%+=%*#%[%]]") or low_c == "—" or low_c == ":" then
                             has_hard_pause = true
                         end
                     end
@@ -4517,9 +4517,9 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                 for _, cp in utf8.codes(seg.text) do
                     local c = utf8.char(cp)
                     local low_c = utf8_lower(c)
-                    if low_c:match("[%.,;!%?%(%)%-\"%+=%*#]") or low_c == "—" or low_c == ":" then
+                    if low_c:match("[%.,;!%?%(%)%-\"%+=%*#%[%]]") or low_c == "—" or low_c == ":" then
                         has_pause = true
-                        if low_c:match("[%.'!%?%+=%*#]") or low_c == "—" or low_c == ":" then
+                        if low_c:match("[%.'!%?%+=%*#%[%]]") or low_c == "—" or low_c == ":" then
                             has_hard_pause = true
                         end
                     elseif not low_c:match("%s") then
