@@ -865,20 +865,24 @@ local function process_euphonics_tokens(tokens)
                     end
                 elseif low == "б" or low == "би" then
                     local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
-                    if prev_is_vowel_like then
+                    -- Avoid 'б' before labials (б, п, в, ф, м) for easier pronunciation
+                    local next_is_labial = next_char and utf8_lower(next_char):match("[бпвфм]")
+                    if prev_is_vowel_like and not next_is_labial then
                         changed = "б"
                     else
                         changed = "би"
                     end
                 elseif low == "ж" or low == "же" then
                     local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
-                    if prev_is_vowel_like then
+                    -- Avoid 'ж' before sibilants/shipliants (ж, ш, ч, щ, з, с, ц)
+                    local next_is_sibilant = next_char and utf8_lower(next_char):match("[жшчщзсц]")
+                    if prev_is_vowel_like and not next_is_sibilant then
                         changed = "ж"
                     else
                         changed = "же"
                     end
                 end
-
+                
                 if changed and changed ~= low then
                     if w == utf8_upper(w) then changed = utf8_upper(changed) end
                     tok.orig_text = tok.orig_text or tok.text
