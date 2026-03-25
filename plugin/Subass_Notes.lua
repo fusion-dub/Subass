@@ -4489,9 +4489,8 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
             end
             
             if seg.is_newline then
-                has_pause = true
-                has_hard_pause = true
-                prev_after_vowel = false
+                has_pause = false
+                has_hard_pause = false
             end
         end
         current_spans = euph_spans
@@ -5799,9 +5798,8 @@ local function merge_comments(old, new)
     return s1 .. "\n" .. s2
 end
 
-local function parse_prompter_to_lines(str)
-    local lines = {}
-    local current_line = {}
+local function parse_prompter_to_lines(str, skip_transforms)
+    local all_spans = {}
     
     local state = {b=false, i=false, u=false, s=false}
     local cursor = 1
@@ -5835,14 +5833,14 @@ local function parse_prompter_to_lines(str)
                     if word_end and word_end < #remainder then
                         local word = remainder:sub(1, word_end - 1)
                         local rest = remainder:sub(word_end)
-                        table.insert(current_line, {text=word, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
-                        table.insert(current_line, {text=rest, b=state.b, i=state.i, u=state.u, s=state.s, comment=global_comment})
+                        table.insert(all_spans, {text=word, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
+                        table.insert(all_spans, {text=rest, b=state.b, i=state.i, u=state.u, s=state.s, comment=global_comment})
                     else
-                        table.insert(current_line, {text=remainder, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
+                        table.insert(all_spans, {text=remainder, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
                     end
                     pending_comment = nil
                 else
-                    table.insert(current_line, {text=remainder, b=state.b, i=state.i, u=state.u, s=state.s})
+                    table.insert(all_spans, {text=remainder, b=state.b, i=state.i, u=state.u, s=state.s})
                 end
                 has_text = true
             end
@@ -5857,22 +5855,21 @@ local function parse_prompter_to_lines(str)
                 if word_end and word_end < #segment then
                     local word = segment:sub(1, word_end - 1)
                     local rest = segment:sub(word_end)
-                    table.insert(current_line, {text=word, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
-                    table.insert(current_line, {text=rest, b=state.b, i=state.i, u=state.u, s=state.s, comment=global_comment})
+                    table.insert(all_spans, {text=word, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
+                    table.insert(all_spans, {text=rest, b=state.b, i=state.i, u=state.u, s=state.s, comment=global_comment})
                 else
-                    table.insert(current_line, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
+                    table.insert(all_spans, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s, comment=pending_comment or global_comment})
                 end
                 pending_comment = nil
             else
-                table.insert(current_line, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s})
+                table.insert(all_spans, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s})
             end
             if segment:find("%S") then has_text = true end
         end
         
         -- Handle Newline
         if str:sub(tag_start, tag_start+1) == "\\N" then
-            table.insert(lines, current_line)
-            current_line = {}
+            table.insert(all_spans, {text=" ", is_newline = true, b=state.b, i=state.i, u=state.u, s=state.s})
             cursor = tag_start + 2
             
         elseif str:sub(tag_start, tag_start) == "{" then
@@ -5901,11 +5898,11 @@ local function parse_prompter_to_lines(str)
                 
                 if not is_formatting and content ~= "" then
                     content = content:gsub("^%s+", ""):gsub("%s+$", "") -- Trim
-                    if not has_text or #current_line == 0 then
+                    if not has_text or #all_spans == 0 then
                         global_comment = merge_comments(global_comment, content)
-                    elseif #current_line > 0 then
+                    elseif #all_spans > 0 then
                         -- SPLIT LAST SPAN to attach only to the last word
-                        local last_span = current_line[#current_line]
+                        local last_span = all_spans[#all_spans]
                         if last_span.comment then
                             last_span.comment = merge_comments(last_span.comment, content)
                         else
@@ -5915,7 +5912,7 @@ local function parse_prompter_to_lines(str)
                                 local prefix = text:sub(1, word_start - 1)
                                 local word = text:sub(word_start)
                                 last_span.text = prefix
-                                table.insert(current_line, {
+                                table.insert(all_spans, {
                                     text = word, b=last_span.b, i=last_span.i, u=last_span.u, s=last_span.s, 
                                     comment = content
                                 })
@@ -5931,7 +5928,7 @@ local function parse_prompter_to_lines(str)
                 cursor = tag_end + 1
             else
                 -- Broken tag
-                table.insert(current_line, {text="{", b=state.b, i=state.i, u=state.u, s=state.s})
+                table.insert(all_spans, {text="{", b=state.b, i=state.i, u=state.u, s=state.s})
                 cursor = tag_start + 1
             end
             
@@ -5958,39 +5955,53 @@ local function parse_prompter_to_lines(str)
                 else
                     -- Treat as text
                     local segment = str:sub(tag_start, tag_end)
-                    table.insert(current_line, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s})
+                    table.insert(all_spans, {text=segment, b=state.b, i=state.i, u=state.u, s=state.s})
                     if segment:find("%S") then has_text = true end
                     cursor = tag_end + 1
                 end
             else
                 -- Broken tag, treat as text
-                table.insert(current_line, {text="<", b=state.b, i=state.i, u=state.u, s=state.s})
+                table.insert(all_spans, {text="<", b=state.b, i=state.i, u=state.u, s=state.s})
                 cursor = tag_start + 1
             end
         else
             -- Should not happen unless pattern matches backslash alone not followed by N?
             -- Treat as text
-            table.insert(current_line, {text=str:sub(tag_start, tag_start), b=state.b, i=state.i, u=state.u, s=state.s})
+            table.insert(all_spans, {text=str:sub(tag_start, tag_start), b=state.b, i=state.i, u=state.u, s=state.s})
             cursor = tag_start + 1
         end
     end
     
-    if #current_line > 0 then
-        table.insert(lines, current_line)
-    elseif #lines == 0 then
-        -- Empty string
-        table.insert(lines, {})
-    end
+    -- Final loop result check is now handled by the split-back-into-lines block
     
     -- Final Pass: Apply global_comment to all spans that don't have a specific comment
     if global_comment then
-        for _, line in ipairs(lines) do
-            for _, span in ipairs(line) do
-                if not span.comment then
-                    span.comment = global_comment
-                end
+        for _, span in ipairs(all_spans) do
+            if not span.comment then
+                span.comment = global_comment
             end
         end
+    end
+    
+    -- Apply block-level transformations (euphonics/assimilation)
+    all_spans = UTILS.apply_text_transforms(all_spans, skip_transforms)
+    
+    -- Split back into lines based on is_newline markers
+    local lines = {}
+    local current_line = {}
+    for _, span in ipairs(all_spans) do
+        if span.is_newline then
+            table.insert(lines, current_line)
+            current_line = {}
+        else
+            table.insert(current_line, span)
+        end
+    end
+    table.insert(lines, current_line)
+    
+    -- Mark all lines as already transformed
+    for _, line in ipairs(lines) do
+        line.transformed = true
     end
     
     return lines
@@ -17173,7 +17184,7 @@ local function get_corrections_to_draw(cur_pos, active_rgns, override_fsize)
     
     local total_lines = 0
     for _, m in ipairs(cor_markers) do
-        local lines = parse_prompter_to_lines(m.name or "")
+        local lines = parse_prompter_to_lines(m.name or "", true)
         total_lines = total_lines + #lines
     end
     
@@ -17201,7 +17212,7 @@ local function render_corrections(cor_markers, y_offset, font_size, center_x, av
         
         local c_x1, c_y1, c_x2, c_y2 = gfx.w, gfx.h, 0, 0
         local c_y = y_offset + total_h
-        local spans_lines = parse_prompter_to_lines(name)
+        local spans_lines = parse_prompter_to_lines(name, true)
         
         for i_line, spans in ipairs(spans_lines) do
             local y = c_y + (i_line-1) * line_h
@@ -17481,9 +17492,8 @@ local function draw_prompter_slider(input_queue)
                 local p_lines = parse_prompter_to_lines(rgn.name)
                 local flattened = {}
                 for i, pl in ipairs(p_lines) do
-                    if i > 1 and #flattened > 0 then table.insert(flattened, {text=" "}) end
-                    local t_spans = UTILS.apply_text_transforms(pl)
-                    for _, span in ipairs(t_spans) do table.insert(flattened, span) end
+                    if i > 1 and #flattened > 0 then table.insert(flattened, {text=" ", is_newline = true}) end
+                    for _, span in ipairs(pl) do table.insert(flattened, span) end
                 end
                 
                 local target_fsize = cfg.p_fsize
@@ -17519,13 +17529,11 @@ local function draw_prompter_slider(input_queue)
                 local m = raw.data
                 local name = m.name or ""
                 if name == "" then name = "<пусто>" end
-                local p_lines = parse_prompter_to_lines(name)
+                local p_lines = parse_prompter_to_lines(name, true)
                 local flattened = {}
                 for i, pl in ipairs(p_lines) do
-                    if i > 1 and #flattened > 0 then table.insert(flattened, {text=" "}) end
-                    -- Pre-process (no assimilation for corrections)
-                    local t_spans = UTILS.apply_text_transforms(pl, true)
-                    for _, span in ipairs(t_spans) do table.insert(flattened, span) end
+                    if i > 1 and #flattened > 0 then table.insert(flattened, {text=" ", is_newline = true}) end
+                    for _, span in ipairs(pl) do table.insert(flattened, span) end
                 end
                 
                 gfx.setfont(F.cor, cfg.p_font, S(cfg.c_fsize))
@@ -18012,8 +18020,6 @@ local function draw_prompter(input_queue)
             local total_combined_height = 0
             local all_text_blocks = {}
             local S_GAP = S(15)
-            
-
 
             for region_num, rgn in ipairs(active_regions) do
                 local lines
@@ -18174,7 +18180,7 @@ local function draw_prompter(input_queue)
             local max_c_raw_w = 0
             gfx.setfont(F.cor, cfg.p_font, cfg.c_fsize)
             for _, m in ipairs(cms) do
-                local c_lines = parse_prompter_to_lines(m.name or "")
+                local c_lines = parse_prompter_to_lines(m.name or "", true)
                 for _, line in ipairs(c_lines) do
                     local raw = ""
                     for _, span in ipairs(line) do raw = raw .. span.text:gsub(acute, "") end
