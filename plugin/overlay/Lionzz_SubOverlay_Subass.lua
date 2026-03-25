@@ -884,10 +884,8 @@ local function process_euphonics_tokens(tokens)
             end
         else
             -- Newline
-            prev_char = nil
-            has_pause = true
-            has_hard_pause = true
-            prev_after_vowel = false
+            has_pause = false
+            has_hard_pause = false
         end
     end
     return tokens
