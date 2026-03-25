@@ -860,6 +860,20 @@ local function process_euphonics_tokens(tokens)
                     else
                         changed = "з"
                     end
+                elseif low == "б" or low == "би" then
+                    local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
+                    if prev_is_vowel_like then
+                        changed = "б"
+                    else
+                        changed = "би"
+                    end
+                elseif low == "ж" or low == "же" then
+                    local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
+                    if prev_is_vowel_like then
+                        changed = "ж"
+                    else
+                        changed = "же"
+                    end
                 end
 
                 if changed and changed ~= low then
@@ -1295,12 +1309,12 @@ local function draw_context_menu()
         end
         tooltip("Вмикає відображення асимільованого тексту в оверлеї (незалежно від Subass Notes)")
 
-        local euph_changed, new_euph = reaper.ImGui_Checkbox(ctx, "Показувати чергування в/у, й/і, з/із/зі", show_euphonics)
+        local euph_changed, new_euph = reaper.ImGui_Checkbox(ctx, "Показувати чергування в/у, й/і, з/із/зі, б/би, ж/же", show_euphonics)
         if euph_changed then
             show_euphonics = new_euph
             changes = changes + 1
         end
-        tooltip("Відображати евфонічні підказки: в/у, й/і та з/із/зі на основі попереднього звуку")
+        tooltip("Відображати евфонічні підказки: в/у, й/і, з/із/зі, б/би та ж/же на основі оточення")
 
         reaper.ImGui_Separator(ctx)
         align_center          = add_change(reaper.ImGui_Checkbox(ctx, "Центрування по горизонталі", align_center))
