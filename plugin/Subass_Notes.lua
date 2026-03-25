@@ -4441,6 +4441,29 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                     if not prev_is_vowel_like or has_hard_pause then
                         changed = "і"
                     end
+                elseif low == "з" or low == "із" or low == "зі" then
+                    local next_is_vowel = is_vowel(next_char)
+                    local next_is_sibilant = next_char and utf8_lower(next_char):match("[сзшжчщц]")
+                    local prev_is_vowel_like = (is_vowel(prev_char) or (prev_char == "в" and prev_after_vowel)) and not has_hard_pause
+                    
+                    local next_starts_with_cluster = false
+                    if next_word_low then
+                        local first = get_first_char(next_word_low)
+                        if first then
+                            local second = get_first_char(next_word_low:sub(#first + 1))
+                            if second and not is_vowel(first) and not is_vowel(second) then
+                                next_starts_with_cluster = true
+                            end
+                        end
+                    end
+
+                    if next_starts_with_cluster then
+                        changed = "зі"
+                    elseif next_is_sibilant or (not prev_is_vowel_like and not next_is_vowel and next_char) then
+                        changed = "із"
+                    else
+                        changed = "з"
+                    end
                 end
 
                 if changed and changed ~= low then
@@ -18964,7 +18987,7 @@ local function draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Показувати чергування в/у та й/і", cfg.text_euphonics, "Відображати евфонічні підказки: відображати варіант в/у та й/і на основі попереднього звуку.") then
+    if checkbox(x_start, y_cursor, "Показувати чергування в/у, й/і, з/зі/із", cfg.text_euphonics, "Відображати евфонічні підказки: відображати варіант в/у, й/і та з/зі/із на основі попереднього звуку.") then
         cfg.text_euphonics = not cfg.text_euphonics
         save_settings()
     end
