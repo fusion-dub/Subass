@@ -646,6 +646,7 @@ local function check_and_load_dictionaries()
     DICT.last_dict_update = dict_update_str
     DICT.last_update_ts = reaper.time_precise()
     DICT.lookup = {}
+    DICT.max_words = 1
     
     local _, raw_sel = reaper.GetProjExtState(0, "Subass_Notes", "selected_dict_ids")
     if not raw_sel or raw_sel == "" then return end
@@ -675,7 +676,14 @@ local function check_and_load_dictionaries()
                         local comment = (entry.comment and entry.comment ~= "") and entry.comment or ("Слово з \"" .. d.name .. "\" словника")
                         local repl = (entry.replacement and entry.replacement ~= "") and entry.replacement or w
                         -- Standardize keys: lowercase + strip accents
-                        DICT.lookup[utf8_lower(w):gsub("́", "")] = { replacement = repl, comment = comment }
+                        local key = utf8_lower(w):gsub("́", "")
+                        DICT.lookup[key] = { replacement = repl, comment = comment }
+                        
+                        local spaces = 0
+                        for _ in key:gmatch(" ") do spaces = spaces + 1 end
+                        if spaces + 1 > DICT.max_words then 
+                            DICT.max_words = spaces + 1 
+                        end
                     end
                 end
             end
@@ -686,36 +694,96 @@ check_and_load_dictionaries()
 
 local function process_dictionary_tokens(tokens)
     if not DICT.lookup then return tokens end
-    local has_any = false
-    for _ in pairs(DICT.lookup) do has_any = true; break end
-    if not has_any then return tokens end
+    if next(DICT.lookup) == nil then return tokens end
 
-    for _, tok in ipairs(tokens) do
+    local max_dict_words = DICT.max_words or 1
+
+    local word_list = {}
+    for i, tok in ipairs(tokens) do
         if not tok.is_newline then
-            local segments = get_words_and_separators(tok.text)
-            local new_text = ""
-            local found_replacement = false
-            for _, seg in ipairs(segments) do
+            tok.segments = get_words_and_separators(tok.text)
+            for j, seg in ipairs(tok.segments) do
                 if seg.is_word then
-                    local entry = DICT.lookup[utf8_lower(seg.text):gsub("́", "")]
-                    if entry then
-                        new_text = new_text .. entry.replacement
-                        -- If multiple replacements in one token, the last one's comment wins
-                        -- (usually a token is just one word anyway)
-                        tok.comment = entry.comment 
-                        tok.orig_text = seg.text
-                        found_replacement = true
-                    else
-                        new_text = new_text .. seg.text
+                    table.insert(word_list, {
+                        tok = tok,
+                        tok_idx = i,
+                        seg = seg,
+                        lower = utf8_lower(seg.text):gsub("́", "")
+                    })
+                end
+            end
+        end
+    end
+
+    local function get_target_token(t)
+        while t.merged_into do t = t.merged_into end
+        return t
+    end
+
+    local w_idx = 1
+    while w_idx <= #word_list do
+        local matched = false
+        for len = math.min(max_dict_words, #word_list - w_idx + 1), 1, -1 do
+            local phrase = {}
+            for k = 0, len - 1 do
+                table.insert(phrase, word_list[w_idx + k].lower)
+            end
+            local key = table.concat(phrase, " ")
+            local entry = DICT.lookup[key]
+
+            if entry then
+                local first_w = word_list[w_idx]
+                first_w.seg.text = entry.replacement or ""
+                first_w.tok.comment = entry.comment
+                first_w.tok.orig_text = first_w.tok.orig_text or first_w.seg.text
+
+                local t_start = first_w.tok_idx
+                local t_end = word_list[w_idx + len - 1].tok_idx
+
+                for k = 1, len - 1 do
+                    local next_w = word_list[w_idx + k]
+                    next_w.seg.text = ""
+                end
+
+                if t_end > t_start then
+                    local target_tok = get_target_token(tokens[t_start])
+                    for idx = t_start + 1, t_end do
+                        local current_tok = tokens[idx]
+                        if not current_tok.merged_into then
+                            for _, seg in ipairs(current_tok.segments) do
+                                table.insert(target_tok.segments, seg)
+                            end
+                            current_tok.merged_into = target_tok
+                            current_tok.is_deleted = true
+                        end
                     end
-                else
-                    new_text = new_text .. seg.text
+                end
+
+                w_idx = w_idx + len
+                matched = true
+                break
+            end
+        end
+        if not matched then w_idx = w_idx + 1 end
+    end
+
+    local final_tokens = {}
+    for i, tok in ipairs(tokens) do
+        if tok.is_newline then
+            table.insert(final_tokens, tok)
+        elseif not tok.is_deleted then
+            local new_text = ""
+            if tok.segments then
+                for j, seg in ipairs(tok.segments) do
+                    new_text = new_text .. (seg.text or "")
                 end
             end
             tok.text = new_text
+            tok.segments = nil
+            table.insert(final_tokens, tok)
         end
     end
-    return tokens
+    return final_tokens
 end
 
 local function process_assimilation_tokens(tokens)
