@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.1
+-- @version 6.1.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v6.1",
+    script_title = "Subass Notes v6.1.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -1712,6 +1712,17 @@ function UTILS.run_satellite_script(folder, filename, label)
         reaper.Main_OnCommand(reaper.NamedCommandLookup(cmd_id), 0)
     else
         reaper.MB("REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл " .. filename .. " з папки " .. folder .. "\n\nПісля цього вікно буде відкриватися миттєво з меню.", "Потрібна реєстрація", 0)
+    end
+end
+
+function UTILS.invalidate_prompter_cache()
+    if draw_prompter_cache then
+        draw_prompter_cache.last_text = nil
+        draw_prompter_cache.last_next_text = nil
+        draw_prompter_cache.next_cache = {}
+    end
+    if prompter_slider_cache then
+        prompter_slider_cache.state_count = -1
     end
 end
 
@@ -4156,6 +4167,7 @@ function DICT.save_selected()
     DICT.last_update_ts = ts
     -- Invalidate lookup cache
     DICT.cached_lookup = nil
+    UTILS.invalidate_prompter_cache()
 end
 
 function DICT.is_selected(id)
@@ -4201,6 +4213,7 @@ function DICT.load(dont_push)
     end
     -- Invalidate lookup cache
     DICT.cached_lookup = nil
+    UTILS.invalidate_prompter_cache()
 end
 
 function DICT.check_sync()
@@ -4220,6 +4233,7 @@ function DICT.get_lookup_table()
     end
 
     local lookup = {}
+    DICT.max_words = 1
     for _, d in ipairs(DICT.dicts) do
         if DICT.is_selected(d.id) then
             for _, entry in ipairs(d.entries or {}) do
@@ -4229,7 +4243,14 @@ function DICT.get_lookup_table()
                         and entry.comment
                         or ("Слово з \"" .. d.name .. "\" словника")
                     local repl = (entry.replacement and entry.replacement ~= "") and entry.replacement or w
-                    lookup[utf8_lower(w):gsub(acute, "")] = { replacement = repl, comment = comment }
+                    local key = utf8_lower(w):gsub(acute, "")
+                    lookup[key] = { replacement = repl, comment = comment }
+
+                    local spaces = 0
+                    for _ in key:gmatch(" ") do spaces = spaces + 1 end
+                    if spaces + 1 > DICT.max_words then 
+                        DICT.max_words = spaces + 1 
+                    end
                 end
             end
         end
@@ -4541,24 +4562,97 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
 
     -- 3. DICTIONARY
     local dict_lookup = DICT.get_lookup_table()
-    local has_dict = false
-    for _ in pairs(dict_lookup) do has_dict = true; break end
+    local has_dict = next(dict_lookup) ~= nil
     if has_dict then
-        local dict_spans = {}
-        for _, span in ipairs(current_spans) do
-            local segments = UTILS.get_words_and_separators(span.text)
-            for _, seg in ipairs(segments) do
+        local max_dict_words = DICT.max_words or 1
+        
+        -- Build a flat word list across all spans
+        local word_list = {}
+        for i, span in ipairs(current_spans) do
+            span.segments = UTILS.get_words_and_separators(span.text)
+            for j, seg in ipairs(span.segments) do
                 if seg.is_word then
-                    local entry = dict_lookup[utf8_lower(seg.text):gsub(acute, "")]
-                    if entry then
-                        table.insert(dict_spans, clone_span(span, {text = entry.replacement, orig_word = seg.text, comment = entry.comment}))
-                    else
-                        table.insert(dict_spans, clone_span(span, {text=seg.text}))
-                    end
-                else
-                    table.insert(dict_spans, clone_span(span, {text=seg.text}))
+                    table.insert(word_list, {
+                        span = span,
+                        span_idx = i,
+                        seg = seg,
+                        lower = utf8_lower(seg.text):gsub(acute, "")
+                    })
                 end
             end
+        end
+
+        local w_idx = 1
+        while w_idx <= #word_list do
+            local matched = false
+            for len = math.min(max_dict_words, #word_list - w_idx + 1), 1, -1 do
+                local phrase = {}
+                for k = 0, len - 1 do
+                    table.insert(phrase, word_list[w_idx + k].lower)
+                end
+                local key = table.concat(phrase, " ")
+                local entry = dict_lookup[key]
+
+                if entry then
+                    local first_w = word_list[w_idx]
+                    first_w.seg.replaced_with = entry.replacement or ""
+                    first_w.seg.replaced_comment = entry.comment
+
+                    local original_names = {}
+                    for k = 0, len - 1 do
+                        local item = word_list[w_idx + k].seg
+                        table.insert(original_names, item.text)
+                        if k > 0 then item.replaced_empty = true end
+                    end
+                    first_w.seg.orig_phrase = table.concat(original_names, " ")
+
+                    w_idx = w_idx + len
+                    matched = true
+                    break
+                end
+            end
+            if not matched then
+                w_idx = w_idx + 1
+            end
+        end
+
+        -- Reconstruct spans
+        local dict_spans = {}
+        for _, span in ipairs(current_spans) do
+            local current_span_text = ""
+            if span.segments then
+                for _, seg in ipairs(span.segments) do
+                    if seg.replaced_with then
+                        if current_span_text ~= "" then
+                            table.insert(dict_spans, clone_span(span, {text = current_span_text}))
+                            current_span_text = ""
+                        end
+                        table.insert(dict_spans, clone_span(span, {
+                            text = seg.replaced_with,
+                            orig_word = seg.orig_phrase or seg.text,
+                            comment = seg.replaced_comment,
+                            u = false, u_wave = true
+                        }))
+                    elseif seg.replaced_empty then
+                        if current_span_text ~= "" then
+                            table.insert(dict_spans, clone_span(span, {text = current_span_text}))
+                            current_span_text = ""
+                        end
+                    else
+                        current_span_text = current_span_text .. seg.text
+                    end
+                end
+            else
+                current_span_text = span.text
+            end
+
+            if current_span_text ~= "" then
+                table.insert(dict_spans, clone_span(span, {text = current_span_text}))
+            elseif #dict_spans == 0 and span.is_link then
+                -- Keep empty links if any (though usually segments handle this)
+                table.insert(dict_spans, clone_span(span, {text = ""}))
+            end
+            span.segments = nil
         end
         current_spans = dict_spans
     end
