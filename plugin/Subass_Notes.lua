@@ -210,20 +210,31 @@ gfx.init(GL.script_title, 600, 400, GL.last_dock_state)
 
 -- Loader Configuration
 OTHER.LOADERS_CFG = {
-    { path = "loading.png",  buf = 97, frames = 14, fps = 10, frame_w = 500, zoom = 1,    weight = 1 },
-    { path = "loading2.png", buf = 96, frames = 12, fps = 10, frame_w = 400, zoom = 1.25, weight = 0.5 },
-    { path = "loading3.png", buf = 95, frames = 8,  fps = 10, frame_w = 500, zoom = 1,    weight = 0.01 },
-    { path = "loading4.png", buf = 94, frames = 8,  fps = 10, frame_w = 68,  zoom = 1.75, weight = 0.001 }
+    { path = "loading.png",  buf = 97, frames = 14, fps = 10, frame_w = 500, zoom = 0.95, weight = 1    },
+    { path = "loading2.png", buf = 96, frames = 12, fps = 10, frame_w = 400, zoom = 1.2,  weight = 0.75 },
+    { path = "loading3.png", buf = 95, frames = 8,  fps = 10, frame_w = 500, zoom = 0.95, weight = 0.25 },
+    { path = "loading4.png", buf = 94, frames = 8,  fps = 10, frame_w = 68,  zoom = 1.70, weight = 0.01 }
 }
+
+OTHER.DEADLINE_GIF_CFG = { path = "deadline.png",  buf = 93, frames = 10, fps = 8, frame_w = 512, zoom = 0.85 }
 
 -- Assets Loading
 function OTHER.load_assets()
     local script_path = debug.getinfo(1, "S").source:match("^@?(.+[/\\])") or ""
     
+    -- Load randomized loaders
     for _, loader in ipairs(OTHER.LOADERS_CFG) do
         local full_path = script_path .. loader.path
         if reaper.file_exists(full_path) then
             gfx.loadimg(loader.buf, full_path)
+        end
+    end
+
+    -- Load Deadline GIF
+    if OTHER.DEADLINE_GIF_CFG then
+        local df_path = script_path .. OTHER.DEADLINE_GIF_CFG.path
+        if reaper.file_exists(df_path) then
+            gfx.loadimg(OTHER.DEADLINE_GIF_CFG.buf, df_path)
         end
     end
 end
@@ -14941,6 +14952,8 @@ local function draw_tabs()
     local total_tab_w = gfx.w - btn_scan_w - btn_dash_w - (gap_w * 2)
     local tab_w_base = total_tab_w / #UI_STATE.tabs
     local h = S(25)
+    gfx.setfont(F.std)
+    local _, dh = gfx.measurestr("Д")
     
     -- 1. Dashboard Button ("Д")
     local d_x = 0
@@ -14948,12 +14961,41 @@ local function draw_tabs()
     set_color(dash_col)
     gfx.rect(d_x, 0, btn_dash_w, h, 1)
     
-    set_color(UI.C_TXT)
-    gfx.setfont(F.std)
-    local dw, dh = gfx.measurestr("Д")
-    gfx.x = d_x + (btn_dash_w - dw)/2
-    gfx.y = (h - dh)/2
-    gfx.drawstr("Д")
+    -- DEADLINE GIF ANIMATION (if urgent/red)
+    local animation_drawn = false
+    if dash_col == UI.C_RED and OTHER.DEADLINE_GIF_CFG and UI_STATE.current_tab == 1 then
+        local cfg = OTHER.DEADLINE_GIF_CFG
+        local img_w, img_h = gfx.getimgdim(cfg.buf)
+        if img_w > 0 then
+            animation_drawn = true -- Never show "Д" if on first tab and red
+            local frame_w = cfg.frame_w or (img_w / cfg.frames)
+            local frame_h = img_h
+            local elapsed = reaper.time_precise()
+            local total_cycle = cfg.frames * 7
+            local cycle_idx = math.floor(elapsed * (cfg.fps or 10)) % total_cycle
+            
+            -- Play frames 0 to (frames-1), then pause on frame 0
+            local frame_idx = (cycle_idx < cfg.frames) and cycle_idx or 0
+            
+            -- Center in button
+            local zoom = cfg.zoom or 1
+            local dest_h = h * zoom
+            local dest_w = (frame_w / frame_h) * dest_h
+            local gx = d_x + (btn_dash_w - dest_w) / 2
+            local gy = (h - dest_h) / 2
+            
+            gfx.blit(cfg.buf, 1, 0, frame_idx * frame_w, 0, frame_w, frame_h, gx, gy, dest_w, dest_h)
+            reaper.defer(function() end) -- Force refresh for animation
+        end
+    end
+    
+    if not animation_drawn then
+        set_color(UI.C_TXT)
+        local btn_dw, _ = gfx.measurestr("Д")
+        gfx.x = d_x + (btn_dash_w - btn_dw)/2
+        gfx.y = (h - dh)/2
+        gfx.drawstr("Д")
+    end
     
     if is_mouse_clicked() and not dict_modal.show then
         if gfx.mouse_x >= d_x and gfx.mouse_x < d_x + btn_dash_w and gfx.mouse_y >= 0 and gfx.mouse_y <= h then
