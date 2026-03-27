@@ -57,6 +57,7 @@ local progress_width = 400              -- ширина за замовчува�
 local progress_height = 4               -- висота за замовчуванням
 local progress_offset = 20              -- відступ від першого рядка
 local progress_color = 0xFFC667FF       -- колір прогрес-бара за замовчуванням
+local progress_bg_color = 0x00000055    -- колір фону прогрес-бара за замовчуванням
 local padding_x = 6                     -- відступи для фону під текстом
 local padding_y = 3                     -- відступи для фону під текстом
 local current_font_index = 1            -- номер шрифту
@@ -1028,6 +1029,7 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "progress_height", tostring(progress_height), true)
     reaper.SetExtState(SETTINGS_SECTION, "progress_offset", tostring(progress_offset), true)
     reaper.SetExtState(SETTINGS_SECTION, "progress_color", string.format("%08X", progress_color), true)
+    reaper.SetExtState(SETTINGS_SECTION, "progress_bg_color", string.format("%08X", progress_bg_color), true)
     reaper.SetExtState(SETTINGS_SECTION, "align_center", tostring(align_center), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_actor_name", tostring(show_actor_name), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_next_two", tostring(show_next_two), true)
@@ -1111,6 +1113,8 @@ local function load_settings()
     progress_offset = tonumber(reaper.GetExtState(SETTINGS_SECTION, "progress_offset")) or 20
     local prg_col = reaper.GetExtState(SETTINGS_SECTION, "progress_color")
     if prg_col ~= "" then progress_color = tonumber(prg_col,16) or progress_color end
+    local prg_bg_col = reaper.GetExtState(SETTINGS_SECTION, "progress_bg_color")
+    if prg_bg_col ~= "" then progress_bg_color = tonumber(prg_bg_col,16) or progress_bg_color end
     align_center = (reaper.GetExtState(SETTINGS_SECTION, "align_center") ~= "false")
     show_actor_name = (reaper.GetExtState(SETTINGS_SECTION, "show_actor_name") ~= "false")
     show_next_two = (reaper.GetExtState(SETTINGS_SECTION, "show_next_two") == "true")
@@ -1476,7 +1480,8 @@ local function draw_context_menu()
             progress_width  = add_change_slider("довжина", progress_width, 200, 2000, 400)
             progress_height = add_change_slider("товщина", progress_height, 1, 10, 4)
             progress_offset = add_change_slider("відступ", progress_offset, 0, 200, 20)
-            progress_color  = add_change(reaper.ImGui_ColorEdit4(ctx, "колір прогресу", progress_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            progress_color     = add_change(reaper.ImGui_ColorEdit4(ctx, "колір прогресу", progress_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            progress_bg_color  = add_change(reaper.ImGui_ColorEdit4(ctx, "колір фону прогресу", progress_bg_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             reaper.ImGui_Unindent(ctx)
         end
 
@@ -2953,8 +2958,9 @@ local function loop()
                 end
                 reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 6)
                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_PlotHistogram(), apply_alpha(progress_color, alpha_factor))
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBg(), apply_alpha(progress_bg_color, alpha_factor))
                 reaper.ImGui_ProgressBar(ctx, progress, progress_width, progress_height, "")
-                reaper.ImGui_PopStyleColor(ctx)
+                reaper.ImGui_PopStyleColor(ctx, 2)
                 reaper.ImGui_PopStyleVar(ctx)
             end
         end
