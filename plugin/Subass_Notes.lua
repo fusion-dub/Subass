@@ -4500,7 +4500,10 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                         end
                     end
 
-                    if next_starts_with_cluster then
+                    local next_is_sibilant_cluster = next_starts_with_cluster and next_is_sibilant
+                    local next_is_manual_cluster = next_word_low and (next_word_low:match("^мн") or next_word_low:match("^льв") or next_word_low:match("^вс"))
+                    
+                    if next_is_sibilant_cluster or next_is_manual_cluster then
                         changed = "зі"
                     elseif next_is_sibilant or (not prev_is_vowel_like and not next_is_vowel and next_char) then
                         changed = "із"
