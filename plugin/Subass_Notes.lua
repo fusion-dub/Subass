@@ -4504,8 +4504,7 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
                     local next_is_manual_cluster = next_word_low and (
                         (next_char == "м" and next_starts_with_cluster) or
                         next_word_low:match("^льв") or 
-                        next_word_low:match("^вс") or
-                        next_word_low:match("^рт")
+                        next_word_low:match("^вс")
                     )
                     
                     if next_is_sibilant_cluster or next_is_manual_cluster then
