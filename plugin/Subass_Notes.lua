@@ -2810,10 +2810,8 @@ function UTILS.prepare_export_data(ext)
             end
         end
     end
-
-
-    -- Sorting removed to preserve internal ass_lines order for layering
-
+    -- Strict sort by index to preserve original file order and layering
+    table.sort(out_lines, function(a, b) return (a.index or 0) < (b.index or 0) end)
 
     if #out_lines == 0 then
         show_snackbar("Немає активних реплік для експорту", "info")
@@ -8273,8 +8271,8 @@ function DUBBERS.export_as_ass(deadline_str)
                     
                     local out_lines = {}
                     for _, l in ipairs(ass_lines) do table.insert(out_lines, l) end
-                    -- Sorting removed to preserve layering
-
+                    -- Strict sort by index to preserve original file order and layering
+                    table.sort(out_lines, function(a, b) return (a.index or 0) < (b.index or 0) end)
                     
                     for _, l in ipairs(out_lines) do
                         file:write(format_dialogue(l) .. "\n")
@@ -8295,8 +8293,8 @@ function DUBBERS.export_as_ass(deadline_str)
             
             local out_lines = {}
             for _, l in ipairs(ass_lines) do table.insert(out_lines, l) end
-            -- Sorting removed to preserve layering
-
+            -- Strict sort by index to preserve original file order and layering
+            table.sort(out_lines, function(a, b) return (a.index or 0) < (b.index or 0) end)
             for _, l in ipairs(out_lines) do
                 file:write(format_dialogue(l) .. "\n")
                 export_count = export_count + 1
