@@ -20300,37 +20300,44 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 UTILS.export_markers_to_csv(ass_markers, d_str)
             end)
         elseif ret == 4 then
-            -- Import
+            -- Import names
             local existing = {}
             for _, a in ipairs(director_actors) do existing[a] = true end
             
-            -- Pass 1: Count new actors
-            local new_actors = {}
-            local count = 0
-            for _, line in ipairs(ass_lines) do
-                if line.actor and line.actor ~= "" and not existing[line.actor] and not new_actors[line.actor] then
-                    new_actors[line.actor] = true
-                    count = count + 1
+            local names_to_import = {}
+            local source_label = "субтитрів"
+            
+            -- Try Dubbers first
+            if DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0 then
+                source_label = "розподілу по Даберам"
+                for _, name in ipairs(DUBBERS.data.names) do
+                    if name ~= "" and not existing[name] then
+                        table.insert(names_to_import, name)
+                        existing[name] = true
+                    end
+                end
+            else
+                -- Fallback to Subtitles
+                for _, line in ipairs(ass_lines) do
+                    if line.actor and line.actor ~= "" and not existing[line.actor] then
+                        table.insert(names_to_import, line.actor)
+                        existing[line.actor] = true
+                    end
                 end
             end
             
+            local count = #names_to_import
             if count > 0 then
-                -- Push undo BEFORE modification
-                push_undo("Імпортувати імена акторів з субтитрів (" .. count .. ")")
-                
-                -- Pass 2: Actually add them
-                for _, line in ipairs(ass_lines) do
-                    if line.actor and line.actor ~= "" and not existing[line.actor] then
-                        table.insert(director_actors, line.actor)
-                        existing[line.actor] = true -- Prevent duplicates from same multi-replica import
-                    end
+                push_undo("Імпортувати імена акторів з " .. source_label .. " (" .. count .. ")")
+                for _, name in ipairs(names_to_import) do
+                    table.insert(director_actors, name)
                 end
                 
                 save_project_data(UI_STATE.last_project_id)
                 reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
-                show_snackbar("Імпортовано " .. count .. " акторів", "success")
+                show_snackbar("Імпортовано " .. count .. " імен з " .. source_label, "success")
             else
-                show_snackbar("Нових акторів не знайдено", "info")
+                show_snackbar("Нових імен не знайдено", "info")
             end
         elseif ret == 5 then
             -- Toggle Layout
