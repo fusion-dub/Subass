@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.1.1
+-- @version 6.2
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v6.1.1",
+    script_title = "Subass Notes v6.2",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -2811,7 +2811,9 @@ function UTILS.prepare_export_data(ext)
         end
     end
 
-    table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
+
+    -- Sorting removed to preserve internal ass_lines order for layering
+
 
     if #out_lines == 0 then
         show_snackbar("Немає активних реплік для експорту", "info")
@@ -8271,7 +8273,8 @@ function DUBBERS.export_as_ass(deadline_str)
                     
                     local out_lines = {}
                     for _, l in ipairs(ass_lines) do table.insert(out_lines, l) end
-                    table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
+                    -- Sorting removed to preserve layering
+
                     
                     for _, l in ipairs(out_lines) do
                         file:write(format_dialogue(l) .. "\n")
@@ -8292,7 +8295,8 @@ function DUBBERS.export_as_ass(deadline_str)
             
             local out_lines = {}
             for _, l in ipairs(ass_lines) do table.insert(out_lines, l) end
-            table.sort(out_lines, function(a, b) return a.t1 < b.t1 end)
+            -- Sorting removed to preserve layering
+
             for _, l in ipairs(out_lines) do
                 file:write(format_dialogue(l) .. "\n")
                 export_count = export_count + 1
