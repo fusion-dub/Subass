@@ -9865,7 +9865,7 @@ local function import_ass(file_path, dont_rebuild)
     table_selection = {}
     last_selected_row = nil
     
-    local duplicates_skipped = 0
+    local duplicates_skipped = 0 -- Always 0 for ASS now
     local in_events = false
     local format_def = nil
     local current_section = nil
@@ -10088,30 +10088,27 @@ local function import_ass(file_path, dont_rebuild)
 
                     text = text:gsub("\\N", "\n"):gsub("\\n", "\n")
                     
-                    if not is_duplicate_replica(actor, t1, t2, text, line_metadata) then
-                        local is_enabled = true
-                        if selected_dubber_actors then
-                            is_enabled = selected_dubber_actors[actor] == true
-                        end
-
-                        table.insert(ass_lines, {
-                            t1=t1, t2=t2, text=text, actor=actor, enabled=is_enabled,
-                            index = line_idx_counter,
-                            metadata = line_metadata
-                        })
-                        line_idx_counter = line_idx_counter + 1
-                        
-                        if ass_actors[actor] == nil then 
-                            ass_actors[actor] = is_enabled 
-                        else
-                            -- If actor already exists, we only enable it if it's assigned to us
-                            if selected_dubber_actors then
-                                ass_actors[actor] = ass_actors[actor] or (selected_dubber_actors[actor] == true)
-                            end
-                        end
-                    else
-                        duplicates_skipped = duplicates_skipped + 1
+                    local is_enabled = true
+                    if selected_dubber_actors then
+                        is_enabled = selected_dubber_actors[actor] == true
                     end
+
+                    table.insert(ass_lines, {
+                        t1=t1, t2=t2, text=text, actor=actor, enabled=is_enabled,
+                        index = line_idx_counter,
+                        metadata = line_metadata
+                    })
+                    line_idx_counter = line_idx_counter + 1
+                    
+                    if ass_actors[actor] == nil then 
+                        ass_actors[actor] = is_enabled 
+                    else
+                        -- If actor already exists, we only enable it if it's assigned to us
+                        if selected_dubber_actors then
+                            ass_actors[actor] = ass_actors[actor] or (selected_dubber_actors[actor] == true)
+                        end
+                    end
+
                 end
             end
         end
