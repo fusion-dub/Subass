@@ -119,6 +119,7 @@ local cfg = {
     trim_start = get_set("trim_start", 40),
     trim_end = get_set("trim_end", 80),
     check_clipping = (get_set("check_clipping", "1") == "1" or get_set("check_clipping", 1) == 1),
+    director_autofill = (get_set("director_autofill", "1") == "1" or get_set("director_autofill", 1) == 1),
 
     tts_voice = get_set("tts_voice", "Горох: Оксана (Wavenet)"),
     tts_voice_map = {
@@ -480,7 +481,9 @@ local director_state = {
     has_recent_notes = false,
     recent_indices = {},
     scroll_y = 0,
-    target_scroll_y = 0
+    target_scroll_y = 0,
+    region_actor_to_dubber = {}, -- Persistent Mapping: ASS Actor -> Director Name
+    last_ass_actor = nil         -- To track character changes for auto-fill
 }
 
 -- Proximity helper for marker detection
@@ -1572,6 +1575,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "gui_scale", tostring(cfg.gui_scale), true)
     reaper.SetExtState(section_name, "director_mode", cfg.director_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "director_layout", cfg.director_layout, true)
+    reaper.SetExtState(section_name, "director_autofill", cfg.director_autofill and "1" or "0", true)
     reaper.SetExtState(section_name, "w_director", tostring(cfg.w_director), true)
     reaper.SetExtState(section_name, "h_director", tostring(cfg.h_director), true)
 
@@ -6236,6 +6240,11 @@ local function save_project_data()
     
     reaper.SetProjExtState(0, section_name, "dir_actors", table.concat(director_actors, "|"))
     
+    if director_state.region_actor_to_dubber then
+        local json_m = STATS.json_encode(director_state.region_actor_to_dubber):gsub("\n", "")
+        reaper.SetProjExtState(0, section_name, "dir_actors_region_mapping", json_m)
+    end
+    
     local col_tbl = {}
     for k,v in pairs(ASS.actor_colors) do
         table.insert(col_tbl, k .. "|" .. tostring(v) .. "\n")
@@ -6517,6 +6526,15 @@ local function load_project_data()
         end
         
         load_director_actors_from_state()
+        
+        local okM, m_dump = reaper.GetProjExtState(0, section_name, "dir_actors_region_mapping")
+        if okM and m_dump ~= "" then
+            local success, result = pcall(function() return STATS.json_decode(m_dump) end)
+            if success and type(result) == "table" then
+                director_state.region_actor_to_dubber = result
+            end
+        end
+        
         local ok4, c_dump = reaper.GetProjExtState(0, section_name, "actor_colors")
         if ok4 then
             for line in c_dump:gmatch("([^\n]*)\n?") do
@@ -20160,6 +20178,204 @@ function UTILS.copy_markers_to_clipboard(markers)
     end
 end
 
+--- Helper: Clean actor name from ASS or Director Panel
+--- Removes variation selectors (e.g. U+FE0F / \239\184\143) and trims whitespace
+function UTILS.clean_name_ass_actor(name)
+    if not name then return nil end
+    -- Remove variation selector (\239\184\143 is U+FE0F) and trim
+    return name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
+end
+
+--- Build (or rebuild) a t1-sorted index of ass_lines for fast binary search.
+--- Called automatically by get_ass_actors_at_time when ass_lines reference changes.
+function UTILS.rebuild_actors_index()
+    local idx = {}
+    for i, line in ipairs(ass_lines) do
+        idx[#idx + 1] = { t1 = line.t1, t2 = line.t2, actor = line.actor, _i = i }
+    end
+    table.sort(idx, function(a, b) return a.t1 < b.t1 end)
+    director_state._actors_index     = idx
+    director_state._actors_index_ref = ass_lines   -- detect future change
+    director_state._actors_cache     = nil          -- invalidate frame cache
+end
+
+--- Find all speaking character names at a specific project time.
+--- Uses a pre-sorted index + binary search so cost is O(log n + k) per unique
+--- call instead of O(n). Frame-level cache makes repeated calls within the same
+--- rendering tick O(1). Index is rebuilt automatically when ass_lines changes.
+--- @param time number The project time (seconds)
+--- @return table List of unique cleaned actor names
+function UTILS.get_ass_actors_at_time(time)
+    if not ass_lines or #ass_lines == 0 then return {} end
+
+    -- Frame-level cache: same time → return instantly
+    local cache = director_state._actors_cache
+    if cache and math.abs(cache.time - time) < 0.001 then
+        return cache.result
+    end
+
+    -- Auto-rebuild sorted index when ass_lines table changes
+    if director_state._actors_index_ref ~= ass_lines then
+        UTILS.rebuild_actors_index()
+    end
+
+    local idx = director_state._actors_index
+    local n   = #idx
+
+    -- Binary search: find the rightmost index where t1 <= time
+    -- (first pass to narrow down candidates)
+    local lo, hi = 1, n
+    while lo < hi do
+        local mid = math.floor((lo + hi + 1) / 2)
+        if idx[mid].t1 <= time + 0.001 then lo = mid else hi = mid - 1 end
+    end
+    -- `lo` is now the last entry with t1 <= time.
+    -- Walk backwards to find entries where t2 >= time (long subtitles that started earlier).
+    -- In practice subtitles are short (<30s), so this loop is tiny.
+    local start = lo
+    while start > 1 and idx[start - 1].t2 >= time - 0.001 do
+        start = start - 1
+    end
+
+    local list = {}
+    local seen = {}
+    for i = start, n do
+        local entry = idx[i]
+        if entry.t1 > time + 0.001 then break end  -- all remaining start after time
+        if time >= entry.t1 and time <= entry.t2 then
+            if entry.actor and entry.actor ~= "" then
+                local cname = UTILS.clean_name_ass_actor(entry.actor)
+                if not seen[cname] then
+                    list[#list + 1] = cname
+                    seen[cname] = true
+                end
+            end
+        end
+    end
+
+    -- Store in frame cache
+    director_state._actors_cache = { time = time, result = list }
+    return list
+end
+
+--- Sync ALL DUBBERS assignments into the Director actor-to-dubber mapping.
+--- Iterates every dubber in DUBBERS.data.assignments and fills any empty slot
+--- in the provided mapping table. Existing manual overrides are preserved.
+--- @param mapping table  director_state.region_actor_to_dubber (modified in-place)
+function UTILS.sync_dubbers_to_director(mapping)
+    if not mapping then return end
+    if not DUBBERS.data or not DUBBERS.data.assignments then return end
+    for dubber_name, actors in pairs(DUBBERS.data.assignments) do
+        for ass_actor, _ in pairs(actors) do
+            if mapping[ass_actor] == nil then
+                mapping[ass_actor] = dubber_name
+            end
+        end
+    end
+end
+
+--- Helper: Sync director panel with current markers and performing auto-fill
+function UTILS.update_director_marker_and_autofill(cur_time, current_ass_actors)
+    -- But first: Validate that the currently held marker ID still exists (it might have been deleted externally)
+    if director_state.last_marker_id then
+        local found_sync = nil
+        for _, m in ipairs(ass_markers) do
+            if m.markindex == director_state.last_marker_id then
+                found_sync = m
+                break
+            end
+        end
+        if not found_sync then
+            director_state.last_marker_id = nil
+            director_state.input.text = ""
+            director_state.input.cursor = 0
+        else
+            -- Sync with external changes (e.g. from modal text editor)
+            if found_sync.name ~= (director_state.original_text or "") then
+                -- Only update input if it hasn't been significantly modified by the user here, 
+                -- or if it was exactly matching the previous state.
+                if director_state.input.text == director_state.original_text then
+                    director_state.input.text = found_sync.name
+                    director_state.input.cursor = #found_sync.name
+                    director_state.input.anchor = director_state.input.cursor
+                end
+                director_state.original_text = found_sync.name
+            end
+        end
+    end
+
+    if not is_near(cur_time, director_state.last_time) then
+        director_state.last_time = cur_time
+        
+        local found_m = nil
+        for _, m in ipairs(ass_markers) do
+            if is_near(m.pos, cur_time) then
+                found_m = m
+                break
+            end
+        end
+        
+        if found_m then
+            if found_m.markindex ~= director_state.last_marker_id then
+                director_state.last_marker_id = found_m.markindex
+                director_state.input.text = found_m.name
+                director_state.original_text = found_m.name
+                director_state.input.cursor = #found_m.name
+                director_state.input.anchor = director_state.input.cursor -- Reset selection
+            end
+        else
+            local cur_actor = (#current_ass_actors == 1) and current_ass_actors[1] or nil
+            local actor_changed = (cur_actor ~= director_state.last_ass_actor)
+            local needs_refill = (director_state.input.text == "") or (director_state.input.text:match("^%[.-%]%s*$"))
+            
+            if director_state.last_marker_id ~= nil or actor_changed or (needs_refill and cur_actor ~= nil) then
+                -- If we just left a marker region, clear the input explicitly
+                if director_state.last_marker_id ~= nil then
+                    director_state.input.text = ""
+                    director_state.input.cursor = 0
+                    director_state.input.anchor = 0
+                end
+                director_state.last_marker_id = nil
+                director_state.original_text = ""
+                
+                -- --- AUTO-FILL (Memory Logic) ---
+                if needs_refill then
+                    if cfg.director_autofill then
+                        -- ONLY auto-fill if exactly ONE actor is speaking
+                        local mapped_name = nil
+                        if cur_actor then
+                            mapped_name = director_state.region_actor_to_dubber[cur_actor]
+                        end
+                        
+                        -- Validate that mapped name is still in director_actors
+                        local name_is_valid = false
+                        if mapped_name then
+                            for _, act in ipairs(director_actors) do
+                                if act == mapped_name then name_is_valid = true break end
+                            end
+                        end
+                        
+                        if name_is_valid then
+                            director_state.input.text = "[" .. mapped_name .. "] "
+                        else
+                            director_state.input.text = ""
+                        end
+                    else
+                        -- Auto-fill disabled
+                        director_state.input.text = ""
+                    end
+                end
+                
+                director_state.input.cursor = #director_state.input.text
+                director_state.input.anchor = director_state.input.anchor -- Reset selection
+            end
+        end
+        
+        -- Always update last context when jumping
+        director_state.last_ass_actor = (#current_ass_actors == 1) and current_ass_actors[1] or nil
+    end
+end
+
 local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
     if not calc_only then
         set_color(UI.C_BG)
@@ -20176,64 +20392,10 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     local edit_pos = reaper.GetCursorPosition()
     local cur_time = reaper.GetPlayState() > 0 and play_pos or edit_pos
     
-        -- Only update if time jump or first run
-        -- But first: Validate that the currently held marker ID still exists (it might have been deleted externally)
-        if director_state.last_marker_id then
-            local found_sync = nil
-            for _, m in ipairs(ass_markers) do
-                if m.markindex == director_state.last_marker_id then
-                    found_sync = m
-                    break
-                end
-            end
-            if not found_sync then
-                director_state.last_marker_id = nil
-                director_state.input.text = ""
-                director_state.input.cursor = 0
-            else
-                -- Sync with external changes (e.g. from modal text editor)
-                if found_sync.name ~= (director_state.original_text or "") then
-                    -- Only update input if it hasn't been significantly modified by the user here, 
-                    -- or if it was exactly matching the previous state.
-                    if director_state.input.text == director_state.original_text then
-                        director_state.input.text = found_sync.name
-                        director_state.input.cursor = #found_sync.name
-                        director_state.input.anchor = director_state.input.cursor
-                    end
-                    director_state.original_text = found_sync.name
-                end
-            end
-        end
-
-        if not is_near(cur_time, director_state.last_time) then
-            director_state.last_time = cur_time
-            
-            local found_m = nil
-            for _, m in ipairs(ass_markers) do
-                if is_near(m.pos, cur_time) then
-                    found_m = m
-                    break
-                end
-            end
-            
-            if found_m then
-                if found_m.markindex ~= director_state.last_marker_id then
-                    director_state.last_marker_id = found_m.markindex
-                    director_state.input.text = found_m.name
-                    director_state.original_text = found_m.name
-                    director_state.input.cursor = #found_m.name
-                    director_state.input.anchor = director_state.input.cursor -- Reset selection
-                end
-            else
-                if director_state.last_marker_id ~= nil then
-                    director_state.last_marker_id = nil
-                    director_state.input.text = ""
-                    director_state.original_text = ""
-                    director_state.input.cursor = 0
-                    director_state.input.anchor = 0 -- Reset selection
-                end
-            end
-        end
+    -- --- CONTEXT DETECTION (Active ASS Actors) ---
+    local current_ass_actors = cfg.director_autofill and UTILS.get_ass_actors_at_time(cur_time) or {}
+    
+    UTILS.update_director_marker_and_autofill(cur_time, current_ass_actors)
     
     -- --- AUTO-ATTACH TIME SELECTION ---
     UTILS.update_corr_time_prefix(calc_only, cur_time)
@@ -20280,7 +20442,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
         local dock_check = gfx.dock(-1) > 0 and "!" or ""
         local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
-        local menu_str = "Копіювати правки в буфер||>Експортувати правки в CSV|Просто експорт|Експорт з дедлайном|<|Імпортувати імена акторів з субтитрів||" .. layout_label .. "|Закрити вікно"
+        local autofill_check = cfg.director_autofill and "• " or ""
+        local menu_str = "Копіювати правки в буфер||>Експортувати правки в CSV|Просто експорт|Експорт з дедлайном|<|Імпортувати імена акторів з субтитрів||" .. autofill_check .. "Автоматично підставляти ім'я дабера||" .. layout_label .. "|Закрити вікно"
         
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local ret = gfx.showmenu(menu_str)
@@ -20333,6 +20496,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                     table.insert(director_actors, name)
                 end
                 
+                -- Sync DUBBERS assignments into the director mapping for newly imported names
+                UTILS.sync_dubbers_to_director(director_state.region_actor_to_dubber)
                 save_project_data(UI_STATE.last_project_id)
                 reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                 show_snackbar("Імпортовано " .. count .. " імен з " .. source_label, "success")
@@ -20340,6 +20505,10 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 show_snackbar("Нових імен не знайдено", "info")
             end
         elseif ret == 5 then
+            -- Toggle Autofill
+            cfg.director_autofill = not cfg.director_autofill
+            save_settings()
+        elseif ret == 6 then
             -- Toggle Layout
             if cfg.director_layout == "right" then
                 cfg.director_layout = "bottom"
@@ -20348,7 +20517,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             end
             save_settings() -- Save state immediately
             last_layout_state.state_count = -1 -- Force redraw
-        elseif ret == 6 then
+        elseif ret == 7 then
             cfg.director_mode = not cfg.director_mode
             save_settings()
         end
@@ -20418,6 +20587,15 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         -- Toggle On (Add to list)
                         table.insert(list, actor)
                         director_state.input.text = "[" .. table.concat(list, ", ") .. "] " .. clean
+                        
+                        -- --- LEARNING (Mapping Update) ---
+                        -- Associate only if one actor is speaking clearly
+                        if #current_ass_actors == 1 then
+                            director_state.region_actor_to_dubber[current_ass_actors[1]] = actor
+                            -- Sync all DUBBERS assignments into the mapping
+                            UTILS.sync_dubbers_to_director(director_state.region_actor_to_dubber)
+                            save_project_data(UI_STATE.last_project_id)
+                        end
                     end
                     director_state.input.cursor = #director_state.input.text
                     director_state.input.anchor = director_state.input.cursor
@@ -20763,6 +20941,26 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         local function save_director_changes()
             local txt = director_state.input.text
             if txt ~= "" then
+                -- --- LEARNING (Mapping Update on Save) ---
+                if #current_ass_actors == 1 then
+                    local speaker = current_ass_actors[1]
+                    local list, _ = get_actors_from_text(txt)
+                    if #list > 0 then
+                        -- Check if the first actor in prefix is in director_actors
+                        local first_act = list[1]
+                        local is_valid = false
+                        for _, act in ipairs(director_actors) do
+                            if act == first_act then is_valid = true break end
+                        end
+                        if is_valid then
+                            -- Direct mapping: current speaker -> dubber
+                            director_state.region_actor_to_dubber[speaker] = first_act
+                            -- Sync all DUBBERS assignments into the mapping
+                            UTILS.sync_dubbers_to_director(director_state.region_actor_to_dubber)
+                        end
+                    end
+                end
+                
                 push_undo(save_label .. " правку (Режисер)")
                 if director_state.last_marker_id then
                     reaper.SetProjectMarker4(0, director_state.last_marker_id, false, cur_time, 0, txt, 0, 0)
@@ -20791,6 +20989,13 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 
                 director_state.last_marker_id = nil
                 director_state.input.text = ""
+                -- Force auto-fill re-evaluation on next frame by invalidating the time cache
+                director_state.last_time = -1
+                director_state.last_ass_actor = nil
+                
+                -- Persist learning if we learned something
+                save_project_data(UI_STATE.last_project_id)
+                
                 show_snackbar("Збережено", "success")
 
                 -- Adjust playhead/cursor position +150ms
