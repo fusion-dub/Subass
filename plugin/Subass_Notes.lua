@@ -20473,6 +20473,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             for _, a in ipairs(director_actors) do existing[a] = true end
             
             local names_to_import = {}
+            local names_to_update = {}
             local source_label = "субтитрів"
             
             -- Try Dubbers first
@@ -20483,6 +20484,10 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         table.insert(names_to_import, name)
                         existing[name] = true
                     end
+
+                    if name ~= "" then
+                        table.insert(names_to_update, name)
+                    end
                 end
             else
                 -- Fallback to Subtitles
@@ -20490,6 +20495,10 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                     if line.actor and line.actor ~= "" and not existing[line.actor] then
                         table.insert(names_to_import, line.actor)
                         existing[line.actor] = true
+                    end
+
+                    if line.actor and line.actor ~= "" then
+                        table.insert(names_to_update, line.actor)
                     end
                 end
             end
@@ -20499,6 +20508,12 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 push_undo("Імпортувати імена акторів з " .. source_label .. " (" .. count .. ")")
                 for _, name in ipairs(names_to_import) do
                     table.insert(director_actors, name)
+                end
+
+                if source_label == "субтитрів" then
+                    for _, name in ipairs(names_to_update) do
+                        director_state.region_actor_to_dubber[name] = name
+                    end
                 end
                 
                 -- Sync DUBBERS assignments into the director mapping for newly imported names
