@@ -20340,7 +20340,12 @@ function UTILS.update_director_marker_and_autofill(cur_time, current_ass_actors)
                 
                 -- --- AUTO-FILL (Memory Logic) ---
                 if needs_refill then
-                    if cfg.director_autofill then
+                    local total_ass_actors = 0
+                    if cfg.director_autofill and ass_actors then
+                        for _ in pairs(ass_actors) do total_ass_actors = total_ass_actors + 1 end
+                    end
+                    
+                    if cfg.director_autofill and total_ass_actors > 1 then
                         -- ONLY auto-fill if exactly ONE actor is speaking
                         local mapped_name = nil
                         if cur_actor then
