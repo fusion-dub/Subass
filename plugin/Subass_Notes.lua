@@ -11583,9 +11583,12 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
     
     local cap = gfx.mouse_cap
     local is_ctrl = (cap & 4 == 4)
+    local is_alt = (cap & 16 == 16)
     local is_cmd = (cap & 32 == 32)
     local is_shift = (cap & 8 == 8)
-    local is_mod = (is_ctrl or is_cmd)
+    
+    -- On Windows, AltGr triggers both Ctrl and Alt. We must not treat it as a modifier shortcut so characters like ґ can be typed.
+    local is_mod = (is_ctrl and not is_alt) or is_cmd
     
     local changed = false
     local text = state.text or ""
@@ -11813,6 +11816,12 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
                 local cp = char
                 if cp >= unicode_flag and cp < unicode_flag + 0x1000000 then
                     cp = cp - unicode_flag
+                end
+                
+                -- Windows Reaper workaround: AltGr+г generates wrong Unicode (277/276 or ASCII 117/85) instead of ґ/Ґ
+                if is_ctrl and is_alt then
+                    if cp == 277 or cp == 117 then cp = is_shift and 1168 or 1169 end -- Ґ or ґ
+                    if cp == 276 or cp == 85  then cp = 1168 end                      -- Ґ
                 end
                 
                 -- Full UTF-8 Encode
