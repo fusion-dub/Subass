@@ -11988,8 +11988,8 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
         end
     end
 
-    if gfx.mouse_cap == 1 then
-        if UI_STATE.last_mouse_cap == 0 and hover then
+    if (gfx.mouse_cap & 1 == 1) then
+        if (UI_STATE.last_mouse_cap & 1 == 0) and hover then
             -- Check for interaction suppression (e.g., preventing bleed-through from opening click)
             if state.interaction_start_time and reaper.time_precise() < state.interaction_start_time then
                 -- Ignore this click
@@ -12005,7 +12005,11 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             state.last_click_time = now
             
             if state.last_click_state == 1 then
-                state.cursor, state.anchor = idx, idx
+                if (gfx.mouse_cap & 8 == 8) then
+                    state.cursor = idx
+                else
+                    state.cursor, state.anchor = idx, idx
+                end
             elseif state.last_click_state == 2 then
                 local s, e = idx, idx
                 while s > 0 do
@@ -12025,7 +12029,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
                 end
             end
 
-    elseif state.focus and UI_STATE.last_mouse_cap == 1 then
+    elseif state.focus and (UI_STATE.last_mouse_cap & 1 == 1) then
         -- Check for interaction suppression
         if state.interaction_start_time and reaper.time_precise() < state.interaction_start_time then
             -- Ignore drag during suppression period
@@ -12061,7 +12065,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
             end
         end
 
-        elseif not hover and UI_STATE.last_mouse_cap == 0 then
+        elseif not hover and (UI_STATE.last_mouse_cap & 1 == 0) then
             -- Guard: Don't lose focus if clicking inside the AI modal OR if ai_modal was JUST shown (prevents closing focus on suggestion selection)
             local in_ai = false
             if ai_modal and ai_modal.show and ai_modal.x then
