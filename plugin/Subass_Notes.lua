@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.2
+-- @version 6.3
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v6.2",
+    script_title = "Subass Notes v6.3",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -59,6 +59,8 @@ local cfg = {
     all_caps_acute = (get_set("all_caps_acute", "0") == "1" or get_set("all_caps_acute", 0) == 1),
     p_soft_n = (get_set("p_soft_n", "0") == "1" or get_set("p_soft_n", 0) == 1),
     show_actor_name_infront = (get_set("show_actor_name_infront", "0") == "1" or get_set("show_actor_name_infront", 0) == 1),
+    show_final_stats = (get_set("show_final_stats", "1") == "1" or get_set("show_final_stats", 1) == 1),
+
     wave_bg = (get_set("wave_bg", "1") == "1" or get_set("wave_bg", 1) == 1),
     wave_bg_progress = (get_set("wave_bg_progress", "0") == "1" or get_set("wave_bg_progress", 0) == 1),
     count_timer = (get_set("count_timer", "1") == "1" or get_set("count_timer", 1) == 1),
@@ -567,7 +569,8 @@ local STATS = {
     data = nil,
     dirty = false,
     last_save_time = 0,
-    current_project_id = nil
+    current_project_id = nil,
+    duration_cache = 0 -- Cached total seconds of finished sessions
 }
 
 -- Initialize stats directory path
@@ -869,6 +872,8 @@ function STATS.load()
         if not STATS.data.total then STATS.data.total = {} end
         if not STATS.data.duration then STATS.data.duration = {} end
         if not STATS.data.daily_stats then STATS.data.daily_stats = {} end
+        
+        STATS.update_cache()
     else
         -- Fallback: initialize default structure
         STATS.data = {
@@ -1001,6 +1006,68 @@ function STATS.increment_edit()
     proj.metadata.edits_count = proj.metadata.edits_count + 1
     proj.last_updated = os.time()
     STATS.dirty = true
+end
+
+--- Recalculate duration cache (call only when data changes)
+function STATS.update_cache()
+    local proj = STATS.get_project()
+    if not proj or not proj.duration then 
+        STATS.duration_cache = 0
+        return 
+    end
+    
+    local total = 0
+    for _, s in ipairs(proj.duration) do
+        if s["end"] and s.start then
+            total = total + (s["end"] - s.start)
+        end
+    end
+    STATS.duration_cache = total
+end
+
+--- Get session summary for display
+function STATS.get_session_summary()
+    local proj = STATS.get_project()
+    if not proj then return 0, 0 end
+    
+    local takes = proj.total.lines_recorded or 0
+    local duration = STATS.duration_cache or 0
+    
+    -- Add currently active recording time if playing
+    local play_state = reaper.GetPlayState()
+    if (play_state & 4) == 4 and #proj.duration > 0 then
+        local last = proj.duration[#proj.duration]
+        if last and last.start then
+            local now = os.time()
+            duration = duration + (now - last.start)
+        end
+    end
+    
+    return takes, duration
+end
+
+--- Format duration in Ukrainian (HH год MM хв or MM хв SS с)
+function STATS.format_hms(s)
+    if not s or s <= 0 then return "0 с" end
+    local h = math.floor(s / 3600)
+    local m = math.floor((s % 3600) / 60)
+    local sec = math.floor(s % 60)
+    
+    if h > 0 then
+        if m > 0 then
+            return string.format("%d год %d хв", h, m)
+        else
+            return string.format("%d год", h)
+        end
+    elseif m > 0 then
+        if sec > 0 then
+            return string.format("%d хв %d с", m, sec)
+        else
+            return string.format("%d хв", m)
+        end
+    else
+        return string.format("%d с", sec)
+    end
 end
 
 --- Initialize stats on script load
@@ -1549,6 +1616,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "all_caps", cfg.all_caps and "1" or "0", true)
     reaper.SetExtState(section_name, "all_caps_acute", cfg.all_caps_acute and "1" or "0", true)
     reaper.SetExtState(section_name, "show_actor_name_infront", cfg.show_actor_name_infront and "1" or "0", true)
+    reaper.SetExtState(section_name, "show_final_stats", cfg.show_final_stats and "1" or "0", true)
 
     reaper.SetExtState(section_name, "wave_bg", cfg.wave_bg and "1" or "0", true)
     reaper.SetExtState(section_name, "wave_bg_progress", cfg.wave_bg_progress and "1" or "0", true)
@@ -17578,6 +17646,130 @@ local function draw_info_overlay_graphics(content_offset_left, content_offset_ri
     gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 1)
 end
 
+--- Render statistics summary when prompter is idle
+function STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
+    local takes, dur = STATS.get_session_summary()
+    local play_state = reaper.GetPlayState()
+    local is_recording = (play_state & 4) == 4
+    
+    if not UI_STATE.ass_file_loaded or not ass_lines or #ass_lines == 0 then
+        -- Need to import subtitles
+        set_color(UI.GET_P_COLOR(0.3))
+        gfx.setfont(F.std)
+        local txt = "Потрібно імпортувати субтитри"
+        local tw, th = gfx.measurestr(txt)
+        gfx.x = content_offset_left + (available_w - tw) / 2
+        gfx.y = (gfx.h - th) / 2
+        if cfg.p_valign == "top" then gfx.y = S(70)
+        elseif cfg.p_valign == "bottom" then gfx.y = gfx.h - th - S(50) end
+        gfx.drawstr(txt)
+    elseif (takes > 0 or dur > 0) and not is_recording and cfg.show_final_stats then
+        -- Concept Pro: SUCCESS SCREEN
+        local title = "ЧУДОВА РОБОТА!"
+        local progress = UTILS.get_recording_progress() or 0
+        local speed = (dur > 0) and math.floor(takes / (dur / 3600)) or 0
+        
+        -- Center and Base Y
+        local cx = content_offset_left + available_w / 2
+        local cy = gfx.h / 2
+        
+        -- Base position logic (centering the whole block)
+        local block_h = S(220)
+        local ty = cy - block_h / 2
+        
+        if cfg.p_valign == "top" then ty = S(80)
+        elseif cfg.p_valign == "bottom" then ty = gfx.h - block_h - S(100) end
+
+        -- 1. Title
+        gfx.setfont(F.title)
+        set_color(UI.GET_P_COLOR(0.4))
+        local tw, th = gfx.measurestr(title)
+        gfx.x, gfx.y = cx - tw/2, ty + S(20)
+        gfx.drawstr(title)
+        
+        -- 3. Horizontal Divider
+        local line_w = S(160)
+        local line_y = gfx.y + th + S(12)
+        set_color(UI.GET_P_COLOR(0.15))
+        gfx.line(cx - line_w/2, line_y, cx + line_w/2, line_y)
+        
+        -- 4. Stats: Takes and Time (Two columns)
+        local stat_y = line_y + S(25)
+        local col_w = S(80)
+        
+        -- LEFT: Takes
+        gfx.setfont(F.lrg)
+        set_color(UI.GET_P_COLOR(1.0))
+        local s_takes = tostring(takes)
+        local sw1, sh1 = gfx.measurestr(s_takes)
+        gfx.x, gfx.y = cx - col_w - sw1/2, stat_y
+        gfx.drawstr(s_takes)
+        
+        gfx.setfont(F.std)
+        set_color(UI.GET_P_COLOR(0.4))
+        local lbl1 = "ДУБЛІВ"
+        local lw1, lh1 = gfx.measurestr(lbl1)
+        gfx.x, gfx.y = cx - col_w - lw1/2, stat_y + sh1 + S(2)
+        gfx.drawstr(lbl1)
+        
+        -- RIGHT: Time
+        gfx.setfont(F.lrg)
+        set_color(UI.GET_P_COLOR(1.0))
+        local s_time = STATS.format_hms(dur)
+        local sw2, sh2 = gfx.measurestr(s_time)
+        gfx.x, gfx.y = cx + col_w - sw2/2, stat_y
+        gfx.drawstr(s_time)
+        
+        gfx.setfont(F.std)
+        set_color(UI.GET_P_COLOR(0.4))
+        local lbl2 = "ЧАСУ"
+        local lw2, lh2 = gfx.measurestr(lbl2)
+        gfx.x, gfx.y = cx + col_w - lw2/2, stat_y + sh2 + S(2)
+        gfx.drawstr(lbl2)
+        
+        -- 5. Progress Bar
+        local pb_w = S(220)
+        local pb_h = S(3)
+        local pb_y = stat_y + sh1 + lh1 + S(45)
+        
+        -- Label
+        gfx.setfont(F.std)
+        set_color(UI.GET_P_COLOR(0.6))
+        local p_txt = string.format("Progress  %d%%", math.floor(progress))
+        local pw, ph = gfx.measurestr(p_txt)
+        gfx.x, gfx.y = cx - pw/2, pb_y - ph - S(6)
+        gfx.drawstr(p_txt)
+        
+        -- Track
+        set_color(UI.GET_P_COLOR(0.1))
+        gfx.rect(cx - pb_w/2, pb_y, pb_w, pb_h, 1)
+        -- Fill (Highlight)
+        set_color(UI.GET_P_COLOR(0.7))
+        gfx.rect(cx - pb_w/2, pb_y, pb_w * (progress/100), pb_h, 1)
+        
+        -- 6. Attempts
+        local num_regions = (regions and #regions > 0) and #regions or 1
+        local attempts = takes / num_regions
+        local attempts_txt = string.format("Спроби: %.2f на репліку", attempts)
+        local spw, sph = gfx.measurestr(attempts_txt)
+        gfx.x, gfx.y = cx - spw/2, pb_y + pb_h + S(18)
+        set_color(UI.GET_P_COLOR(0.4))
+        gfx.drawstr(attempts_txt)
+    else
+        -- Simplified message: always "End of Subtitles"
+        set_color(UI.GET_P_COLOR(0.3))
+        gfx.setfont(F.std)
+        
+        local txt = "Кінець субтитрів"
+        local tw, th = gfx.measurestr(txt)
+        gfx.x = content_offset_left + (available_w - tw) / 2
+        gfx.y = (gfx.h - th) / 2
+        if cfg.p_valign == "top" then gfx.y = S(70)
+        elseif cfg.p_valign == "bottom" then gfx.y = gfx.h - th - S(50) end
+        gfx.drawstr(txt)
+    end
+end
+
 local function draw_prompter_slider(input_queue)
     local bg_r, bg_g, bg_b = cfg.bg_cr, cfg.bg_cg, cfg.bg_cb
     set_color({bg_r, bg_g, bg_b})
@@ -17921,6 +18113,10 @@ local function draw_prompter_slider(input_queue)
                 end
             end
         end
+    end
+
+    if #prompter_slider_cache.items == 0 then
+        STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
     end
 
     -- Info Overlay graphics (at the end of content)
@@ -18579,15 +18775,7 @@ local function draw_prompter(input_queue)
                 end
             end
         else
-            set_color(UI.GET_P_COLOR(0.3))
-            gfx.setfont(F.std)
-            local txt = "Нічого немає (Суфлер не активний)"
-            local tw, th = gfx.measurestr(txt)
-            gfx.x = content_offset_left + (available_w - tw) / 2
-            gfx.y = (gfx.h - th) / 2
-            if cfg.p_valign == "top" then gfx.y = S(70)
-            elseif cfg.p_valign == "bottom" then gfx.y = gfx.h - th - S(50) end
-            gfx.drawstr(txt)
+            STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
         end
     else
         -- Not in any region, but show next upcoming region if enabled
@@ -18659,17 +18847,11 @@ local function draw_prompter(input_queue)
                     elseif cfg.p_valign == "bottom" then cor_y = gfx.h - ch - S(50) end
                     render_corrections(cms, cor_y, cor_fsize, center_x, available_w, content_offset_left, content_offset_right)
                 else
-                    set_color(UI.GET_P_COLOR(0.3))
-                    gfx.setfont(F.std)
-                    local txt = "Нічого немає (Суфлер не активний)"
-                    local tw, th = gfx.measurestr(txt)
-                    gfx.x = content_offset_left + (available_w - tw) / 2
-                    gfx.y = (gfx.h - th) / 2
-                    if cfg.p_valign == "top" then gfx.y = S(70)
-                    elseif cfg.p_valign == "bottom" then gfx.y = gfx.h - th - S(50) end
-                    gfx.drawstr(txt)
+                    STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
                 end
             end
+        else
+            STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
         end
     end
     
@@ -19319,6 +19501,11 @@ local function draw_settings()
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, "Відображати ім'я актора", cfg.show_actor_name_infront, "Відображення імені актора перед реплікою.") then
         cfg.show_actor_name_infront = not cfg.show_actor_name_infront
+        save_settings()
+    end
+    y_cursor = y_cursor + S(35)
+    if checkbox(x_start, y_cursor, "Відображати заключну статистику", cfg.show_final_stats, "Відображення міні статистику в кінці реплік.") then
+        cfg.show_final_stats = not cfg.show_final_stats
         save_settings()
     end
     y_cursor = y_cursor + S(60)
@@ -23392,6 +23579,7 @@ function OTHER.process_post_recording()
         local proj = STATS.get_project()
         if proj and #proj.duration > 0 then
             proj.duration[#proj.duration]["end"] = os.time()
+            STATS.update_cache()
             STATS.dirty = true
             STATS.save()
         end
