@@ -42,6 +42,9 @@ local cfg = {
     t_ar_b = get_set("t_ar_b", 0.2),
     t_ar_alpha = get_set("t_ar_alpha", 0.1),
     t_r_size = get_set("t_r_size", "tr_M"),
+
+    t_editor_size = get_set("t_editor_size", "tr_M"),
+    t_corr_size = get_set("t_corr_size", "tr_M"),
     
     next_attach = (get_set("next_attach", "0") == "1" or get_set("next_attach", 0) == 1),
     next_padding = get_set("next_padding", 30),
@@ -265,7 +268,9 @@ local F = {
     tr_M = 13,
     tr_L = 14,
     tr_XL = 15,
-    title = 16,
+    tr_XXL = 16,
+    tr_XXXL = 17,
+    title = 18,
 }
 
 -- Prompter Rendering Cache (moved to global for invalidation on font change)
@@ -313,8 +318,10 @@ local function update_prompter_fonts()
     -- Reader Mode Table Font
     gfx.setfont(F.tr_S, cfg.p_font, S(18))
     gfx.setfont(F.tr_M, cfg.p_font, S(20))
-    gfx.setfont(F.tr_L, cfg.p_font, S(24))
-    gfx.setfont(F.tr_XL, cfg.p_font, S(30))
+    gfx.setfont(F.tr_L, cfg.p_font, S(22))
+    gfx.setfont(F.tr_XL, cfg.p_font, S(26))
+    gfx.setfont(F.tr_XXL, cfg.p_font, S(30))
+    gfx.setfont(F.tr_XXXL, cfg.p_font, S(34))
 
     -- Force re-measuring of text layout by clearing cache
     if draw_prompter_cache then
@@ -1570,6 +1577,9 @@ local function save_settings()
     reaper.SetExtState(section_name, "t_r_size", cfg.t_r_size, true)
     reaper.SetExtState(section_name, "show_dubber_conflicts", cfg.show_dubber_conflicts and "1" or "0", true)
     reaper.SetExtState(section_name, "dubber_conflict_threshold", tostring(cfg.dubber_conflict_threshold), true)
+
+    reaper.SetExtState(section_name, "t_editor_size", cfg.t_editor_size, true)
+    reaper.SetExtState(section_name, "t_corr_size", cfg.t_corr_size, true)
 
     -- Invalidate prompter cache when settings change (like wrap length)
     if draw_prompter_cache then
@@ -11978,8 +11988,8 @@ local function record_field_history(state)
     end
 end
 
-local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_multiline, is_director_mode)
-    gfx.setfont(F.std)
+local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_multiline, is_director_mode, font_category_size)
+    gfx.setfont(font_category_size or F.std)
     local padding = S(5)
     local line_h = gfx.texth
     local text_w = w - padding * 2
@@ -12393,6 +12403,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     gfx.blit(98, 1, 0, 0, 0, w, h, x, y, w, h)
     set_color(state.focus and {0.7, 0.7, 1.0} or UI.C_BTN_H)
     gfx.rect(x, y, w, h, 0)
+    gfx.setfont(F.std)
 end
 
 --- Draw and handle text editor modal dialog
@@ -12538,7 +12549,7 @@ local function draw_text_editor(input_queue)
     local text_w, text_h = box_w - S(20), box_h - S(80)
 
     -- Main editor interaction
-    ui_text_input(text_x, text_y, text_w, text_h, text_editor_state, "Введіть текст...", input_queue, true, text_editor_state.is_director_mode)
+    ui_text_input(text_x, text_y, text_w, text_h, text_editor_state, "Введіть текст...", input_queue, true, text_editor_state.is_director_mode, F[cfg.t_editor_size])
 
     local btn_y = box_y + box_h - S(40)
     if btn(box_x + S(10), btn_y, S(90), S(30), "Скасування") then 
@@ -19832,6 +19843,7 @@ local function draw_settings()
         save_settings()
     end)
     y_cursor = y_cursor + S(20)
+    set_color(UI.C_TXT)
 
     s_text(x_start, y_cursor, string.format("Прозорість ар.: %.2f", cfg.t_ar_alpha))
     if s_btn(x_start + S(155), y_cursor - S(10), S(30), S(30), "－") then
@@ -19848,13 +19860,14 @@ local function draw_settings()
     -- Alignment
     s_text(x_start, y_cursor, "Розмір шрифту рядків:")
     y_cursor = y_cursor + S(25)
-    local align_options = {"tr_S", "tr_M", "tr_L", "tr_XL"}
-    local align_labels = {"S", "M", "L", "XL"}
-    for i, opt in ipairs(align_options) do
+    local text_size_options = {"tr_S", "tr_M", "tr_L", "tr_XL", "tr_XXL", "tr_XXXL"}
+    local text_size_labels = {"S", "M", "L", "XL", "XXL", "XXXL"}
+
+    for i, opt in ipairs(text_size_options) do
         local bx = x_start + ((i-1) * S(70))
         local is_sel = (cfg.t_r_size == opt)
         local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
-        if s_btn(bx, y_cursor, S(60), S(30), align_labels[i], nil, btn_bg) then
+        if s_btn(bx, y_cursor, S(60), S(30), text_size_labels[i], nil, btn_bg) then
             cfg.t_r_size = opt
             save_settings()
         end
@@ -19930,10 +19943,40 @@ local function draw_settings()
     y_cursor = y_cursor + S(65)
     
     -- ═══════════════════════════════════════════
-    -- 12. ТЕКСТ У МОВУ (Text-to-Speech)
+    -- 12. ІНШЕ
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ТЕКСТ У МОВУ")
+    s_section(y_cursor, "ІНШЕ")
     y_cursor = y_cursor + S(35)
+
+    -- Alignment
+    s_text(x_start, y_cursor, "Розмір шрифту поля редагування тексту:")
+    y_cursor = y_cursor + S(25)
+    for i, opt in ipairs(text_size_options) do
+        local bx = x_start + ((i-1) * S(70))
+        local is_sel = (cfg.t_editor_size == opt)
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
+        if s_btn(bx, y_cursor, S(60), S(30), text_size_labels[i], nil, btn_bg) then
+            cfg.t_editor_size = opt
+            save_settings()
+        end
+    end
+
+    y_cursor = y_cursor + S(60)
+
+    -- Alignment
+    s_text(x_start, y_cursor, "Розмір шрифту поля редагування правки:")
+    y_cursor = y_cursor + S(25)
+    for i, opt in ipairs(text_size_options) do
+        local bx = x_start + ((i-1) * S(70))
+        local is_sel = (cfg.t_corr_size == opt)
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
+        if s_btn(bx, y_cursor, S(60), S(30), text_size_labels[i], nil, btn_bg) then
+            cfg.t_corr_size = opt
+            save_settings()
+        end
+    end
+
+    y_cursor = y_cursor + S(60)
     
     s_text(x_start, y_cursor, "Двигун та голос для озвучення:", F.std, "Провайдер і голос для озвучення")
     y_cursor = y_cursor + S(25)
@@ -21134,7 +21177,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     
     if not calc_only then
         local was_focused = director_state.input.focus
-        ui_text_input(input_draw_x, input_draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true)
+        ui_text_input(input_draw_x, input_draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true, F[cfg.t_corr_size])
     
         -- Check for changes to highlight button
         local has_changes = false
@@ -21252,8 +21295,8 @@ local function draw_table(input_queue)
 
     -- DO NOT modify F.std/F.bld globally
     -- Table Specific Font Logic
-    local tr_sizes_reader = {tr_S=18, tr_M=20, tr_L=24, tr_XL=30}
-    local tr_sizes_normal = {tr_S=14, tr_M=16, tr_L=18, tr_XL=22}
+    local tr_sizes_reader = {tr_S=18, tr_M=20, tr_L=22, tr_XL=26, tr_XXL=30, tr_XXXL=34}
+    local tr_sizes_normal = {tr_S=14, tr_M=16, tr_L=18, tr_XL=20, tr_XXL=24, tr_XXXL=28}
     local use_sz = (cfg.reader_mode and tr_sizes_reader[cfg.t_r_size] or tr_sizes_normal[cfg.t_r_size]) or 16
     
     gfx.setfont(F[cfg.t_r_size], cfg.p_font, S(use_sz))
@@ -22019,7 +22062,9 @@ local function draw_table(input_queue)
         
         -- Dynamic min_row_h based on font
         local extra_pad = S(6)
-        if cfg.t_r_size == "tr_XL" then extra_pad = S(9)
+        if cfg.t_r_size == "tr_XXXL" then extra_pad = S(11)
+        elseif cfg.t_r_size == "tr_XXL" then extra_pad = S(10)
+        elseif cfg.t_r_size == "tr_XL" then extra_pad = S(9)
         elseif cfg.t_r_size == "tr_L" then extra_pad = S(8)
         elseif cfg.t_r_size == "tr_M" then extra_pad = S(8)
         else extra_pad = S(8) end
