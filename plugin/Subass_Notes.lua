@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.3
+-- @version 6.4
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v6.3",
+    script_title = "Subass Notes v6.4",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -1030,7 +1030,7 @@ function STATS.get_session_summary()
     local proj = STATS.get_project()
     if not proj then return 0, 0 end
     
-    local takes = proj.total.lines_recorded or 0
+    local takes = (proj.total.lines_recorded or 0) + (proj.total.lines_recorded_outside or 0)
     local duration = STATS.duration_cache or 0
     
     -- Add currently active recording time if playing
