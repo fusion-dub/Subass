@@ -17735,7 +17735,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         -- Label
         gfx.setfont(F.std)
         set_color(UI.GET_P_COLOR(0.6))
-        local p_txt = string.format("Progress  %d%%", math.floor(progress))
+        local p_txt = string.format("Записано  %d%%", math.floor(progress))
         local pw, ph = gfx.measurestr(p_txt)
         gfx.x, gfx.y = cx - pw/2, pb_y - ph - S(6)
         gfx.drawstr(p_txt)
