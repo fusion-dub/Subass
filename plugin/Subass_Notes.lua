@@ -19176,6 +19176,7 @@ local function draw_settings()
         gfx.x = x_start
         gfx.y = screen_y
         gfx.drawstr(title)
+        set_color(UI.C_TXT)
     end
     
     -- Color Palette Helper
