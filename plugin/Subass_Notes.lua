@@ -20636,9 +20636,7 @@ function UTILS.integrate_correction_tracks()
         for i = 0, num_tracks - 1 do
             local t = reaper.GetTrack(proj, i)
             local _, t_name = reaper.GetSetMediaTrackInfo_String(t, "P_NAME", "", false)
-            if t_name == name then
-                return t, false 
-            end
+            if t_name == name then return t, false end
         end
         reaper.InsertTrackAtIndex(0, true)
         local track = reaper.GetTrack(proj, 0)
@@ -20646,8 +20644,8 @@ function UTILS.integrate_correction_tracks()
         return track, true 
     end
     
-    local corr_track, corr_new = find_or_create_track(corr_track_name)
-    local timer_track, timer_new = find_or_create_track(timer_track_name)
+    local corr_track = find_or_create_track(corr_track_name)
+    local timer_track = find_or_create_track(timer_track_name)
     
     local function move_to_top(t)
         local cur_idx = reaper.CSurf_TrackToID(t, false) - 1
@@ -20658,65 +20656,101 @@ function UTILS.integrate_correction_tracks()
     end
     
     move_to_top(corr_track)
-    move_to_top(timer_track) -- timer moves to index 0, pushing corr to 1
+    move_to_top(timer_track)
     
     -- Ensure fresh data
     rebuild_regions()
     update_marker_cache()
     local markers = prompter_drawer.marker_cache.markers
     
-    -- Clean the timer track
-    local num_items = reaper.CountTrackMediaItems(timer_track)
-    for i = num_items - 1, 0, -1 do
-        local item = reaper.GetTrackMediaItem(timer_track, i)
-        reaper.DeleteTrackMediaItem(timer_track, item)
+    -- Clean the tracks (Items AND FX)
+    for _, t in ipairs({timer_track, corr_track}) do
+        local n = reaper.CountTrackMediaItems(t)
+        for i = n - 1, 0, -1 do reaper.DeleteTrackMediaItem(t, reaper.GetTrackMediaItem(t, i)) end
+        
+        -- Clean Track FX
+        local nf = reaper.TrackFX_GetCount(t)
+        for i = nf - 1, 0, -1 do reaper.TrackFX_Delete(t, i) end
+        
+        -- Clean Input FX
+        local ni = reaper.TrackFX_GetRecCount(t)
+        for i = ni - 1, 0, -1 do reaper.TrackFX_Delete(t, 0x1000000 + i) end
     end
     
-    -- Clean the corr track
-    local num_items_corr = reaper.CountTrackMediaItems(corr_track)
-    for i = num_items_corr - 1, 0, -1 do
-        local item = reaper.GetTrackMediaItem(corr_track, i)
-        reaper.DeleteTrackMediaItem(corr_track, item)
-    end
-    
-    local num_fx = reaper.TrackFX_GetCount(timer_track)
-    for i = num_fx - 1, 0, -1 do
-        reaper.TrackFX_Delete(timer_track, i)
-    end
-    
-    -- Create MIDI Item matching length of the longest track, giving it an active take
-    local max_len = 0
-    local num_tracks = reaper.CountTracks(proj)
-    for i = 0, num_tracks - 1 do
-        local t = reaper.GetTrack(proj, i)
-        local item_count = reaper.CountTrackMediaItems(t)
-        if item_count > 0 then
-            local last_item = reaper.GetTrackMediaItem(t, item_count - 1)
-            local pos = reaper.GetMediaItemInfo_Value(last_item, "D_POSITION")
-            local len = reaper.GetMediaItemInfo_Value(last_item, "D_LENGTH")
-            if pos + len > max_len then
-                max_len = pos + len
+    -- Simplified robust helper to set FX code (Track or Take)
+    local function set_fx_code_simple(target, fx_idx, code_str, is_take)
+        -- Try API first
+        local setter = is_take and reaper.TakeFX_SetNamedConfigParm or reaper.TrackFX_SetNamedConfigParm
+        if setter then
+            if setter(target, fx_idx, "code", code_str) then return true end
+        end
+        
+        -- Fallback to chunk hacking (target is track or take)
+        local encoded = "|" .. code_str:gsub("\n", "\n|")
+        local ret, chunk
+        local item = is_take and reaper.GetMediaItemTake_Item(target) or nil
+        
+        if is_take then
+             ret, chunk = reaper.GetItemStateChunk(item, "", false)
+        else
+             ret, chunk = reaper.GetTrackStateChunk(target, "", false)
+        end
+        
+        if ret then
+            -- Find the fx_idx-th VIDEO_EFFECT block (0-indexed)
+            local current_idx = -1
+            local s_idx = 1
+            while true do
+                local s, e = chunk:find("<VIDEO_EFFECT", s_idx)
+                if not s then break end
+                current_idx = current_idx + 1
+                
+                if current_idx == fx_idx then
+                    local b_end = chunk:find("\n>", e)
+                    if b_end then
+                        local code_s, code_e = chunk:find("<CODE.-%s>", s)
+                        local new_chunk
+                        if code_s and code_s < b_end then
+                            new_chunk = chunk:sub(1, code_s - 1) .. "<CODE\n" .. encoded .. "\n>" .. chunk:sub(code_e + 1)
+                        else
+                            -- Find first newline after VIDEO_EFFECT to insert NI and CODE
+                            local head_end = chunk:find("\n", e) or e
+                            new_chunk = chunk:sub(1, head_end) .. "\n<CODE\n" .. encoded .. "\n>" .. chunk:sub(head_end + 1)
+                        end
+                        
+                        if is_take then
+                            reaper.SetItemStateChunk(item, new_chunk, false)
+                        else
+                            reaper.SetTrackStateChunk(target, new_chunk, false)
+                        end
+                        return true
+                    end
+                end
+                s_idx = e + 1
             end
         end
+        return false
     end
-    if max_len < 10 then max_len = 7200 end -- Fallback
-    
-    local item = reaper.CreateNewMIDIItemInProj(timer_track, 0, max_len, false)
-    local take = reaper.GetActiveTake(item)
-    reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "Subass Timer", true)
-    
-    -- Add Video Processor FX to the take
-    local fx_idx = reaper.TakeFX_AddByName(take, "Video processor", 1)
-    if fx_idx < 0 then fx_idx = reaper.TakeFX_AddByName(take, "Video Processor", 1) end
-    if fx_idx < 0 then fx_idx = reaper.TakeFX_AddByName(take, "video_processor", 1) end
-    
-    if fx_idx < 0 then
-        reaper.ShowConsoleMsg("Error: Не вдалося додати Video Processor на айтем. Перевірте, чи доступний він у вашій системі.\n")
+
+    -- --- TIMER TRACK ---
+    -- Item for Timer
+    local max_len = 0; local num_tracks = reaper.CountTracks(proj)
+    for i = 0, num_tracks - 1 do
+        local t = reaper.GetTrack(proj, i); local ic = reaper.CountTrackMediaItems(t)
+        if ic > 0 then
+            local li = reaper.GetTrackMediaItem(t, ic - 1)
+            local p = reaper.GetMediaItemInfo_Value(li, "D_POSITION")
+            local l = reaper.GetMediaItemInfo_Value(li, "D_LENGTH")
+            if p + l > max_len then max_len = p + l end
+        end
     end
-    
-    local vp_code = [=[// Subass Timer Output
-#text=""; 
-font="Arial";
+    if max_len < 10 then max_len = 7200 end
+    local t_item = reaper.CreateNewMIDIItemInProj(timer_track, 0, max_len, false)
+    local t_take = reaper.GetActiveTake(t_item)
+    reaper.GetSetMediaItemTakeInfo_String(t_take, "P_NAME", "Subass Timer", true)
+
+    local vp_timer = [=[// Subass Timer Output
+#text=""; font="Arial";
 
 //@param1:size 'text height' 0.06 0.01 0.2 0.06 0.001
 //@param2:ypos 'y position' 0.05 0 1 0.05 0.01
@@ -20748,190 +20782,100 @@ gfx_set(bgc,bgc,bgc,bga);
 bga>0?gfx_fillrect(bgfit?xp-b:0, yt, bgfit?txtw+b*2:project_w, txth+b*2);
 gfx_set(fgc,fgc,fgc,fga);
 gfx_str_draw(#text,xp,yt+b);]=]
-
-    local encoded_vp_code = "|" .. vp_code:gsub("\n", "\n|")
     
-    local ret, chunk = reaper.GetItemStateChunk(item, "", false)
-    if ret then
-        local start_idx = chunk:find("<VIDEO_EFFECT")
-        if start_idx then
-            local end_idx = chunk:find(">", start_idx)
-            if end_idx then
-                local block = chunk:sub(start_idx, end_idx - 1)
-                local header = block
-                local newline_pos = block:find("\n")
-                if newline_pos then
-                    header = block:sub(1, newline_pos - 1)
-                end
-                header = header:gsub("\r$", "") -- clean trailing return
-                
-                -- Wrap lines inside <CODE and > tag block
-                local new_chunk = chunk:sub(1, start_idx - 1) .. header .. "\n<CODE\n" .. encoded_vp_code .. "\n>\n" .. chunk:sub(end_idx)
-                
-                local success = reaper.SetItemStateChunk(item, new_chunk, false)
-                if not success then
-                    reaper.ShowConsoleMsg("Error: Не вдалося застосувати новий chunk до айтему!\n")
-                end
-            else
-                reaper.ShowConsoleMsg("Error: Не вдалося знайти закриваючий символ у chunk.\n")
-            end
-        else
-            reaper.ShowConsoleMsg("Error: Не вдалося знайти тег VIDEO_EFFECT у chunk айтему!\n")
-        end
+    local t_fx = reaper.TakeFX_AddByName(t_take, "Video processor", 1)
+    if t_fx >= 0 then 
+        set_fx_code_simple(t_take, t_fx, vp_timer, true)
+        reaper.TakeFX_SetParam(t_take, t_fx, 0, 0.06) -- size
+        reaper.TakeFX_SetParam(t_take, t_fx, 1, 0.05) -- ypos
+        reaper.TakeFX_SetParam(t_take, t_fx, 2, 0.95) -- xpos
+        reaper.TakeFX_SetParam(t_take, t_fx, 3, 0.5)  -- bga
+        reaper.TakeFX_SetParam(t_take, t_fx, 4, 1.0)  -- fga
     end
-    
-    -- Force initialize parameters directly to the engine
-    reaper.TakeFX_SetParam(take, fx_idx, 0, 0.06) -- size
-    reaper.TakeFX_SetParam(take, fx_idx, 1, 0.05) -- ypos
-    reaper.TakeFX_SetParam(take, fx_idx, 2, 0.95) -- xpos
-    reaper.TakeFX_SetParam(take, fx_idx, 3, 0.5)  -- bga
-    reaper.TakeFX_SetParam(take, fx_idx, 4, 1.0)  -- fga
-    
-    -- Repopulate SUBASS CORR track
-    local corr_vp_code = [=[// Subass Correction Output
-#text=""; 
-font="Arial";
 
+    -- --- CORRECTION MASTER (Track) ---
+    local c_master = reaper.TrackFX_AddByName(corr_track, "Video processor", false, -1)
+    local master_code = [=[// Subass Style Master
 //@param1:size 'text height' 0.05 0.01 0.2 0.05 0.001
 //@param2:ypos 'y position' 0.9 0 1 0.9 0.01
 //@param3:xpos 'x position' 0.5 0 1 0.5 0.01
 //@param4:bga 'bg alpha' 0.75 0 1 0.75 0.01
 //@param5:fga 'text alpha' 1.0 0 1 1.0 0.01
-
-border = 0.2;
-fgc = 1.0;
-bgc = 0.0;
-bgfit = 1;
-ignoreinput = 0;
-
-input = ignoreinput ? -2:0;
-project_wh_valid===0 ? input_info(input,project_w,project_h);
-gfx_a2=0;
-gfx_blit(input,1);
-gfx_setfont(size*project_h,font);
-
-strcmp(#text,"")==0 ? input_get_name(-1,#text);
-
-gfx_str_measure(#text,txtw,txth);
-b = (border*txth)|0;
-yt = ((project_h - txth - b*2)*ypos)|0;
-xp = (xpos * (project_w-txtw))|0;
-gfx_set(bgc,bgc,bgc,bga);
-bga>0?gfx_fillrect(bgfit?xp-b:0, yt, bgfit?txtw+b*2:project_w, txth+b*2);
-gfx_set(fgc,fgc,fgc,fga);
-gfx_str_draw(#text,xp,yt+b);]=]
-
-    local encoded_corr_vp = "|" .. corr_vp_code:gsub("\n", "\n|")
-
-    -- Sort markers for predictable 'next' access
-    table.sort(markers, function(a, b) return a.pos < b.pos end)
+gmem[1000]=size; gmem[1001]=ypos; gmem[1002]=xpos; gmem[1003]=bga; gmem[1004]=fga;
+gfx_blit(0,1);]=]
+    if c_master >= 0 then 
+        set_fx_code_simple(corr_track, c_master, master_code, false)
+        reaper.TrackFX_SetParam(corr_track, c_master, 0, 0.05)
+        reaper.TrackFX_SetParam(corr_track, c_master, 1, 0.9)
+        reaper.TrackFX_SetParam(corr_track, c_master, 2, 0.5)
+        reaper.TrackFX_SetParam(corr_track, c_master, 3, 0.75)
+    end
     
-    -- Sort regions by start time
-    table.sort(regions, function(a, b) return a.pos < b.pos end)
+    -- Slave Code Template (for items)
+    local slave_template = [=[// Subass Style Slave
+#text="INSERT_TEXT_HERE"; font="Arial"; border = 0.2; fgc = 1.0; bgc = 0.0; bgfit = 1;
+input_info(-1,project_w,project_h);
+(project_w <= 0 || project_h <= 0) ? ( project_w = 1920; project_h = 1080; );
+gfx_blit(0,1);
+size=gmem[1000] > 0 ? gmem[1000] : 0.05;
+ypos=gmem[1001] > 0 ? gmem[1001] : 0.9;
+xpos=gmem[1002] > 0 ? gmem[1002] : 0.5;
+bga=gmem[1003] > 0 ? gmem[1003] : 0.75;
+fga=gmem[1004] > 0 ? gmem[1004] : 1.0;
+size > 0 ? (
+  gfx_setfont(size*project_h,font);
+  gfx_str_measure(#text,txtw,txth);
+  b = (border*txth)|0; yt = ((project_h - txth - b*2)*ypos)|0; xp = (xpos * (project_w-txtw))|0;
+  gfx_set(bgc,bgc,bgc,bga); bga>0?gfx_fillrect(bgfit?xp-b:0, yt, bgfit?txtw+b*2:project_w, txth+b*2);
+  gfx_set(fgc,fgc,fgc,fga); gfx_str_draw(#text,xp,yt+b);
+);]=]
 
+    -- Populate CORR Items
+    table.sort(markers, function(a, b) return a.pos < b.pos end)
+    table.sort(regions, function(a, b) return a.pos < b.pos end)
     for i, m in ipairs(markers) do
-        local in_rgn = false
-        local r_obj = nil
-        
-        -- Identify containing region
+        local in_rgn = false; local r_obj = nil
         for _, r in ipairs(regions) do
-            if m.pos >= r.pos and m.pos < r.rgnend then
-                r_obj = r
-                in_rgn = true
-                break
-            end
+            if m.pos >= r.pos and m.pos < r.rgnend then r_obj = r; in_rgn = true; break end
         end
-        
-        -- Default start/end
-        local start_pos = m.pos
-        local end_pos = m.pos + 10 -- Fallback to 10s if not in region
-        
+        local sp = m.pos; local ep = m.pos + 10
         if in_rgn then
-            -- If this is the FIRST marker in this region, start at region start
             local is_first = true
             for j = 1, i - 1 do
                 local m_prev = markers[j]
-                if m_prev.pos >= r_obj.pos and m_prev.pos < r_obj.rgnend then
-                    is_first = false
-                    break
-                end
+                if m_prev.pos >= r_obj.pos and m_prev.pos < r_obj.rgnend then is_first = false; break end
             end
-            
-            if is_first then start_pos = r_obj.pos end
-            end_pos = r_obj.rgnend
+            if is_first then sp = r_obj.pos end
+            ep = r_obj.rgnend
         end
-        
-        -- CLAMP: Ensure no overlap with the next marker
         if i < #markers then
             local next_m = markers[i+1]
-            if next_m.pos < end_pos then
-                end_pos = next_m.pos
-            end
+            if next_m.pos < ep then ep = next_m.pos end
         end
-        
-        -- CLAMP: If we are between regions, don't overlap with the next region start
-        if not in_rgn then
-             for _, r in ipairs(regions) do
-                 if r.pos > m.pos and r.pos < end_pos then
-                     end_pos = r.pos
-                     break -- Regions are sorted, first one after m is the closest
-                 end
-             end
-        end
-        
-        if end_pos > start_pos + 0.001 then
-            local display_name = m.name or ""
-            
-            -- Automatic word wrap (approx 80 chars)
-            if #display_name > 80 then
-                local wrapped = {}
-                local cur_l = ""
-                for word in display_name:gmatch("%S+") do
-                    if #cur_l + #word + 1 > 80 then
-                        table.insert(wrapped, cur_l)
-                        cur_l = word
-                    else
-                        cur_l = (cur_l == "" and word or cur_l .. " " .. word)
-                    end
+        if ep > sp + 0.001 then
+            local dn = m.name or ""
+            if #dn > 80 then
+                local w = {}; local cl = ""
+                for word in dn:gmatch("%S+") do
+                    if #cl + #word + 1 > 80 then table.insert(w, cl); cl = word
+                    else cl = (cl == "" and word or cl .. " " .. word) end
                 end
-                table.insert(wrapped, cur_l)
-                display_name = table.concat(wrapped, "\n")
+                table.insert(w, cl); dn = table.concat(w, "\n")
             end
-            
-            local m_item = reaper.CreateNewMIDIItemInProj(corr_track, start_pos, end_pos, false)
-            local m_take = reaper.GetActiveTake(m_item)
-            if m_take then
-                reaper.GetSetMediaItemTakeInfo_String(m_take, "P_NAME", display_name, true)
-                
-                local m_fx = reaper.TakeFX_AddByName(m_take, "Video processor", 1)
-                if m_fx < 0 then m_fx = reaper.TakeFX_AddByName(m_take, "Video Processor", 1) end
-                
-                if m_fx >= 0 then
-                    local ret, m_chunk = reaper.GetItemStateChunk(m_item, "", false)
-                    if ret then
-                        local s_idx = m_chunk:find("<VIDEO_EFFECT")
-                        if s_idx then
-                            local e_idx = m_chunk:find(">", s_idx)
-                            if e_idx then
-                                local m_block = m_chunk:sub(s_idx, e_idx - 1)
-                                local m_header = m_block:find("\n") and m_block:sub(1, m_block:find("\n") - 1) or m_block
-                                m_header = m_header:gsub("\r$", "")
-                                local new_m_chunk = m_chunk:sub(1, s_idx - 1) .. m_header .. "\n<CODE\n" .. encoded_corr_vp .. "\n>\n" .. m_chunk:sub(e_idx)
-                                reaper.SetItemStateChunk(m_item, new_m_chunk, false)
-                                
-                                reaper.TakeFX_SetParam(m_take, m_fx, 0, 0.05) -- size
-                                reaper.TakeFX_SetParam(m_take, m_fx, 1, 0.9)  -- ypos
-                                reaper.TakeFX_SetParam(m_take, m_fx, 2, 0.5)  -- xpos
-                                reaper.TakeFX_SetParam(m_take, m_fx, 3, 0.75) -- bga
-                                reaper.TakeFX_SetParam(m_take, m_fx, 4, 1.0)  -- fga
-                            end
-                        end
-                    end
+            local mi = reaper.CreateNewMIDIItemInProj(corr_track, sp, ep, false)
+            local mt = reaper.GetActiveTake(mi)
+            if mt then
+                reaper.GetSetMediaItemTakeInfo_String(mt, "P_NAME", dn, true)
+                local mfx = reaper.TakeFX_AddByName(mt, "Video processor", 1)
+                if mfx >= 0 then 
+                    local safe_dn = dn:gsub('"', [[']])
+                    local item_code = slave_template:gsub("INSERT_TEXT_HERE", function() return safe_dn end)
+                    set_fx_code_simple(mt, mfx, item_code, true) 
                 end
             end
         end
     end
-    
+
     reaper.Undo_EndBlock("Інтегрувати трек правок", -1)
     reaper.UpdateArrange()
 end
