@@ -20797,7 +20797,7 @@ gfx_str_draw(#text,xp,yt+b);]=]
     local c_master = reaper.TrackFX_AddByName(corr_track, "Video processor", false, -1)
     local master_code = [=[// Subass Style Master
 //@param1:size 'text height' 0.05 0.01 0.2 0.05 0.001
-//@param2:ypos 'y position' 0.9 0 1 0.9 0.01
+//@param2:ypos 'y position' 0.5 0 1 0.5 0.01
 //@param3:xpos 'x position' 0.5 0 1 0.5 0.01
 //@param4:bga 'bg alpha' 0.75 0 1 0.75 0.01
 //@param5:fga 'text alpha' 1.0 0 1 1.0 0.01
@@ -20806,7 +20806,7 @@ gfx_blit(0,1);]=]
     if c_master >= 0 then 
         set_fx_code_simple(corr_track, c_master, master_code, false)
         reaper.TrackFX_SetParam(corr_track, c_master, 0, 0.05)
-        reaper.TrackFX_SetParam(corr_track, c_master, 1, 0.9)
+        reaper.TrackFX_SetParam(corr_track, c_master, 1, 0.5)
         reaper.TrackFX_SetParam(corr_track, c_master, 2, 0.5)
         reaper.TrackFX_SetParam(corr_track, c_master, 3, 0.75)
     end
@@ -20818,7 +20818,7 @@ input_info(-1,project_w,project_h);
 (project_w <= 0 || project_h <= 0) ? ( project_w = 1920; project_h = 1080; );
 gfx_blit(0,1);
 size=gmem[1000] > 0 ? gmem[1000] : 0.05;
-ypos=gmem[1001] > 0 ? gmem[1001] : 0.9;
+ypos=gmem[1001] > 0 ? gmem[1001] : 0.5;
 xpos=gmem[1002] > 0 ? gmem[1002] : 0.5;
 bga=gmem[1003] > 0 ? gmem[1003] : 0.75;
 fga=gmem[1004] > 0 ? gmem[1004] : 1.0;
@@ -20852,6 +20852,15 @@ size > 0 ? (
             local next_m = markers[i+1]
             if next_m.pos < ep then ep = next_m.pos end
         end
+        
+        -- NEW: Clip EP by the start of the next available region (prevents overlap)
+        for _, r in ipairs(regions) do
+            if r.pos > m.pos and r.pos < ep then
+                ep = r.pos
+                break
+            end
+        end
+
         if ep > sp + 0.001 then
             local dn = m.name or ""
             if #dn > 80 then
