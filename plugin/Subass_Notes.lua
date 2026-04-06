@@ -20765,13 +20765,13 @@ bgfit = 1;
 ignoreinput = 0;
 
 input = ignoreinput ? -2:0;
-project_wh_valid===0 ? input_info(input,project_w,project_h);
+input_info(-1,project_w,project_h); (project_w<=0||project_h<=0)?(project_w=1920;project_h=1080;);
 gfx_a2=0;
 gfx_blit(input,1);
 gfx_setfont(size*project_h,font);
 
 t = floor((project_time + project_timeoffs) * framerate + 0.0000001);
-f = ceil(framerate);
+f = ceil(framerate); f<=0?f=25;
 sprintf(#text,"%02d:%02d:%02d", floor(t/(f*3600)), floor(t/(f*60))%60, floor(t/f)%60);
 
 gfx_str_measure(#text,txtw,txth);
