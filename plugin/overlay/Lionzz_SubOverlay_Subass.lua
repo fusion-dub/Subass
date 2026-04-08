@@ -1813,8 +1813,14 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                 reaper.ImGui_InvisibleButton(ctx, stable_id, w + 4 + extra_w, line_h + 4)
                 
                 -- Comment Tooltip
-                if tok.comment and reaper.ImGui_IsItemHovered(ctx) then
-                    reaper.ImGui_SetTooltip(ctx, tok.comment)
+                if tok.comment then
+                    if reaper.ImGui_IsItemHovered(ctx) then
+                        reaper.ImGui_SetTooltip(ctx, tok.comment)
+                    end
+                elseif (show_assimilation or show_euphonics) and tok.assimilation_ranges and #tok.assimilation_ranges > 0 then
+                    if tok.orig_text then
+                        tooltip("← " .. tok.orig_text)
+                    end
                 end
 
                 -- Dictionary / Edit Logic
