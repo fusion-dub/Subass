@@ -17276,6 +17276,13 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
                 if UI_STATE.tooltip_state.hover_id ~= id then UI_STATE.tooltip_state.hover_id, UI_STATE.tooltip_state.start_time = id, reaper.time_precise() end
                 UI_STATE.tooltip_state.text, UI_STATE.tooltip_state.immediate = span.comment, true
             end
+        elseif span.u_wave and span.orig_word and (not dict_modal.show) then
+            -- Тултіп асиміляції: показуємо оригінальне слово (нижчий пріоритет ніж коментар)
+            if gfx.mouse_x >= cursor_x and gfx.mouse_x <= cursor_x + span.width and gfx.mouse_y >= y_base and gfx.mouse_y <= y_base + span.height then
+                local id = "assim_" .. tostring(span)
+                if UI_STATE.tooltip_state.hover_id ~= id then UI_STATE.tooltip_state.hover_id, UI_STATE.tooltip_state.start_time = id, reaper.time_precise() end
+                UI_STATE.tooltip_state.text = "← " .. span.orig_word
+            end
         end
         draw_text_with_stress_marks(span.text, cfg.all_caps, cfg.all_caps_acute)
         if span.comment then
