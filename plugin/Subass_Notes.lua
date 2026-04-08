@@ -16564,56 +16564,8 @@ local function draw_prompter_drawer(input_queue)
             set_color(UI.C_TAB_INA)
             gfx.rect(drawer_x, drawer_top_y, prompter_drawer.width, gfx.h - drawer_top_y, 1)
             
-            -- --- HEADER ROW (Filter + Close) ---
+            -- (Header drawing logic moved to the end for layering, but height is needed here)
             local header_h = S(34)
-            local padding = S(5)
-            local close_sz = S(24)
-            local filter_w = prompter_drawer.width - close_sz - (padding * 3)
-            
-            -- Filter Input
-            -- Reserve space for results count when filter has text
-            gfx.setfont(F.std)
-            local p_counter_reserve = S(0)
-            if prompter_drawer.filter.text ~= "" and prompter_drawer.filtered_cache.list then
-                local p_count_text = tostring(#prompter_drawer.filtered_cache.list)
-                p_counter_reserve = gfx.measurestr(p_count_text) + S(16)
-            end
-            ui_text_input(drawer_x + padding, drawer_top_y + padding, filter_w - p_counter_reserve, close_sz, prompter_drawer.filter, "Пошук... (|, &)", input_queue)
-
-            -- Draw results count to the right of filter input
-            if p_counter_reserve > 0 then
-                local p_count_text = tostring(#prompter_drawer.filtered_cache.list)
-                local p_count_w = gfx.measurestr(p_count_text)
-                local p_count_x = drawer_x + padding + filter_w - p_count_w - S(8)
-                local p_count_y = drawer_top_y + padding + (close_sz - gfx.texth) / 2
-                set_color(UI.C_TXT_DIM)
-                gfx.x, gfx.y = p_count_x, p_count_y
-                gfx.drawstr(p_count_text)
-            end
-            
-            -- Close Button next to filter
-            local close_x = drawer_x + padding + filter_w + padding
-            local close_y = drawer_top_y + padding
-            local close_hover = UI_STATE.window_focused and (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
-                                 gfx.mouse_y >= close_y and gfx.mouse_y <= close_y + close_sz)
-            
-            if close_hover then
-                set_color(UI.C_HILI_RED)
-                gfx.rect(close_x, close_y, close_sz, close_sz, 1)
-            end
-
-            set_color(close_hover and UI.C_BTN_ERROR or UI.C_TXT)
-            gfx.setfont(F.std)
-            gfx.x = close_x + (close_sz - gfx.measurestr("X")) / 2
-            gfx.y = close_y + (close_sz - gfx.texth) / 2
-            gfx.drawstr("X")
-            
-            if close_hover and gfx.mouse_cap == 1 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
-                prompter_drawer.open = false
-                save_settings()
-                UI_STATE.mouse_handled = true
-            end
-
             local table_y = drawer_top_y + header_h
             local base_row_h = S(28)
             local col_id_w = S(40)
@@ -17016,8 +16968,8 @@ local function draw_prompter_drawer(input_queue)
                         end
                     end
                     
-                    -- ID ("M" + ID, respect boundary)
-                    if row_y >= table_y and row_y + base_row_h <= gfx.h then
+                    -- ID ("M" + ID, allow partial overlapping with header area)
+                    if row_y + base_row_h > table_y and row_y <= gfx.h then
                         gfx.setfont(F.tip)
                         local draw_x = drawer_x + S(5)
                         local draw_y = row_y + (base_row_h - gfx.texth) / 2
@@ -17038,8 +16990,8 @@ local function draw_prompter_drawer(input_queue)
                     gfx.setfont(F.std)
                     for l_idx, line_text in ipairs(m.lines) do
                         local line_y = row_y + (l_idx - 1) * base_row_h
-                        -- Strictly clip each line to table_y
-                        if line_y >= table_y and line_y + base_row_h <= gfx.h then
+                        -- Allow line to draw even if it partially overlaps with header area
+                        if line_y + base_row_h > table_y and line_y <= gfx.h then
                             local lx = col_text_x + S(5)
                             local ly = line_y + (base_row_h - gfx.texth) / 2
                             
@@ -17140,6 +17092,57 @@ local function draw_prompter_drawer(input_queue)
                     prompter_drawer.dragging = false
                     save_settings()
                 end
+            end
+            -- --- HEADER ROW (Re-drawn on top for perfect layering) ---
+            local padding = S(5)
+            local close_sz = S(24)
+            local filter_w = prompter_drawer.width - close_sz - (padding * 3)
+            
+            -- Header Background
+            set_color(UI.C_TAB_INA)
+            gfx.rect(drawer_x, drawer_top_y, prompter_drawer.width, header_h, 1)
+
+            -- Filter Input
+            gfx.setfont(F.std)
+            local p_counter_reserve = S(0)
+            if prompter_drawer.filter.text ~= "" and prompter_drawer.filtered_cache.list then
+                local p_count_text = tostring(#prompter_drawer.filtered_cache.list)
+                p_counter_reserve = gfx.measurestr(p_count_text) + S(16)
+            end
+            ui_text_input(drawer_x + padding, drawer_top_y + padding, filter_w - p_counter_reserve, close_sz, prompter_drawer.filter, "Пошук... (|, &)", input_queue)
+
+            -- Results count
+            if p_counter_reserve > 0 then
+                local p_count_text = tostring(#prompter_drawer.filtered_cache.list)
+                local p_count_w = gfx.measurestr(p_count_text)
+                local p_count_x = drawer_x + padding + filter_w - p_count_w - S(8)
+                local p_count_y = drawer_top_y + padding + (close_sz - gfx.texth) / 2
+                set_color(UI.C_TXT_DIM)
+                gfx.x, gfx.y = p_count_x, p_count_y
+                gfx.drawstr(p_count_text)
+            end
+            
+            -- Close Button
+            local close_x = drawer_x + padding + filter_w + padding
+            local close_y = drawer_top_y + padding
+            local close_hover = UI_STATE.window_focused and (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
+                                 gfx.mouse_y >= close_y and gfx.mouse_y <= close_y + close_sz)
+            
+            if close_hover then
+                set_color(UI.C_HILI_RED)
+                gfx.rect(close_x, close_y, close_sz, close_sz, 1)
+            end
+
+            set_color(close_hover and UI.C_BTN_ERROR or UI.C_TXT)
+            gfx.setfont(F.std)
+            gfx.x = close_x + (close_sz - gfx.measurestr("X")) / 2
+            gfx.y = close_y + (close_sz - gfx.texth) / 2
+            gfx.drawstr("X")
+            
+            if close_hover and gfx.mouse_cap == 1 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
+                prompter_drawer.open = false
+                save_settings()
+                UI_STATE.mouse_handled = true
             end
         end
     end
