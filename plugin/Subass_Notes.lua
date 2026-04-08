@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.4
+-- @version 6.5
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v6.4",
+    script_title = "Subass Notes v6.5",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -4370,33 +4370,52 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
 
     -- 1. ASSIMILATION
     if cfg.text_assimilations and not no_assimilation then
+        -- Правила асиміляції. Кожен запис: {паттерн, заміна [, умови]}
+        -- Умови (необов'язковий 3-й елемент):
+        --   not_word_start  = true  →  НЕ застосовувати якщо паттерн на самому початку слова
+        --   word_start_only = true  →  застосовувати ЛИШЕ якщо паттерн на самому початку слова
         local rules = {
             -- 1. Найдовші ланцюжки та специфічні спрощення (4 та 3 літери)
-            {"ться", "цця"},
-            {"стськ", "сськ"},
-            {"нтськ", "нськ"},
-            {"нтст", "нст"},
-            {"стці", "сці"},
-            {"стч", "шч"},
-            {"стд", "зд"},
-            {"стс", "сс"},
+            {"ться", "цця"},           -- робиться → робицця
+            {"стськ", "сськ"},         -- туристський → туриський
+            {"нтськ", "нськ"},         -- студентський → студенський
+            {"нтст", "нст"},           -- студентство → студенство
+            {"стці", "сці"},           -- хустці → хусці
+            {"стч", "шч"},             -- (рідко: хвостчик)
+            {"стд", "зд"},             -- шістдесят → шіздесят
+            {"стс", "сс"},             -- шістсот → шіссот
 
-            -- 2. Специфічні випадки дієслів (3 літери)
-            {"шся", "сся"},
-            {"чся", "цся"},
+            -- 2. Специфічні випадки дієслів та відмінювання (3 літери)
+            {"шся", "сся"},            -- вмиваєшся → вмиваєсся
+            {"чся", "цся"},            -- мучся → муцся
+            {"шці", "сці"},            -- дошці → досці  [ш+ц' → с'ц']
 
             -- 3. Подвійні приголосні на межі (2 літери)
-            {"жці", "зці"},
-            {"чці", "цці"},
-            {"тці", "цці"},
-            {"зж", "жж"},
-            {"зш", "шш"},
-            {"сш", "шш"},
-            {"зч", "жч"},
-            {"сч", "шч"},
-            {"тч", "чч"},
-            {"дч", "чч"},
-            {"тс", "ц"} 
+            {"жці", "зці"},            -- книжці → книзці  [ж+ц' → з'ц']
+            {"чці", "цці"},            -- качці → кацці  [ч+ц' → ц':]
+            {"тці", "цці"},            -- тітці → тіцці  [т+ц' → ц':]
+            {"зж", "жж"},              -- зжати → жжати
+
+            -- зш: позиційно залежне (правило УМ)
+            --   початок слова: зш → шш  (зшити → шшити)  [ж → ш перед глухим ш]
+            --   середина слова: зш → жш  (безшумний → бежшумний)
+            {"зш", "шш", {word_start_only = true}},
+            {"зш", "жш", {not_word_start = true}},
+
+            {"сш", "шш"},              -- сш → шш
+
+            -- зч: позиційно залежне (правило УМ)
+            --   початок слова: зч → шч  (зчепити → шчепити)  [з оглушується перед ч → с, + с→ш]
+            --   середина слова: зч → жч  (безчинство → бежчинство)
+            {"зч", "шч", {word_start_only = true}},
+            {"зч", "жч", {not_word_start = true}},
+
+            {"сч", "щ"},               -- сч → щ [шч]: козацька+ина → козащина; Борисченко → Борищенко
+            {"тч", "чч"},              -- вотчина → воччина  [т+ч → ч:]
+            {"тш", "чш"},              -- багатший → багачший  [т+ш → чш]
+            {"дч", "чч"},              -- (рідко)
+            {"дш", "чш"},              -- підшити → піч**ш**ити  [д→т→ч перед ш]
+            {"тс", "ц"}               -- братство → брацтво  [т+с → ц]
         }
         local new_spans = {}
         local function process_text(text, span, orig_word)
@@ -4405,7 +4424,17 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
             local l_text = utf8_lower(text)
             for _, r in ipairs(rules) do
                 local p = l_text:find(r[1], 1, true)
-                if p and (not b_pos or p < b_pos) then b_pos, b_rule = p, r end
+                if p then
+                    local skip = false
+                    local guard = r[3]
+                    if guard then
+                        -- not_word_start: блокувати якщо паттерн на самому початку слова
+                        if guard.not_word_start  and p == 1 then skip = true end
+                        -- word_start_only: блокувати якщо паттерн НЕ на початку слова
+                        if guard.word_start_only and p ~= 1 then skip = true end
+                    end
+                    if not skip and (not b_pos or p < b_pos) then b_pos, b_rule = p, r end
+                end
             end
             if b_pos then
                 local before = text:sub(1, b_pos - 1)
