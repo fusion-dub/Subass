@@ -19596,7 +19596,7 @@ local function draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Відображати заключну статистику", cfg.show_final_stats, "Відображення міні статистику в кінці реплік.") then
+    if checkbox(x_start, y_cursor, "Відображати заключну статистику", cfg.show_final_stats, "Відображати статистику в кінці реплік по тому скільки зрблено дублів, скільки витрачено часу.") then
         cfg.show_final_stats = not cfg.show_final_stats
         save_settings()
     end
@@ -21656,6 +21656,16 @@ local function draw_table(input_queue)
     -- LAYOUT INITIALIZATION (Calculate avail sizes first)
     local w_director = cfg.w_director or S(300)
     local is_dir_right = (cfg.director_layout == "right")
+    
+    if cfg.director_mode and is_dir_right then 
+        -- Prevent overlapping the main list (leaving at least S(150) for the left side)
+        local max_allowed_w = math.max(S(120), gfx.w - S(150))
+        if w_director > max_allowed_w then
+            w_director = max_allowed_w
+            if not director_resize_drag then cfg.w_director = w_director end
+        end
+    end
+    
     local h_director = (cfg.director_mode and not is_dir_right) and (dynamic_director_h or S(150)) or 0
     if cfg.director_mode and is_dir_right then h_director = 0 end
     
@@ -22470,6 +22480,8 @@ local function draw_table(input_queue)
 
     -- Logic for manual vs dynamic height is handled at top.
     -- Just need to ensure `h_director` variable is correct for Bottom/Manual logic below.
+    local content_y = start_y + h_header
+
     if cfg.director_mode and not is_dir_right and cfg.h_director then
         local manual = cfg.h_director or S(150)
         if dynamic_director_h and dynamic_director_h > manual and not director_resize_drag then
@@ -22477,9 +22489,16 @@ local function draw_table(input_queue)
         else
             h_director = manual
         end
+        
+        -- Prevent overlapping the top toolbar AND leave space for at least 1 row (S(40))
+        local max_allowed_h = math.max(S(84), gfx.h - content_y - S(40))
+        if h_director > max_allowed_h then
+            h_director = max_allowed_h
+            -- Permanently shrink the saved setting so it doesn't bounce back
+            if not director_resize_drag then cfg.h_director = h_director end
+        end
     end
     
-    local content_y = start_y + h_header
     local avail_h = gfx.h - content_y - h_director
     if avail_h < 0 then avail_h = 0 end
 
@@ -23244,8 +23263,9 @@ local function draw_table(input_queue)
             if needed < S(84) then needed = S(84) end
             
             -- Auto-expand logic: If content needs more than current setting AND we are not resizing
+            local max_allowed_dynamic = math.max(S(84), gfx.h - content_y - S(40))
             if not director_resize_drag and needed > h_director then
-                cfg.h_director = needed
+                cfg.h_director = math.min(needed, max_allowed_dynamic)
             end
             dynamic_director_h = needed -- Keep tracking for ref
         end
@@ -23283,8 +23303,9 @@ local function draw_table(input_queue)
             
             if director_resize_drag and gfx.mouse_cap == 1 then
                 local new_w = gfx.w - gfx.mouse_x
-                if new_w < S(250) then new_w = S(250) end
-                if new_w > gfx.w - S(150) then new_w = gfx.w - S(150) end
+                if new_w < S(120) then new_w = S(120) end
+                local max_w = gfx.w - S(150)
+                if new_w > max_w then new_w = max_w end
                 cfg.w_director = new_w
             elseif director_resize_drag then
                 director_resize_drag = false
@@ -23312,8 +23333,8 @@ local function draw_table(input_queue)
             
             if director_resize_drag and gfx.mouse_cap == 1 then
                 local new_h = gfx.h - gfx.mouse_y
-                if new_h < S(104) then new_h = S(104) end
-                local max_h = gfx.h - S(150)
+                if new_h < S(84) then new_h = S(84) end
+                local max_h = gfx.h - content_y - S(40)
                 if new_h > max_h then new_h = max_h end
                 cfg.h_director = new_h
             elseif director_resize_drag then
