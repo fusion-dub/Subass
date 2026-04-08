@@ -21141,15 +21141,33 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     if not calc_only and UI_STATE.window_focused and gfx.mouse_wheel ~= 0 and
        gfx.mouse_x >= panel_x and gfx.mouse_x <= panel_x + panel_w and
        gfx.mouse_y >= panel_y and gfx.mouse_y <= actor_area_bottom then
-        director_state.target_scroll_y = (director_state.target_scroll_y or 0) - (gfx.mouse_wheel / 120) * S(30)
+        local step = btn_h + S(5)
+        -- Accumulate the wheel to correctly handle smooth trackpads (macOS)
+        director_state.wheel_accum = (director_state.wheel_accum or 0) + gfx.mouse_wheel
+        local wheel_sensitivity = 80 -- Threshold per row jump
+        
+        local new_scroll = director_state.target_scroll_y or 0
+        while director_state.wheel_accum >= wheel_sensitivity do
+            -- Scroll UP (negative Y): snap to the closest grid point below the current value
+            new_scroll = math.floor((new_scroll - 1) / step) * step
+            if new_scroll < 0 then new_scroll = 0 end
+            director_state.wheel_accum = director_state.wheel_accum - wheel_sensitivity
+        end
+        while director_state.wheel_accum <= -wheel_sensitivity do
+            -- Scroll DOWN (positive Y): snap to the closest grid point above the current value
+            new_scroll = math.ceil((new_scroll + 1) / step) * step
+            director_state.wheel_accum = director_state.wheel_accum + wheel_sensitivity
+        end
+        
+        director_state.target_scroll_y = new_scroll
+
         -- Clamp immediately using cached max_scroll from previous frame to prevent overshoot
         local cached_max = director_state.cached_max_scroll or 0
         director_state.target_scroll_y = math.max(0, math.min(cached_max, director_state.target_scroll_y))
         gfx.mouse_wheel = 0
     end
-    -- Smooth scroll interpolation
-    director_state.scroll_y = (director_state.scroll_y or 0) + ((director_state.target_scroll_y or 0) - (director_state.scroll_y or 0)) * 0.4
-    if math.abs(director_state.scroll_y - director_state.target_scroll_y) < 0.5 then director_state.scroll_y = director_state.target_scroll_y end
+    -- Instant step scroll (no smooth interpolation)
+    director_state.scroll_y = director_state.target_scroll_y or 0
 
     for i, actor in ipairs(director_actors) do
         local label = actor
@@ -21401,6 +21419,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         local total_actors_h = y + btn_h + S(20) -- total height + bottom padding
         local viewport_h = actor_area_bottom - panel_y
         local max_scroll = math.max(0, total_actors_h - viewport_h)
+        
         director_state.cached_max_scroll = max_scroll  -- cache for next frame pre-clamp
         director_state.target_scroll_y = math.max(0, math.min(max_scroll, director_state.target_scroll_y or 0))
         -- Also clamp scroll_y itself to prevent overshoot snap-back
