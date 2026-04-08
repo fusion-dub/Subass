@@ -261,7 +261,7 @@ local F = {
     dict_bld_sm = 8, -- 16px
     tip = 9, -- 12px
     cor = 10, -- Corrections font
-    tip_bld = 11, -- Bold tooltip font
+    tip_big = 11, -- Bigger tooltip font
 
     -- Table fonts
     tr_S = 12,
@@ -313,7 +313,7 @@ local function update_prompter_fonts()
     
     -- Tooltip / Small Font
     gfx.setfont(F.tip, "Arial", S(12))
-    gfx.setfont(F.tip_bld, "Arial", S(12), string.byte('b'))
+    gfx.setfont(F.tip_big, "Arial", S(16))
 
     -- Reader Mode Table Font
     gfx.setfont(F.tr_S, cfg.p_font, S(18))
@@ -2724,7 +2724,7 @@ local function draw_tooltip()
     local now = reaper.time_precise()
     if not UI_STATE.tooltip_state.immediate and (now - UI_STATE.tooltip_state.start_time < 1.0) then return end
     
-    gfx.setfont(F.tip)
+    gfx.setfont(F.tip_big)
     
     local max_allowed_w = math.min(400, gfx.w - 40)
     local padding = 8
