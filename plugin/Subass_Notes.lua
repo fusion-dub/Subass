@@ -1032,6 +1032,34 @@ function STATS.update_cache()
     STATS.duration_cache = total
 end
 
+--- Clear statistics
+function STATS.clear_stats()
+    local res = reaper.MB("Невже ваша статистика настільки ганебна, що ви вирішили знищити всі докази?\n\nОбережно: цей \"акт милосердя\" неможливо скасувати.", "Очищення статистики", 4)
+    if res == 6 then -- Yes (6)
+        STATS.data = {
+            meta_version = 1,
+            project_id = STATS.get_project_id(),
+            project_name = reaper.GetProjectName(0, ""),
+            project_path = reaper.GetProjectPath("") .. "/" .. reaper.GetProjectName(0, ""),
+            created_date = STATS.get_date_string(),
+            last_updated = os.time(),
+            metadata = {
+                total_lines_in_script = 0,
+                total_words = 0,
+                edits_count = 0
+            },
+            total = {
+                lines_recorded = 0
+            },
+            duration = {},
+            daily_stats = {}
+        }
+        STATS.dirty = true
+        STATS.update_cache()
+        STATS.save()
+    end
+end
+
 --- Get session summary for display
 function STATS.get_session_summary()
     local proj = STATS.get_project()
@@ -17316,13 +17344,21 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
     return start_x, y_base, total_w, (#line_spans > 0 and line_spans[1].height or gfx.texth)
 end
 
-local function handle_prompter_context_menu()
+local function handle_prompter_context_menu(is_show_final_stats)
     if is_mouse_clicked(2) and not UI_STATE.mouse_handled then
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local is_docked = gfx.dock(-1) > 0
         local dock_check = is_docked and "!" or ""
         local slider_check = cfg.prompter_slider_mode and "• " or ""
-        local menu = "Відобразити SubOverlay від Lionzz||Знайти нове слово в ГОРОСі|Відобразити Словник|" .. slider_check .. "Режим Слайдера||Глобальний пошук реплік||" .. dock_check .. "Закріпити вікно (Dock)"
+        
+        local dock_idx = 6
+        local stats_str = ""
+        if is_show_final_stats then
+            stats_str = "|Очистити мою статистику"
+            dock_idx = 7
+        end
+        
+        local menu = "Відобразити SubOverlay від Lionzz||Знайти нове слово в ГОРОСі|Відобразити Словник|" .. slider_check .. "Режим Слайдера||Глобальний пошук реплік" .. stats_str .. "||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -17341,7 +17377,9 @@ local function handle_prompter_context_menu()
             save_settings()
         elseif ret == 5 then
             if SEARCH_ITEM.open then SEARCH_ITEM.open() end
-        elseif ret == 6 then
+        elseif is_show_final_stats and ret == 6 then
+            STATS.clear_stats()
+        elseif ret == dock_idx then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
@@ -17804,6 +17842,8 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         gfx.x, gfx.y = cx - spw/2, pb_y + pb_h + S(18)
         set_color(UI.GET_P_COLOR(0.4))
         gfx.drawstr(attempts_txt)
+
+        return true
     else
         -- Simplified message: always "End of Subtitles"
         set_color(UI.GET_P_COLOR(0.3))
@@ -17817,6 +17857,8 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         elseif cfg.p_valign == "bottom" then gfx.y = gfx.h - th - S(50) end
         gfx.drawstr(txt)
     end
+
+    return false
 end
 
 local function draw_prompter_slider(input_queue)
@@ -18164,8 +18206,9 @@ local function draw_prompter_slider(input_queue)
         end
     end
 
+    local is_show_final_stats = false
     if #prompter_slider_cache.items == 0 then
-        STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
+        is_show_final_stats = STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
     end
 
     -- Info Overlay graphics (at the end of content)
@@ -18175,7 +18218,7 @@ local function draw_prompter_slider(input_queue)
 
     if cfg.p_drawer then draw_prompter_drawer(input_queue) end
 
-    handle_prompter_context_menu()
+    handle_prompter_context_menu(is_show_final_stats)
 
     -- Post-interaction check: resume auto-scroll if clicked on background
     if is_mouse_clicked(1) and not UI_STATE.mouse_handled then
@@ -18211,13 +18254,13 @@ local function draw_prompter(input_queue)
         
         if gfx.mouse_x >= btn_x and gfx.mouse_x <= btn_x + btn_w and
            gfx.mouse_y >= btn_y and gfx.mouse_y <= btn_y + btn_h then
-             if is_mouse_clicked(1) and not UI_STATE.mouse_handled then
+            if is_mouse_clicked(1) and not UI_STATE.mouse_handled then
                 prompter_drawer.open = true
                 UI_STATE.mouse_handled = true
                 if not prompter_drawer.width or prompter_drawer.width < S(80) then
                     prompter_drawer.width = S(300)
                 end
-             end
+            end
         end
     end
 
@@ -18469,9 +18512,8 @@ local function draw_prompter(input_queue)
         
         return n_total_h, n_start_y
     end
-
-
     
+    local is_show_final_stats = false
     if region_idx >= 0 then
         local retval, isrgn, pos, rgnend, name, idx = reaper.EnumProjectMarkers(region_idx)
         
@@ -18824,7 +18866,7 @@ local function draw_prompter(input_queue)
                 end
             end
         else
-            STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
+            is_show_final_stats = STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
         end
     else
         -- Not in any region, but show next upcoming region if enabled
@@ -18896,11 +18938,11 @@ local function draw_prompter(input_queue)
                     elseif cfg.p_valign == "bottom" then cor_y = gfx.h - ch - S(50) end
                     render_corrections(cms, cor_y, cor_fsize, center_x, available_w, content_offset_left, content_offset_right)
                 else
-                    STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
+                    is_show_final_stats = STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
                 end
             end
         else
-            STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
+            is_show_final_stats = STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
         end
     end
     
@@ -19001,7 +19043,7 @@ local function draw_prompter(input_queue)
     -- === END DRAWER UI ===
 
     -- Handle Right-Click Context Menu for Overlay
-    handle_prompter_context_menu()
+    handle_prompter_context_menu(is_show_final_stats)
 end
 
 local last_settings_h = 0 -- Persistent storage for Settings height
