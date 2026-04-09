@@ -5857,9 +5857,30 @@ end
 
 --- Unified trigger for dictionary lookup
 local function trigger_dictionary_lookup(word)
-    -- Clean word from extra symbols (quotes, ellipses, dots, etc)
-    -- Include both standard dots and the single-char ellipsis '…'
-    word = word:gsub('^["\'«»%.…]+', ''):gsub('["\'«»%.…]+$', ''):gsub(acute, "")
+    -- Safety function to clean edges from punctuation without mangling UTF-8
+    local function clean_word_edges(s)
+        if not s or s == "" then return "" end
+        -- Characters to strip from start/end (multibyte safe)
+        local deco = {"«", "»", "„", "“", "—", "…", "’", "ʼ", "‘", '"', "'", ".", ",", ":", ";", "?", "!", "(", ")", "[", "]", "-", " "}
+        local changed = true
+        while changed do
+            changed = false
+            -- 1. Remove accent marks first
+            local sn = s:gsub("\204\129", "")
+            if sn ~= s then s = sn; changed = true end
+            -- 2. Strip decos from edges
+            for _, d in ipairs(deco) do
+                if s:sub(1, #d) == d then s = s:sub(#d + 1); changed = true end
+                if s:sub(-#d) == d then s = s:sub(1, -#d - 1); changed = true end
+            end
+            -- 3. Trim whitespace
+            local trimmed = s:match("^%s*(.-)%s*$")
+            if trimmed ~= s then s = trimmed; changed = true end
+        end
+        return s
+    end
+
+    word = clean_word_edges(word)
     local first_tab = "Словозміна"
     
     -- Manage history: If already showing, push current state
