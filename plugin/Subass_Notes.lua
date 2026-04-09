@@ -20198,8 +20198,8 @@ local last_auto_scroll_idx = nil
 local suppress_auto_scroll_frames = 0
 
 -- Helper for inline buttons
-local function draw_btn_inline(x, y, w, h, text, bg_col)
-    local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
+local function draw_btn_inline(x, y, w, h, text, bg_col, suppress_hover)
+    local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h) and not suppress_hover
     set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
     gfx.rect(x, y, w, h, 1)
     set_color(UI.C_TXT)
@@ -21013,6 +21013,16 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     UTILS.update_corr_time_prefix(calc_only, cur_time)
 
     local btn_h = S(24) -- Standard button height
+    
+    local opt_btn_w = S(30)
+    local opt_x = panel_x + panel_w - padding - opt_btn_w
+    local opt_draw_y = panel_y + ((cfg.director_layout == "right") and S(2) or padding)
+    local is_opt_hover = false
+    if not calc_only then
+        is_opt_hover = UI_STATE.window_focused and
+                       (gfx.mouse_x >= opt_x and gfx.mouse_x <= opt_x + opt_btn_w and
+                        gfx.mouse_y >= opt_draw_y and gfx.mouse_y <= opt_draw_y + btn_h)
+    end
 
     -- Clipped button: renders the button but crops it to [clip_y_top, clip_y_bot]
     local function draw_btn_clipped(x, y, w, h, text, bg_col, clip_y_top, clip_y_bot)
@@ -21024,7 +21034,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         
         if is_fully_visible then
             -- Fast path: no clipping needed, use normal draw
-            return draw_btn_inline(x, y, w, h, text, bg_col)
+            return draw_btn_inline(x, y, w, h, text, bg_col, is_opt_hover)
         end
         
         -- Slow path: render to offscreen buffer and blit only visible slice
@@ -21033,7 +21043,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         local prev_dest = gfx.dest
         gfx.dest = buf
         
-        local hover = UI_STATE.window_focused and
+        local hover = UI_STATE.window_focused and not is_opt_hover and
             (gfx.mouse_x >= x and gfx.mouse_x <= x + w and
              gfx.mouse_y >= vis_y1 and gfx.mouse_y <= vis_y2)
         set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
@@ -21092,105 +21102,107 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     -- Actor buttons should wrap before reaching the options button
     local limit_x = opt_x - S(5) -- Leave small gap before options button
     
-    if not calc_only and draw_btn_inline(opt_x, draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
-        local dock_check = gfx.dock(-1) > 0 and "!" or ""
-        local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
-        local autofill_check = cfg.director_autofill and "• " or ""
-        local menu_str = "Копіювати правки в буфер||>Експортувати правки в CSV|Просто експорт|Експорт з дедлайном|<|Імпортувати імена акторів з субтитрів||" .. autofill_check .. "Автоматично підставляти ім'я дабера|Інтегрувати трек правок||" .. layout_label .. "|Закрити вікно"
-        
-        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-        local ret = gfx.showmenu(menu_str)
-
-        if ret == 1 then
-            -- Copy
-            UTILS.copy_markers_to_clipboard(ass_markers)
-        elseif ret == 2 then
-            -- Просто експорт
-            UTILS.export_markers_to_csv(ass_markers)
-        elseif ret == 3 then
-            -- Експорт з дедлайном
-            DEADLINE.open_picker(nil, function(ts)
-                if not ts then return end
-                local dt = os.date("*t", ts)
-                local d_str = string.format("[%02d.%02d.%02d]", dt.day, dt.month, dt.year % 100)
-                UTILS.export_markers_to_csv(ass_markers, d_str)
-            end)
-        elseif ret == 4 then
-            -- Import names
-            local existing = {}
-            for _, a in ipairs(director_actors) do existing[a] = true end
+    local function draw_options_menu()
+        if not calc_only and draw_btn_inline(opt_x, opt_draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
+            local dock_check = gfx.dock(-1) > 0 and "!" or ""
+            local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
+            local autofill_check = cfg.director_autofill and "• " or ""
+            local menu_str = "Копіювати правки в буфер||>Експортувати правки в CSV|Просто експорт|Експорт з дедлайном|<|Імпортувати імена акторів з субтитрів||" .. autofill_check .. "Автоматично підставляти ім'я дабера|Інтегрувати трек правок||" .. layout_label .. "|Закрити вікно"
             
-            local names_to_import = {}
-            local names_to_update = {}
-            local source_label = "субтитрів"
-            
-            -- Try Dubbers first
-            if DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0 then
-                source_label = "розподілу по Даберам"
-                for _, name in ipairs(DUBBERS.data.names) do
-                    if name ~= "" and not existing[name] then
-                        table.insert(names_to_import, name)
-                        existing[name] = true
-                    end
+            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+            local ret = gfx.showmenu(menu_str)
 
-                    if name ~= "" then
-                        table.insert(names_to_update, name)
-                    end
-                end
-            else
-                -- Fallback to Subtitles
-                for _, line in ipairs(ass_lines) do
-                    if line.actor and line.actor ~= "" and not existing[line.actor] then
-                        table.insert(names_to_import, line.actor)
-                        existing[line.actor] = true
-                    end
+            if ret == 1 then
+                -- Copy
+                UTILS.copy_markers_to_clipboard(ass_markers)
+            elseif ret == 2 then
+                -- Просто експорт
+                UTILS.export_markers_to_csv(ass_markers)
+            elseif ret == 3 then
+                -- Експорт з дедлайном
+                DEADLINE.open_picker(nil, function(ts)
+                    if not ts then return end
+                    local dt = os.date("*t", ts)
+                    local d_str = string.format("[%02d.%02d.%02d]", dt.day, dt.month, dt.year % 100)
+                    UTILS.export_markers_to_csv(ass_markers, d_str)
+                end)
+            elseif ret == 4 then
+                -- Import names
+                local existing = {}
+                for _, a in ipairs(director_actors) do existing[a] = true end
+                
+                local names_to_import = {}
+                local names_to_update = {}
+                local source_label = "субтитрів"
+                
+                -- Try Dubbers first
+                if DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0 then
+                    source_label = "розподілу по Даберам"
+                    for _, name in ipairs(DUBBERS.data.names) do
+                        if name ~= "" and not existing[name] then
+                            table.insert(names_to_import, name)
+                            existing[name] = true
+                        end
 
-                    if line.actor and line.actor ~= "" then
-                        table.insert(names_to_update, line.actor)
+                        if name ~= "" then
+                            table.insert(names_to_update, name)
+                        end
                     end
-                end
-            end
-            
-            local count = #names_to_import
-            if count > 0 then
-                push_undo("Імпортувати імена акторів з " .. source_label .. " (" .. count .. ")")
-                for _, name in ipairs(names_to_import) do
-                    table.insert(director_actors, name)
-                end
+                else
+                    -- Fallback to Subtitles
+                    for _, line in ipairs(ass_lines) do
+                        if line.actor and line.actor ~= "" and not existing[line.actor] then
+                            table.insert(names_to_import, line.actor)
+                            existing[line.actor] = true
+                        end
 
-                if source_label == "субтитрів" then
-                    for _, name in ipairs(names_to_update) do
-                        director_state.region_actor_to_dubber[name] = name
+                        if line.actor and line.actor ~= "" then
+                            table.insert(names_to_update, line.actor)
+                        end
                     end
                 end
                 
-                -- Sync DUBBERS assignments into the director mapping for newly imported names
-                UTILS.sync_dubbers_to_director(director_state.region_actor_to_dubber)
-                save_project_data(UI_STATE.last_project_id)
-                reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
-                show_snackbar("Імпортовано " .. count .. " імен з " .. source_label, "success")
-            else
-                show_snackbar("Нових імен не знайдено", "info")
+                local count = #names_to_import
+                if count > 0 then
+                    push_undo("Імпортувати імена акторів з " .. source_label .. " (" .. count .. ")")
+                    for _, name in ipairs(names_to_import) do
+                        table.insert(director_actors, name)
+                    end
+
+                    if source_label == "субтитрів" then
+                        for _, name in ipairs(names_to_update) do
+                            director_state.region_actor_to_dubber[name] = name
+                        end
+                    end
+                    
+                    -- Sync DUBBERS assignments into the director mapping for newly imported names
+                    UTILS.sync_dubbers_to_director(director_state.region_actor_to_dubber)
+                    save_project_data(UI_STATE.last_project_id)
+                    reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
+                    show_snackbar("Імпортовано " .. count .. " імен з " .. source_label, "success")
+                else
+                    show_snackbar("Нових імен не знайдено", "info")
+                end
+            elseif ret == 5 then
+                -- Toggle Autofill
+                cfg.director_autofill = not cfg.director_autofill
+                save_settings()
+            elseif ret == 6 then
+                -- Integrate Correction Tracks
+                UTILS.integrate_correction_tracks()
+            elseif ret == 7 then
+                -- Toggle Layout
+                if cfg.director_layout == "right" then
+                    cfg.director_layout = "bottom"
+                else
+                    cfg.director_layout = "right"
+                end
+                save_settings() -- Save state immediately
+                last_layout_state.state_count = -1 -- Force redraw
+            elseif ret == 8 then
+                cfg.director_mode = not cfg.director_mode
+                save_settings()
             end
-        elseif ret == 5 then
-            -- Toggle Autofill
-            cfg.director_autofill = not cfg.director_autofill
-            save_settings()
-        elseif ret == 6 then
-            -- Integrate Correction Tracks
-            UTILS.integrate_correction_tracks()
-        elseif ret == 7 then
-            -- Toggle Layout
-            if cfg.director_layout == "right" then
-                cfg.director_layout = "bottom"
-            else
-                cfg.director_layout = "right"
-            end
-            save_settings() -- Save state immediately
-            last_layout_state.state_count = -1 -- Force redraw
-        elseif ret == 8 then
-            cfg.director_mode = not cfg.director_mode
-            save_settings()
         end
     end
 
@@ -21256,44 +21268,46 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             -- Only draw if any part is visible in actor area (draw_btn_clipped handles visual cropping)
             if sdraw_y + btn_h > panel_y and sdraw_y < actor_area_bottom then
                 if draw_btn_clipped(draw_x, sdraw_y, btn_w, btn_h, label, bg_col, panel_y, actor_area_bottom) then
-                    -- Toggle Logic
-                    local txt = director_state.input.text
-                    local list, _ = get_actors_from_text(txt)
-                    local clean = txt:gsub("^%[.-%]%s*", "")
-                    
-                    if is_active then
-                        -- Toggle Off (Remove from list)
-                        local new_list = {}
-                        for _, a in ipairs(list) do
-                            if a ~= actor then table.insert(new_list, a) end
-                        end
-                        if #new_list > 0 then
-                            director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
-                        else
-                            director_state.input.text = clean
-                        end
-                    else
-                        -- Toggle On (Add to list)
-                        table.insert(list, actor)
-                        director_state.input.text = "[" .. table.concat(list, ", ") .. "] " .. clean
+                    if not is_opt_hover then
+                        -- Toggle Logic
+                        local txt = director_state.input.text
+                        local list, _ = get_actors_from_text(txt)
+                        local clean = txt:gsub("^%[.-%]%s*", "")
                         
-                        -- --- LEARNING (Mapping Update) ---
-                        -- Associate only if one actor is speaking clearly
-                        if #current_ass_actors == 1 then
-                            director_state.region_actor_to_dubber[current_ass_actors[1]] = actor
-                            -- Sync all DUBBERS assignments into the mapping
-                            UTILS.sync_dubbers_to_director(director_state.region_actor_to_dubber)
-                            save_project_data(UI_STATE.last_project_id)
+                        if is_active then
+                            -- Toggle Off (Remove from list)
+                            local new_list = {}
+                            for _, a in ipairs(list) do
+                                if a ~= actor then table.insert(new_list, a) end
+                            end
+                            if #new_list > 0 then
+                                director_state.input.text = "[" .. table.concat(new_list, ", ") .. "] " .. clean
+                            else
+                                director_state.input.text = clean
+                            end
+                        else
+                            -- Toggle On (Add to list)
+                            table.insert(list, actor)
+                            director_state.input.text = "[" .. table.concat(list, ", ") .. "] " .. clean
+                            
+                            -- --- LEARNING (Mapping Update) ---
+                            -- Associate only if one actor is speaking clearly
+                            if #current_ass_actors == 1 then
+                                director_state.region_actor_to_dubber[current_ass_actors[1]] = actor
+                                -- Sync all DUBBERS assignments into the mapping
+                                UTILS.sync_dubbers_to_director(director_state.region_actor_to_dubber)
+                                save_project_data(UI_STATE.last_project_id)
+                            end
                         end
+                        director_state.input.cursor = #director_state.input.text
+                        director_state.input.anchor = director_state.input.cursor
+                        director_state.input.focus = true
                     end
-                    director_state.input.cursor = #director_state.input.text
-                    director_state.input.anchor = director_state.input.cursor
-                    director_state.input.focus = true
                 end
             end -- clip
             
             -- Right Click (must be in visible area)
-            if hover and sdraw_y >= panel_y and sdraw_y + btn_h <= actor_area_bottom and is_right_mouse_clicked() then
+            if not is_opt_hover and hover and sdraw_y >= panel_y and sdraw_y + btn_h <= actor_area_bottom and is_right_mouse_clicked() then
                 -- ... (Context Menu Logic) ...
                 UI_STATE.mouse_handled = true
 
@@ -21505,49 +21519,51 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             local sdraw_y_hash = draw_y - math.floor(director_state.scroll_y or 0)
             if sdraw_y_hash + btn_h > panel_y and sdraw_y_hash < actor_area_bottom then
                 if draw_btn_clipped(draw_x, sdraw_y_hash, S(24), btn_h, "#", UI.C_ACCENT_N, panel_y, actor_area_bottom) then
-                    -- Collect Unique Notes
-                    local unique_notes = {}
-                    local used_text = {}
+                    if not is_opt_hover then
+                        -- Collect Unique Notes
+                        local unique_notes = {}
+                        local used_text = {}
+                        
+                        -- 1. Try Recent Indices First
+                        local markers_by_id = {}
+                        for _, m in ipairs(ass_markers) do markers_by_id[m.markindex] = m end
                     
-                    -- 1. Try Recent Indices First
-                    local markers_by_id = {}
-                    for _, m in ipairs(ass_markers) do markers_by_id[m.markindex] = m end
-                    
-                    for _, rid in ipairs(director_state.recent_indices) do
-                        local m = markers_by_id[rid]
-                        if m and m.name and m.name ~= "" and not used_text[m.name] then
-                            table.insert(unique_notes, m.name)
-                            used_text[m.name] = true
-                            if #unique_notes >= 15 then break end
-                        end
-                    end
-                    
-                    -- 2. Fill with Newest Markers if space remains
-                    if #unique_notes < 15 then
-                        for i = #ass_markers, 1, -1 do
-                            local m = ass_markers[i]
+                        for _, rid in ipairs(director_state.recent_indices) do
+                            local m = markers_by_id[rid]
                             if m and m.name and m.name ~= "" and not used_text[m.name] then
                                 table.insert(unique_notes, m.name)
                                 used_text[m.name] = true
                                 if #unique_notes >= 15 then break end
                             end
                         end
-                    end
-                    
-                    if #unique_notes > 0 then
-                        local menu_items = {}
-                        for _, note in ipairs(unique_notes) do
-                            table.insert(menu_items, (note:gsub("|", "||")))
-                        end
-                        local menu_str = table.concat(menu_items, "|")
                         
-                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                        local ret = gfx.showmenu(menu_str)
-                        if ret > 0 and unique_notes[ret] then
-                            director_state.input.text = unique_notes[ret]
-                            director_state.input.cursor = #director_state.input.text
-                            director_state.input.anchor = director_state.input.cursor
-                            director_state.input.focus = true
+                        -- 2. Fill with Newest Markers if space remains
+                        if #unique_notes < 15 then
+                            for i = #ass_markers, 1, -1 do
+                                local m = ass_markers[i]
+                                if m and m.name and m.name ~= "" and not used_text[m.name] then
+                                    table.insert(unique_notes, m.name)
+                                    used_text[m.name] = true
+                                    if #unique_notes >= 15 then break end
+                                end
+                            end
+                        end
+                        
+                        if #unique_notes > 0 then
+                            local menu_items = {}
+                            for _, note in ipairs(unique_notes) do
+                                table.insert(menu_items, (note:gsub("|", "||")))
+                            end
+                            local menu_str = table.concat(menu_items, "|")
+                            
+                            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                            local ret = gfx.showmenu(menu_str)
+                            if ret > 0 and unique_notes[ret] then
+                                director_state.input.text = unique_notes[ret]
+                                director_state.input.cursor = #director_state.input.text
+                                director_state.input.anchor = director_state.input.cursor
+                                director_state.input.focus = true
+                            end
                         end
                     end
                 end
@@ -21566,29 +21582,33 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         local sdraw_y_plus = draw_y - math.floor(director_state.scroll_y or 0)
         if sdraw_y_plus + btn_h > panel_y and sdraw_y_plus < actor_area_bottom then
             if draw_btn_clipped(draw_x, sdraw_y_plus, S(24), btn_h, "+", UI.C_ACCENT_N, panel_y, actor_area_bottom) then
-                local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
-                if ok then
-                    -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
-                    name = name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
-                    
-                    if name ~= "" then
-                        -- Check duplication
-                        local exists = false
-                        for _, act in ipairs(director_actors) do
-                            if act == name then exists = true break end
-                        end
+                if not is_opt_hover then
+                    local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
+                    if ok then
+                        -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
+                        name = name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
                         
-                        if not exists then
-                            push_undo("Додати актора '" .. name .. "' (Режисер)")
-                            table.insert(director_actors, name)
-                            save_project_data(UI_STATE.last_project_id)
-                            reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
+                        if name ~= "" then
+                            -- Check duplication
+                            local exists = false
+                            for _, act in ipairs(director_actors) do
+                                if act == name then exists = true break end
+                            end
+                            
+                            if not exists then
+                                push_undo("Додати актора '" .. name .. "' (Режисер)")
+                                table.insert(director_actors, name)
+                                save_project_data(UI_STATE.last_project_id)
+                                reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
+                            end
                         end
                     end
                 end
             end
         end
     end
+    
+    draw_options_menu()
     
     -- --- ROW 2: INPUT & SAVE ---
     local min_input_h = S(30)
