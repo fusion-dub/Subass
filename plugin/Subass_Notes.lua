@@ -15123,11 +15123,10 @@ end
 local function draw_tabs()
     local btn_scan_w = S(30)
     local btn_dash_w = S(30) -- New "D" button width
-    local gap_w = 1 -- 1 pixel gap
     
     -- Calculate available width for main tabs
     -- Total = Dashboard + gap + Tabs + gap + Scan
-    local total_tab_w = gfx.w - btn_scan_w - btn_dash_w - (gap_w * 2)
+    local total_tab_w = gfx.w - btn_scan_w - btn_dash_w
     local tab_w_base = total_tab_w / #UI_STATE.tabs
     local h = S(25)
     gfx.setfont(F.std)
@@ -15182,7 +15181,7 @@ local function draw_tabs()
     end
     
     -- 2. Main Tabs
-    local tabs_start_x = btn_dash_w + gap_w
+    local tabs_start_x = btn_dash_w
     
     for i, name in ipairs(UI_STATE.tabs) do
         -- Integer calculation to prevent gaps
@@ -15222,7 +15221,7 @@ local function draw_tabs()
     end
     
     -- 3. Jump to Region Button (Small Tab at the end)
-    local btn_x = tabs_start_x + total_tab_w + gap_w
+    local btn_x = tabs_start_x + total_tab_w
     
     set_color(UI.C_TAB_INA) -- Use inactive tab color
     gfx.rect(btn_x, 0, btn_scan_w, h, 1)
@@ -15758,7 +15757,7 @@ local function draw_file()
                 local enabled = ass_actors[act]
                 
                 -- HOVER CHECK
-                if UI_STATE.window_focused and
+                if UI_STATE.window_focused and gfx.mouse_y > S(25) and
                    gfx.mouse_x >= x_pos - S(2) and gfx.mouse_x <= x_pos + item_w - S(5) and
                    gfx.mouse_y >= chk_y - S(2) and gfx.mouse_y <= chk_y + S(22) then
                     set_color(UI.C_HILI_WHITE) -- Slight white highlight
@@ -15820,7 +15819,7 @@ local function draw_file()
                 gfx.drawstr(display_act, 4 | 256, x_pos + item_w - S(5), chk_y + S(20))
 
                 -- Tooltip Logic
-                if UI_STATE.window_focused and
+                if UI_STATE.window_focused and gfx.mouse_y > S(25) and
                    gfx.mouse_x >= x_pos - S(2) and gfx.mouse_x <= x_pos + item_w - S(5) and
                    gfx.mouse_y >= chk_y - S(2) and gfx.mouse_y <= chk_y + S(22) then
                     
