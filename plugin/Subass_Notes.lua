@@ -19147,9 +19147,11 @@ local function draw_settings()
     
     local function s_btn(x, y_rel, w, h, text, tooltip, bg_col)
         local screen_y = get_y(y_rel)
-        if screen_y + h < start_y or screen_y > gfx.h then return false end -- Cull
+        if screen_y + h < start_y - S(50) or screen_y > gfx.h + S(50) then return false end -- Cull
         
         local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x+w and gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y+h)
+        if hover and gfx.mouse_y < S(26) then hover = false end
+
         set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
         gfx.rect(x, screen_y, w, h, 1)
         set_color(UI.C_TXT)
@@ -19168,7 +19170,7 @@ local function draw_settings()
             UI_STATE.tooltip_state.text = tooltip
         end
 
-        if hover and is_mouse_clicked() and gfx.mouse_y > S(25) then return true end
+        if hover and is_mouse_clicked() then return true end
         return false
     end
 
@@ -19188,7 +19190,7 @@ local function draw_settings()
     local function checkbox(x, y_rel, text, checked, tooltip)
         local chk_sz = S(20)
         local screen_y = get_y(y_rel)
-        if screen_y + chk_sz < start_y or screen_y > gfx.h then return false end -- Cull
+        if screen_y + chk_sz < start_y - S(50) or screen_y > gfx.h + S(50) then return false end -- Cull
         
         checkbox_box(checked, x, screen_y)
     
@@ -19199,6 +19201,8 @@ local function draw_settings()
         
         local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + chk_sz + gfx.measurestr(text) + S(10) and
                        gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + chk_sz)
+
+        if hover and gfx.mouse_y < S(26) then hover = false end
 
         if hover then
             set_color(UI.C_HILI_WHITE) -- Slight white highlight
@@ -19215,13 +19219,13 @@ local function draw_settings()
             UI_STATE.tooltip_state.text = tooltip
         end
 
-        return hover and is_mouse_clicked() and gfx.mouse_y > S(25)
+        return hover and is_mouse_clicked()
     end
 
     -- Text Helper
     local function s_text(x, y_rel, text, font, tooltip)
         local screen_y = get_y(y_rel)
-        if screen_y + 15 < start_y or screen_y > gfx.h then return end
+        if screen_y + 15 < start_y - S(50) or screen_y > gfx.h + S(50) then return end
         gfx.setfont(font or F.std)
         gfx.x, gfx.y = x, screen_y
         gfx.drawstr(text)
@@ -19229,7 +19233,7 @@ local function draw_settings()
         if tooltip then
             local tw, th = gfx.measurestr(text)
             local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + tw and gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + th)
-            if hover then
+            if hover and gfx.mouse_y > S(25) then
                 local id = "txt_" .. text .. "_" .. y_rel
                 if UI_STATE.tooltip_state.hover_id ~= id then
                     UI_STATE.tooltip_state.hover_id = id
@@ -19243,7 +19247,7 @@ local function draw_settings()
     -- Section Header helper
     local function s_section(y_rel, title)
         local screen_y = get_y(y_rel)
-        if screen_y + S(30) < start_y or screen_y > gfx.h then return end
+        if screen_y + S(30) < start_y - S(50) or screen_y > gfx.h + S(50) then return end
         
         -- Line
         set_color(UI.C_MEDIUM_GREY)
@@ -19275,7 +19279,7 @@ local function draw_settings()
             local bx = x + ((i-1) * (box_sz + gap))
             local screen_y = get_y(y_cursor)
             
-            if screen_y + box_sz > start_y and screen_y < gfx.h then
+            if screen_y + box_sz > start_y - S(50) and screen_y < gfx.h + S(50) then
                 local r, g, b = col[1] * scale, col[2] * scale, col[3] * scale
                 set_color({r, g, b})
                 gfx.rect(bx, screen_y, box_sz, box_sz, 1)
@@ -19303,7 +19307,7 @@ local function draw_settings()
         -- Custom Box
         local custom_bx = x + (#palette * (box_sz + gap))
         local custom_y = get_y(y_cursor)
-        if custom_y + box_sz > start_y and custom_y < gfx.h then
+        if custom_y + box_sz > start_y - S(50) and custom_y < gfx.h + S(50) then
             draw_custom_color_box(custom_bx, custom_y, box_sz, cur_r / scale, cur_g / scale, cur_b / scale, function(r, g, b)
                 on_change(r * scale, g * scale, b * scale)
             end, not pal_sel)
@@ -19414,7 +19418,7 @@ local function draw_settings()
 
     -- Max Wrap Length
     local t_y = get_y(y_cursor)
-    if t_y + S(20) > start_y and t_y < gfx.h then
+    if t_y + S(20) > start_y - S(50) and t_y < gfx.h + S(50) then
         s_text(x_start, y_cursor, "Макс. довжина рядка:", F.std, "Максимальна кількість символів у рядку до переносу.")
         gfx.x = x_start + S(150)
         gfx.drawstr(tostring(cfg.wrap_length))
@@ -19623,7 +19627,7 @@ local function draw_settings()
         local is_sel = (cfg.ui_theme == opt)
         local theme_data = UI.UI_THEMES[opt]
         
-        if sy + S(30) > start_y and sy < gfx.h then
+        if sy + S(30) > start_y - S(50) and sy < gfx.h + S(50) then
             -- Selection highlight
             if is_sel then
                 set_color(UI.C_GREEN)
@@ -19641,7 +19645,7 @@ local function draw_settings()
             gfx.x, gfx.y = bx + (ui_btn_w - lw)/2, sy + (S(30) - lh)/2
             gfx.drawstr(ui_theme_labels[i])
             
-            if is_mouse_clicked() and gfx.mouse_x >= bx and gfx.mouse_x <= bx + ui_btn_w and 
+            if is_mouse_clicked() and gfx.mouse_y > S(25) and gfx.mouse_x >= bx and gfx.mouse_x <= bx + ui_btn_w and 
                gfx.mouse_y >= sy and gfx.mouse_y <= sy + S(30) then
                 UI.apply_ui_theme(opt)
                 save_settings()
@@ -19673,7 +19677,7 @@ local function draw_settings()
         local bx = x_start + c * (theme_btn_w + S(10))
         local sy = get_y(y_cursor + r * S(40))
         local is_sel = (cfg.prmt_theme == opt)
-        if sy + S(30) > start_y and sy < gfx.h then
+        if sy + S(30) > start_y - S(50) and sy < gfx.h + S(50) then
             if is_sel then set_color(UI.C_GREEN) gfx.rect(bx - S(2), sy - S(2), theme_btn_w + S(4), S(34), 0) end
             set_color(theme_options[i][1]) gfx.rect(bx, sy, theme_btn_w, S(30), 1)
             set_color(theme_options[i][2])
@@ -19681,7 +19685,7 @@ local function draw_settings()
             local lw, lh = gfx.measurestr(opt)
             gfx.x, gfx.y = bx + (theme_btn_w - lw)/2, sy + (S(30) - lh)/2
             gfx.drawstr(opt)
-            if is_mouse_clicked() and gfx.mouse_x >= bx and gfx.mouse_x <= bx + theme_btn_w and gfx.mouse_y >= sy and gfx.mouse_y <= sy+S(30) then
+            if is_mouse_clicked() and gfx.mouse_y > S(25) and gfx.mouse_x >= bx and gfx.mouse_x <= bx + theme_btn_w and gfx.mouse_y >= sy and gfx.mouse_y <= sy+S(30) then
                 cfg.prmt_theme = opt
                 local res = theme_options[i]
                 cfg.bg_cr, cfg.bg_cg, cfg.bg_cb = res[1][1], res[1][2], res[1][3]
@@ -20095,7 +20099,7 @@ local function draw_settings()
 
     -- Click handler
     local f_sy = get_y(y_cursor)
-    if f_sy + S(20) > start_y and f_sy < gfx.h then
+    if f_sy + S(20) > start_y - S(50) and f_sy < gfx.h + S(50) then
         local tw, th = gfx.measurestr(footer_txt)
         if is_mouse_clicked() and gfx.mouse_x >= x_start and gfx.mouse_x <= x_start + tw and
            gfx.mouse_y >= f_sy and gfx.mouse_y <= f_sy + th then
