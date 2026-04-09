@@ -21748,6 +21748,13 @@ local function draw_table(input_queue)
         local m_h = S(125) -- Matches the visual height
         mouse_in_menu = gfx.mouse_x >= OTHER.time_shift_menu.x and gfx.mouse_x <= OTHER.time_shift_menu.x + OTHER.time_shift_menu.w and
                         gfx.mouse_y >= OTHER.time_shift_menu.y and gfx.mouse_y <= OTHER.time_shift_menu.y + m_h
+    elseif cfg.director_mode then
+        -- Also block clicks if mouse is inside Director Panel
+        if is_dir_right then
+            if gfx.mouse_x >= avail_w and gfx.mouse_y >= S(35) then mouse_in_menu = true end
+        else
+            if gfx.mouse_y >= (gfx.h - h_director) then mouse_in_menu = true end
+        end
     end
 
     if OTHER.find_replace_state.show then
@@ -23266,113 +23273,6 @@ local function draw_table(input_queue)
     
     -- Scrollbar
     UI_STATE.target_scroll_y = draw_scrollbar(gfx.w - 10, content_y, 10, avail_h, total_h, avail_h, UI_STATE.target_scroll_y)
-    -- Draw Director Panel
-    if cfg.director_mode then
-        if is_dir_right then
-            -- Right Layout (Align with filters: S(35))
-            local dir_y = S(35)
-            draw_director_panel(avail_w, dir_y, w_director, gfx.h - dir_y, input_queue, false)
-        else
-            -- Bottom Layout
-            local draw_y = gfx.h - h_director
-            
-            -- Draw
-            draw_director_panel(0, draw_y, gfx.w, h_director, input_queue, false)
-            
-            -- Recalculate height for NEXT frame to ensure smooth resizing
-            local needed = draw_director_panel(0, draw_y, gfx.w, h_director, nil, true)
-            if needed < S(84) then needed = S(84) end
-            
-            -- Auto-expand logic: If content needs more than current setting AND we are not resizing
-            local max_allowed_dynamic = math.max(S(84), gfx.h - content_y - S(40))
-            if not director_resize_drag and needed > h_director then
-                cfg.h_director = math.min(needed, max_allowed_dynamic)
-            end
-            dynamic_director_h = needed -- Keep tracking for ref
-        end
-        
-        -- RESIZE HANDLE LOGIC (Moved to end for Z-order)
-        local resize_zone = S(8)
-        local strip_sz = S(2)
-        local grab_long = S(40)
-        local grab_thick = S(12)
-        local handle_x, handle_y, handle_w, handle_h
-        local is_hover = false
-        
-        -- Helper: Check if mouse is strictly inside window
-        if is_dir_right then
-            local dir_y = S(35)
-            local border_x = avail_w
-            handle_w = grab_thick
-            handle_h = grab_long
-            handle_x = border_x - (handle_w / 2)
-            handle_y = dir_y + (gfx.h - dir_y - handle_h) / 2
-            
-            -- Draw Separator
-            is_hover = UI_STATE.inside_window and UI_STATE.window_focused and math.abs(gfx.mouse_x - border_x) <= resize_zone and (gfx.mouse_y >= dir_y)
-            set_color(is_hover and UI.C_HILI_WHITE_MID or UI.C_HILI_WHITE)
-            gfx.rect(border_x, dir_y, strip_sz, gfx.h - dir_y, 1)
-
-            -- Logic
-            if is_hover or director_resize_drag then
-                reaper.SetCursorContext(2, 0)
-                if is_hover and gfx.mouse_cap == 1 and not OTHER.col_resize.dragging then
-                    director_resize_drag = true
-                    OTHER.col_resize.key = nil
-                end
-            end
-            
-            if director_resize_drag and gfx.mouse_cap == 1 then
-                local new_w = gfx.w - gfx.mouse_x
-                if new_w < S(120) then new_w = S(120) end
-                local max_w = gfx.w - S(150)
-                if new_w > max_w then new_w = max_w end
-                cfg.w_director = new_w
-            elseif director_resize_drag then
-                director_resize_drag = false
-                save_settings()
-                reaper.SetCursorContext(0, 0)
-            end
-        else
-            -- Bottom
-            local border_y = gfx.h - h_director
-            handle_w = grab_long
-            handle_h = grab_thick
-            handle_x = (gfx.w - handle_w) / 2
-            handle_y = border_y - (handle_h / 2)
-
-            is_hover = UI_STATE.inside_window and UI_STATE.window_focused and math.abs(gfx.mouse_y - border_y) <= resize_zone
-            set_color(is_hover and UI.C_HILI_WHITE_MID or UI.C_HILI_WHITE)
-            gfx.rect(0, border_y, gfx.w, strip_sz, 1)
-
-            if is_hover or director_resize_drag then
-                reaper.SetCursorContext(1, 0)
-                if is_hover and gfx.mouse_cap == 1 and not OTHER.col_resize.dragging then
-                    director_resize_drag = true
-                end
-            end
-            
-            if director_resize_drag and gfx.mouse_cap == 1 then
-                local new_h = gfx.h - gfx.mouse_y
-                if new_h < S(84) then new_h = S(84) end
-                local max_h = gfx.h - content_y - S(40)
-                if new_h > max_h then new_h = max_h end
-                cfg.h_director = new_h
-            elseif director_resize_drag then
-                director_resize_drag = false
-                save_settings()
-                reaper.SetCursorContext(0, 0)
-            end
-        end
-
-        -- Draw Handle Pill (Only on hover or drag)
-        if is_hover or director_resize_drag then
-            set_color(UI.C_WHITE, 0.8)
-            gfx.rect(handle_x, handle_y, handle_w, handle_h, 1)
-            set_color(UI.C_BLACK_OVERLAY)
-            gfx.rect(handle_x, handle_y, handle_w, handle_h, 0)
-        end
-    end
 
     -- Draw Header LAST (always on top)
     if not cfg.reader_mode then
@@ -23407,7 +23307,7 @@ local function draw_table(input_queue)
         local is_hover = false
         local is_resize_hover = false
         
-        if UI_STATE.window_focused and gfx.mouse_y >= y and gfx.mouse_y < y + h_header then
+        if UI_STATE.window_focused and not mouse_in_menu and gfx.mouse_y >= y and gfx.mouse_y < y + h_header then
             if gfx.mouse_x >= x and gfx.mouse_x < next_x then
                 is_hover = true
             end
@@ -23612,6 +23512,114 @@ local function draw_table(input_queue)
                     gfx.mouse_y >= filter_y and gfx.mouse_y <= filter_y + filter_h) then
                 OTHER.col_vis_menu.show = false
             end
+        end
+    end
+
+    -- Draw Director Panel
+    if cfg.director_mode then
+        if is_dir_right then
+            -- Right Layout (Align with filters: S(35))
+            local dir_y = S(35)
+            draw_director_panel(avail_w, dir_y, w_director, gfx.h - dir_y, input_queue, false)
+        else
+            -- Bottom Layout
+            local draw_y = gfx.h - h_director
+            
+            -- Draw
+            draw_director_panel(0, draw_y, gfx.w, h_director, input_queue, false)
+            
+            -- Recalculate height for NEXT frame to ensure smooth resizing
+            local needed = draw_director_panel(0, draw_y, gfx.w, h_director, nil, true)
+            if needed < S(84) then needed = S(84) end
+            
+            -- Auto-expand logic: If content needs more than current setting AND we are not resizing
+            local max_allowed_dynamic = math.max(S(84), gfx.h - content_y - S(40))
+            if not director_resize_drag and needed > h_director then
+                cfg.h_director = math.min(needed, max_allowed_dynamic)
+            end
+            dynamic_director_h = needed -- Keep tracking for ref
+        end
+        
+        -- RESIZE HANDLE LOGIC (Moved to end for Z-order)
+        local resize_zone = S(8)
+        local strip_sz = S(2)
+        local grab_long = S(40)
+        local grab_thick = S(12)
+        local handle_x, handle_y, handle_w, handle_h
+        local is_hover = false
+        
+        -- Helper: Check if mouse is strictly inside window
+        if is_dir_right then
+            local dir_y = S(35)
+            local border_x = avail_w
+            handle_w = grab_thick
+            handle_h = grab_long
+            handle_x = border_x - (handle_w / 2)
+            handle_y = dir_y + (gfx.h - dir_y - handle_h) / 2
+            
+            -- Draw Separator
+            is_hover = UI_STATE.inside_window and UI_STATE.window_focused and math.abs(gfx.mouse_x - border_x) <= resize_zone and (gfx.mouse_y >= dir_y)
+            set_color(is_hover and UI.C_HILI_WHITE_MID or UI.C_HILI_WHITE)
+            gfx.rect(border_x, dir_y, strip_sz, gfx.h - dir_y, 1)
+
+            -- Logic
+            if is_hover or director_resize_drag then
+                reaper.SetCursorContext(2, 0)
+                if is_hover and gfx.mouse_cap == 1 and not OTHER.col_resize.dragging then
+                    director_resize_drag = true
+                    OTHER.col_resize.key = nil
+                end
+            end
+            
+            if director_resize_drag and gfx.mouse_cap == 1 then
+                local new_w = gfx.w - gfx.mouse_x
+                if new_w < S(120) then new_w = S(120) end
+                local max_w = gfx.w - S(150)
+                if new_w > max_w then new_w = max_w end
+                cfg.w_director = new_w
+            elseif director_resize_drag then
+                director_resize_drag = false
+                save_settings()
+                reaper.SetCursorContext(0, 0)
+            end
+        else
+            -- Bottom
+            local border_y = gfx.h - h_director
+            handle_w = grab_long
+            handle_h = grab_thick
+            handle_x = (gfx.w - handle_w) / 2
+            handle_y = border_y - (handle_h / 2)
+
+            is_hover = UI_STATE.inside_window and UI_STATE.window_focused and math.abs(gfx.mouse_y - border_y) <= resize_zone
+            set_color(is_hover and UI.C_HILI_WHITE_MID or UI.C_HILI_WHITE)
+            gfx.rect(0, border_y, gfx.w, strip_sz, 1)
+
+            if is_hover or director_resize_drag then
+                reaper.SetCursorContext(1, 0)
+                if is_hover and gfx.mouse_cap == 1 and not OTHER.col_resize.dragging then
+                    director_resize_drag = true
+                end
+            end
+            
+            if director_resize_drag and gfx.mouse_cap == 1 then
+                local new_h = gfx.h - gfx.mouse_y
+                if new_h < S(84) then new_h = S(84) end
+                local max_h = gfx.h - content_y - S(40)
+                if new_h > max_h then new_h = max_h end
+                cfg.h_director = new_h
+            elseif director_resize_drag then
+                director_resize_drag = false
+                save_settings()
+                reaper.SetCursorContext(0, 0)
+            end
+        end
+
+        -- Draw Handle Pill (Only on hover or drag)
+        if is_hover or director_resize_drag then
+            set_color(UI.C_WHITE, 0.8)
+            gfx.rect(handle_x, handle_y, handle_w, handle_h, 1)
+            set_color(UI.C_BLACK_OVERLAY)
+            gfx.rect(handle_x, handle_y, handle_w, handle_h, 0)
         end
     end
 
