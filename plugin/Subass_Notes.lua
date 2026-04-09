@@ -198,6 +198,16 @@ local OTHER = {
         y = 0,
         w = 280,
         only_selected = false
+    },
+    BUF = {
+        DIRECTOR = 99,
+        AI = 98,
+        TABLE = 97,
+        IMG_1 = 96,
+        IMG_2 = 95,
+        IMG_3 = 94,
+        IMG_4 = 93,
+        IMG_5 = 92,
     }
 }
 
@@ -216,13 +226,13 @@ gfx.init(GL.script_title, 600, 400, GL.last_dock_state)
 
 -- Loader Configuration
 OTHER.LOADERS_CFG = {
-    { path = "loading.png",  buf = 97, frames = 14, fps = 10, frame_w = 500, zoom = 0.95, weight = 1    },
-    { path = "loading2.png", buf = 96, frames = 12, fps = 10, frame_w = 400, zoom = 1.2,  weight = 0.75 },
-    { path = "loading3.png", buf = 95, frames = 8,  fps = 10, frame_w = 500, zoom = 0.95, weight = 0.25 },
-    { path = "loading4.png", buf = 94, frames = 8,  fps = 10, frame_w = 68,  zoom = 1.70, weight = 0.01 }
+    { path = "loading.png",  buf = OTHER.BUF.IMG_1, frames = 14, fps = 10, frame_w = 500, zoom = 0.95, weight = 1    },
+    { path = "loading2.png", buf = OTHER.BUF.IMG_2, frames = 12, fps = 10, frame_w = 400, zoom = 1.2,  weight = 0.75 },
+    { path = "loading3.png", buf = OTHER.BUF.IMG_3, frames = 8,  fps = 10, frame_w = 500, zoom = 0.95, weight = 0.25 },
+    { path = "loading4.png", buf = OTHER.BUF.IMG_4, frames = 8,  fps = 10, frame_w = 68,  zoom = 1.70, weight = 0.01 }
 }
 
-OTHER.DEADLINE_GIF_CFG = { path = "deadline.png",  buf = 93, frames = 10, fps = 8, frame_w = 512, zoom = 0.85 }
+OTHER.DEADLINE_GIF_CFG = { path = "deadline.png",  buf = OTHER.BUF.IMG_5, frames = 10, fps = 8, frame_w = 512, zoom = 0.85 }
 
 -- Assets Loading
 function OTHER.load_assets()
@@ -11281,9 +11291,9 @@ local function draw_ai_modal(skip_draw)
     -- Capture current destination to return later
     local prev_dest = gfx.dest
     
-    -- Prepare Buffer 99
-    gfx.dest = 99
-    gfx.setimgdim(99, menu_w, menu_h)
+    -- Prepare Buffer
+    gfx.dest = OTHER.BUF.AI
+    gfx.setimgdim(OTHER.BUF.AI, menu_w, menu_h)
     set_color(UI.C_TAB_INA)
     gfx.rect(0, 0, menu_w, menu_h, 1) -- Clear buffer with menu background
     
@@ -11426,7 +11436,7 @@ local function draw_ai_modal(skip_draw)
 
     -- Blit back to main destination
     gfx.dest = prev_dest
-    gfx.blit(99, 1, 0, 0, 0, menu_w, menu_h, x, y, menu_w, menu_h)
+    gfx.blit(OTHER.BUF.AI, 1, 0, 0, 0, menu_w, menu_h, x, y, menu_w, menu_h)
 
     -- Draw Menu Border
     set_color(UI.C_TXT)
@@ -12340,8 +12350,8 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
 
     -- --- RENDERING ---
     local prev_dest = gfx.dest
-    gfx.setimgdim(98, w, h)
-    gfx.dest = 98
+    gfx.setimgdim(OTHER.BUF.TABLE, w, h)
+    gfx.dest = OTHER.BUF.TABLE
     set_color(state.focus and UI.C_BG or UI.C_TAB_INA)
     gfx.rect(0, 0, w, h, 1)
 
@@ -12462,7 +12472,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     end
 
     gfx.dest = prev_dest
-    gfx.blit(98, 1, 0, 0, 0, w, h, x, y, w, h)
+    gfx.blit(OTHER.BUF.TABLE, 1, 0, 0, 0, w, h, x, y, w, h)
     set_color(state.focus and {0.7, 0.7, 1.0} or UI.C_BTN_H)
     gfx.rect(x, y, w, h, 0)
     gfx.setfont(F.std)
@@ -21003,7 +21013,48 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     UTILS.update_corr_time_prefix(calc_only, cur_time)
 
     local btn_h = S(24) -- Standard button height
-    
+
+    -- Clipped button: renders the button but crops it to [clip_y_top, clip_y_bot]
+    local function draw_btn_clipped(x, y, w, h, text, bg_col, clip_y_top, clip_y_bot)
+        local vis_y1 = math.max(y, clip_y_top)
+        local vis_y2 = math.min(y + h, clip_y_bot)
+        if vis_y1 >= vis_y2 then return false end -- fully outside
+        
+        local is_fully_visible = (y >= clip_y_top and y + h <= clip_y_bot)
+        
+        if is_fully_visible then
+            -- Fast path: no clipping needed, use normal draw
+            return draw_btn_inline(x, y, w, h, text, bg_col)
+        end
+        
+        -- Slow path: render to offscreen buffer and blit only visible slice
+        local buf = OTHER.BUF.DIRECTOR
+        gfx.setimgdim(buf, w, h)
+        local prev_dest = gfx.dest
+        gfx.dest = buf
+        
+        local hover = UI_STATE.window_focused and
+            (gfx.mouse_x >= x and gfx.mouse_x <= x + w and
+             gfx.mouse_y >= vis_y1 and gfx.mouse_y <= vis_y2)
+        set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
+        gfx.rect(0, 0, w, h, 1)
+        set_color(UI.C_TXT)
+        local sw, sh = gfx.measurestr(text)
+        gfx.x = (w - sw) / 2
+        gfx.y = (h - sh) / 2
+        gfx.drawstr(text)
+        
+        gfx.dest = prev_dest
+        
+        -- Blit only the visible vertical slice
+        local src_y = vis_y1 - y
+        local slice_h = vis_y2 - vis_y1
+        gfx.blit(buf, 1, 0, 0, src_y, w, slice_h, x, vis_y1, w, slice_h)
+        
+        if hover and not director_resize_drag and is_mouse_clicked() then return true end
+        return false
+    end
+
     -- --- ROW 1: ACTORS ---
     local x = padding
     -- Use smaller top padding for Right layout to save space
@@ -21202,9 +21253,9 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             -- Adjust hit test to relative coords
             local hover = UI_STATE.window_focused and (gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + btn_w and gfx.mouse_y >= sdraw_y and gfx.mouse_y <= sdraw_y + btn_h)
             
-            -- Only draw if inside the visible actor area (with strict clipping to avoid overlapping input)
-            if sdraw_y >= panel_y and sdraw_y + btn_h <= actor_area_bottom then
-                if draw_btn_inline(draw_x, sdraw_y, btn_w, btn_h, label, bg_col) then
+            -- Only draw if any part is visible in actor area (draw_btn_clipped handles visual cropping)
+            if sdraw_y + btn_h > panel_y and sdraw_y < actor_area_bottom then
+                if draw_btn_clipped(draw_x, sdraw_y, btn_w, btn_h, label, bg_col, panel_y, actor_area_bottom) then
                     -- Toggle Logic
                     local txt = director_state.input.text
                     local list, _ = get_actors_from_text(txt)
@@ -21452,8 +21503,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 draw_y = panel_y + y
             end
             local sdraw_y_hash = draw_y - math.floor(director_state.scroll_y or 0)
-            if sdraw_y_hash >= panel_y and sdraw_y_hash + btn_h <= actor_area_bottom then
-                if draw_btn_inline(draw_x, sdraw_y_hash, S(24), btn_h, "#", UI.C_ACCENT_N) then
+            if sdraw_y_hash + btn_h > panel_y and sdraw_y_hash < actor_area_bottom then
+                if draw_btn_clipped(draw_x, sdraw_y_hash, S(24), btn_h, "#", UI.C_ACCENT_N, panel_y, actor_area_bottom) then
                     -- Collect Unique Notes
                     local unique_notes = {}
                     local used_text = {}
@@ -21513,8 +21564,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             draw_y = panel_y + y
         end
         local sdraw_y_plus = draw_y - math.floor(director_state.scroll_y or 0)
-        if sdraw_y_plus >= panel_y and sdraw_y_plus + btn_h <= actor_area_bottom then
-            if draw_btn_inline(draw_x, sdraw_y_plus, S(24), btn_h, "+", UI.C_ACCENT_N) then
+        if sdraw_y_plus + btn_h > panel_y and sdraw_y_plus < actor_area_bottom then
+            if draw_btn_clipped(draw_x, sdraw_y_plus, S(24), btn_h, "+", UI.C_ACCENT_N, panel_y, actor_area_bottom) then
                 local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
                 if ok then
                     -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
@@ -22622,10 +22673,10 @@ local function draw_table(input_queue)
         UI_STATE.scroll_y = UI_STATE.target_scroll_y
     end
 
-    -- Prepare Buffer 98 for Rows (Clipping)
+    -- Prepare Buffer for Rows (Clipping)
     local prev_dest = gfx.dest
-    gfx.dest = 98
-    gfx.setimgdim(98, gfx.w, math.max(1, avail_h))
+    gfx.dest = OTHER.BUF.TABLE
+    gfx.setimgdim(OTHER.BUF.TABLE, gfx.w, math.max(1, avail_h))
     set_color(UI.C_BG)
     gfx.rect(0, 0, avail_w, avail_h, 1)
     
@@ -23274,7 +23325,7 @@ local function draw_table(input_queue)
     gfx.dest = prev_dest
     -- Blit table canvas to available area
     -- If Right Layout: blit to 0..avail_w
-    gfx.blit(98, 1, 0, 0, 0, avail_w, avail_h, 0, content_y)
+    gfx.blit(OTHER.BUF.TABLE, 1, 0, 0, 0, avail_w, avail_h, 0, content_y)
     
     gfx.setfont(F.std) -- RESTORE standard font for menus and bars
     
