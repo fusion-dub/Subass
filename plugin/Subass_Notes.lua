@@ -2712,8 +2712,12 @@ end
 --- @param text string Button label
 --- @param bg_col RGB color array
 --- @return boolean True if clicked
-local function btn(x, y, w, h, text, bg_col, txt_col)
+local function btn(x, y, w, h, text, bg_col, txt_col, ignore_header)
     local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x+w and gfx.mouse_y >= y and gfx.mouse_y <= y+h)
+    
+    -- Safety check: ignore hover/click if under the tab header (if requested)
+    if hover and ignore_header and gfx.mouse_y < S(26) then hover = false end
+    
     set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
     gfx.rect(x, y, w, h, 1)
     set_color(txt_col or UI.C_TXT)
@@ -15391,8 +15395,8 @@ local function draw_file()
     end
     
     -- 1. Import Button
-    if cur_y + btn_h > start_y and cur_y < gfx.h then
-        if btn(padding, cur_y, import_w, btn_h, fit_text_width("Імпорт субтитрів (.srt/.ass/.vtt)", import_w - S(10))) and gfx.mouse_y > S(25) then
+    if cur_y + btn_h > start_y - S(50) and cur_y < gfx.h + S(50) then
+        if btn(padding, cur_y, import_w, btn_h, fit_text_width("Імпорт субтитрів (.srt/.ass/.vtt)", import_w - S(10)), nil, nil, true) then
             local retval, file_list
             if reaper.JS_Dialog_BrowseForOpenFiles then
                 retval, file_list = reaper.JS_Dialog_BrowseForOpenFiles("Імпорт субтитрів", "", "", "Subtitle files (*.srt;*.ass;*.vtt)\0*.srt;*.ass;*.vtt\0All files\0*\0", true)
@@ -15469,8 +15473,8 @@ local function draw_file()
     end
     
     -- 2. Notes Button
-    if ny + btn_h > start_y and ny < gfx.h then
-        if btn(nx, ny, notes_w, btn_h, fit_text_width("Правки", notes_w - S(10))) and gfx.mouse_y > S(25) then
+    if ny + btn_h > start_y - S(50) and ny < gfx.h + S(50) then
+        if btn(nx, ny, notes_w, btn_h, fit_text_width("Правки", notes_w - S(10)), nil, nil, true) then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu("Імпорт з тексту|Імпорт з файлу (CSV)")
             if ret == 1 then import_notes()
@@ -15479,7 +15483,7 @@ local function draw_file()
     end
     
     -- 3. Deadline Button
-    if ny + btn_h > start_y and ny < gfx.h then
+    if ny + btn_h > start_y - S(50) and ny < gfx.h + S(50) then
         local dl_text = "Дедлайн"
         local dl_bg = UI.C_ROW
         local dl_txt = nil -- Use default text color
@@ -15503,7 +15507,7 @@ local function draw_file()
             end
         end
         
-        if btn(dx, ny, deadline_w, btn_h, fit_text_width(dl_text, deadline_w - S(10)), dl_bg, dl_txt) and gfx.mouse_y > S(25) then
+        if btn(dx, ny, deadline_w, btn_h, fit_text_width(dl_text, deadline_w - S(10)), dl_bg, dl_txt, true) then
             DEADLINE.open_picker(DEADLINE.project_deadline, function(ts)
                 DEADLINE.set(ts)
                 show_snackbar(ts and ("Дедлайн встановлено: " .. os.date("%d.%m.%Y", ts)) or "Дедлайн скасовано", "info")
@@ -15516,7 +15520,7 @@ local function draw_file()
     -- Filename Display Row
     if UI_STATE.ass_file_loaded and UI_STATE.current_file_name then
         local fn_y = get_y(y_cursor)
-        if fn_y + S(20) > start_y and fn_y < gfx.h then
+        if fn_y + S(75) > start_y and fn_y < gfx.h + S(50) then
             gfx.setfont(F.tip)
             set_color(UI.C_MEDIUM_GREY)
             local str = "Обрано: " .. UI_STATE.current_file_name
@@ -15539,7 +15543,7 @@ local function draw_file()
         if #active_dict_names > 0 then
             y_cursor = y_cursor + S(5)
             local ad_y = get_y(y_cursor)
-            if ad_y + S(20) > start_y and ad_y < gfx.h then
+            if ad_y + S(70) > start_y and ad_y < gfx.h + S(50) then
                 gfx.setfont(F.tip)
                 set_color(UI.C_LIGHT_GREY)
                 local ad_str = "Активні словники: " .. table.concat(active_dict_names, ", ")
@@ -15571,7 +15575,7 @@ local function draw_file()
 
         if is_narrow then
             -- NARROW LAYOUT
-            if t_y + S(60) > start_y and t_y < gfx.h then
+            if t_y + S(160) > start_y and t_y < gfx.h + S(50) then
                 -- Row 1: Title + Count
                 set_color(UI.C_TXT)
                 gfx.setfont(F.std)
@@ -15586,9 +15590,9 @@ local function draw_file()
             y_cursor = y_cursor + S(25)
             t_y = get_y(y_cursor)
             
-            if t_y + S(20) > start_y and t_y < gfx.h then
+            if t_y + S(70) > start_y and t_y < gfx.h + S(50) then
                 -- Row 2: Quick Select
-                if btn(S(20), t_y, gfx.w - S(40), S(20), fit_text_width("Швидкий вибір", gfx.w - S(50)), UI.C_ROW) then
+                if btn(S(20), t_y, gfx.w - S(40), S(20), fit_text_width("Швидкий вибір", gfx.w - S(50)), UI.C_ROW, nil, true) then
                     local ret, csv = reaper.GetUserInputs("Швидкий вибір акторів", 1, "Список акторів (через кому):,extrawidth=200", "")
                     if ret then
                         push_undo("Швидкий вибір акторів")
@@ -15613,16 +15617,16 @@ local function draw_file()
             y_cursor = y_cursor + S(25)
             t_y = get_y(y_cursor)
             
-            if t_y + S(20) > start_y and t_y < gfx.h then
+            if t_y + S(70) > start_y and t_y < gfx.h + S(50) then
                 -- Row 3: None / All
                 local half_w = (gfx.w - S(50)) / 2
-                if btn(S(20), t_y, half_w, S(20), fit_text_width("НІКОГО", half_w - S(10)), UI.C_ROW) then
+                if btn(S(20), t_y, half_w, S(20), fit_text_width("НІКОГО", half_w - S(10)), UI.C_ROW, nil, true) then
                     push_undo("Приховати всіх")
                     for k in pairs(ass_actors) do ass_actors[k] = false end
                     for _, l in ipairs(ass_lines) do l.enabled = false end
                     rebuild_regions()
                 end
-                if btn(S(20) + half_w + S(10), t_y, half_w, S(20), fit_text_width("ВСІ", half_w - S(10)), UI.C_ROW) then
+                if btn(S(20) + half_w + S(10), t_y, half_w, S(20), fit_text_width("ВСІ", half_w - S(10)), UI.C_ROW, nil, true) then
                     push_undo("Показати всіх")
                     for k in pairs(ass_actors) do ass_actors[k] = true end
                     for _, l in ipairs(ass_lines) do l.enabled = true end
@@ -15633,7 +15637,7 @@ local function draw_file()
             y_cursor = y_cursor + S(45)
         else
             -- WIDE LAYOUT
-            if t_y + S(20) > start_y and t_y < gfx.h then
+            if t_y + S(70) > start_y and t_y < gfx.h + S(50) then
                 set_color(UI.C_TXT)
                 gfx.setfont(F.std)
                 gfx.x, gfx.y = S(20), t_y
@@ -15641,7 +15645,7 @@ local function draw_file()
                 
                 -- Batch Select
                 local quick_btn_w = S(110)
-                if btn(S(80), t_y - S(2), quick_btn_w, S(20), fit_text_width("Швидкий вибір", quick_btn_w - S(5)), UI.C_ROW) then
+                if btn(S(80), t_y - S(2), quick_btn_w, S(20), fit_text_width("Швидкий вибір", quick_btn_w - S(5)), UI.C_ROW, nil, true) then
                     local ret, csv = reaper.GetUserInputs("Швидкий вибір акторів", 1, "Список акторів (через кому):,extrawidth=200", "")
                     if ret then
                         push_undo("Швидкий вибір акторів")
@@ -15681,14 +15685,14 @@ local function draw_file()
                 gfx.x, gfx.y = count_x, t_y
                 gfx.drawstr(count_text)
                 
-                if btn(none_btn_x, t_y - S(2), none_btn_w, S(20), fit_text_width("НІКОГО", none_btn_w - S(5)), UI.C_ROW) then
+                if btn(none_btn_x, t_y - S(2), none_btn_w, S(20), fit_text_width("НІКОГО", none_btn_w - S(5)), UI.C_ROW, nil, true) then
                     push_undo("Приховати всіх")
                     for k in pairs(ass_actors) do ass_actors[k] = false end
                     for _, l in ipairs(ass_lines) do l.enabled = false end
                     rebuild_regions()
                 end
                 
-                if btn(all_btn_x, t_y - S(2), all_btn_w, S(20), fit_text_width("ВСІ", all_btn_w - S(5)), UI.C_ROW) then
+                if btn(all_btn_x, t_y - S(2), all_btn_w, S(20), fit_text_width("ВСІ", all_btn_w - S(5)), UI.C_ROW, nil, true) then
                     push_undo("Показати всіх")
                     for k in pairs(ass_actors) do ass_actors[k] = true end
                     for _, l in ipairs(ass_lines) do l.enabled = true end
@@ -15750,7 +15754,7 @@ local function draw_file()
             local y_rel = y_cursor + (row * S(30)) -- 30px per row
             local chk_y = get_y(y_rel)
             
-            if chk_y + S(20) > start_y and chk_y < gfx.h then
+            if chk_y + S(80) > start_y and chk_y < gfx.h + S(50) then
                 local enabled = ass_actors[act]
                 
                 -- HOVER CHECK
@@ -15834,7 +15838,7 @@ local function draw_file()
                 end
             
                 -- Click Logic
-                if is_mouse_clicked() then
+                if is_mouse_clicked() and gfx.mouse_y > S(25) then
                     -- Hit test
                     if gfx.mouse_x >= x_pos and gfx.mouse_x <= x_pos + item_w - S(5) and
                        gfx.mouse_y >= chk_y and gfx.mouse_y <= chk_y + S(20) then
@@ -15847,7 +15851,7 @@ local function draw_file()
                         end
                         rebuild_regions()
                     end
-                elseif is_right_mouse_clicked() then
+                elseif is_right_mouse_clicked() and gfx.mouse_y > S(25) then
                     -- Right-click hit test for actor management menu
                     if gfx.mouse_x >= x_pos and gfx.mouse_x <= x_pos + item_w - S(5) and
                        gfx.mouse_y >= chk_y and gfx.mouse_y <= chk_y + S(20) then
@@ -15955,7 +15959,7 @@ local function draw_file()
         end
         
         local stats_y = get_y(y_cursor)
-        if stats_y + S(40) > start_y and stats_y < gfx.h then
+        if stats_y + S(90) > start_y and stats_y < gfx.h + S(50) then
             set_color(UI.C_TXT)
             gfx.setfont(F.std)
             gfx.x = S(20)
@@ -15966,7 +15970,7 @@ local function draw_file()
             gfx.drawstr(fit_text_width(str, gfx.w - S(40)))
             
             -- Hook right click for quick copy
-            if is_mouse_clicked(2) and not UI_STATE.mouse_handled and gfx.mouse_y >= stats_y and gfx.mouse_y <= stats_y + bh and gfx.mouse_x >= S(20) and gfx.mouse_x <= S(20) + bw then
+            if is_mouse_clicked(2) and not UI_STATE.mouse_handled and gfx.mouse_y > S(25) and gfx.mouse_y >= stats_y and gfx.mouse_y <= stats_y + bh and gfx.mouse_x >= S(20) and gfx.mouse_x <= S(20) + bw then
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                 local ret = gfx.showmenu("Копіювати статистику||Копіювати статистику з часом")
                 UI_STATE.mouse_handled = true
@@ -15981,12 +15985,12 @@ local function draw_file()
 
         -- Apply Stress Marks Button
         local s_y = get_y(y_cursor)
-        if s_y + S(25) > start_y and s_y < gfx.h then
+        if s_y + S(75) > start_y and s_y < gfx.h + S(50) then
             local is_running = UI_STATE.script_loading_state.active
             local btn_text = is_running and "AI обробка..." or ">  Застосувати наголоси  <"
             local btn_col = is_running and UI.C_BTN_H or UI.C_TAB_ACT
             
-            if btn(S(20), s_y, gfx.w - S(40), S(40), fit_text_width(btn_text, gfx.w - S(60)), btn_col) and not is_running then
+            if btn(S(20), s_y, gfx.w - S(40), S(40), fit_text_width(btn_text, gfx.w - S(60)), btn_col, nil, true) and not is_running then
                 push_undo("Застосування наголосів")
                 apply_stress_marks_async()
             end
@@ -15996,7 +16000,7 @@ local function draw_file()
         y_cursor = y_cursor + (is_narrow and S(30) or 0)
         -- Default text
         local t_y = get_y(y_cursor)
-        if t_y + S(20) > start_y and t_y < gfx.h then
+        if t_y + S(70) > start_y and t_y < gfx.h + S(50) then
             gfx.setfont(F.std)
             gfx.x, gfx.y = S(20), t_y
             local txt_see_more_options = fit_text_width("Імпортуй файл аби побачити більше опцій.", gfx.w - S(40))
@@ -16007,7 +16011,7 @@ local function draw_file()
     
     -- Drop Zone Visual
     local drop_y = get_y(y_cursor)
-    if drop_y + S(60) > start_y and drop_y < gfx.h then
+    if drop_y + S(110) > start_y and drop_y < gfx.h + S(50) then
         local dw = gfx.w - S(40)
         local dh = S(60)
         local dx = S(20)
@@ -16037,7 +16041,7 @@ local function draw_file()
     local footer_txt = fit_text_width("Знайшли баг або маєте ідею — пишіть: @fusion_ford", gfx.w - S(10))
     gfx.setfont(F.tip)
     gfx.x, gfx.y = padding, get_y(y_cursor)
-    if gfx.y + S(20) > start_y and gfx.y < gfx.h then
+    if gfx.y + S(70) > start_y and gfx.y < gfx.h + S(50) then
         gfx.drawstr(footer_txt)
     end
 
@@ -16045,7 +16049,7 @@ local function draw_file()
     local f_sy = get_y(y_cursor)
     if f_sy + S(20) > start_y and f_sy < gfx.h then
         local tw, th = gfx.measurestr(footer_txt)
-        if is_mouse_clicked() and gfx.mouse_x >= padding and gfx.mouse_x <= padding + tw and
+        if is_mouse_clicked() and gfx.mouse_y > S(25) and gfx.mouse_x >= padding and gfx.mouse_x <= padding + tw and
            gfx.mouse_y >= f_sy and gfx.mouse_y <= f_sy + th then
             set_clipboard("@fusion_ford")
             show_snackbar("Скопійовано: @fusion_ford", "info")
