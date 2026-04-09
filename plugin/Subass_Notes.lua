@@ -208,6 +208,7 @@ local OTHER = {
         IMG_3 = 94,
         IMG_4 = 93,
         IMG_5 = 92,
+        DICTIONARY = 91,
     }
 }
 
@@ -5432,7 +5433,25 @@ local function fetch_dictionary_category(word, display_name)
     -- Note: run_async_command handles OS specific wrapping / redirects
     
     run_async_command(cmd, function(html)
+        -- Defensive check: Verify state integrity before indexing
+        if type(dict_modal) ~= "table" or type(dict_modal.content) ~= "table" then
+            if not dict_modal then reaper.ShowConsoleMsg("SUBASS_DICT_DEBUG: dict_modal is nil\n")
+            elseif type(dict_modal.content) ~= "table" then reaper.ShowConsoleMsg("SUBASS_DICT_DEBUG: dict_modal.content is " .. type(dict_modal.content) .. "\n") end
+            return 
+        end
+        
+        -- Safe to proceed if types match
+        if not display_name or type(display_name) ~= "string" then return end
+        
         if html and html ~= "" then
+            -- Detection of Cloudflare / Dictionary site errors (500, 502, 504 etc)
+            if html:find("<title>goroh.pp.ua | 50") then
+                if dict_modal.show then
+                    dict_modal.content[display_name] = "ERR:SERVER_DOWN"
+                end
+                return
+            end
+
             local parsed = parse_dictionary_definition(html, url_part)
             -- Update Modal Content via Closure
             if dict_modal.show then
@@ -13554,7 +13573,7 @@ local function draw_dictionary_modal(input_queue)
         if is_hover_back_btn and is_mouse_clicked() then
             local last = table.remove(dict_modal.history)
             dict_modal.word = last.word
-            dict_modal.content = last.content
+            dict_modal.content = (type(last.content) == "table") and last.content or {}
             dict_modal.selected_tab = last.selected_tab
             dict_modal.scroll_y = last.scroll_y
             dict_modal.target_scroll_y = last.target_scroll_y
@@ -13584,9 +13603,11 @@ local function draw_dictionary_modal(input_queue)
         local x1, y1 = sel.start_x, sel.start_y
         local x2, y2 = sel.end_x, sel.end_y
         
-        -- Convert Absolute Selection to Visual for rendering check
-        y1 = y1 + v_scroll
-        y2 = y2 + v_scroll
+        -- Adjustment for buffered rendering: selection is stored in absolute-ish space
+        -- but we are drawing in a buffer starting at content_y.
+        local content_y = dict_modal.content_y or 0
+        y1 = y1 + v_scroll - content_y
+        y2 = y2 + v_scroll - content_y
         
         -- Point to tiny selection range
         if y1 == y2 then y2 = y2 + 0.001 end
@@ -13677,8 +13698,9 @@ local function draw_dictionary_modal(input_queue)
         local x2, y2 = dict_modal.selection.end_x, dict_modal.selection.end_y
         
         -- Convert Absolute Selection to Visual for hit detection
-        y1 = y1 + v_scroll
-        y2 = y2 + v_scroll
+        local content_y = dict_modal.content_y or 0
+        y1 = y1 + v_scroll - content_y
+        y2 = y2 + v_scroll - content_y
         
         -- Point to tiny selection range
         if y1 == y2 then y2 = y2 + 0.001 end
@@ -13856,7 +13878,7 @@ local function draw_dictionary_modal(input_queue)
     
     -- Content Area
     local content_x = box_x + S(15)
-    local content_y = tab_y + tab_h + S(25)
+    local content_y = tab_y + tab_h + S(8)
     local content_w = box_w - S(30)
     local content_h = box_h - (content_y - box_y) - S(5)
     
@@ -14209,9 +14231,13 @@ local function draw_dictionary_modal(input_queue)
         dict_modal.selection = { active = false, start_x = 0, start_y = 0, end_x = 0, end_y = 0, text = "" }
     end
     
+    -- Set content_y for helper functions
+    dict_modal.content_y = content_y
+    
     -- Draw text within clip
-    local cur_y = content_y + dict_modal.scroll_y
-    local total_h = 0
+    local top_padding = S(20)
+    local cur_y = content_y + dict_modal.scroll_y + top_padding
+    local total_h = top_padding
     
     local is_hover_close_btn = UI_STATE.window_focused and 
                                gfx.mouse_x >= (box_x + box_w - S(100)) and gfx.mouse_x <= (box_x + box_w - S(100) + btn_w) and
@@ -14219,20 +14245,39 @@ local function draw_dictionary_modal(input_queue)
     
     local is_obstructed = is_hover_close_btn or is_hover_back_btn or close_hover
 
-    local active_content = dict_modal.content[dict_modal.selected_tab]
+    -- Defensive check: ensure content exists
+    local content_tbl = (type(dict_modal) == "table" and type(dict_modal.content) == "table") and dict_modal.content or {}
+    local active_content = content_tbl[dict_modal.selected_tab]
     
-    if active_content and #active_content == 0 then
+    if active_content == "ERR:SERVER_DOWN" then
+        set_color(UI.C_BTN_ERROR) -- Display in error red
+        gfx.x = content_x
+        gfx.y = content_y + 20
+        gfx.drawstr("Сервіс ГОРОХ тимчасово недоступний (Помилка Cloudflare 5xx).")
+    elseif active_content and #active_content == 0 then
         set_color(UI.C_BORDER_MUTED)
         gfx.x = content_x
         gfx.y = content_y + 20
         gfx.drawstr("Нічого немає для " .. dict_modal.selected_tab)
-    elseif not active_content then
+    elseif not active_content or type(active_content) == "string" then
         set_color(UI.C_BORDER_MUTED)
         gfx.x = content_x
         gfx.y = content_y + 20
-        gfx.drawstr("Немає даних для цієї категорії (або ГОРОХ знову впав).")
+        local msg = (type(active_content) == "string") and active_content or "Дані відсутні або ще завантажуються..."
+        gfx.drawstr(msg)
     else
         local hovered_segment = nil
+        
+        -- Buffering: Setup content buffer
+        local buf = OTHER.BUF.DICTIONARY
+        gfx.setimgdim(buf, gfx.w, content_h)
+        local prev_dest = gfx.dest
+        gfx.dest = buf
+        
+        -- Initial clear with background color
+        set_color(UI.C_TAB_INA)
+        gfx.rect(0, 0, gfx.w, content_h, 1)
+
         for _, item in ipairs(active_content) do
             
             -- LAYOUT PHASE (Cache results)
@@ -14242,21 +14287,24 @@ local function draw_dictionary_modal(input_queue)
             local item_h = item.layout.total_h
             local item_y = cur_y
             
-            -- Check visibility
-            if item_y + item_h > content_y and item_y < content_y + content_h then
+            -- Items are rendered relative to content area top
+            local rel_item_y = item_y - content_y
+
+            -- Check visibility (Render even if partially visible)
+            if rel_item_y + item_h > 0 and rel_item_y < content_h then
                 if item.is_separator then
                     -- Render Horizontal Rule
-                    local line_y = item_y + item_h / 2
+                    local line_y = rel_item_y + item_h / 2
                     set_color(UI.C_HILI_WHITE_BRIGHT) -- Subtle white
                     gfx.line(content_x, line_y, content_x + content_w, line_y)
                 elseif type(item) == "table" and item.is_table then
                     -- Render Table from Cached Layout
-                    local table_start_y = item_y
+                    local table_start_y = rel_item_y
                     local L = item.layout
                     
                     -- Background for top line
                     set_color(UI.C_HILI_WHITE)
-                    if table_start_y > content_y and table_start_y < content_y + content_h then
+                    if table_start_y > 0 and table_start_y < content_h then
                         gfx.line(content_x, table_start_y, content_x + content_w, table_start_y)
                     end
                     
@@ -14266,7 +14314,7 @@ local function draw_dictionary_modal(input_queue)
                         local row_h = L.row_heights[r_idx]
                         
                         -- Row clipping optimization
-                        if row_y + row_h > content_y and row_y < content_y + content_h then
+                        if row_y + row_h > 0 and row_y < content_h then
                             for l_col = 1, item.cols do
                                 if L.is_start[r_idx] and L.is_start[r_idx][l_col] then
                                     local cell = L.occupancy[r_idx][l_col]
@@ -14283,8 +14331,8 @@ local function draw_dictionary_modal(input_queue)
                                     local is_span_header = (cell.colspan == item.cols)
                                     if cell.is_header or is_span_header then
                                         set_color(UI.C_HILI_WHITE)
-                                        local bg_y = math.max(row_y, content_y)
-                                        local bg_h = math.min(row_y + total_cell_h, content_y + content_h) - bg_y
+                                        local bg_y = math.max(row_y, 0)
+                                        local bg_h = math.min(row_y + total_cell_h, content_h) - bg_y
                                         if bg_h > 0 then gfx.rect(cell_x, bg_y, cell_w, bg_h, 1) end
                                     end
                                     
@@ -14295,7 +14343,7 @@ local function draw_dictionary_modal(input_queue)
                                     for l_idx, rich_line in ipairs(cell.wrapped) do
                                         local ly = text_y + (l_idx - 1) * line_h
                                         -- Clip individual lines
-                                        if ly + line_h > content_y and ly < content_y + content_h then
+                                        if ly + line_h > 0 and ly < content_h then
                                             local current_x = cell_x + 4
                                             if is_span_header then
                                                 local tw = 0
@@ -14311,7 +14359,9 @@ local function draw_dictionary_modal(input_queue)
                                             for _, seg in ipairs(rich_line) do
                                                 if seg.is_bold or (cell.is_header and not seg.is_plain) then gfx.setfont(F.dict_bld) else gfx.setfont(F.dict_std) end
                                                 local sw = gfx.measurestr((seg.text:gsub(acute, "")))
-                                                local seg_hover = UI_STATE.window_focused and gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and gfx.mouse_y >= ly and gfx.mouse_y < ly + line_h
+                                                -- Use relative mouse Y for hover detection inside buffer
+                                                local seg_hover = UI_STATE.window_focused and gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + sw and 
+                                                                  (gfx.mouse_y - content_y) >= ly and (gfx.mouse_y - content_y) < ly + line_h
                                                     
                                                 if seg_hover and is_rmb_clicked and not is_obstructed and not is_mouse_in_selection(line_h, ly) then
                                                     local rel_x = gfx.mouse_x - current_x
@@ -14364,11 +14414,11 @@ local function draw_dictionary_modal(input_queue)
                                     -- Borders
                                     set_color(UI.C_HILI_WHITE)
                                     local line_y = row_y + total_cell_h
-                                    if line_y > content_y and line_y < content_y + content_h then gfx.line(cell_x, line_y, cell_x + cell_w, line_y) end
+                                    if line_y > 0 and line_y < content_h then gfx.line(cell_x, line_y, cell_x + cell_w, line_y) end
                                     if l_col + cell.colspan - 1 < item.cols then
                                         local vline_x = cell_x + cell_w
-                                        local vline_start = math.max(row_y, content_y)
-                                        local vline_end = math.min(row_y + total_cell_h, content_y + content_h)
+                                        local vline_start = math.max(row_y, 0)
+                                        local vline_end = math.min(row_y + total_cell_h, content_h)
                                         if vline_start < vline_end then gfx.line(vline_x, vline_start, vline_x, vline_end) end
                                     end
                                 end
@@ -14378,10 +14428,10 @@ local function draw_dictionary_modal(input_queue)
                 else
                      -- Render Paragraph
                     local L = item.layout
-                    local current_line_y = cur_y
+                    local current_line_y = rel_item_y
                     
                     for l_idx, rich_line in ipairs(L.wrapped) do
-                        if current_line_y + line_h > content_y and current_line_y < content_y + content_h then
+                        if current_line_y + line_h > 0 and current_line_y < content_h then
                             local segment_x = content_x + L.indent_x
                             for _, seg in ipairs(rich_line) do
                                 if seg.is_bold or (L.is_header and not seg.is_plain) then gfx.setfont(F.dict_bld) else gfx.setfont(F.dict_std) end
@@ -14389,7 +14439,8 @@ local function draw_dictionary_modal(input_queue)
                                 
                                 local sw = gfx.measurestr((seg.text:gsub(acute, "")))
                                 
-                                local seg_hover = UI_STATE.window_focused and gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and gfx.mouse_y >= gfx.y and gfx.mouse_y < gfx.y + line_h
+                                local seg_hover = UI_STATE.window_focused and gfx.mouse_x >= gfx.x and gfx.mouse_x <= gfx.x + sw and 
+                                                  (gfx.mouse_y - content_y) >= gfx.y and (gfx.mouse_y - content_y) < gfx.y + line_h
 
                                 if seg_hover and is_rmb_clicked and not is_obstructed and not is_mouse_in_selection(line_h, gfx.y) then
                                     local rel_x = gfx.mouse_x - gfx.x
@@ -14450,31 +14501,37 @@ local function draw_dictionary_modal(input_queue)
             cur_y = item_y + item.layout.total_h
             total_h = total_h + item.layout.total_h
         end
-    end
-
-    -- Trigger context menu if needed
-    if is_rmb_clicked and not is_obstructed then
-        local target_text = ""
         
-        -- On-Demand Reconstruction for Context Menu
-        if dict_modal.selection.active or (dict_modal.selection.start_x ~= dict_modal.selection.end_x) then
-            local txt = reconstruct_selection_text()
-            if txt and txt ~= "" then
-                dict_modal.selection.text = txt -- Populate for external consumer!
-                target_text = txt
+        -- Restore gfx.dest and blit the content area to the main window
+        gfx.dest = prev_dest
+        gfx.a = 1.0
+        gfx.mode = 0
+        gfx.blit(buf, 1, 0, content_x, 0, content_w, content_h, content_x, content_y)
+
+        -- Trigger context menu if needed
+        if is_rmb_clicked and not is_obstructed then
+            local target_text = ""
+            
+            -- On-Demand Reconstruction for Context Menu
+            if dict_modal.selection.active or (dict_modal.selection.start_x ~= dict_modal.selection.end_x) then
+                local txt = reconstruct_selection_text()
+                if txt and txt ~= "" then
+                    dict_modal.selection.text = txt -- Populate for external consumer!
+                    target_text = txt
+                end
             end
-        end
-        
-        if target_text == "" and hovered_segment then
-            target_text = hovered_segment.text
-        end
+            
+            if target_text == "" and hovered_segment then
+                target_text = hovered_segment.text
+            end
 
-        if target_text ~= "" then
-            -- Defer menu to next frame to allow selection to draw
-            dict_modal.pending_menu = target_text
-        else
-            -- Empty area click
-            dict_modal.pending_empty_menu = true
+            if target_text ~= "" then
+                -- Defer menu to next frame to allow selection to draw
+                dict_modal.pending_menu = target_text
+            else
+                -- Empty area click
+                dict_modal.pending_empty_menu = true
+            end
         end
     end
     
@@ -21102,6 +21159,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     -- Actor buttons should wrap before reaching the options button
     local limit_x = opt_x - S(5) -- Leave small gap before options button
     
+    local opt_draw_y = draw_y
     local function draw_options_menu()
         if not calc_only and draw_btn_inline(opt_x, opt_draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
             local dock_check = gfx.dock(-1) > 0 and "!" or ""
