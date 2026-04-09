@@ -14027,7 +14027,7 @@ local function draw_dictionary_modal(input_queue)
         if sy1 == sy2 then sy2 = sy2 + 0.001 end
         
         local res_text = ""
-        local cur_scan_y = content_y
+        local cur_scan_y = content_y + S(20)
         
         local items = dict_modal.filtered_data or (dict_modal.content and dict_modal.content[dict_modal.selected_tab])
         if not items then return "" end
