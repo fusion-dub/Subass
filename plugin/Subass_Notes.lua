@@ -13971,12 +13971,12 @@ local function draw_dictionary_modal(input_queue)
                     end
                     l_col = l_col + cell.colspan
                 end
-                row_heights[r_idx] = max_row_h + 20
+                row_heights[r_idx] = max_row_h + S(20)
                 row_y_pos[r_idx] = running_y
                 running_y = running_y + row_heights[r_idx]
             end
             item.layout.row_y_pos = row_y_pos
-            item.layout.total_h = math.ceil(running_y + 48) -- + margin
+            item.layout.total_h = math.ceil(running_y + S(48)) -- + margin
             
         else
             -- Paragraph Layout
@@ -14000,7 +14000,7 @@ local function draw_dictionary_modal(input_queue)
             local h_calc = #lines_to_draw * line_h + S(10) -- slight margin
             
             -- Headers have tighter spacing
-            if is_header then h_calc = h_calc + 4 else h_calc = h_calc + 12 end
+            if is_header then h_calc = h_calc + S(4) else h_calc = h_calc + S(12) end
             item.layout.total_h = math.ceil(h_calc)
         end
     end
@@ -14309,7 +14309,7 @@ local function draw_dictionary_modal(input_queue)
             local item_y = cur_y
             
             -- Items are rendered relative to content area top
-            local rel_item_y = item_y - content_y
+            local rel_item_y = item_y - content_y -- Rendering relative to content area top in buffer
 
             -- Check visibility (Render even if partially visible)
             if rel_item_y + item_h > 0 and rel_item_y < content_h then
