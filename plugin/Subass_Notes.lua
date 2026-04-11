@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.5
+-- @version 6.6.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v6.5",
+    script_title = "Subass Notes v6.6.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -524,6 +524,7 @@ local ai_modal = {
     was_shown = false,
     last_task = "",
     last_click_time = 0,
+    last_step_change_time = 0,
     history = {} -- AI operations history (cleared when editor closes)
 }
 
@@ -2022,8 +2023,13 @@ local function check_async_pool()
     end
 
     -- Update loader state
-    -- Only keep active if there are non-silent tasks OR a coroutine is still working
-    if not has_non_silent and not global_coroutine then
+    -- Check pool again because callbacks might have added new tasks
+    local still_has_non_silent = false
+    for _, task in ipairs(global_async_pool) do
+        if not task.is_silent then still_has_non_silent = true break end
+    end
+
+    if not still_has_non_silent and not global_coroutine then
         UI_STATE.script_loading_state.active = false
     end
 end
@@ -11195,28 +11201,41 @@ local function draw_ai_modal(skip_draw)
         local clicked = is_mouse_clicked()
         local now = os.clock()
         
-        -- Transparent overlay to capture clicks outside
-        -- Added debounce to prevent closing immediately after clicking a button (phantom click issue)
-        if clicked and ai_modal.was_shown and (now - (ai_modal.last_click_time or 0) > 0.2) then
-            if not mouse_in_menu and gfx.mouse_y < ai_modal.anchor_y - 30 then
-                ai_modal.show = false
-                return false
-            elseif not mouse_in_menu then
+        -- Capture current step at start of pass to isolate interaction
+        local step = ai_modal.current_step
+
+        -- Handle clicks outside
+        if clicked and ai_modal.was_shown and (now - (ai_modal.last_click_time or 0) > 0.3) then
+            if not mouse_in_menu then
                 ai_modal.show = false
                 return false
             end
         end
         
-        -- Consume click only if enough time passed since last interaction
-        local can_click = clicked and (now - (ai_modal.last_click_time or 0) > 0.2)
+        -- Basic click debounce (general prevention of rapid clicks)
+        local can_click = clicked and (now - (ai_modal.last_click_time or 0) > 0.25)
+        
+        -- HARD LOCK: If we just changed the step (e.g. Back button), 
+        -- ignore ALL clicks for 0.5s to prevent bounce/phantom effects
+        local state_locked = (now - (ai_modal.last_step_change_time or 0) < 0.5)
+        if state_locked then can_click = false end
 
-        if ai_modal.current_step == "SELECT_TASK" then
+        if step == "SELECT_TASK" then
             local has_back = (#ai_modal.suggestions > 0)
             local footer_h = has_back and 35 or 0
             local view_h = menu_h - footer_h
             
             local btn_h = 35
             if can_click and mouse_in_menu then
+                -- Check Footers FIRST (Prioritize navigation)
+                if has_back and gfx.mouse_y >= y + view_h then
+                    ai_modal.last_click_time = now
+                    ai_modal.last_step_change_time = now
+                    ai_modal.current_step = "RESULTS"
+                    ai_modal.scroll = 0
+                    return false -- Stop current pass after state change
+                end
+
                 -- Check List Items
                 if gfx.mouse_y < y + view_h then
                     for i, t in ipairs(ai_tasks) do
@@ -11233,81 +11252,69 @@ local function draw_ai_modal(skip_draw)
                                 else
                                     request_ai_assistant_task(t.task, ai_modal.text, t.count)
                                 end
-                                break
+                                return false -- Handled
                             end
                         end
                     end
                 end
-                
-                -- Check Back Button
-                if has_back then
-                    local bbx, bby, bbw, bbh = x + 5, y + view_h + 5, menu_w - 10, footer_h - 10
-                    if gfx.mouse_x >= bbx and gfx.mouse_x <= bbx + bbw and gfx.mouse_y >= bby and gfx.mouse_y <= bby + bbh then
-                        ai_modal.last_click_time = now
-                        ai_modal.current_step = "RESULTS"
-                        ai_modal.scroll = 0
-                    end
-                end
             end
             
-        elseif ai_modal.current_step == "RESULTS" then
+        elseif step == "RESULTS" then
             local footer_h = 35
             local view_h = menu_h - footer_h
             local curr_y = y + 5 - ai_modal.scroll
             
             if can_click and mouse_in_menu then
-                -- Check Back button first
-                local bbx, bby, bbw, bbh = x + 5, y + view_h + 5, (menu_w / 2) - 7, footer_h - 10
-                if gfx.mouse_x >= bbx and gfx.mouse_x <= bbx + bbw and
-                   gfx.mouse_y >= bby and gfx.mouse_y <= bby + bbh then
+                -- Check Footer area (Half split for Back / Retry)
+                if gfx.mouse_y >= y + view_h then
                     ai_modal.last_click_time = now
-                    ai_modal.current_step = "SELECT_TASK"
-                    ai_modal.scroll = 0
-                else
-                    -- Check Retry button
-                    local rbx, rby, rbw, rbh = x + (menu_w / 2) + 2, y + view_h + 5, (menu_w / 2) - 7, footer_h - 10
-                    if gfx.mouse_x >= rbx and gfx.mouse_x <= rbx + rbw and
-                       gfx.mouse_y >= rby and gfx.mouse_y <= rby + rbh then
-                        ai_modal.last_click_time = now
-                        request_ai_assistant_task(ai_modal.last_task, ai_modal.text)
+                    ai_modal.last_step_change_time = now
+                    if gfx.mouse_x < x + menu_w / 2 then
+                        ai_modal.current_step = "SELECT_TASK"
                         ai_modal.scroll = 0
                     else
-                        -- Check Suggestions
-                        for i, sugg in ipairs(ai_modal.suggestions) do
-                            local wrapped_lines = wrap_text(sugg.text, menu_w - 30)
-                            local block_h = #wrapped_lines * 18 + 15
-                            local bx, by = x + 5, curr_y
-                            local bw = menu_w - 20
+                        -- ЩЕ Button
+                        request_ai_assistant_task(ai_modal.last_task, ai_modal.text)
+                        ai_modal.scroll = 0
+                    end
+                    return false -- Stop current pass after state change
+                end
+
+                -- Check Suggestions
+                for i, sugg in ipairs(ai_modal.suggestions) do
+                    local wrapped_lines = wrap_text(sugg.text, menu_w - 30)
+                    local block_h = #wrapped_lines * 18 + 15
+                    local bx, by = x + 5, curr_y
+                    local bw = menu_w - 20
+                    
+                    if (by + block_h > y and by < y + view_h) and (gfx.mouse_y < y + view_h) then
+                        if gfx.mouse_x >= bx and gfx.mouse_x <= bx + bw and
+                           gfx.mouse_y >= by and gfx.mouse_y <= by + block_h then
+                            ai_modal.last_click_time = now
+                            local before = text_editor_state.text:sub(1, ai_modal.sel_min)
+                            local after = text_editor_state.text:sub(ai_modal.sel_max + 1)
+                            text_editor_state.text = before .. sugg.text .. after
+                            text_editor_state.cursor = ai_modal.sel_min + #sugg.text
+                            text_editor_state.anchor = text_editor_state.cursor
                             
-                            if (by + block_h > y and by < y + view_h) and (gfx.mouse_y < y + view_h) then
-                                if gfx.mouse_x >= bx and gfx.mouse_x <= bx + bw and
-                                   gfx.mouse_y >= by and gfx.mouse_y <= by + block_h then
-                                    ai_modal.last_click_time = now
-                                    local before = text_editor_state.text:sub(1, ai_modal.sel_min)
-                                    local after = text_editor_state.text:sub(ai_modal.sel_max + 1)
-                                    text_editor_state.text = before .. sugg.text .. after
-                                    text_editor_state.cursor = ai_modal.sel_min + #sugg.text
-                                    text_editor_state.anchor = text_editor_state.cursor
-                                    
-                                    changed = true
-                                    ai_modal.show = false
-                                    ai_modal.text = "" -- Clear session state on success
-                                    break
-                                end
-                            end
-                            curr_y = curr_y + block_h + 5
+                            changed = true
+                            ai_modal.show = false
+                            ai_modal.text = "" -- Clear session state on success
+                            return true
                         end
                     end
+                    curr_y = curr_y + block_h + 5
                 end
             end
-        elseif ai_modal.current_step == "ERROR" then
+        elseif step == "ERROR" then
             if can_click and mouse_in_menu then
-                local bbx, bby, bbw, bbh = x + (menu_w - 80) / 2, y + menu_h - 35, 80, 25
-                if gfx.mouse_x >= bbx and gfx.mouse_x <= bbx + bbw and
-                   gfx.mouse_y >= bby and gfx.mouse_y <= bby + bbh then
+                -- Center button in footer for Error state
+                if gfx.mouse_y >= y + menu_h - 40 then
                     ai_modal.last_click_time = now
+                    ai_modal.last_step_change_time = now
                     ai_modal.current_step = "SELECT_TASK"
                     ai_modal.scroll = 0
+                    return false
                 end
             end
         end
@@ -14033,7 +14040,7 @@ local function draw_dictionary_modal(input_queue)
         if not items then return "" end
 
         -- Helper to parse rich lines with character accuracy
-        local function get_line_selection(rich_line, line_top, line_bot, start_cx)
+        local function get_line_selection(rich_line, line_top, line_bot, start_cx, is_header)
             -- Exclusive hit test: [top, bot)
             if sy1 >= line_bot or sy2 < line_top then return "" end
             
@@ -14161,7 +14168,7 @@ local function draw_dictionary_modal(input_queue)
                         local para_y = cur_scan_y
                         for l_idx, rich_line in ipairs(L.wrapped) do
                             local ly = para_y + (l_idx - 1) * line_h
-                            local line_txt = get_line_selection(rich_line, ly, ly + line_h, content_x + (L.indent_x or 0))
+                            local line_txt = get_line_selection(rich_line, ly, ly + line_h, content_x + (L.indent_x or 0), L.is_header)
                            
                             if line_txt ~= "" then
                                 res_text = res_text .. line_txt
