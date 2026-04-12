@@ -63,6 +63,7 @@ local cfg = {
     p_soft_n = (get_set("p_soft_n", "0") == "1" or get_set("p_soft_n", 0) == 1),
     show_actor_name_infront = (get_set("show_actor_name_infront", "0") == "1" or get_set("show_actor_name_infront", 0) == 1),
     show_final_stats = (get_set("show_final_stats", "1") == "1" or get_set("show_final_stats", 1) == 1),
+    show_speed_in_prompter = (get_set("show_speed_in_prompter", "1") == "1" or get_set("show_speed_in_prompter", 1) == 1),
 
     wave_bg = (get_set("wave_bg", "1") == "1" or get_set("wave_bg", 1) == 1),
     wave_bg_progress = (get_set("wave_bg_progress", "0") == "1" or get_set("wave_bg_progress", 0) == 1),
@@ -181,8 +182,10 @@ local OTHER = {
         state_count = -1,
         tracks_guid = "",
         percent = 0,
+        recorded = 0,
         regions_count = 0,
-        data = {} -- Per-track cache map
+        data = {}, -- Per-track cache map
+        data_rec = {} -- Per-track recorded count map
     },
     -- Column Visibility Menu State
     col_vis_menu = {
@@ -603,7 +606,16 @@ local STATS = {
     dirty = false,
     last_save_time = 0,
     current_project_id = nil,
-    duration_cache = 0 -- Cached total seconds of finished sessions
+    duration_cache = 0, -- Cached total seconds of finished sessions
+    
+    -- Estimated Time to Completion (ETC) State
+    etc = {
+        buffer = {},             -- { {time = timestamp, count = recorded_count}, ... }
+        initialized = false,     -- True after first recording stop (cache is warm)
+        last_count = 0,          -- Recorded count at last Stop event
+        last_activity_time = 0,  -- Tracks real recording activity (not buffer pop time)
+        PAUSE_THRESHOLD = 300    -- 5 minutes of no new unique regions → reset speed buffer
+    }
 }
 
 -- Initialize stats directory path
@@ -1681,6 +1693,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "all_caps_acute", cfg.all_caps_acute and "1" or "0", true)
     reaper.SetExtState(section_name, "show_actor_name_infront", cfg.show_actor_name_infront and "1" or "0", true)
     reaper.SetExtState(section_name, "show_final_stats", cfg.show_final_stats and "1" or "0", true)
+    reaper.SetExtState(section_name, "show_speed_in_prompter", cfg.show_speed_in_prompter and "1" or "0", true)
 
     reaper.SetExtState(section_name, "wave_bg", cfg.wave_bg and "1" or "0", true)
     reaper.SetExtState(section_name, "wave_bg_progress", cfg.wave_bg_progress and "1" or "0", true)
@@ -3811,12 +3824,12 @@ function UTILS.get_tracks_to_check()
 end
 
 function UTILS.get_recording_progress()
-    if not regions or #regions == 0 then return 0 end
+    if not regions or #regions == 0 then return 0, 0, 0 end
     
     -- Freeze progress during active recording to save resources
     local play_state = reaper.GetPlayState()
     if (play_state & 4) == 4 then 
-        return OTHER.progress_cache.percent 
+        return OTHER.progress_cache.percent, OTHER.progress_cache.recorded or 0, OTHER.progress_cache.regions_count or 0
     end
     
     local cur_state = reaper.GetProjectStateChangeCount(0)
@@ -3826,15 +3839,17 @@ function UTILS.get_recording_progress()
         OTHER.progress_cache.state_count = cur_state
         OTHER.progress_cache.regions_count = #regions
         OTHER.progress_cache.data = {} -- Reset per-track map
+        OTHER.progress_cache.data_rec = {}
     end
 
     local tracks_to_check, guids = UTILS.get_tracks_to_check()
-    if guids == "" then return 0 end
+    if guids == "" then return 0, 0, #regions end
 
     -- Check if we have this track combo in cache
     if OTHER.progress_cache.data[guids] then
         OTHER.progress_cache.percent = OTHER.progress_cache.data[guids] -- Store for playhead freeze use
-        return OTHER.progress_cache.data[guids]
+        OTHER.progress_cache.recorded = OTHER.progress_cache.data_rec[guids] or 0
+        return OTHER.progress_cache.percent, OTHER.progress_cache.recorded, #regions
     end
     
     local recorded_count = 0
@@ -3865,9 +3880,71 @@ function UTILS.get_recording_progress()
     
     -- Update cache
     OTHER.progress_cache.data[guids] = percent
+    OTHER.progress_cache.data_rec[guids] = recorded_count
     OTHER.progress_cache.percent = percent
+    OTHER.progress_cache.recorded = recorded_count
     
-    return percent
+    return percent, recorded_count, #regions
+end
+
+--- Get ETC strings for context menu (Needs UTILS scope)
+function STATS.get_etc_strings()
+    local buf = STATS.etc.buffer
+    if not buf or #buf < 2 then
+        return "# ⚡ Швидкість: (запишіть більше реплік)", "# ⌚ Прогноз: (запишіть більше реплік)"
+    end
+    
+    local first = buf[1]
+    local last = buf[#buf]
+
+    local time_since_last = os.time() - STATS.etc.last_activity_time
+    local effective_last_time
+    if time_since_last < STATS.etc.PAUSE_THRESHOLD then
+        effective_last_time = math.max(last.time, os.time())
+    else
+        effective_last_time = last.time
+    end
+    
+    local diff_time = effective_last_time - first.time
+    local diff_count = last.count - first.count
+    
+    if diff_time <= 0 or diff_count <= 0 then
+        return "# ⚡ Швидкість: (замало даних)", "# ⌚ Прогноз: (замало даних)"
+    end
+    
+    -- Speed in replicas per minute
+    local speed = diff_count / (diff_time / 60)
+    
+    -- Format speed string: if slow (< 1 replica/min), show as "1 репл. / ~N хв" for clarity
+    local speed_str
+    if speed >= 1 then
+        speed_str = string.format("%.1f репл./хв", speed)
+    else
+        local mins_per_replica = math.ceil(1 / speed)
+        speed_str = string.format("1 репл. / ~%d хв", mins_per_replica)
+    end
+
+    local _, current_count, total_count = UTILS.get_recording_progress()
+    local work_left = (total_count or 0) - (current_count or 0)
+    
+    if work_left <= 0 then
+        return "# ⚡ Швидкість: " .. speed_str, "# ⌚ Прогноз: Все готово!"
+    end
+    
+    local minutes_left = work_left / speed
+    local hours = math.floor(minutes_left / 60)
+    local mins = math.floor(minutes_left % 60)
+    
+    local time_str = ""
+    if hours > 0 then
+        time_str = string.format("~%d год %d хв", hours, mins)
+    elseif mins > 0 then
+        time_str = string.format("~%d хв", mins)
+    else
+        time_str = "< 1 хв"
+    end
+    
+    return "# ⚡ Швидкість: " .. speed_str, "# ⌚ Прогноз: " .. time_str
 end
 
 function UTILS.jump_to_first_unrecorded_region()
@@ -17538,10 +17615,26 @@ local function handle_prompter_context_menu(is_show_final_stats)
             dock_idx = 7
         end
         
-        local menu = "Відобразити SubOverlay від Lionzz||Знайти нове слово в ГОРОСі|Відобразити Словник|" .. slider_check .. "Режим Слайдера||Глобальний пошук реплік" .. stats_str .. "||" .. dock_check .. "Закріпити вікно (Dock)"
+        local etc_prefix = ""
+        local etc_offset = 0
+        if cfg.show_speed_in_prompter then
+            local etc_speed, etc_time = STATS.get_etc_strings()
+            etc_prefix = etc_speed .. "|" .. etc_time .. "||"
+            etc_offset = 2
+            dock_idx = dock_idx + etc_offset
+        end
+        
+        local menu = etc_prefix .. "Відобразити SubOverlay від Lionzz||Знайти нове слово в ГОРОСі|Відобразити Словник|" .. slider_check .. "Режим Слайдера||Глобальний пошук реплік" .. stats_str .. "||" .. dock_check .. "Закріпити вікно (Dock)"
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
+        
+        -- Offset ret to skip the disabled ETC items (if shown)
+        if etc_offset > 0 and ret > etc_offset then
+            ret = ret - etc_offset
+        elseif etc_offset > 0 and ret > 0 and ret <= etc_offset then
+            ret = 0 -- Ignore clicks on disabled ETC items
+        end
         
         if ret == 1 then
             UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею")
@@ -19782,6 +19875,11 @@ local function draw_settings()
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, "Відображати заключну статистику", cfg.show_final_stats, "Відображати статистику в кінці реплік по тому скільки зрблено дублів, скільки витрачено часу.") then
         cfg.show_final_stats = not cfg.show_final_stats
+        save_settings()
+    end
+    y_cursor = y_cursor + S(35)
+    if checkbox(x_start, y_cursor, "Відображати швидкість запису", cfg.show_speed_in_prompter, "Відображати швидкість запису та прогнозований час в контексному меню суфлера.") then
+        cfg.show_speed_in_prompter = not cfg.show_speed_in_prompter
         save_settings()
     end
     y_cursor = y_cursor + S(60)
@@ -24274,6 +24372,59 @@ function OTHER.process_post_recording()
         if proj and #proj.duration > 0 then
             proj.duration[#proj.duration]["end"] = os.time()
             STATS.update_cache()
+            
+            -- Update ETC (Estimated Time to Completion) buffer
+            local _, cur_rec = UTILS.get_recording_progress()
+            if cur_rec then
+                -- Initialization on first Stop (cache is warm, regions are loaded).
+                -- Seed the buffer so the NEXT stop immediately shows speed.
+                if not STATS.etc.initialized then
+                    local now = os.time()
+                    STATS.etc.last_count = cur_rec
+                    STATS.etc.last_activity_time = now
+                    STATS.etc.initialized = true
+                    table.insert(STATS.etc.buffer, {time = now, count = cur_rec})
+                end
+
+                -- Detect backward jump: pop invalidated buffer entries (e.g. user deleted items).
+                while #STATS.etc.buffer > 0 and cur_rec < STATS.etc.buffer[#STATS.etc.buffer].count do
+                    table.remove(STATS.etc.buffer)
+                end
+                -- If backward jump cleared the entire buffer, re-seed at current state
+                -- so the very next stop can immediately show speed again.
+                -- Use os.time() (not last_activity_time) to avoid stale timestamps
+                -- from a previous session contaminating the diff_time calculation.
+                if #STATS.etc.buffer == 0 then
+                    table.insert(STATS.etc.buffer, {time = os.time(), count = cur_rec})
+                end
+
+                if cur_rec > STATS.etc.last_count then
+                    local now = os.time()
+
+                    -- Pause detection: use last_activity_time (independent of backward jumps).
+                    if now - STATS.etc.last_activity_time > STATS.etc.PAUSE_THRESHOLD then
+                        -- Re-seed using the real moment when Record was pressed (session_start).
+                        -- math.min(..., now-1) ensures diff_time >= 1s even if Record+Stop
+                        -- happened within the same second (session_start == now edge case).
+                        local session_start = math.min(proj.duration[#proj.duration].start, now - 1)
+                        STATS.etc.buffer = {{time = session_start, count = STATS.etc.last_count}}
+                    end
+
+                    STATS.etc.last_activity_time = now
+
+                    -- Prevent duplicate timestamps (stops within same second): update in-place.
+                    if #STATS.etc.buffer > 0 and now == STATS.etc.buffer[#STATS.etc.buffer].time then
+                        STATS.etc.buffer[#STATS.etc.buffer].count = cur_rec
+                    else
+                        table.insert(STATS.etc.buffer, {time = now, count = cur_rec})
+                        if #STATS.etc.buffer > 100 then
+                            table.remove(STATS.etc.buffer, 1)
+                        end
+                    end
+                end
+            end
+            STATS.etc.last_count = cur_rec or STATS.etc.last_count
+            
             STATS.dirty = true
             STATS.save()
         end
