@@ -12140,7 +12140,11 @@ local function record_field_history(state)
     end
 end
 
-local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_multiline, is_director_mode, font_category_size)
+local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is_multiline, is_director_mode, font_category_size)
+    -- Load persistent UA mode if ID is provided and state is not yet initialized for this session
+    if id and state.ua_mode == nil then
+        state.ua_mode = (reaper.GetExtState(section_name, "ua_mode_" .. id) == "1")
+    end
     gfx.setfont(font_category_size or F.std)
     local padding = S(5)
     local line_h = gfx.texth
@@ -12204,7 +12208,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
     
     -- UA Toggle Button (Triangle in top-right)
-    local ua_btn_w, ua_btn_h = S(12), S(12)
+    local ua_btn_w, ua_btn_h = S(16), S(16)
     local ua_btn_x, ua_btn_y = x + w - ua_btn_w, y
     local ua_btn_hover = hover and (gfx.mouse_x >= ua_btn_x and gfx.mouse_x <= ua_btn_x + ua_btn_w and gfx.mouse_y >= ua_btn_y and gfx.mouse_y <= ua_btn_y + ua_btn_h)
     
@@ -12219,6 +12223,9 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     
     if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and ua_btn_hover then
         state.ua_mode = not state.ua_mode
+        if id then
+            reaper.SetExtState(section_name, "ua_mode_" .. id, state.ua_mode and "1" or "0", true)
+        end
         UI_STATE.mouse_handled = true
         return -- Defer other clicks to next frame or ignore
     end
@@ -12456,7 +12463,7 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     gfx.rect(0, 0, w, h, 1)
 
     -- Render UA Toggle (Internal coords)
-    local ua_btn_w, ua_btn_h = S(12), S(12)
+    local ua_btn_w, ua_btn_h = S(16), S(16)
     local ua_btn_x, ua_btn_y = w - ua_btn_w, 0
     if state.ua_mode then
         set_color(UI.C_ED_HILI_G, 0.8)
@@ -12736,7 +12743,7 @@ local function draw_text_editor(input_queue)
     local text_w, text_h = box_w - S(20), box_h - S(80)
 
     -- Main editor interaction
-    ui_text_input(text_x, text_y, text_w, text_h, text_editor_state, "Введіть текст...", input_queue, true, text_editor_state.is_director_mode, F[cfg.t_editor_size])
+    ui_text_input("text_editor", text_x, text_y, text_w, text_h, text_editor_state, "Введіть текст...", input_queue, true, text_editor_state.is_director_mode, F[cfg.t_editor_size])
 
     local btn_y = box_y + box_h - S(40)
     if btn(box_x + S(10), btn_y, S(90), S(30), "Скасування") then 
@@ -13426,7 +13433,7 @@ function SEARCH_ITEM.draw_window(input_queue)
     local spacing = S(8)
     local input_w = gfx.w - pad*2 - s_btn_w - f_btn_sz - spacing*2
     
-    ui_text_input(pad, content_y, input_w, input_h, SEARCH_ITEM.input, "Введіть текст для пошуку...", input_queue)
+    ui_text_input("search_modal", pad, content_y, input_w, input_h, SEARCH_ITEM.input, "Введіть текст для пошуку...", input_queue)
     
     -- Search Button next to input
     local s_btn_x = pad + input_w + spacing
@@ -17274,7 +17281,7 @@ local function draw_prompter_drawer(input_queue)
                 local p_count_text = tostring(#prompter_drawer.filtered_cache.list)
                 p_counter_reserve = gfx.measurestr(p_count_text) + S(16)
             end
-            ui_text_input(drawer_x + padding, drawer_top_y + padding, filter_w - p_counter_reserve, close_sz, prompter_drawer.filter, "Пошук... (|, &)", input_queue)
+            ui_text_input("prompter_filter", drawer_x + padding, drawer_top_y + padding, filter_w - p_counter_reserve, close_sz, prompter_drawer.filter, "Пошук... (|, &)", input_queue)
 
             -- Results count
             if p_counter_reserve > 0 then
@@ -21784,7 +21791,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         local base_sz = OTHER.FONT_SIZES.normal[cfg.t_corr_size]
         gfx.setfont(corr_font, cfg.p_font, S(base_sz or 18))
         
-        ui_text_input(input_draw_x, input_draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true, corr_font)
+        ui_text_input("director", input_draw_x, input_draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true, corr_font)
     
         -- Check for changes to highlight button
         local has_changes = false
@@ -21951,7 +21958,7 @@ local function draw_table(input_queue)
     local filter_placeholder = OTHER.find_replace_state.show 
         and "Фільтр (Текст для заміни)..." 
         or "Фільтр (Текст, Актор або ID. Умова або ʼ|ʼ, умова та ʼ&ʼ)..."
-    ui_text_input(filter_x, filter_y, filter_w - counter_reserve, filter_h, table_filter_state, filter_placeholder, input_queue)
+    ui_text_input("table_filter", filter_x, filter_y, filter_w - counter_reserve, filter_h, table_filter_state, filter_placeholder, input_queue)
     gfx.setfont(F.std)
     -- Display results count in the top-right corner of filter input
     if counter_reserve > 0 then
@@ -22086,7 +22093,7 @@ local function draw_table(input_queue)
         local btn_apply_w = S(80)
         local rep_w = gfx.w - S(20) - btn_apply_w - gap
         
-        ui_text_input(filter_x, fr_y, rep_w, fr_h, OTHER.find_replace_state.replace, "Замінити на...", input_queue)
+        ui_text_input("replace_field", filter_x, fr_y, rep_w, fr_h, OTHER.find_replace_state.replace, "Замінити на...", input_queue)
         gfx.setfont(F.std)
         -- Apply Button
         local apply_x = filter_x + rep_w + gap
