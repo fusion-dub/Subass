@@ -218,6 +218,10 @@ local OTHER = {
         [65] = 1060, [83] = 1030, [68] = 1042, [70] = 1040, [71] = 1055, [72] = 1056, [74] = 1054, [75] = 1051, [76] = 1044, [58] = 1046, [34] = 1028,
         [90] = 1071, [88] = 1063, [67] = 1057, [86] = 1052, [66] = 1048, [78] = 1058, [77] = 1068, [60] = 1041, [62] = 1070, [63] = 44, [92] = 1169, [124] = 1168,
         [96] = 39, [126] = 1168
+    },
+    FONT_SIZES = {
+        normal = {tr_S=14, tr_M=16, tr_L=18, tr_XL=20, tr_XXL=24, tr_XXXL=28},
+        reader = {tr_S=18, tr_M=20, tr_L=22, tr_XL=26, tr_XXL=30, tr_XXXL=34}
     }
 }
 
@@ -335,13 +339,14 @@ local function update_prompter_fonts()
     gfx.setfont(F.tip, "Arial", S(12))
     gfx.setfont(F.tip_big, "Arial", S(16))
 
-    -- Reader Mode Table Font
-    gfx.setfont(F.tr_S, cfg.p_font, S(18))
-    gfx.setfont(F.tr_M, cfg.p_font, S(20))
-    gfx.setfont(F.tr_L, cfg.p_font, S(22))
-    gfx.setfont(F.tr_XL, cfg.p_font, S(26))
-    gfx.setfont(F.tr_XXL, cfg.p_font, S(30))
-    gfx.setfont(F.tr_XXXL, cfg.p_font, S(34))
+    -- Table Row Fonts (Standard sizes, Table overrides these in Reader Mode)
+    local sz = OTHER.FONT_SIZES.normal
+    gfx.setfont(F.tr_S, cfg.p_font, S(sz.tr_S))
+    gfx.setfont(F.tr_M, cfg.p_font, S(sz.tr_M))
+    gfx.setfont(F.tr_L, cfg.p_font, S(sz.tr_L))
+    gfx.setfont(F.tr_XL, cfg.p_font, S(sz.tr_XL))
+    gfx.setfont(F.tr_XXL, cfg.p_font, S(sz.tr_XXL))
+    gfx.setfont(F.tr_XXXL, cfg.p_font, S(sz.tr_XXXL))
 
     -- Force re-measuring of text layout by clearing cache
     if draw_prompter_cache then
@@ -21773,7 +21778,13 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     
     if not calc_only then
         local was_focused = director_state.input.focus
-        ui_text_input(input_draw_x, input_draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true, F[cfg.t_corr_size])
+        
+        -- Force stable "normal" font size for director panel, ignoring reader_mode
+        local corr_font = F[cfg.t_corr_size]
+        local base_sz = OTHER.FONT_SIZES.normal[cfg.t_corr_size]
+        gfx.setfont(corr_font, cfg.p_font, S(base_sz or 18))
+        
+        ui_text_input(input_draw_x, input_draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true, corr_font)
     
         -- Check for changes to highlight button
         local has_changes = false
@@ -21891,10 +21902,9 @@ local function draw_table(input_queue)
     local row_h = cfg.reader_mode and S(80) or S(24)
 
     -- DO NOT modify F.std/F.bld globally
-    -- Table Specific Font Logic
-    local tr_sizes_reader = {tr_S=18, tr_M=20, tr_L=22, tr_XL=26, tr_XXL=30, tr_XXXL=34}
-    local tr_sizes_normal = {tr_S=14, tr_M=16, tr_L=18, tr_XL=20, tr_XXL=24, tr_XXXL=28}
-    local use_sz = (cfg.reader_mode and tr_sizes_reader[cfg.t_r_size] or tr_sizes_normal[cfg.t_r_size]) or 16
+    -- Table Specific Font Logic from shared structure
+    local tr_set = cfg.reader_mode and OTHER.FONT_SIZES.reader or OTHER.FONT_SIZES.normal
+    local use_sz = tr_set[cfg.t_r_size] or 16
     
     gfx.setfont(F[cfg.t_r_size], cfg.p_font, S(use_sz))
 
@@ -22670,7 +22680,8 @@ local function draw_table(input_queue)
         local max_w = avail_w - content_x_start - 30 -- padding + scrollbar (updated to use avail_w)
         
         -- Ensure font is set to the correct size for the NEW mode
-        local use_sz_layout = (cfg.reader_mode and tr_sizes_reader[cfg.t_r_size] or tr_sizes_normal[cfg.t_r_size]) or 16
+        local tr_set_layout = cfg.reader_mode and OTHER.FONT_SIZES.reader or OTHER.FONT_SIZES.normal
+        local use_sz_layout = tr_set_layout[cfg.t_r_size] or 16
         gfx.setfont(F[cfg.t_r_size], cfg.p_font, S(use_sz_layout))
         local line_h = gfx.texth
         
