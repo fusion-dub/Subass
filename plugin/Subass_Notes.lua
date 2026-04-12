@@ -12218,7 +12218,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             UI_STATE.tooltip_state.hover_id = tip_id
             UI_STATE.tooltip_state.start_time = reaper.time_precise()
         end
-        UI_STATE.tooltip_state.text = "Швидкий UA ввід:\nДозволяє писати українською на англійській розкладці"
+        UI_STATE.tooltip_state.text = "Швидкий UA ввід:\nДозволяє писати українською на англійській розкладці клавіатури"
     end
     
     if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and ua_btn_hover then
