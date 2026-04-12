@@ -7749,10 +7749,11 @@ local function ebu_r128_replicas_normalize()
             if not anchor_gain then anchor_gain, anchor_bp = get_local_context(item_pos, 120.0) end
             if not anchor_gain then anchor_gain, anchor_bp = global_median, global_mean_bp end
             
-            -- SAFETY GATE: If item is too quiet (<-42 LUFS), it's likely noise/roomtone.
-            if res.lufs < -42.0 then
+            -- SAFETY GATE: Ultra-low threshold (Capture all intentional sounds like breaths/hm)
+            local noise_gate = -78.0
+            if res.lufs < noise_gate then
                 gain_db = 0.0
-                classification = "Ignored (Noise Floor)"
+                classification = "Ignored (Silence)"
                 track_stats.noise = track_stats.noise + 1
             else
                 -- Gain Logic
@@ -7760,11 +7761,21 @@ local function ebu_r128_replicas_normalize()
                     gain_db = anchor_gain
                     classification = "Breath (Rel)"
                 elseif res.len < 2.0 then
-                    local strict_gain = target_lufs - res.lufs
-                    local deviation = strict_gain - anchor_gain
-                    if deviation > 4.0 then strict_gain = anchor_gain + 4.0 end
-                    if deviation < -4.0 then strict_gain = anchor_gain - 4.0 end
-                    gain_db = strict_gain
+                    local target_gain = target_lufs - res.lufs
+                    local deviation = target_gain - anchor_gain
+                    
+                    -- Hybrid: stay close to dialogue scale (+/- 4dB)
+                    local hybrid_gain = target_gain
+                    if deviation > 5.0 then hybrid_gain = anchor_gain + 5.0 end
+                    if deviation < -5.0 then hybrid_gain = anchor_gain - 5.0 end
+                    
+                    -- SAFETY: Hybrid gain should NOT push short clips way above target LUFS
+                    -- (Limit overshoot to +1.5dB relative to strict target)
+                    if hybrid_gain > target_gain + 1.5 then 
+                        hybrid_gain = target_gain + 1.5 
+                    end
+                    
+                    gain_db = hybrid_gain
                     classification = "Short (Hyb)"
                 else
                     gain_db = target_lufs - res.lufs
