@@ -209,6 +209,15 @@ local OTHER = {
         IMG_4 = 93,
         IMG_5 = 92,
         DICTIONARY = 91,
+    },
+    QWERTY_TO_UA = {
+        [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
+        [97] = 1092, [115] = 1110, [100] = 1074, [102] = 1072, [103] = 1087, [104] = 1088, [106] = 1086, [107] = 1083, [108] = 1076, [59] = 1078, [39] = 1108,
+        [122] = 1103, [120] = 1095, [99] = 1089, [118] = 1084, [98] = 1080, [110] = 1090, [109] = 1100, [44] = 1073, [46] = 1102, [47] = 46,
+        [81] = 1049, [87] = 1062, [69] = 1059, [82] = 1050, [84] = 1045, [89] = 1053, [85] = 1043, [73] = 1064, [79] = 1065, [80] = 1047, [123] = 1061, [125] = 1031,
+        [65] = 1060, [83] = 1030, [68] = 1042, [70] = 1040, [71] = 1055, [72] = 1056, [74] = 1054, [75] = 1051, [76] = 1044, [58] = 1046, [34] = 1028,
+        [90] = 1071, [88] = 1063, [67] = 1057, [86] = 1052, [66] = 1048, [78] = 1058, [77] = 1068, [60] = 1041, [62] = 1070, [63] = 44, [92] = 1169, [124] = 1168,
+        [96] = 39, [126] = 1168
     }
 }
 
@@ -2768,7 +2777,10 @@ end
 
 --- Draw tooltip at mouse position
 local function draw_tooltip()
-    if not UI_STATE.tooltip_state.text or UI_STATE.tooltip_state.text == "" then return end
+    if not UI_STATE.tooltip_state.text or UI_STATE.tooltip_state.text == "" then 
+        UI_STATE.tooltip_state.hover_id = nil
+        return 
+    end
     
     local now = reaper.time_precise()
     if not UI_STATE.tooltip_state.immediate and (now - UI_STATE.tooltip_state.start_time < 1.0) then return end
@@ -12031,7 +12043,12 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
                     if cp == 277 or cp == 117 then cp = is_shift and 1168 or 1169 end -- Ґ or ґ
                     if cp == 276 or cp == 85  then cp = 1168 end                      -- Ґ
                 end
-                
+
+                -- UA Input Mapping (QWERTY -> UA ЙЦУКЕН)
+                if state.ua_mode and OTHER.QWERTY_TO_UA[cp] then
+                    cp = OTHER.QWERTY_TO_UA[cp]
+                end
+
                 -- Full UTF-8 Encode
                 if cp < 128 then char_str = string.char(cp)
                 elseif cp < 2048 then
@@ -12181,6 +12198,26 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     -- --- INTERACTION ---
     local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
     
+    -- UA Toggle Button (Triangle in top-right)
+    local ua_btn_w, ua_btn_h = S(12), S(12)
+    local ua_btn_x, ua_btn_y = x + w - ua_btn_w, y
+    local ua_btn_hover = hover and (gfx.mouse_x >= ua_btn_x and gfx.mouse_x <= ua_btn_x + ua_btn_w and gfx.mouse_y >= ua_btn_y and gfx.mouse_y <= ua_btn_y + ua_btn_h)
+    
+    if ua_btn_hover then
+        local tip_id = "ua_input_toggle"
+        if UI_STATE.tooltip_state.hover_id ~= tip_id then
+            UI_STATE.tooltip_state.hover_id = tip_id
+            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+        end
+        UI_STATE.tooltip_state.text = "Швидкий UA ввід:\nДозволяє писати українською на англійській розкладці"
+    end
+    
+    if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and ua_btn_hover then
+        state.ua_mode = not state.ua_mode
+        UI_STATE.mouse_handled = true
+        return -- Defer other clicks to next frame or ignore
+    end
+
     local function get_cursor_from_xy(mx, my)
         if not is_multiline then
             local rel_x = mx - (x + padding) + state.scroll
@@ -12412,6 +12449,21 @@ local function ui_text_input(x, y, w, h, state, placeholder, input_queue, is_mul
     gfx.dest = OTHER.BUF.TABLE
     set_color(state.focus and UI.C_BG or UI.C_TAB_INA)
     gfx.rect(0, 0, w, h, 1)
+
+    -- Render UA Toggle (Internal coords)
+    local ua_btn_w, ua_btn_h = S(12), S(12)
+    local ua_btn_x, ua_btn_y = w - ua_btn_w, 0
+    if state.ua_mode then
+        set_color(UI.C_ED_HILI_G, 0.8)
+        -- Draw filled triangle
+        gfx.triangle(ua_btn_x + ua_btn_w, ua_btn_y, ua_btn_x + ua_btn_w, ua_btn_y + ua_btn_h, ua_btn_x + S(2), ua_btn_y)
+    else
+        set_color(UI.C_TXT, 0.2)
+        -- Draw outline triangle
+        gfx.line(ua_btn_x + ua_btn_w, ua_btn_y, ua_btn_x + ua_btn_w, ua_btn_y + ua_btn_h)
+        gfx.line(ua_btn_x + ua_btn_w, ua_btn_y + ua_btn_h, ua_btn_x + S(2), ua_btn_y)
+        gfx.line(ua_btn_x + S(2), ua_btn_y, ua_btn_x + ua_btn_w, ua_btn_y)
+    end
 
     if #state.text == 0 and not state.focus then
         set_color(UI.C_ED_GUTTER)
@@ -21810,6 +21862,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             end
         end
         
+        gfx.setfont(F.std)
         if draw_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
             save_director_changes()
         end
@@ -21889,7 +21942,7 @@ local function draw_table(input_queue)
         and "Фільтр (Текст для заміни)..." 
         or "Фільтр (Текст, Актор або ID. Умова або ʼ|ʼ, умова та ʼ&ʼ)..."
     ui_text_input(filter_x, filter_y, filter_w - counter_reserve, filter_h, table_filter_state, filter_placeholder, input_queue)
-
+    gfx.setfont(F.std)
     -- Display results count in the top-right corner of filter input
     if counter_reserve > 0 then
         local count = #table_data_cache.list
@@ -22024,7 +22077,7 @@ local function draw_table(input_queue)
         local rep_w = gfx.w - S(20) - btn_apply_w - gap
         
         ui_text_input(filter_x, fr_y, rep_w, fr_h, OTHER.find_replace_state.replace, "Замінити на...", input_queue)
-
+        gfx.setfont(F.std)
         -- Apply Button
         local apply_x = filter_x + rep_w + gap
         if draw_btn_inline(apply_x, fr_y, btn_apply_w, fr_h, "Замінити", UI.C_BTN) then
