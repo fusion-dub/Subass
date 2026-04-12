@@ -12466,9 +12466,14 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
     local ua_btn_w, ua_btn_h = S(16), S(16)
     local ua_btn_x, ua_btn_y = w - ua_btn_w, 0
     if state.ua_mode then
-        set_color(UI.C_ED_HILI_G, 0.8)
-        -- Draw filled triangle
-        gfx.triangle(ua_btn_x + ua_btn_w, ua_btn_y, ua_btn_x + ua_btn_w, ua_btn_y + ua_btn_h, ua_btn_x + S(2), ua_btn_y)
+        -- UA Flag themed indicator (Two triangles forming ONE large corner triangle)
+        local mh = ua_btn_h / 2
+        -- Top Triangle (Blue)
+        set_color({0.0, 0.45, 0.85, 0.9}) -- Blue
+        gfx.triangle(ua_btn_x, ua_btn_y, ua_btn_x + ua_btn_w, ua_btn_y, ua_btn_x + ua_btn_w, ua_btn_y + mh)
+        -- Bottom Triangle (Yellow)
+        set_color({1.0, 0.85, 0.0, 0.9}) -- Yellow
+        gfx.triangle(ua_btn_x, ua_btn_y, ua_btn_x + ua_btn_w, ua_btn_y + mh, ua_btn_x + ua_btn_w, ua_btn_y + ua_btn_h)
     else
         set_color(UI.C_TXT, 0.2)
         -- Draw outline triangle
