@@ -24380,7 +24380,6 @@ function OTHER.process_post_recording()
                 -- Seed the buffer so the NEXT stop immediately shows speed.
                 if not STATS.etc.initialized then
                     local now = os.time()
-                    STATS.etc.last_count = cur_rec
                     STATS.etc.last_activity_time = now
                     STATS.etc.initialized = true
                     table.insert(STATS.etc.buffer, {time = now, count = cur_rec})
@@ -24390,28 +24389,30 @@ function OTHER.process_post_recording()
                 while #STATS.etc.buffer > 0 and cur_rec < STATS.etc.buffer[#STATS.etc.buffer].count do
                     table.remove(STATS.etc.buffer)
                 end
+                
                 -- If backward jump cleared the entire buffer, re-seed at current state
                 -- so the very next stop can immediately show speed again.
-                -- Use os.time() (not last_activity_time) to avoid stale timestamps
-                -- from a previous session contaminating the diff_time calculation.
+                -- Use os.time() to avoid stale timestamps contaminating calculation.
                 if #STATS.etc.buffer == 0 then
                     table.insert(STATS.etc.buffer, {time = os.time(), count = cur_rec})
                 end
 
-                if cur_rec > STATS.etc.last_count then
-                    local now = os.time()
+                local last_valid_count = STATS.etc.buffer[#STATS.etc.buffer].count
+                local now = os.time()
 
-                    -- Pause detection: use last_activity_time (independent of backward jumps).
-                    if now - STATS.etc.last_activity_time > STATS.etc.PAUSE_THRESHOLD then
-                        -- Re-seed using the real moment when Record was pressed (session_start).
-                        -- math.min(..., now-1) ensures diff_time >= 1s even if Record+Stop
-                        -- happened within the same second (session_start == now edge case).
-                        local session_start = math.min(proj.duration[#proj.duration].start, now - 1)
-                        STATS.etc.buffer = {{time = session_start, count = STATS.etc.last_count}}
-                    end
+                -- Pause detection: ANY stop updates activity time, correctly isolating breaks
+                -- from periods with many bad takes.
+                if now - STATS.etc.last_activity_time > STATS.etc.PAUSE_THRESHOLD then
+                    -- Re-seed using the real moment when Record was pressed (session_start).
+                    -- math.min(..., now-1) ensures diff_time >= 1s even if Record+Stop
+                    -- happened within the same second (session_start == now edge case).
+                    local session_start = math.min(proj.duration[#proj.duration].start, now - 1)
+                    STATS.etc.buffer = {{time = session_start, count = last_valid_count}}
+                end
 
-                    STATS.etc.last_activity_time = now
+                STATS.etc.last_activity_time = now
 
+                if cur_rec > last_valid_count then
                     -- Prevent duplicate timestamps (stops within same second): update in-place.
                     if #STATS.etc.buffer > 0 and now == STATS.etc.buffer[#STATS.etc.buffer].time then
                         STATS.etc.buffer[#STATS.etc.buffer].count = cur_rec
@@ -24423,7 +24424,6 @@ function OTHER.process_post_recording()
                     end
                 end
             end
-            STATS.etc.last_count = cur_rec or STATS.etc.last_count
             
             STATS.dirty = true
             STATS.save()
