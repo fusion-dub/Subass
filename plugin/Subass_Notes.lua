@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.6.1
+-- @version 6.7
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -9,7 +9,7 @@ reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 local section_name = "Subass_Notes"
 
 local GL = {
-    script_title = "Subass Notes v6.6.1",
+    script_title = "Subass Notes v6.7",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
 }
 
@@ -19878,7 +19878,7 @@ local function draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Відображати швидкість запису", cfg.show_speed_in_prompter, "Відображати швидкість запису та прогнозований час в контексному меню суфлера.") then
+    if checkbox(x_start, y_cursor, "Відображати швидкість запису", cfg.show_speed_in_prompter, "Відображати швидкість запису та прогнозований час в контексному меню суфлера (для коректного відображення прогнозованого часу потрібно виділяти трек/треки з вашими записами).") then
         cfg.show_speed_in_prompter = not cfg.show_speed_in_prompter
         save_settings()
     end
