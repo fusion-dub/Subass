@@ -723,6 +723,9 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_4_simple_count")
     ACHIEVEMENTS.get_stat("ach_4_custom_count")
 
+    ACHIEVEMENTS.get_stat("ach_5_import_count")
+    ACHIEVEMENTS.get_stat("ach_5_corr_item_count")
+
     ACHIEVEMENTS.get_stat("ach_6_failed_count")
 
     ACHIEVEMENTS.get_stat("ach_7_itachi_uchiha")
@@ -10386,6 +10389,9 @@ local function import_notes()
     prompter_drawer.filtered_cache.state_count = -1
     prompter_drawer.has_markers_cache.count = -1
 
+    ACHIEVEMENTS.add_stat("ach_5_import_count", 1)
+    ACHIEVEMENTS.add_stat("ach_5_corr_item_count", created_count)
+
     local msg = "Створено маркерів: " .. created_count
     if skipped_count > 0 then
         msg = msg .. " (пропущено існуючих: " .. skipped_count .. ")"
@@ -10563,6 +10569,9 @@ local function import_notes_from_csv(file_path)
     prompter_drawer.marker_cache.count = -1
     prompter_drawer.filtered_cache.state_count = -1
     prompter_drawer.has_markers_cache.count = -1
+
+    ACHIEVEMENTS.add_stat("ach_5_import_count", 1)
+    ACHIEVEMENTS.add_stat("ach_5_corr_item_count", created_count)
 
     local msg = "Створено маркерів: " .. created_count
     if skipped_count > 0 then
@@ -14102,6 +14111,14 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     gfx.x, gfx.y = cx + S(6), cy + S(4)
                     gfx.drawstr(tostring(total))
                 end
+            elseif ach.id == "ach_5" then
+                local total = ACHIEVEMENTS.stats["ach_5_import_count"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
             end
             
             -- Image
@@ -14175,7 +14192,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     elseif ach.id == "ach_8" then
                         local export = ACHIEVEMENTS.stats["ach_8_export_count"] or 0
                         local items = ACHIEVEMENTS.stats["ach_8_corr_item_count"] or 0
-                        tooltip_text = string.format("Скопійовано/Експортовано разів: %d\n%s\nКількість переданих правок: %d", 
+                        tooltip_text = string.format("Віддано паків правок: %d\n%s\nКількість переданих правок: %d", 
                             export, string.rep("—", 12), items)
                     elseif ach.id == "ach_6" then
                         local total = ACHIEVEMENTS.stats["ach_6_failed_count"] or 0
@@ -14200,6 +14217,11 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         else
                             tooltip_text = table.concat(parts, "\n") .. "\n"
                         end
+                    elseif ach.id == "ach_5" then
+                        local imports = ACHIEVEMENTS.stats["ach_5_import_count"] or 0
+                        local items = ACHIEVEMENTS.stats["ach_5_corr_item_count"] or 0
+                        tooltip_text = string.format("Прийнято паків парвок: %d\n%s\nКількість отриманих правок: %d", 
+                            imports, string.rep("—", 12), items)
                     else
                         tooltip_text = ach.name
                     end
