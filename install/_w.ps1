@@ -276,6 +276,7 @@ $dictionarySource = Join-Path $projectRoot "plugin\dictionary"
 $ttsSource = Join-Path $projectRoot "plugin\tts"
 $statsSource = Join-Path $projectRoot "plugin\stats"
 $notepadSource = Join-Path $projectRoot "plugin\imnotbad"
+$mediaSource = Join-Path $projectRoot "plugin\media"
 
 if (Test-Path $scriptSource) {
     Copy-Item $scriptSource $scriptsPath -Force
@@ -298,6 +299,11 @@ if (Test-Path $scriptSource) {
         $overlayTargetDir = Join-Path $scriptsPath "overlay"
         if (-not (Test-Path $overlayTargetDir)) { New-Item -ItemType Directory $overlayTargetDir | Out-Null }
         Copy-Item "$overlaySource\*" $overlayTargetDir -Recurse -Force
+    }
+    if (Test-Path $mediaSource) {
+        $mediaTargetDir = Join-Path $scriptsPath "media"
+        if (Test-Path $mediaTargetDir) { Remove-Item $mediaTargetDir -Recurse -Force }
+        Copy-Item $mediaSource $scriptsPath -Recurse -Force
     }
     if (Test-Path $autoupdateSource) {
         Copy-Item $autoupdateSource $scriptsPath -Force
