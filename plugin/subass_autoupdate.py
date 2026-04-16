@@ -192,6 +192,11 @@ def perform_update(zip_url):
                                 shutil.copytree(sub_s, sub_d)
                             else:
                                 shutil.copy2(sub_s, sub_d)
+                    elif item == "media":
+                        # For media, replace entirely
+                        if os.path.exists(d): 
+                            shutil.rmtree(d)
+                        shutil.copytree(s, d)
                     else:
                         # For other folders (overlay, dictionary, etc), replace entirely
                         if os.path.exists(d): 
