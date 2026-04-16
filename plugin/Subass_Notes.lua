@@ -688,13 +688,21 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_1_vtt_import")
     ACHIEVEMENTS.get_stat("ach_1_total_lines")
 
+    ACHIEVEMENTS.get_stat("ach_2_total_lines")
+    ACHIEVEMENTS.get_stat("ach_2_run_count")
+
     ACHIEVEMENTS.get_stat("ach_3_definition")
     ACHIEVEMENTS.get_stat("ach_3_conjugation")
     ACHIEVEMENTS.get_stat("ach_3_synonyms")
     ACHIEVEMENTS.get_stat("ach_3_idioms")
     ACHIEVEMENTS.get_stat("ach_3_word_usage")
 
+    ACHIEVEMENTS.get_stat("ach_6_failed_count")
+
     ACHIEVEMENTS.get_stat("ach_7_itachi_uchiha")
+
+    ACHIEVEMENTS.get_stat("ach_8_export_count")
+    ACHIEVEMENTS.get_stat("ach_8_corr_item_count")
 end
 
 -- Assets Loading
@@ -721,7 +729,95 @@ function ACHIEVEMENTS.load_assets()
     ACHIEVEMENTS.is_load_assets = true
 end
 
--- OTHER.load_assets()
+--- Get or generate a persistent incremental index for the current project
+--- @return number|string Project index or "unsaved"
+function ACHIEVEMENTS.get_project_idx()
+    local proj_path, proj_name = DEADLINE.get_project_info()
+    if not proj_name or proj_name == "" or proj_path:match("^PTR:") then 
+        return "unsaved" 
+    end
+
+    -- Check project metadata
+    local retval, idx_str = reaper.GetProjExtState(0, section_name, "project_increment_inx")
+    if retval and idx_str ~= "" and tonumber(idx_str) then
+        return tonumber(idx_str)
+    end
+
+    -- FALLBACK: Check global registry before generating
+    local norm_path = DEADLINE.normalize_path(proj_path)
+    local global_data = DEADLINE.load_global()
+    if global_data[norm_path] and global_data[norm_path].idx and tonumber(global_data[norm_path].idx) then
+        local found_idx = tonumber(global_data[norm_path].idx)
+        reaper.SetProjExtState(0, section_name, "project_increment_inx", tostring(found_idx))
+        return found_idx
+    end
+
+    -- Generate new index
+    local last_idx = tonumber(reaper.GetExtState(section_ach_name, "global_project_counter")) or 0
+    local new_idx = last_idx + 1
+    
+    reaper.SetExtState(section_ach_name, "global_project_counter", tostring(new_idx), true)
+    reaper.SetProjExtState(0, section_name, "project_increment_inx", tostring(new_idx))
+    reaper.MarkProjectDirty(0)
+
+    -- Update global registry with the new index
+    local deadline = DEADLINE.get()
+    DEADLINE.save_global(proj_path, proj_name, deadline, new_idx)
+    
+    return new_idx
+end
+
+--- Check if the current project has failed its deadline and track it uniquely
+function ACHIEVEMENTS.check_deadline_failure()
+    local idx = ACHIEVEMENTS.get_project_idx()
+    if idx == "unsaved" then return end
+
+    -- Get deadline for the active project
+    local proj_path, _ = DEADLINE.get_project_info()
+    if not proj_path then return end
+    
+    local global_data = DEADLINE.load_global()
+    local norm_path = DEADLINE.normalize_path(proj_path)
+    local deadline = global_data[norm_path] and global_data[norm_path].deadline
+    
+    if not deadline then
+        -- Check local backup
+        local retval, val = reaper.GetProjExtState(0, section_name, "project_deadline")
+        if retval and val ~= "" then deadline = tonumber(val) end
+    end
+
+    if deadline and os.time() > deadline then
+        local failed_list = reaper.GetExtState(section_ach_name, "ach_6_idx_list")
+        local idx_str = tostring(idx)
+        
+        -- Back-sync project index to global registry if missing
+        local registry_updated = false
+        if global_data[norm_path] and not global_data[norm_path].idx and tonumber(idx) then
+            global_data[norm_path].idx = tonumber(idx)
+            registry_updated = true
+        end
+        if registry_updated then
+            local json_str = STATS.json_encode(global_data)
+            reaper.SetExtState(section_name, "new_project_deadlines", json_str, true)
+        end
+
+        -- Unique failure tracking (only for numeric IDs)
+        if tonumber(idx_str) then
+            local search_pattern = "|" .. idx_str .. "|"
+            local wrapped_list = "|" .. failed_list .. "|"
+            if not wrapped_list:find(search_pattern, 1, true) then
+                local new_list = failed_list == "" and idx_str or (failed_list .. "|" .. idx_str)
+                reaper.SetExtState(section_ach_name, "ach_6_idx_list", new_list, true)
+                
+                -- Recalculate total unique count to ensure accuracy
+                local count = 0
+                for _ in new_list:gmatch("[^|]+") do count = count + 1 end
+                local current_stat = ACHIEVEMENTS.get_stat("ach_6_failed_count")
+                ACHIEVEMENTS.add_stat("ach_6_failed_count", count - current_stat)
+            end
+        end
+    end
+end
 
 -- Prompter Drawer State
 local prompter_drawer = {
@@ -961,6 +1057,63 @@ function STATS.json_decode(str)
         return {}
     end
     return res
+end
+
+--- Perform a global audit of all projects in the registry to count unique deadline failures
+function ACHIEVEMENTS.global_deadline_sweep()
+    local global_data = DEADLINE.load_global()
+    local now = os.time()
+    local failed_list = reaper.GetExtState(section_ach_name, "ach_6_idx_list")
+    local initial_count = tonumber(reaper.GetExtState(section_ach_name, "ach_6_failed_count")) or 0
+    local registry_changed = false
+    
+    -- Load counter once to avoid race conditions inside the loop
+    local last_global_idx = tonumber(reaper.GetExtState(section_ach_name, "global_project_counter")) or 0
+    local start_global_idx = last_global_idx
+
+    for norm_path, proj in pairs(global_data) do
+        if proj.deadline and now > proj.deadline then
+            -- Assign index if missing (Legacy migration)
+            if not proj.idx or not tonumber(proj.idx) then
+                last_global_idx = last_global_idx + 1
+                proj.idx = last_global_idx
+                registry_changed = true
+            end
+
+            local idx_str = tostring(proj.idx)
+            -- Only count numeric/valid indices for unique achievements
+            if tonumber(idx_str) then
+                local search_pattern = "|" .. idx_str .. "|"
+                local wrapped_list = "|" .. failed_list .. "|"
+                
+                if not wrapped_list:find(search_pattern, 1, true) then
+                    failed_list = failed_list == "" and idx_str or (failed_list .. "|" .. idx_str)
+                end
+            end
+        end
+    end
+
+    -- Save counter once if it was incremented
+    if last_global_idx ~= start_global_idx then
+        reaper.SetExtState(section_ach_name, "global_project_counter", tostring(last_global_idx), true)
+    end
+
+    -- Count unique IDs and self-correct the achievement stat
+    local count = 0
+    if failed_list ~= "" then
+        for _ in failed_list:gmatch("[^|]+") do count = count + 1 end
+    end
+    
+    local current_stat = ACHIEVEMENTS.get_stat("ach_6_failed_count")
+    if count ~= current_stat or initial_count == 0 then
+        ACHIEVEMENTS.add_stat("ach_6_failed_count", count - current_stat)
+    end
+    reaper.SetExtState(section_ach_name, "ach_6_idx_list", failed_list, true)
+
+    if registry_changed then
+        local json_str = STATS.json_encode(global_data)
+        reaper.SetExtState(section_name, "new_project_deadlines", json_str, true)
+    end
 end
 
 --- Generate unique project ID from project path
@@ -3262,8 +3415,12 @@ function DEADLINE.set(timestamp)
     -- Update global storage
     local proj_path, proj_name = DEADLINE.get_project_info()
     if proj_path then
-        DEADLINE.save_global(proj_path, proj_name, timestamp)
+        local idx = ACHIEVEMENTS.get_project_idx()
+        DEADLINE.save_global(proj_path, proj_name, timestamp, idx)
     end
+
+    -- Trigger immediate achievement update for the new deadline
+    ACHIEVEMENTS.check_deadline_failure()
 end
 
 --- Get current project path and name
@@ -3389,7 +3546,7 @@ end
 --- @param project_path string Full path to project file
 --- @param project_name string Project name
 --- @param deadline_ts number|nil Unix timestamp or nil to remove
-function DEADLINE.save_global(project_path, project_name, deadline_ts)
+function DEADLINE.save_global(project_path, project_name, deadline_ts, idx)
     if not project_path then return end
     local norm_path = DEADLINE.normalize_path(project_path)
 
@@ -3400,7 +3557,8 @@ function DEADLINE.save_global(project_path, project_name, deadline_ts)
         data[norm_path] = {
             name = project_name,
             deadline = deadline_ts,
-            path = project_path -- Store original raw path with casing
+            path = project_path, -- Store original raw path with casing
+            idx = idx or (data[norm_path] and data[norm_path].idx) -- Preserve existing index if updated
         }
     else
         -- Remove deadline
@@ -3526,6 +3684,7 @@ function DEADLINE.sync_project()
 end
 -- Run sync on script start
 DEADLINE.sync_project()
+ACHIEVEMENTS.check_deadline_failure()
 
 --- Sort projects by urgency: Passed -> Today -> Soon -> Later
 local function sort_deadlines(a, b)
@@ -10853,8 +11012,12 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
         save_project_data(UI_STATE.last_project_id)
         reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
         show_snackbar("Наголоси додано: " .. changed_lines .. " рядків", "success")
+
+        ACHIEVEMENTS.add_stat("ach_2_total_lines", changed_lines)
+        ACHIEVEMENTS.add_stat("ach_2_run_count", 1)
     else
         show_snackbar("Наголоси не потрібні або не знайдені", "info")
+        ACHIEVEMENTS.add_stat("ach_2_run_count", 1)
     end
 end
 
@@ -13882,6 +14045,30 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     gfx.x, gfx.y = cx + S(6), cy + S(4)
                     gfx.drawstr(tostring(total))
                 end
+            elseif ach.id == "ach_2" then
+                local total = ACHIEVEMENTS.stats["ach_2_run_count"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
+            elseif ach.id == "ach_8" then
+                local total = ACHIEVEMENTS.stats["ach_8_export_count"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
+            elseif ach.id == "ach_6" then
+                local total = ACHIEVEMENTS.stats["ach_6_failed_count"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
             end
             
             -- Image
@@ -13932,8 +14119,8 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local vtt = ACHIEVEMENTS.stats["ach_1_vtt_import"] or 0
                         local total = ACHIEVEMENTS.stats["ach_1_total_lines"] or 0
                         
-                        tooltip_text = string.format("Імпортовано реплік: %d\n%s\nІмпортовано SRT файлів: %d\nІмпортовано ASS файлів: %d\nІмпортовано VTT файлів: %d", 
-                            total, string.rep("—", 12), srt, ass, vtt)
+                        tooltip_text = string.format("Імпортовано SRT файлів: %d\nІмпортовано ASS файлів: %d\nІмпортовано VTT файлів: %d\n%s\nІмпортовано реплік: %d", 
+                            srt, ass, vtt, string.rep("—", 12), total)
                     elseif ach.id == "ach_3" then
                         local def = ACHIEVEMENTS.stats["ach_3_definition"] or 0
                         local conj = ACHIEVEMENTS.stats["ach_3_conjugation"] or 0
@@ -13946,6 +14133,20 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     elseif ach.id == "ach_7" then
                         local total = ACHIEVEMENTS.stats["ach_7_itachi_uchiha"] or 0
                         tooltip_text = string.format("\"Завжди вірний селищу.\"\n%s\n\nЗустрічей з Ітачі: %d", 
+                            string.rep("—", 12), total)
+                    elseif ach.id == "ach_2" then
+                        local total = ACHIEVEMENTS.stats["ach_2_total_lines"] or 0
+                        local runs = ACHIEVEMENTS.stats["ach_2_run_count"] or 0
+                        tooltip_text = string.format("Кількість застосувань наголосів: %d\n%s\nНаголошено реплік: %d", 
+                            runs, string.rep("—", 12), total)
+                    elseif ach.id == "ach_8" then
+                        local export = ACHIEVEMENTS.stats["ach_8_export_count"] or 0
+                        local items = ACHIEVEMENTS.stats["ach_8_corr_item_count"] or 0
+                        tooltip_text = string.format("Скопійовано/Експортовано разів: %d\n%s\nКількість переданих правок: %d", 
+                            export, string.rep("—", 12), items)
+                    elseif ach.id == "ach_6" then
+                        local total = ACHIEVEMENTS.stats["ach_6_failed_count"] or 0
+                        tooltip_text = string.format("Підведено очікуання\n%s\nПроєкти з простроченим дедлайном: %d", 
                             string.rep("—", 12), total)
                     else
                         tooltip_text = ach.name
@@ -21145,9 +21346,11 @@ function UTILS.export_markers_to_csv(markers, deadline_str)
         end
         file:close()
         show_snackbar("Експортовано " .. #markers .. " правок у CSV", "success")
+
+        ACHIEVEMENTS.add_stat("ach_8_export_count", 1)
+        ACHIEVEMENTS.add_stat("ach_8_corr_item_count", #markers)
     end
 end
-
 
 function UTILS.copy_markers_to_clipboard(markers)
     if #markers > 0 then
@@ -21212,6 +21415,9 @@ function UTILS.copy_markers_to_clipboard(markers)
         
         set_clipboard(table.concat(out_lines, "\n"))
         show_snackbar("Скопійовано " .. #markers .. " правок", "success")
+
+        ACHIEVEMENTS.add_stat("ach_8_export_count", 1)
+        ACHIEVEMENTS.add_stat("ach_8_corr_item_count", #markers)
     else
         show_snackbar("Немає правок для копіювання", "info")
     end
@@ -25064,6 +25270,9 @@ local function main()
         UI_STATE.last_project_id = proj and (tostring(proj) .. "_" .. id_fname) or "none"
         DEADLINE.sync_project() -- Restore deadline from global storage if needed
         DEADLINE.project_deadline = DEADLINE.get()
+        
+        -- Trigger achievement check for the initial project context
+        ACHIEVEMENTS.check_deadline_failure()
         DUBBERS.load() -- Load dubber data for initial project
         DUBBERS.last_project_id = UI_STATE.last_project_id
     end
@@ -25102,6 +25311,9 @@ local function main()
         DEADLINE.project_deadline = nil -- Reset before sync
         DEADLINE.sync_project() -- Synchronize local state with global registry
         DEADLINE.project_deadline = DEADLINE.get()
+
+        -- Trigger achievement check for the new project context
+        ACHIEVEMENTS.check_deadline_failure()
 
         DUBBERS.load() -- Reload dubber data for this project
         DUBBERS.last_project_id = current_project_id
@@ -25390,6 +25602,7 @@ local function main()
     reaper.defer(main)
 end
 
+ACHIEVEMENTS.global_deadline_sweep()
 update_regions_cache()
 
 reaper.atexit(function()
