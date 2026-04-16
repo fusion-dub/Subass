@@ -673,7 +673,7 @@ function ACHIEVEMENTS.add_stat(key, amount)
     local prefix = key:match("^(ach_%d+)_")
     if prefix then
         local tracking_key = prefix .. "_tracking"
-        if ACHIEVEMENTS.get_stat(tracking_key) == 0 then
+        if ACHIEVEMENTS.get_stat(tracking_key) == 0 and new_val > 0 then
             -- Mark as tracking/unlocked
             ACHIEVEMENTS.stats[tracking_key] = 1
             reaper.SetExtState(section_ach_name, tracking_key, "1", true)
@@ -1134,7 +1134,7 @@ function ACHIEVEMENTS.global_deadline_sweep()
     end
     
     local current_stat = ACHIEVEMENTS.get_stat("ach_6_failed_count")
-    if count ~= current_stat or initial_count == 0 then
+    if count ~= current_stat then
         ACHIEVEMENTS.add_stat("ach_6_failed_count", count - current_stat)
     end
     reaper.SetExtState(section_ach_name, "ach_6_idx_list", failed_list, true)
