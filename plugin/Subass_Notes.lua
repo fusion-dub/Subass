@@ -3898,9 +3898,9 @@ function DEADLINE.draw_dashboard(input_queue)
                 if btn(bx, by, btn_w, btn_h, "Змінити", UI.C_BTN, UI.C_TXT) and gfx.mouse_y > list_y then
                     DEADLINE.open_picker(proj.deadline, function(new_ts)
                         DEADLINE.save_global(proj.path, proj.name, new_ts)
+                        ACHIEVEMENTS.global_deadline_sweep() -- Trigger immediate achievement sync
                         local cp_path, _ = DEADLINE.get_project_info()
-                        if cp_path then cp_path = DEADLINE.normalize_path(cp_path) end
-                        if cp_path == proj.path then
+                        if cp_path and proj.path and DEADLINE.normalize_path(cp_path) == DEADLINE.normalize_path(proj.path) then
                             DEADLINE.set(new_ts)
                         end
                     end)
