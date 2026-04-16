@@ -14220,7 +14220,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     elseif ach.id == "ach_5" then
                         local imports = ACHIEVEMENTS.stats["ach_5_import_count"] or 0
                         local items = ACHIEVEMENTS.stats["ach_5_corr_item_count"] or 0
-                        tooltip_text = string.format("Прийнято паків парвок: %d\n%s\nКількість отриманих правок: %d", 
+                        tooltip_text = string.format("Прийнято паків правок: %d\n%s\nКількість отриманих правок: %d", 
                             imports, string.rep("—", 12), items)
                     else
                         tooltip_text = ach.name
