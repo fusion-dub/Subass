@@ -142,6 +142,7 @@ PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
 SCRIPT_SOURCE="$PROJECT_ROOT/plugin/Subass_Notes.lua"
 STRESS_SOURCE="$PROJECT_ROOT/plugin/stress"
 OVERLAY_SOURCE="$PROJECT_ROOT/plugin/overlay"
+MEDIA_SOURCE="$PROJECT_ROOT/plugin/media"
 UPDATE_SOURCE="$PROJECT_ROOT/plugin/subass_autoupdate.py"
 DICTIONARY_SOURCE="$PROJECT_ROOT/plugin/dictionary"
 TTS_SOURCE="$PROJECT_ROOT/plugin/tts"
@@ -163,6 +164,11 @@ if [ -f "$SCRIPT_SOURCE" ]; then
     if [ -d "$OVERLAY_SOURCE" ]; then
         mkdir -p "$SCRIPTS_PATH/overlay"
         cp -R "$OVERLAY_SOURCE/"* "$SCRIPTS_PATH/overlay/"
+    fi
+    if [ -d "$MEDIA_SOURCE" ]; then
+        rm -rf "$SCRIPTS_PATH/media"
+        mkdir -p "$SCRIPTS_PATH/media"
+        cp -R "$MEDIA_SOURCE/"* "$SCRIPTS_PATH/media/"
     fi
     if [ -f "$UPDATE_SOURCE" ]; then
         cp "$UPDATE_SOURCE" "$SCRIPTS_PATH/"
