@@ -247,6 +247,19 @@ local OTHER = {
         reader = {tr_S=18, tr_M=20, tr_L=22, tr_XL=26, tr_XXL=30, tr_XXXL=34}
     },
     SEPARATOR = package.config:sub(1,1),
+    AI_TASKS = {
+        { id="ref", name = "Перефразувати", task = "Перефразуй (збережи сенс, але використай інші слова та синоніми)" },
+        { id="long", name = "Зробити довше", task = "Зроби довшим (надай варіанти різної довжини: деякі лише на 1-3 слова довші, інші — значно довші)" },
+        { id="short", name = "Зробити коротше", task = "Зроби коротшим (надай варіанти різної довжини: деякі лише на 1-3 слова коротші, інші — значно коротші)" },
+        { id="stress", name = "Перевірити наголоси", count = 1, task = "Перевір наголоси в словах відповідно до норм сучасної української мови. Поверни текст, де наголошена голосна у кожному слові (крім односкладних) виділена ВЕЛИКОЮ літерою ТА постав після неї символ наголосу (наприклад: розмО́ва, договІ́р). Особливу увагу приділи словам з подвійним наголосом або складним випадкам (наприклад: завждИ, фенОмен)." },
+        { id="main_word", name = "Визначити головне слово", count = 1, task = "Проаналізуй наступну репліку. Знайди ОДНЕ головне слово, яке є смисловим центром (ремою) речення, і постав після нього тег {Головне слово} без пробілу.\n\nКритерії вибору:\n1. Логічний наголос: Слово, яке несе основну вагу. У питаннях — це суть запиту, у наказах — суть дії.\n2. Тільки повнозначні слова: Ігноруй прийменники, сполучники та частки (не, і, на, б).\n3. Контекст: У звертаннях головним є поняття або дія, а не ім'я (наприклад: \"Вілл, СОВІСТЬ май\").\n4. Рема: Шукай «нове» у реченні, те, заради чого воно сказане.\n\nФормат відповіді: Поверни ТІЛЬКИ текст репліки з коментарем {Головне слово} одразу за словом (приклад: слово{Головне слово}). Жодних пояснень." },
+        { id="fun", name = "Веселіше", task = "Зроби тон більш позитивним, жартівливим або життєрадісним" },
+        { id="drama", name = "Більше драми", task = "Зроби репліку більш емоційною, напруженою або трагічною" },
+        { id="sarcasm", name = "Більше сарказму", task = "Додай іронії, сарказму або насмішкуватості" },
+        { id="threat", name = "Більш погрозливо", task = "Зроби тон небезпечним, суворим або таким, що залякує" },
+        { id="simple", name = "Максимально просто", task = "Використовуй прості слова та розмовну лексику, зроби репліку максимально природною для повсякденної мови" },
+        { id="custom", name = "<Свій варіант>", task = "CUSTOM" },
+    }
 }
 
 -- Global Scale Helper
@@ -591,6 +604,7 @@ local ai_modal = {
     anchor_y = 0,
     was_shown = false,
     last_task = "",
+    last_id = "",
     last_click_time = 0,
     last_step_change_time = 0,
     history = {} -- AI operations history (cleared when editor closes)
@@ -696,6 +710,18 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_3_synonyms")
     ACHIEVEMENTS.get_stat("ach_3_idioms")
     ACHIEVEMENTS.get_stat("ach_3_word_usage")
+
+    ACHIEVEMENTS.get_stat("ach_4_ref_count")
+    ACHIEVEMENTS.get_stat("ach_4_long_count")
+    ACHIEVEMENTS.get_stat("ach_4_short_count")
+    ACHIEVEMENTS.get_stat("ach_4_stress_count")
+    ACHIEVEMENTS.get_stat("ach_4_main_word_count")
+    ACHIEVEMENTS.get_stat("ach_4_fun_count")
+    ACHIEVEMENTS.get_stat("ach_4_drama_count")
+    ACHIEVEMENTS.get_stat("ach_4_sarcasm_count")
+    ACHIEVEMENTS.get_stat("ach_4_threat_count")
+    ACHIEVEMENTS.get_stat("ach_4_simple_count")
+    ACHIEVEMENTS.get_stat("ach_4_custom_count")
 
     ACHIEVEMENTS.get_stat("ach_6_failed_count")
 
@@ -6234,10 +6260,11 @@ end
 --- @param task_name string Task name (e.g. "Перефразувати")
 --- @param text string Selected text
 --- @param variant_count integer|nil Number of variants to return (default: 3)
-local function request_ai_assistant_task(task_name, text, variant_count)
+local function request_ai_assistant_task(ai_task_id_ach, task_name, text, variant_count)
     ai_modal.current_step = "LOADING"
     ai_modal.last_task = task_name
-    
+    ai_modal.last_id = ai_task_id_ach
+
     local count = variant_count or 3
     
     -- Build context from surrounding replicas
@@ -6330,6 +6357,8 @@ local function request_ai_assistant_task(task_name, text, variant_count)
             ai_modal.error_msg = "Помилка запиту: " .. status .. "\n" .. (response or "")
             ai_modal.current_step = "ERROR"
         end
+ 
+        ACHIEVEMENTS.add_stat("ach_4_" .. ai_task_id_ach .. "_count", 1)
     end, true) -- USE JSON SCHEMA = TRUE
 end
 
@@ -11626,20 +11655,6 @@ local function draw_ai_modal(skip_draw)
         return 
     end
 
-    local ai_tasks = {
-        { name = "Перефразувати", task = "Перефразуй (збережи сенс, але використай інші слова та синоніми)" },
-        { name = "Зробити довше", task = "Зроби довшим (надай варіанти різної довжини: деякі лише на 1-3 слова довші, інші — значно довші)" },
-        { name = "Зробити коротше", task = "Зроби коротшим (надай варіанти різної довжини: деякі лише на 1-3 слова коротші, інші — значно коротші)" },
-        { name = "Перевірити наголоси", count = 1, task = "Перевір наголоси в словах відповідно до норм сучасної української мови. Поверни текст, де наголошена голосна у кожному слові (крім односкладних) виділена ВЕЛИКОЮ літерою ТА постав після неї символ наголосу (наприклад: розмО́ва, договІ́р). Особливу увагу приділи словам з подвійним наголосом або складним випадкам (наприклад: завждИ, фенОмен)." },
-        { name = "Визначити головне слово", count = 1, task = "Проаналізуй наступну репліку. Знайди ОДНЕ головне слово, яке є смисловим центром (ремою) речення, і постав після нього тег {Головне слово} без пробілу.\n\nКритерії вибору:\n1. Логічний наголос: Слово, яке несе основну вагу. У питаннях — це суть запиту, у наказах — суть дії.\n2. Тільки повнозначні слова: Ігноруй прийменники, сполучники та частки (не, і, на, б).\n3. Контекст: У звертаннях головним є поняття або дія, а не ім'я (наприклад: \"Вілл, СОВІСТЬ май\").\n4. Рема: Шукай «нове» у реченні, те, заради чого воно сказане.\n\nФормат відповіді: Поверни ТІЛЬКИ текст репліки з коментарем {Головне слово} одразу за словом (приклад: слово{Головне слово}). Жодних пояснень." },
-        { name = "Веселіше", task = "Зроби тон більш позитивним, жартівливим або життєрадісним" },
-        { name = "Більше драми", task = "Зроби репліку більш емоційною, напруженою або трагічною" },
-        { name = "Більше сарказму", task = "Додай іронії, сарказму або насмішкуватості" },
-        { name = "Більш погрозливо", task = "Зроби тон небезпечним, суворим або таким, що залякує" },
-        { name = "Максимально просто", task = "Використовуй прості слова та розмовну лексику, зроби репліку максимально природною для повсякденної мови" },
-        { name = "<Свій варіант>", task = "CUSTOM" },
-    }
-
     local menu_w = 350
     local x = ai_modal.anchor_x - menu_w + 40
     local y = ai_modal.anchor_y + 5
@@ -11647,7 +11662,7 @@ local function draw_ai_modal(skip_draw)
     -- Pre-calculate content height to determine menu height
     local content_h = 0
     if ai_modal.current_step == "SELECT_TASK" then
-        local list_h = #ai_tasks * (35 + 2) + 10
+        local list_h = #OTHER.AI_TASKS * (35 + 2) + 10
         local has_back = (#ai_modal.suggestions > 0)
         content_h = list_h + (has_back and 35 or 0)
     elseif ai_modal.current_step == "LOADING" then
@@ -11743,7 +11758,7 @@ local function draw_ai_modal(skip_draw)
 
                 -- Check List Items
                 if gfx.mouse_y < y + view_h then
-                    for i, t in ipairs(ai_tasks) do
+                    for i, t in ipairs(OTHER.AI_TASKS) do
                         local bx, by = x + 5, y + 5 + (i-1) * (btn_h + 2) - ai_modal.scroll
                         local bw = menu_w - 10
                         if by + btn_h > y and by < y + view_h then -- Visible?
@@ -11752,10 +11767,10 @@ local function draw_ai_modal(skip_draw)
                                 if t.task == "CUSTOM" then
                                     local ok, input = reaper.GetUserInputs("AI Варіант", 1, "наприклад: Більше сленгу,extrawidth=200", "")
                                     if ok and input ~= "" then
-                                        request_ai_assistant_task(input, ai_modal.text, 3)
+                                        request_ai_assistant_task(t.id, input, ai_modal.text, 3)
                                     end
                                 else
-                                    request_ai_assistant_task(t.task, ai_modal.text, t.count)
+                                    request_ai_assistant_task(t.id, t.task, ai_modal.text, t.count)
                                 end
                                 return false -- Handled
                             end
@@ -11779,7 +11794,7 @@ local function draw_ai_modal(skip_draw)
                         ai_modal.scroll = 0
                     else
                         -- ЩЕ Button
-                        request_ai_assistant_task(ai_modal.last_task, ai_modal.text)
+                        request_ai_assistant_task(ai_modal.last_id, ai_modal.last_task, ai_modal.text)
                         ai_modal.scroll = 0
                     end
                     return false -- Stop current pass after state change
@@ -11855,7 +11870,7 @@ local function draw_ai_modal(skip_draw)
         local view_h = menu_h - footer_h
 
         local btn_h = 35
-        for i, t in ipairs(ai_tasks) do
+        for i, t in ipairs(OTHER.AI_TASKS) do
             local bx, by = 5, 5 + (i-1) * (btn_h + 2) - ai_modal.scroll
             local bw = menu_w - 10
             
@@ -14069,6 +14084,24 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     gfx.x, gfx.y = cx + S(6), cy + S(4)
                     gfx.drawstr(tostring(total))
                 end
+            elseif ach.id == "ach_4" then
+                local total = (ACHIEVEMENTS.stats["ach_4_ref_count"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_4_long_count"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_4_short_count"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_4_stress_count"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_4_main_word_count"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_4_fun_count"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_4_drama_count"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_4_sarcasm_count"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_4_threat_count"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_4_simple_count"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_4_custom_count"] or 0)
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
             end
             
             -- Image
@@ -14146,8 +14179,27 @@ function ACHIEVEMENTS.draw_window(input_queue)
                             export, string.rep("—", 12), items)
                     elseif ach.id == "ach_6" then
                         local total = ACHIEVEMENTS.stats["ach_6_failed_count"] or 0
-                        tooltip_text = string.format("Підведено очікуання\n%s\nПроєкти з простроченим дедлайном: %d", 
+                        tooltip_text = string.format("Ви підвели команду\n%s\nПроєкти з простроченим дедлайном: %d", 
                             string.rep("—", 12), total)
+                    elseif ach.id == "ach_4" then
+                        local parts = { "Використано ШІ" .. "\n" .. string.rep("—", 12) }
+                        local total = 0
+                        
+                        -- Dynamically build tooltip from OTHER.AI_TASKS
+                        for _, task in ipairs(OTHER.AI_TASKS) do
+                            local stat_key = "ach_4_" .. task.id .. "_count"
+                            local val = ACHIEVEMENTS.stats[stat_key] or 0
+                            if val > 0 then
+                                table.insert(parts, string.format("%s: %d", task.name, val))
+                                total = total + val
+                            end
+                        end
+                        
+                        if #parts == 1 then
+                            tooltip_text = "Ви ще не використовували AI-функції"
+                        else
+                            tooltip_text = table.concat(parts, "\n") .. "\n"
+                        end
                     else
                         tooltip_text = ach.name
                     end
