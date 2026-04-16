@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.7
+-- @version 6.8.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,11 +10,13 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v6.7",
+    script_title = "Subass Notes v6.8.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
+    last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
 
 if GL.last_dock_state == "" then GL.last_dock_state = 0 else GL.last_dock_state = tonumber(GL.last_dock_state) end
+if GL.last_dock_id == "" or GL.last_dock_id == "0" then GL.last_dock_id = 513 else GL.last_dock_id = tonumber(GL.last_dock_id) end
 
 -- Persisted Settings
 local function get_set(key, default)
@@ -17063,7 +17065,7 @@ local function draw_file()
         local base_items = has_dubbers and 8 or 7
         -- After fixed items come dubber selection items (if any), then dict items, then dock
         local dict_start = base_items + dubber_count + (dict_count > 0 and 1 or 0) -- first dict item ret value (1-indexed menu)
-        local dock_ret = dict_start + dict_count + (dict_count > 0 and 0 or 0)
+        local dock_ret = dict_start + dict_count + (dict_count > 0 and 0 or 1)
         
         if ret == 1 then
             delete_all_regions()
@@ -17100,10 +17102,12 @@ local function draw_file()
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
+                GL.last_dock_state = 0
                 reaper.SetExtState(section_name, "dock", "0", true)
             else
-                gfx.dock(1) -- Dock to last valid docker
-                reaper.SetExtState(section_name, "dock", tostring(gfx.dock(-1)), true)
+                gfx.dock(GL.last_dock_id or 1)
+                GL.last_dock_state = gfx.dock(-1)
+                reaper.SetExtState(section_name, "dock", tostring(GL.last_dock_state), true)
             end
         end
     end
@@ -18360,14 +18364,16 @@ local function handle_prompter_context_menu(is_show_final_stats)
             if SEARCH_ITEM.open then SEARCH_ITEM.open() end
         elseif is_show_final_stats and ret == 6 then
             STATS.clear_stats()
-        elseif ret == dock_idx then
+        elseif (ret + etc_offset) == dock_idx then
             -- Toggle Docking
             if is_docked then
                 gfx.dock(0)
+                GL.last_dock_state = 0
                 reaper.SetExtState(section_name, "dock", "0", true)
             else
-                gfx.dock(1) -- Dock to last valid docker
-                reaper.SetExtState(section_name, "dock", tostring(gfx.dock(-1)), true)
+                gfx.dock(GL.last_dock_id or 1)
+                GL.last_dock_state = gfx.dock(-1)
+                reaper.SetExtState(section_name, "dock", tostring(GL.last_dock_state), true)
             end
         end
     end
@@ -25599,7 +25605,7 @@ local function main()
                 local check = (dock_state > 0) and "!" or ""
                 local ret = gfx.showmenu(check .. "Закріпити вікно (Dock)")
                 if ret == 1 then
-                    local target_dock = dock_state > 0 and 0 or 1
+                    local target_dock = dock_state > 0 and 0 or (GL.last_dock_id or 1)
                     gfx.dock(target_dock)
                     GL.last_dock_state = gfx.dock(-1) -- Get the actual new index
                     save_settings()
@@ -25616,16 +25622,19 @@ local function main()
     draw_requirements_window()
 
     local cur_dock = gfx.dock(-1)
-    if cur_dock > 0 and cur_dock ~= GL.last_dock_state then
-        GL.last_dock_state = cur_dock
-        reaper.SetExtState(section_name, "dock", tostring(GL.last_dock_state), true)
-    elseif cur_dock == 0 and GL.last_dock_state ~= 0 then
-        -- Only set to 0 if the window is actually floating and NOT closing
-        -- This is a bit tricky, but checking if char != -1 helps
-        if gfx.getchar() ~= -1 then
-            GL.last_dock_state = 0
-            reaper.SetExtState(section_name, "dock", "0", true)
+    if cur_dock > 0 then
+        if cur_dock ~= GL.last_dock_state then
+            GL.last_dock_state = cur_dock
+            reaper.SetExtState(section_name, "dock", tostring(GL.last_dock_state), true)
         end
+        if cur_dock ~= GL.last_dock_id then
+            GL.last_dock_id = cur_dock
+            reaper.SetExtState(section_name, "dock_id", tostring(GL.last_dock_id), true)
+        end
+    elseif cur_dock == 0 and GL.last_dock_state ~= 0 then
+        -- Only set to 0 if the window is actually floating (manual undock)
+        GL.last_dock_state = 0
+        reaper.SetExtState(section_name, "dock", "0", true)
     end
 
     -- Async handling and Loader must be drawn BEFORE gfx.update
