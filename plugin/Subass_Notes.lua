@@ -7,6 +7,7 @@
 reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
 
 local section_name = "Subass_Notes"
+local section_ach_name = "Subass_Achievements"
 
 local GL = {
     script_title = "Subass Notes v6.7",
@@ -206,12 +207,31 @@ local OTHER = {
         DIRECTOR = 99,
         AI = 98,
         TABLE = 97,
-        IMG_1 = 96,
-        IMG_2 = 95,
-        IMG_3 = 94,
-        IMG_4 = 93,
-        IMG_5 = 92,
-        DICTIONARY = 91,
+        DICTIONARY = 96,
+        IMG_1 = 95,
+        IMG_2 = 94,
+        IMG_3 = 93,
+        IMG_4 = 92,
+        IMG_5 = 91,
+        IMG_6 = 90,
+        -- ach
+        IMG_ACH_1=89,
+        IMG_ACH_2=88,
+        IMG_ACH_3=87,
+        IMG_ACH_4=86,
+        IMG_ACH_5=85,
+        IMG_ACH_6=84,
+        IMG_ACH_7=83,
+        IMG_ACH_8=82,
+        -- ach disabled
+        IMG_ACH_1_dis=81,
+        IMG_ACH_2_dis=80,
+        IMG_ACH_3_dis=79,
+        IMG_ACH_4_dis=78,
+        IMG_ACH_5_dis=77,
+        IMG_ACH_6_dis=76,
+        IMG_ACH_7_dis=75,
+        IMG_ACH_8_dis=74,
     },
     QWERTY_TO_UA = {
         [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
@@ -225,7 +245,8 @@ local OTHER = {
     FONT_SIZES = {
         normal = {tr_S=14, tr_M=16, tr_L=18, tr_XL=20, tr_XXL=24, tr_XXXL=28},
         reader = {tr_S=18, tr_M=20, tr_L=22, tr_XL=26, tr_XXL=30, tr_XXXL=34}
-    }
+    },
+    SEPARATOR = package.config:sub(1,1),
 }
 
 -- Global Scale Helper
@@ -243,13 +264,35 @@ gfx.init(GL.script_title, 600, 400, GL.last_dock_state)
 
 -- Loader Configuration
 OTHER.LOADERS_CFG = {
-    { path = "loading.png",  buf = OTHER.BUF.IMG_1, frames = 14, fps = 10, frame_w = 500, zoom = 0.95, weight = 1    },
-    { path = "loading2.png", buf = OTHER.BUF.IMG_2, frames = 12, fps = 10, frame_w = 400, zoom = 1.2,  weight = 0.75 },
-    { path = "loading3.png", buf = OTHER.BUF.IMG_3, frames = 8,  fps = 10, frame_w = 500, zoom = 0.95, weight = 0.25 },
-    { path = "loading4.png", buf = OTHER.BUF.IMG_4, frames = 8,  fps = 10, frame_w = 68,  zoom = 1.70, weight = 0.01 }
+    { path = "media" .. OTHER.SEPARATOR .. "loading.png",  buf = OTHER.BUF.IMG_1, frames = 14, fps = 10, frame_w = 500, zoom = 0.95, weight = 1    },
+    { path = "media" .. OTHER.SEPARATOR .. "loading2.png", buf = OTHER.BUF.IMG_2, frames = 12, fps = 10, frame_w = 400, zoom = 1.2,  weight = 0.75 },
+    { path = "media" .. OTHER.SEPARATOR .. "loading3.png", buf = OTHER.BUF.IMG_3, frames = 8,  fps = 10, frame_w = 500, zoom = 0.95, weight = 0.25 },
+    { path = "media" .. OTHER.SEPARATOR .. "loading4.png", buf = OTHER.BUF.IMG_4, frames = 8,  fps = 10, frame_w = 68,  zoom = 1.70, weight = 0.01, is_itachi = true }
 }
 
-OTHER.DEADLINE_GIF_CFG = { path = "deadline.png",  buf = OTHER.BUF.IMG_5, frames = 10, fps = 8, frame_w = 512, zoom = 0.85 }
+OTHER.DEADLINE_GIF_CFG = { path = "media" .. OTHER.SEPARATOR .. "deadline.png",  buf = OTHER.BUF.IMG_5, frames = 10, fps = 8, frame_w = 512, zoom = 0.85 }
+OTHER.COPA_GIF_CFG = { path = "media" .. OTHER.SEPARATOR .. "copa.png",  buf = OTHER.BUF.IMG_6, frames = 9, fps = 8, frame_w = 200, zoom = 0.75 }
+OTHER.ACH_CFG = {
+    { id = "ach_1", path = "media" .. OTHER.SEPARATOR .. "ach_1.png", buf = OTHER.BUF.IMG_ACH_1, name = "Прикликач тексту" },
+    { id = "ach_3", path = "media" .. OTHER.SEPARATOR .. "ach_3.png", buf = OTHER.BUF.IMG_ACH_3, name = "Смарагдовий урожай" },
+    { id = "ach_7", path = "media" .. OTHER.SEPARATOR .. "ach_7.png", buf = OTHER.BUF.IMG_ACH_7, name = "Довіра - це святе" },
+    { id = "ach_2", path = "media" .. OTHER.SEPARATOR .. "ach_2.png", buf = OTHER.BUF.IMG_ACH_2, name = "Наголошене вариво" },
+    { id = "ach_8", path = "media" .. OTHER.SEPARATOR .. "ach_8.png", buf = OTHER.BUF.IMG_ACH_8, name = "Виправне пекло" },
+    { id = "ach_6", path = "media" .. OTHER.SEPARATOR .. "ach_6.png", buf = OTHER.BUF.IMG_ACH_6, name = "Суцільний сором" },
+    { id = "ach_4", path = "media" .. OTHER.SEPARATOR .. "ach_4.png", buf = OTHER.BUF.IMG_ACH_4, name = "Дух у машині" },
+    { id = "ach_5", path = "media" .. OTHER.SEPARATOR .. "ach_5.png", buf = OTHER.BUF.IMG_ACH_5, name = "Прокляті заклинання" },
+}
+
+OTHER.ACH_DISABLED_CFG = {
+    { id = "ach_1", path = "media" .. OTHER.SEPARATOR .. "ach_1_disabled.png", buf = OTHER.BUF.IMG_ACH_1_dis},
+    { id = "ach_3", path = "media" .. OTHER.SEPARATOR .. "ach_3_disabled.png", buf = OTHER.BUF.IMG_ACH_3_dis},
+    { id = "ach_7", path = "media" .. OTHER.SEPARATOR .. "ach_7_disabled.png", buf = OTHER.BUF.IMG_ACH_7_dis},
+    { id = "ach_2", path = "media" .. OTHER.SEPARATOR .. "ach_2_disabled.png", buf = OTHER.BUF.IMG_ACH_2_dis},
+    { id = "ach_8", path = "media" .. OTHER.SEPARATOR .. "ach_8_disabled.png", buf = OTHER.BUF.IMG_ACH_8_dis},
+    { id = "ach_6", path = "media" .. OTHER.SEPARATOR .. "ach_6_disabled.png", buf = OTHER.BUF.IMG_ACH_6_dis},
+    { id = "ach_4", path = "media" .. OTHER.SEPARATOR .. "ach_4_disabled.png", buf = OTHER.BUF.IMG_ACH_4_dis},
+    { id = "ach_5", path = "media" .. OTHER.SEPARATOR .. "ach_5_disabled.png", buf = OTHER.BUF.IMG_ACH_5_dis},
+}
 
 -- Assets Loading
 function OTHER.load_assets()
@@ -268,6 +311,14 @@ function OTHER.load_assets()
         local df_path = script_path .. OTHER.DEADLINE_GIF_CFG.path
         if reaper.file_exists(df_path) then
             gfx.loadimg(OTHER.DEADLINE_GIF_CFG.buf, df_path)
+        end
+    end
+
+    -- Load Copa GIF
+    if OTHER.COPA_GIF_CFG then
+        local df_path = script_path .. OTHER.COPA_GIF_CFG.path
+        if reaper.file_exists(df_path) then
+            gfx.loadimg(OTHER.COPA_GIF_CFG.buf, df_path)
         end
     end
 end
@@ -574,6 +625,103 @@ local SEARCH_ITEM = {
     player_paused = false,
     pause_pos = 0
 }
+
+local ACHIEVEMENTS = {
+    show = false,
+    scroll_y = 0,
+    target_scroll_y = 0,
+    is_load_assets = false,
+    is_load_stats = false,
+    has_new = (tonumber(reaper.GetExtState(section_ach_name, "has_new")) or 0) == 1,
+    ach_snackbar_state = {
+        duration = 3.0,
+        text = "",
+    },
+    stats = { } -- Cache for achievement statistics
+}
+
+function ACHIEVEMENTS.get_stat(key)
+    if ACHIEVEMENTS.stats[key] == nil then
+        ACHIEVEMENTS.stats[key] = tonumber(reaper.GetExtState(section_ach_name, key)) or 0
+    end
+    return ACHIEVEMENTS.stats[key]
+end
+
+function ACHIEVEMENTS.add_stat(key, amount)
+    local cur = ACHIEVEMENTS.get_stat(key)
+    local new_val = cur + amount
+    
+    -- Update cache
+    ACHIEVEMENTS.stats[key] = new_val
+    -- Save to ExtState
+    reaper.SetExtState(section_ach_name, key, tostring(new_val), true)
+    
+    local prefix = key:match("^(ach_%d+)_")
+    if prefix then
+        local tracking_key = prefix .. "_tracking"
+        if ACHIEVEMENTS.get_stat(tracking_key) == 0 then
+            -- Mark as tracking/unlocked
+            ACHIEVEMENTS.stats[tracking_key] = 1
+            reaper.SetExtState(section_ach_name, tracking_key, "1", true)
+            
+            if not ACHIEVEMENTS.has_new then
+                ACHIEVEMENTS.has_new = true
+                reaper.SetExtState(section_ach_name, "has_new", "1", true)
+            end
+            ACHIEVEMENTS.ach_snackbar_state.show_time = reaper.time_precise()
+            ACHIEVEMENTS.ach_snackbar_state.text = "Відкрито нове досягнення!"
+        end
+    end
+end
+
+--- Pre-load all achievement stats into memory cache
+function ACHIEVEMENTS.sync_stats()
+    if ACHIEVEMENTS.is_load_stats then return end
+
+    for _, ach in ipairs(OTHER.ACH_CFG) do
+        ACHIEVEMENTS.get_stat(ach.id .. "_tracking")
+    end
+
+    -- Specific stats for logic
+    ACHIEVEMENTS.get_stat("ach_1_srt_import")
+    ACHIEVEMENTS.get_stat("ach_1_ass_import")
+    ACHIEVEMENTS.get_stat("ach_1_vtt_import")
+    ACHIEVEMENTS.get_stat("ach_1_total_lines")
+
+    ACHIEVEMENTS.get_stat("ach_3_definition")
+    ACHIEVEMENTS.get_stat("ach_3_conjugation")
+    ACHIEVEMENTS.get_stat("ach_3_synonyms")
+    ACHIEVEMENTS.get_stat("ach_3_idioms")
+    ACHIEVEMENTS.get_stat("ach_3_word_usage")
+
+    ACHIEVEMENTS.get_stat("ach_7_itachi_uchiha")
+end
+
+-- Assets Loading
+function ACHIEVEMENTS.load_assets()
+    if ACHIEVEMENTS.is_load_assets then return end
+    
+    local script_path = debug.getinfo(1, "S").source:match("^@?(.+[/\\])") or ""
+    
+    -- Load achievements
+    for _, ach in ipairs(OTHER.ACH_CFG) do
+        local full_path = script_path .. ach.path
+        if reaper.file_exists(full_path) then
+            gfx.loadimg(ach.buf, full_path)
+        end
+    end
+
+    for _, ach in ipairs(OTHER.ACH_DISABLED_CFG) do
+        local full_path = script_path .. ach.path
+        if reaper.file_exists(full_path) then
+            gfx.loadimg(ach.buf, full_path)
+        end
+    end
+
+    ACHIEVEMENTS.is_load_assets = true
+end
+
+-- OTHER.load_assets()
 
 -- Prompter Drawer State
 local prompter_drawer = {
@@ -1427,6 +1575,7 @@ local UI = {
     C_SNACK_SUCCESS = {0.1, 0.35, 0.1, 0.95}, -- Success message background
     C_SNACK_ERROR = {0.4, 0.1, 0.1, 0.95},   -- Error message background
     C_SNACK_WARN = {0.35, 0.3, 0.1, 0.95},    -- Warning message background
+    C_SNACK_PINK = {0.35, 0.15, 0.25, 0.95},    -- Warning message background
     C_SNACK_BORDER = {0.4, 0.4, 0.4, 1.0},   -- Snackbar border color
     C_SNACK_TXT = {1, 1, 1, 1.0},            -- Snackbar text color
     C_SNACK_SHADOW = {0, 0, 0, 0.3},         -- Snackbar shadow
@@ -2617,6 +2766,12 @@ local function draw_loader()
                 current_weight = current_weight + (cfg.weight or 1)
                 if rnd <= current_weight then
                     UI_STATE.script_loading_state.loader_idx = idx
+                    
+                    -- Easter Egg Achievement for Itachi
+                    if cfg.is_itachi then
+                        ACHIEVEMENTS.add_stat("ach_7_itachi_uchiha", 1)
+                    end
+                    
                     break
                 end
             end
@@ -2942,6 +3097,58 @@ local function draw_snackbar()
     gfx.x = snack_x + padding
     gfx.y = snack_y + padding / 2
     gfx.drawstr(UI_STATE.snackbar_state.text)
+end
+
+--- Draw snackbar notification with fade-out animation
+function ACHIEVEMENTS.draw_ach_snackbar()
+    if ACHIEVEMENTS.ach_snackbar_state.text == "" then return end
+    
+    local current_time = reaper.time_precise()
+    local elapsed = current_time - ACHIEVEMENTS.ach_snackbar_state.show_time
+    
+    if elapsed > ACHIEVEMENTS.ach_snackbar_state.duration then
+        ACHIEVEMENTS.ach_snackbar_state.text = "" -- Hide snackbar
+        return
+    end
+    
+    -- Calculate fade-out alpha
+    local alpha = 1.0
+    if elapsed > ACHIEVEMENTS.ach_snackbar_state.duration - 0.2 then
+        -- Fade out in last 0.2 seconds
+        alpha = (ACHIEVEMENTS.ach_snackbar_state.duration - elapsed) / 0.2
+    end
+    
+    -- Measure text
+    gfx.setfont(F.std)
+    local text_w, text_h = gfx.measurestr(ACHIEVEMENTS.ach_snackbar_state.text)
+    
+    -- Snackbar dimensions
+    local padding = 15
+    local snack_w = text_w + padding * 2
+    local snack_h = text_h + padding
+    local snack_x = (gfx.w - snack_w) / 2
+    local snack_y = snack_h - 10
+    
+    -- Use shorter names for convenience
+    local sx, sy, sw, sh = snack_x, snack_y, snack_w, snack_h
+    
+    -- Shadow
+    set_color(UI.C_SNACK_SHADOW, alpha * 0.3)
+    gfx.rect(sx + 2, sy + 2, sw, sh, 1)
+    
+    -- Background
+    set_color(UI.C_SNACK_PINK, alpha * 0.95)
+    gfx.rect(sx, sy, sw, sh, 1)
+    
+    -- Border
+    set_color(UI.C_SNACK_BORDER, alpha)
+    gfx.rect(sx, sy, sw, sh, 0)
+    
+    -- Text
+    set_color(UI.C_SNACK_TXT, alpha)
+    gfx.x = snack_x + padding
+    gfx.y = snack_y + padding / 2
+    gfx.drawstr(ACHIEVEMENTS.ach_snackbar_state.text)
 end
 
 --- Підготовка даних для експорту субтитрів (фільтрація, сортування, генерація імені файлу)
@@ -5502,6 +5709,18 @@ local function parse_dictionary_definition(html, category)
             end
         end
     end
+
+    if category == "Тлумачення" then
+        ACHIEVEMENTS.add_stat("ach_3_definition", 1)
+    elseif category == "Словозміна" then
+        ACHIEVEMENTS.add_stat("ach_3_conjugation", 1)
+    elseif category == "Синонімія" then
+        ACHIEVEMENTS.add_stat("ach_3_synonyms", 1)
+    elseif category == "Фразеологія" then
+        ACHIEVEMENTS.add_stat("ach_3_idioms", 1)
+    elseif category == "Слововживання" then
+        ACHIEVEMENTS.add_stat("ach_3_word_usage", 1)
+    end
     
     return cleaned_lines
 end
@@ -6014,6 +6233,7 @@ function UTILS.close_all_modals()
     DUBBERS.show_dashboard = false
     DEADLINE.dashboard_show = false
     SEARCH_ITEM.show = false
+    ACHIEVEMENTS.show = false
     dict_modal.show = false
 end
 
@@ -9106,6 +9326,7 @@ end
 
 --- Import SRT subtitle file
 local function import_srt(file_path, dont_rebuild, forced_actor)
+    local initial_len = #ass_lines
     local file = file_path
     if not file then
         local retval
@@ -9307,6 +9528,12 @@ local function import_srt(file_path, dont_rebuild, forced_actor)
         show_snackbar("Пропущено дублікатів: " .. duplicates_skipped, "info")
     end
     
+    local lines_added = #ass_lines - initial_len
+    if lines_added > 0 then
+        ACHIEVEMENTS.add_stat("ach_1_srt_import", 1)
+        ACHIEVEMENTS.add_stat("ach_1_total_lines", lines_added)
+    end
+    
     if not dont_rebuild then
         rebuild_regions() -- This handles clearing old regions and re-adding all (including new ones)
     end
@@ -9335,6 +9562,7 @@ end
 --- Import VTT subtitle file
 --- @param file_path string|nil Absolute path to file or nil to prompt user
 local function import_vtt(file_path, dont_rebuild)
+    local initial_len = #ass_lines
     local file = file_path
     if not file then
         local retval
@@ -9404,6 +9632,12 @@ local function import_vtt(file_path, dont_rebuild)
     
     if duplicates_skipped > 0 and not dont_rebuild then
         show_snackbar("Пропущено дублікатів: " .. duplicates_skipped, "info")
+    end
+    
+    local lines_added = #ass_lines - initial_len
+    if lines_added > 0 then
+        ACHIEVEMENTS.add_stat("ach_1_vtt_import", 1)
+        ACHIEVEMENTS.add_stat("ach_1_total_lines", lines_added)
     end
     
     if not dont_rebuild then
@@ -10152,6 +10386,7 @@ end
 --- Import ASS/SSA subtitle file, parsing styles and events
 --- @param file_path string|nil Absolute path to file or nil to prompt user
 local function import_ass(file_path, dont_rebuild)
+    local initial_len = #ass_lines
     local file = file_path
     if not file then
         local retval
@@ -10434,13 +10669,15 @@ local function import_ass(file_path, dont_rebuild)
         ::next_line::
     end
 
-    -- Push undo if single import
-    if not dont_rebuild then
-        push_undo("Імпорт ASS")
+    local lines_added = #ass_lines - initial_len
+    if lines_added > 0 then
+        ACHIEVEMENTS.add_stat("ach_1_ass_import", 1)
+        ACHIEVEMENTS.add_stat("ach_1_total_lines", lines_added)
     end
 
     -- Initial Build
     if not dont_rebuild then
+        push_undo("Імпорт ASS")
         update_regions_cache() 
         rebuild_regions() -- This calls save_project_data
     end
@@ -13352,7 +13589,7 @@ function SEARCH_ITEM.draw_window(input_queue)
                 gfx.mouse_wheel = 0
             end
         end
-        SEARCH_ITEM.scroll_y = SEARCH_ITEM.scroll_y + (SEARCH_ITEM.target_scroll_y - SEARCH_ITEM.scroll_y) * 0.3
+        SEARCH_ITEM.scroll_y = SEARCH_ITEM.scroll_y + (SEARCH_ITEM.target_scroll_y - SEARCH_ITEM.scroll_y) * 0.5
         
         -- Draw List with Clipping
         local draw_y = res_y - math.floor(SEARCH_ITEM.scroll_y)
@@ -13559,6 +13796,209 @@ function SEARCH_ITEM.draw_window(input_queue)
     end
     
     SEARCH_ITEM.draw_mini_player()
+end
+
+function ACHIEVEMENTS.draw_window(input_queue)
+    if not ACHIEVEMENTS.show then return end
+
+    if ACHIEVEMENTS.has_new then
+        ACHIEVEMENTS.has_new = false
+        reaper.SetExtState(section_ach_name, "has_new", "0", true)
+    end
+
+    ACHIEVEMENTS.load_assets()
+    ACHIEVEMENTS.sync_stats()
+    
+    local pad = S(20)
+    local th = S(30) -- Title height
+    local content_y = pad + th + S(15)
+    
+    -- Background overlay (Full Screen)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+    
+    -- Draw Achievements Grid
+    local item_sz = S(180)
+    local spacing = S(16)
+    local res_h = gfx.h - content_y - pad
+    local avail_w = gfx.w - pad * 2
+    local cols = math.max(1, math.floor((avail_w + spacing) / (item_sz + spacing)))
+    
+    local rows = math.ceil(#OTHER.ACH_CFG / cols)
+    local total_h = rows * (item_sz + spacing) - spacing
+    local max_scroll = math.max(0, total_h - res_h)
+    
+    if gfx.mouse_x >= pad and gfx.mouse_x <= gfx.w - pad and gfx.mouse_y >= content_y and gfx.mouse_y <= gfx.h - pad then
+        if gfx.mouse_wheel ~= 0 then
+            ACHIEVEMENTS.target_scroll_y = math.max(0, math.min(max_scroll, ACHIEVEMENTS.target_scroll_y - gfx.mouse_wheel * 0.5))
+            gfx.mouse_wheel = 0
+        end
+    end
+    ACHIEVEMENTS.scroll_y = ACHIEVEMENTS.scroll_y + (ACHIEVEMENTS.target_scroll_y - ACHIEVEMENTS.scroll_y) * 0.5
+    
+    for i, ach in ipairs(OTHER.ACH_CFG) do
+        local col = (i - 1) % cols
+        local row = math.floor((i - 1) / cols)
+        
+        local cx = pad + col * (item_sz + spacing)
+        local cy = content_y + row * (item_sz + spacing) - math.floor(ACHIEVEMENTS.scroll_y)
+        
+        if cy + item_sz > content_y and cy < content_y + res_h then
+            -- Draw Background
+            set_color(UI.C_TAB_INA, 0.3)
+            gfx.rect(cx, cy, item_sz, item_sz, 1)
+            -- Placeholder Border
+            set_color(UI.C_TXTINA, 0.2)
+            gfx.rect(cx, cy, item_sz, item_sz, 0)
+
+            -- Progress Counter (Top Left)
+            if ach.id == "ach_1" then
+                local total = (ACHIEVEMENTS.stats["ach_1_srt_import"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_1_ass_import"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_1_vtt_import"] or 0)
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
+            elseif ach.id == "ach_3" then
+                local total = (ACHIEVEMENTS.stats["ach_3_definition"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_3_conjugation"] or 0) + 
+                              (ACHIEVEMENTS.stats["ach_3_synonyms"] or 0) +
+                              (ACHIEVEMENTS.stats["ach_3_idioms"] or 0) +
+                              (ACHIEVEMENTS.stats["ach_3_word_usage"] or 0)
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
+            elseif ach.id == "ach_7" then
+                local total = ACHIEVEMENTS.stats["ach_7_itachi_uchiha"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
+            end
+            
+            -- Image
+            local iw, ih = gfx.getimgdim(ach.buf)
+            local is_unlocked = ACHIEVEMENTS.stats[ach.id .. "_tracking"] == 1
+            
+            if iw and iw > 0 and ih > 0 then
+                local max_img_w = item_sz - S(20)
+                local max_img_h = item_sz - S(40)
+                local scale = math.min(max_img_w / iw, max_img_h / ih)
+                local dw, dh = iw * scale, ih * scale
+                local dx = cx + (item_sz - dw) / 2
+                local dy = cy + (item_sz - S(20) - dh) / 2 + S(5)
+                
+                -- Image drawing with Locked/Unlocked state
+                gfx.mode = 0
+                if is_unlocked then
+                    gfx.set(1, 1, 1, 1.0)
+                    gfx.blit(ach.buf, 1, 0, 0, 0, iw, ih, dx, dy, dw, dh)
+                else
+                    gfx.set(1, 1, 1, 0.3) -- Add a bit of transparency for locked icons
+                    -- Use the pre-rendered disabled image from the configuration
+                    local dis_ach = OTHER.ACH_DISABLED_CFG[i]
+                    if dis_ach and dis_ach.buf then
+                        gfx.blit(dis_ach.buf, 1, 0, 0, 0, iw, ih, dx, dy, dw, dh)
+                    end
+                end
+            end
+            
+            -- Name Label
+            gfx.setfont(F.std)
+            set_color(is_unlocked and UI.C_TXT or UI.C_MEDIUM_GREY)
+            local draw_name = fit_text_width(ach.name, item_sz - S(10))
+            local tw, th_meas = gfx.measurestr(draw_name)
+            gfx.x = cx + (item_sz - tw) / 2
+            gfx.y = cy + item_sz - th_meas - S(10)
+            gfx.drawstr(draw_name)
+
+            -- Tooltip on hover
+            if gfx.mouse_x >= cx and gfx.mouse_x <= cx + item_sz and
+               gfx.mouse_y >= cy and gfx.mouse_y <= cy + item_sz then
+                
+                local tooltip_text = ""
+                if is_unlocked then
+                    if ach.id == "ach_1" then
+                        local srt = ACHIEVEMENTS.stats["ach_1_srt_import"] or 0
+                        local ass = ACHIEVEMENTS.stats["ach_1_ass_import"] or 0
+                        local vtt = ACHIEVEMENTS.stats["ach_1_vtt_import"] or 0
+                        local total = ACHIEVEMENTS.stats["ach_1_total_lines"] or 0
+                        
+                        tooltip_text = string.format("Імпортовано реплік: %d\n%s\nІмпортовано SRT файлів: %d\nІмпортовано ASS файлів: %d\nІмпортовано VTT файлів: %d", 
+                            total, string.rep("—", 12), srt, ass, vtt)
+                    elseif ach.id == "ach_3" then
+                        local def = ACHIEVEMENTS.stats["ach_3_definition"] or 0
+                        local conj = ACHIEVEMENTS.stats["ach_3_conjugation"] or 0
+                        local syn = ACHIEVEMENTS.stats["ach_3_synonyms"] or 0
+                        local idiom = ACHIEVEMENTS.stats["ach_3_idioms"] or 0
+                        local usage = ACHIEVEMENTS.stats["ach_3_word_usage"] or 0
+                        
+                        tooltip_text = string.format("Відкрито словник ГОРОХ\n%s\nТлумачення: %d\nСловозміна: %d\nСиноніми: %d\nФразеологія: %d\nСлововживання: %d", 
+                            string.rep("—", 12), def, conj, syn, idiom, usage)
+                    elseif ach.id == "ach_7" then
+                        local total = ACHIEVEMENTS.stats["ach_7_itachi_uchiha"] or 0
+                        tooltip_text = string.format("\"Завжди вірний селищу.\"\n%s\n\nЗустрічей з Ітачі: %d", 
+                            string.rep("—", 12), total)
+                    else
+                        tooltip_text = ach.name
+                    end
+                else
+                    tooltip_text = ach.name .. " (не відкрито)"
+                end
+                
+                if tooltip_text ~= "" then
+                    UI_STATE.tooltip_state.text = tooltip_text
+                    if UI_STATE.tooltip_state.hover_id ~= "ach_" .. i then
+                        UI_STATE.tooltip_state.hover_id = "ach_" .. i
+                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    end
+                end
+            end
+        end
+    end
+
+    -- Draw Header Overlay (draw ON TOP of grid items when scrolling)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, content_y, 1)
+
+    -- Close button (Top Right)
+    local close_sz = S(24)
+    local close_x, close_y = gfx.w - pad - close_sz, pad
+    local function close_achievements()
+        ACHIEVEMENTS.show = false
+        UI_STATE.mouse_handled = true
+    end
+    if btn(close_x, close_y, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+        close_achievements()
+    end
+    
+    -- Title
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT)
+    local title = "Мої досягнення"
+    local avail_tw = close_x - pad - S(10)
+    local draw_title = fit_text_width(title, avail_tw)
+    gfx.x, gfx.y = pad, pad
+    gfx.drawstr(draw_title)
+
+    -- Handle Esc key
+    if input_queue then
+        for i = #input_queue, 1, -1 do
+            local char = input_queue[i]
+            if char == 27 then -- Esc
+                close_achievements()
+                table.remove(input_queue, i)
+            end
+        end
+    end
 end
 
 --- Draw dictionary modal with definitions and synonyms, ГОРОХ
@@ -15477,65 +15917,58 @@ local function draw_tabs()
     
     set_color(UI.C_TAB_INA) -- Use inactive tab color
     gfx.rect(btn_x, 0, btn_scan_w, h, 1)
+
+    -- Achievement Logic: Animation and dot notification
+    local animation_drawn = false
+    if OTHER.COPA_GIF_CFG then
+        local cfg = OTHER.COPA_GIF_CFG
+        local img_w, img_h = gfx.getimgdim(cfg.buf)
+        if img_w > 0 then
+            animation_drawn = true
+            local frame_w = cfg.frame_w or (img_w / cfg.frames)
+            local frame_h = img_h
+            local frame_idx = 0 -- Default to frozen first frame
+            
+            if ACHIEVEMENTS.has_new then
+                local elapsed = reaper.time_precise()
+                local total_cycle = cfg.frames * 7
+                local cycle_idx = math.floor(elapsed * (cfg.fps or 8)) % total_cycle
+                frame_idx = (cycle_idx < cfg.frames) and cycle_idx or 0
+                reaper.defer(function() end) -- Force refresh for animation
+            end
+            
+            -- Center in button
+            local zoom = cfg.zoom or 1
+            local dest_h = h * zoom
+            local dest_w = (frame_w / frame_h) * dest_h
+            local gx = btn_x + (btn_scan_w - dest_w) / 2
+            local gy = (h - dest_h) / 2
+            
+            gfx.blit(cfg.buf, 1, 0, frame_idx * frame_w, 0, frame_w, frame_h, gx, gy, dest_w, dest_h)
+
+            -- Notification dot
+            if ACHIEVEMENTS.has_new then
+                set_color(UI.C_RED)
+                local r_dot = S(3)
+                gfx.circle(btn_x + btn_scan_w - r_dot - S(2), r_dot + S(2), r_dot, 1)
+            end
+        end
+    end
     
-    set_color(UI.C_TXT)
-    gfx.setfont(F.std)
-    local bw, bh = gfx.measurestr("#")
-    
-    gfx.x = btn_x + (btn_scan_w - bw)/2
-    gfx.y = (h - bh)/2
-    gfx.drawstr("#")
-    
+    if not animation_drawn then
+        set_color(UI.C_TXT)
+        gfx.setfont(F.std)
+        local bw, bh = gfx.measurestr("#")
+        
+        gfx.x = btn_x + (btn_scan_w - bw)/2
+        gfx.y = (h - bh)/2
+        gfx.drawstr("#")
+    end
+
     if is_mouse_clicked() and not dict_modal.show then
         if gfx.mouse_x >= btn_x and gfx.mouse_x <= gfx.w and
            gfx.mouse_y >= 0 and gfx.mouse_y <= h then
-            
-            -- Ask for Region Index or Time
-            local retval, input = reaper.GetUserInputs("Перейти", 1, "Регіон # або Час (Х:CC):", "")
-            if retval and input ~= "" then
-                -- Check format
-                local clean_input = input:gsub("^#", "")
-                
-                -- If purely digits, treat as Region Index
-                if clean_input:match("^%d+$") then
-                    local target_idx = tonumber(clean_input)
-                    if target_idx then
-                        local found = false
-                        local num_markers = reaper.CountProjectMarkers(0)
-                        for i = 0, num_markers - 1 do
-                            local retval, isrgn, pos, rgnend, name, idx = reaper.EnumProjectMarkers(i)
-                            if isrgn and idx == target_idx then
-                                reaper.SetEditCurPos(pos, true, true)
-                                found = true
-                                break
-                            end
-                        end
-                        
-                        -- Fallback: Search internal ass_lines if not found as physical marker
-                        if not found then
-                            for _, line in ipairs(ass_lines) do
-                                if line.index == target_idx then
-                                    reaper.SetEditCurPos(line.t1, true, true)
-                                    break
-                                end
-                            end
-                        end
-                    end
-                else
-                    -- Treat as Time
-                    -- Heuristic: If input has NO colon but has dots, assume "2.24" -> "2:24" (mm:ss) style.
-                    -- If input HAS colon (e.g. "01:13.82"), respect the dot as decimal.
-                    local time_str = clean_input
-                    if not time_str:find(":") and time_str:find("%.") then
-                        time_str = time_str:gsub("%.", ":")
-                    end
-                    
-                    local pos = reaper.parse_timestr(time_str)
-                    if pos >= 0 then
-                        reaper.SetEditCurPos(pos, true, true)
-                    end
-                end
-            end
+            ACHIEVEMENTS.show = true
         end
     end
 end
@@ -24850,6 +25283,8 @@ local function main()
             DEADLINE.draw_dashboard(input_queue)
         elseif SEARCH_ITEM.show then
             if SEARCH_ITEM.draw_window then SEARCH_ITEM.draw_window(input_queue) end
+        elseif ACHIEVEMENTS.show then
+            if ACHIEVEMENTS.draw_window then ACHIEVEMENTS.draw_window(input_queue) end
         elseif dict_modal.show then
             draw_dictionary_modal(input_queue)
         elseif text_editor_state.active then
@@ -24888,6 +25323,7 @@ local function main()
     end
 
     draw_snackbar()
+    ACHIEVEMENTS.draw_ach_snackbar()
     draw_tooltip()
     
     -- Draw Requirements Overlay (top-most priority, but below snackbar/tooltip)
