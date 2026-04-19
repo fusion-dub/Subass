@@ -783,6 +783,24 @@ local director_state = {
 -- Proximity helper for marker detection
 local function is_near(t1, t2) return math.abs(t1-t2) < 0.001 end
 
+-- ASS/Subtitle Data
+local ass_lines = {}
+local ass_actors = {}
+local ass_markers = {} -- { {pos, name, markindex, color}, ... }
+
+local ASS = {
+  actor_colors = {}, -- {ActorName = integerColor}
+  ass_header_sections = {}, -- { [SectionName] = {line1, line2, ...}, ... }
+  ass_header_order = {}, -- {SectionName1, SectionName2, ...}
+  ass_events_header_lines = {}, -- { "Format: ...", "; Comment", ... }
+  ass_format_def = nil, -- { ["Start"] = 1, ... }
+  ass_format_order = {}, -- { "Layer", "Start", ... }
+}
+
+UI_STATE.ass_file_loaded = false
+UI_STATE.current_file_name = nil
+UI_STATE.current_file_path = nil
+
 -- AI Assistant State
 local ai_modal = {
     show = false,
@@ -890,6 +908,18 @@ function ACHIEVEMENTS.add_stat(key, amount)
     end
 end
 
+function ACHIEVEMENTS.set_stat_string(key, val)
+    ACHIEVEMENTS.stats[key] = val
+    reaper.SetExtState(section_ach_name, key, tostring(val), true)
+end
+
+function ACHIEVEMENTS.get_stat_string(key)
+    if ACHIEVEMENTS.stats[key] == nil then
+        ACHIEVEMENTS.stats[key] = reaper.GetExtState(section_ach_name, key)
+    end
+    return ACHIEVEMENTS.stats[key]
+end
+
 --- Pre-load all achievement stats into memory cache
 function ACHIEVEMENTS.sync_stats()
     if ACHIEVEMENTS.is_load_stats then return end
@@ -941,7 +971,15 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_13_count")
     ACHIEVEMENTS.get_stat("ach_14_count")
     ACHIEVEMENTS.get_stat("ach_15_count")
+    ACHIEVEMENTS.get_stat("ach_16_count")
+    ACHIEVEMENTS.get_stat("ach_17_count")
     ACHIEVEMENTS.get_stat("ach_18_count")
+    ACHIEVEMENTS.get_stat("ach_19_count")
+    ACHIEVEMENTS.get_stat("ach_20_count")
+    ACHIEVEMENTS.get_stat("ach_21_count")
+    ACHIEVEMENTS.get_stat("ach_22_count")
+    ACHIEVEMENTS.get_stat("ach_23_count")
+    ACHIEVEMENTS.get_stat("ach_24_count")
 end
 
 -- Assets Loading
@@ -1699,6 +1737,34 @@ function ACHIEVEMENTS.check_project_architect_ach_10()
     end
 end
 
+--- Check if the current project has earned the 'Polyphonic Vortex' achievement (ach_16: 15+ tracks)
+function ACHIEVEMENTS.check_big_track_count_ach_16()
+    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_16")
+    if retval == 0 or earned ~= "1" then
+        if reaper.CountTracks(0) >= 15 then
+            ACHIEVEMENTS.add_stat("ach_16_count", 1)
+            reaper.SetProjExtState(0, section_name, "earned_ach_16", "1")
+            reaper.MarkProjectDirty(0)
+        end
+    end
+end
+
+--- Check if the current project has earned the 'Legion' achievement (ach_17: 50+ actors)
+function ACHIEVEMENTS.check_high_actor_count_ach_17()
+    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_17")
+    if retval == 0 or earned ~= "1" then
+        local count = 0
+        if ass_actors then
+            for _ in pairs(ass_actors) do count = count + 1 end
+        end
+        if count >= 50 then
+            ACHIEVEMENTS.add_stat("ach_17_count", 1)
+            reaper.SetProjExtState(0, section_name, "earned_ach_17", "1")
+            reaper.MarkProjectDirty(0)
+        end
+    end
+end
+
 --- Check if the current project has earned the 'Epic Saga' achievement uniquely
 function ACHIEVEMENTS.check_epic_saga_ach_18()
     local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_18")
@@ -1725,6 +1791,54 @@ function ACHIEVEMENTS.check_project_veteran_ach_14()
     end
 end
 
+--- Check if the current project has earned the 'Thousand Spells' achievement (ach_20: 1000+ items)
+function ACHIEVEMENTS.check_high_take_count_ach_20()
+    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_20")
+    if retval == 0 or earned ~= "1" then
+        local takes, _ = STATS.get_session_summary()
+        if takes > 999 then -- for 1000+ takes
+            ACHIEVEMENTS.add_stat("ach_20_count", 1)
+            reaper.SetProjExtState(0, section_name, "earned_ach_20", "1")
+            reaper.MarkProjectDirty(0)
+        end
+    end
+end
+
+--- Check if the requirements for 'Midnight Vigil' (ach_22) are met
+-- Must be recorded between 00:00 and 04:00, only once per day globally.
+function ACHIEVEMENTS.check_midnight_vigil_ach_22()
+    local time_t = os.date("*t")
+    -- Check if it's between 00:00 and 04:00
+    if time_t.hour >= 0 and time_t.hour < 4 then
+        local today_str = os.date("%Y-%m-%d")
+        -- Check if we already earned it today (persistent global tracking)
+        if ACHIEVEMENTS.get_stat_string("ach_22_last_date") ~= today_str then
+            ACHIEVEMENTS.add_stat("ach_22_count", 1)
+            ACHIEVEMENTS.set_stat_string("ach_22_last_date", today_str)
+            return true -- Earned today
+        end
+    end
+    return false
+end
+
+--- Check if the current project has earned 'Blessing of Artemis' (ach_23: accuracy >= 50 lines, ratio <= 1.1)
+function ACHIEVEMENTS.check_perfect_accuracy_ach_23()
+    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_23")
+    if retval == 0 or earned ~= "1" then
+        local _, recorded_count, _ = UTILS.get_recording_progress()
+
+        if recorded_count >= 50 then
+            local takes_count, _ = STATS.get_session_summary()
+            local attempts = takes_count / recorded_count
+
+            if attempts <= 1.1 then
+                ACHIEVEMENTS.add_stat("ach_23_count", 1)
+                reaper.SetProjExtState(0, section_name, "earned_ach_23", "1")
+                reaper.MarkProjectDirty(0)
+            end
+        end
+    end
+end
 
 function UTILS.is_markers_regions_changed()
     local last_action = reaper.Undo_CanUndo2(0)
@@ -1916,24 +2030,6 @@ end
 
 -- Initialize Registry
 OTHER.load_global_actor_colors()
-
--- ASS/Subtitle Data
-local ass_lines = {}
-local ass_actors = {}
-local ass_markers = {} -- { {pos, name, markindex, color}, ... }
-
-local ASS = {
-  actor_colors = {}, -- {ActorName = integerColor}
-  ass_header_sections = {}, -- { [SectionName] = {line1, line2, ...}, ... }
-  ass_header_order = {}, -- {SectionName1, SectionName2, ...}
-  ass_events_header_lines = {}, -- { "Format: ...", "; Comment", ... }
-  ass_format_def = nil, -- { ["Start"] = 1, ... }
-  ass_format_order = {}, -- { "Layer", "Start", ... }
-}
-
-UI_STATE.ass_file_loaded = false
-UI_STATE.current_file_name = nil
-UI_STATE.current_file_path = nil
 
 --- Update project metadata (total lines, words)
 function STATS.update_metadata()
@@ -7606,6 +7702,8 @@ local function cleanup_actors()
             if ASS.actor_colors then ASS.actor_colors[act] = nil end
         end
     end
+
+    ACHIEVEMENTS.check_high_actor_count_ach_17()
 end
 
 --- Find the highest current region index and return next available
@@ -9316,6 +9414,7 @@ function DUBBERS.select_dubber(name)
     for k in pairs(ass_actors) do ass_actors[k] = false end
     if ass_lines then
         for _, l in ipairs(ass_lines) do l.enabled = false end
+        UI_STATE._markers_is_dirty = true
     end
     
     -- Apply assignments from this dubber
@@ -9334,6 +9433,8 @@ function DUBBERS.select_dubber(name)
                 l.enabled = true
             end
         end
+
+        UI_STATE._markers_is_dirty = true
     end
     
     rebuild_regions()
@@ -14356,7 +14457,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
             
             -- Image
             local iw, ih = gfx.getimgdim(ach.buf)
-            local is_unlocked = ACHIEVEMENTS.stats[ach.id .. "_tracking"] == 1
+            local is_unlocked = ACHIEVEMENTS.stats[ach.id .. "_tracking"] == 1 and total > 0
             
             if iw and iw > 0 and ih > 0 then
                 local max_img_w = item_sz - S(20)
@@ -14482,6 +14583,35 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local total = ACHIEVEMENTS.stats["ach_18_count"] or 0
                         tooltip_text = string.format("Участь у епічних сагах (80хв+): %d\n%s\n\"Великі історії вимагають великого терпіння та майстерності.\"", 
                             total, string.rep("—", 12))
+                    elseif ach.id == "ach_16" then
+                        local total = ACHIEVEMENTS.stats["ach_16_count"] or 0
+                        tooltip_text = string.format("Проєкти з понад 15 треками: %d\n%s\n\"Справжня потужність звуку народжується в гармонії багатьох голосів.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_17" then
+                        local total = ACHIEVEMENTS.stats["ach_17_count"] or 0
+                        tooltip_text = string.format("Проєкти з понад 50 акторами: %d\n%s\n\"Ім'я їм — Легіон. Армія голосів, що створює нову реальність.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_19" then
+                        local total = ACHIEVEMENTS.stats["ach_19_count"] or 0
+                        tooltip_text = string.format("Репліки з понад 8 шиплячими: %d\n%s\n\"Тссс... Твій голос ковзає між словами, наче змія в густій траві.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_20" then
+                        local total = ACHIEVEMENTS.stats["ach_20_count"] or 0
+                        tooltip_text = string.format("Проєкти з понад 1000 дублів: %d\n%s\n\"Кожен дубль — це новий крок до ідеалу. Тисяча кроків — це вже майстерність.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_21" then
+                        local total = ACHIEVEMENTS.stats["ach_21_count"] or 0
+                        tooltip_text = string.format("Зафіксовано ідеальних синхронів: %d\n%s\n\"Довжина записаного дубля ідентична довжині регіону субтитрів.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_22" then
+                        local total = ACHIEVEMENTS.stats["ach_22_count"] or 0
+                        tooltip_text = string.format("Ночей проведено за мікрофоном: %d\n%s\n\"Між північчю та світанком голоси звучать інакше. Магія ночі у кожному подиху.\"\n(Видається раз на добу з 00:00 до 04:00)", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_23" then
+                        local total = ACHIEVEMENTS.stats["ach_23_count"] or 0
+                        tooltip_text = string.format("Проєкти з ідеальною точністю: %d\n%s\n\"Твоя влучність вражає. Кожне слово — точно в ціль, наче стріла богині полювання.\"\n(50+ реплік з коефіцієнтом дублів <= 1.1)", 
+                            total, string.rep("—", 12))
+
                     else
                         tooltip_text = ach.name
                     end
@@ -16828,6 +16958,7 @@ local function draw_file()
                         for _, l in ipairs(ass_lines) do
                             if selected[l.actor] then l.enabled = true end
                         end
+                        UI_STATE._markers_is_dirty = true
                         rebuild_regions()
                     end
                 end
@@ -16843,12 +16974,14 @@ local function draw_file()
                     push_undo("Приховати всіх")
                     for k in pairs(ass_actors) do ass_actors[k] = false end
                     for _, l in ipairs(ass_lines) do l.enabled = false end
+                    UI_STATE._markers_is_dirty = true
                     rebuild_regions()
                 end
                 if btn(S(20) + half_w + S(10), t_y, half_w, S(20), fit_text_width("ВСІ", half_w - S(10)), UI.C_ROW, nil, true) then
                     push_undo("Показати всіх")
                     for k in pairs(ass_actors) do ass_actors[k] = true end
                     for _, l in ipairs(ass_lines) do l.enabled = true end
+                    UI_STATE._markers_is_dirty = true
                     rebuild_regions()
                 end
             end
@@ -16881,6 +17014,7 @@ local function draw_file()
                         for _, l in ipairs(ass_lines) do
                             if selected[l.actor] then l.enabled = true end
                         end
+                        UI_STATE._markers_is_dirty = true
                         rebuild_regions()
                     end
                 end
@@ -16908,6 +17042,7 @@ local function draw_file()
                     push_undo("Приховати всіх")
                     for k in pairs(ass_actors) do ass_actors[k] = false end
                     for _, l in ipairs(ass_lines) do l.enabled = false end
+                    UI_STATE._markers_is_dirty = true
                     rebuild_regions()
                 end
                 
@@ -16915,6 +17050,7 @@ local function draw_file()
                     push_undo("Показати всіх")
                     for k in pairs(ass_actors) do ass_actors[k] = true end
                     for _, l in ipairs(ass_lines) do l.enabled = true end
+                    UI_STATE._markers_is_dirty = true
                     rebuild_regions()
                 end
             end
@@ -17068,6 +17204,7 @@ local function draw_file()
                         for _, l in ipairs(ass_lines) do
                             if l.actor == act then l.enabled = new_state end
                         end
+                        UI_STATE._markers_is_dirty = true
                         rebuild_regions()
                     end
                 elseif is_right_mouse_clicked() and gfx.mouse_y > S(25) then
@@ -24274,6 +24411,7 @@ local function draw_table(input_queue)
                             -- Just toggle self
                             line.enabled = new_state
                         end
+                        UI_STATE._markers_is_dirty = true
                         rebuild_regions() 
                     else
                         -- CLICK ON ROW (Selection Logic)
@@ -25489,7 +25627,30 @@ function OTHER.process_post_recording()
                             if entry.text and entry.text:lower():find("секс") then
                                 ACHIEVEMENTS.add_stat("ach_15_count", 1)
                             end
-                            
+
+                            -- Achievement: Parseltongue (ach_19: > 8 hissing sounds)
+                            if entry.text then
+                                local hiss_count = 0
+                                local t_low = entry.text:lower()
+                                -- UTF-8 safe iteration for cyrillic characters
+                                for c in t_low:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+                                    if c == "ш" or c == "ж" or c == "ч" or c == "щ" or c == "с" then
+                                        hiss_count = hiss_count + 1
+                                    end
+                                end
+                                if hiss_count > 8 then
+                                    ACHIEVEMENTS.add_stat("ach_19_count", 1)
+                                end
+                            end
+
+                            -- Achievement: Magic Sync (ach_21: length matches region length exactly)
+                            if entry.t1 and entry.t2 then
+                                local region_len = entry.t2 - entry.t1
+                                if math.abs(item_len - region_len) < 0.001 then
+                                    ACHIEVEMENTS.add_stat("ach_21_count", 1)
+                                end
+                            end
+
                             if entry.actor and entry.actor ~= "" then
                                 -- Only count the FIRST matched actor for the 'recorded_actors' global take count
                                 -- to avoid duplicating stats for the same duration.
@@ -25501,6 +25662,16 @@ function OTHER.process_post_recording()
                             end
                         end
                     end
+
+                    -- Achievement: Thousand Spells (ach_20: 1000+ takes)
+                    ACHIEVEMENTS.check_high_take_count_ach_20()
+
+                    -- Achievement: Blessing of Artemis (ach_23: accuracy >= 50 lines, ratio <= 1.1)
+                    ACHIEVEMENTS.check_perfect_accuracy_ach_23()
+
+
+                    -- Achievement: Midnight Vigil (ach_22: Record between 00:00 and 04:00 once per day)
+                    ACHIEVEMENTS.check_midnight_vigil_ach_22()
                     
                     -- If no actor found, count as "outside" recording
                     if not found_actor then
@@ -25693,7 +25864,12 @@ local function main()
         ACHIEVEMENTS.check_deadline_failure()
         ACHIEVEMENTS.check_project_architect_ach_10()
         ACHIEVEMENTS.check_epic_saga_ach_18()
+        ACHIEVEMENTS.check_big_track_count_ach_16()
+        ACHIEVEMENTS.check_high_actor_count_ach_17()
+        ACHIEVEMENTS.check_high_take_count_ach_20()
+        ACHIEVEMENTS.check_perfect_accuracy_ach_23()
         DUBBERS.load() -- Load dubber data for initial project
+
         DUBBERS.last_project_id = UI_STATE.last_project_id
     end
     
@@ -25736,6 +25912,11 @@ local function main()
         ACHIEVEMENTS.check_deadline_failure()
         ACHIEVEMENTS.check_project_architect_ach_10()
         ACHIEVEMENTS.check_epic_saga_ach_18()
+        ACHIEVEMENTS.check_big_track_count_ach_16()
+        ACHIEVEMENTS.check_high_actor_count_ach_17()
+        ACHIEVEMENTS.check_high_take_count_ach_20()
+        ACHIEVEMENTS.check_perfect_accuracy_ach_23()
+
 
         DUBBERS.load() -- Reload dubber data for this project
         DUBBERS.last_project_id = current_project_id
@@ -25753,6 +25934,13 @@ local function main()
             update_regions_cache()
             load_director_actors_from_state()
         end
+
+        local last_action = reaper.Undo_CanUndo2(0)
+
+        if last_action == "Add new track" or last_action == "Paste tracks" then
+            ACHIEVEMENTS.check_big_track_count_ach_16()
+        end
+
         proj_change_count = curs_state
     end
 
