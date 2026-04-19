@@ -297,6 +297,9 @@ local OTHER = {
     }
 }
 
+-- Helper to open URLs safely (fallback if SWS not installed)
+local UTILS = {}
+
 -- Global Scale Helper
 local function S(val)
     return math.floor(val * cfg.gui_scale)
@@ -664,7 +667,11 @@ local UI_STATE = {
     last_update_check_time = 0,
     is_restarting = false,
     hotkey_capture_idx = nil, -- Which action is waiting for a key press
-    is_loading = false -- Safety flag for project lifecycle
+    is_loading = false, -- Safety flag for project lifecycle
+
+    last_marker_cache_proj_state = 0, -- last reaper.GetProjectStateChangeCount(0)
+    last_global_proj_state = 0, -- last reaper.GetProjectStateChangeCount(0)
+    _markers_is_dirty = true  -- Forces search index rebuild on first use
 }
 
 local DEADLINE = {
@@ -770,7 +777,7 @@ local director_state = {
     scroll_y = 0,
     target_scroll_y = 0,
     region_actor_to_dubber = {}, -- Persistent Mapping: ASS Actor -> Director Name
-    last_ass_actor = nil         -- To track character changes for auto-fill
+    last_ass_actor = nil,        -- To track character changes for auto-fill
 }
 
 -- Proximity helper for marker detection
@@ -932,6 +939,8 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_11_count")
     ACHIEVEMENTS.get_stat("ach_12_count")
     ACHIEVEMENTS.get_stat("ach_13_count")
+    ACHIEVEMENTS.get_stat("ach_14_count")
+    ACHIEVEMENTS.get_stat("ach_15_count")
     ACHIEVEMENTS.get_stat("ach_18_count")
 end
 
@@ -993,81 +1002,6 @@ function ACHIEVEMENTS.get_project_idx()
     DEADLINE.save_global(proj_path, proj_name, deadline, new_idx)
     
     return new_idx
-end
-
---- Check if the current project has failed its deadline and track it uniquely
-function ACHIEVEMENTS.check_deadline_failure()
-    local idx = ACHIEVEMENTS.get_project_idx()
-    if idx == "unsaved" then return end
-
-    -- Get deadline for the active project
-    local proj_path, _ = DEADLINE.get_project_info()
-    if not proj_path then return end
-    
-    local global_data = DEADLINE.load_global()
-    local norm_path = DEADLINE.normalize_path(proj_path)
-    local deadline = global_data[norm_path] and global_data[norm_path].deadline
-    
-    if not deadline then
-        -- Check local backup
-        local retval, val = reaper.GetProjExtState(0, section_name, "project_deadline")
-        if retval and val ~= "" then deadline = tonumber(val) end
-    end
-
-    if deadline and os.time() > deadline then
-        local failed_list = reaper.GetExtState(section_ach_name, "ach_6_idx_list")
-        local idx_str = tostring(idx)
-        
-        -- Back-sync project index to global registry if missing
-        local registry_updated = false
-        if global_data[norm_path] and not global_data[norm_path].idx and tonumber(idx) then
-            global_data[norm_path].idx = tonumber(idx)
-            registry_updated = true
-        end
-        if registry_updated then
-            local json_str = STATS.json_encode(global_data)
-            reaper.SetExtState(section_name, "new_project_deadlines", json_str, true)
-        end
-
-        -- Unique failure tracking (only for numeric IDs)
-        if tonumber(idx_str) then
-            local search_pattern = "|" .. idx_str .. "|"
-            local wrapped_list = "|" .. failed_list .. "|"
-            if not wrapped_list:find(search_pattern, 1, true) then
-                local new_list = failed_list == "" and idx_str or (failed_list .. "|" .. idx_str)
-                reaper.SetExtState(section_ach_name, "ach_6_idx_list", new_list, true)
-                
-                -- Recalculate total unique count to ensure accuracy
-                local count = 0
-                for _ in new_list:gmatch("[^|]+") do count = count + 1 end
-                local current_stat = ACHIEVEMENTS.get_stat("ach_6_failed_count")
-                ACHIEVEMENTS.add_stat("ach_6_failed_count", count - current_stat)
-            end
-        end
-    end
-end
-
---- Check if the current project has earned the 'Architect' achievement uniquely
-function ACHIEVEMENTS.check_project_architect_ach_10()
-    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_10")
-    if retval == 0 or earned ~= "1" then
-        ACHIEVEMENTS.add_stat("ach_10_count", 1)
-        reaper.SetProjExtState(0, section_name, "earned_ach_10", "1")
-        reaper.MarkProjectDirty(0)
-    end
-end
-
---- Check if the current project has earned the 'Epic Saga' achievement uniquely
-function ACHIEVEMENTS.check_epic_saga_ach_18()
-    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_18")
-    if retval == 0 or earned ~= "1" then
-        local proj_len = reaper.GetProjectLength(0)
-        if proj_len > 4800 then -- 80 * 60 seconds
-            ACHIEVEMENTS.add_stat("ach_18_count", 1)
-            reaper.SetProjExtState(0, section_name, "earned_ach_18", "1")
-            reaper.MarkProjectDirty(0)
-        end
-    end
 end
 
 -- Prompter Drawer State
@@ -1509,6 +1443,9 @@ function STATS.save()
         reaper.RecursiveCreateDirectory(dir, 0)
     end
     
+    -- Check for Project Veteran Achievement (ach_14: > 12 hours)
+    ACHIEVEMENTS.check_project_veteran_ach_14()
+    
     local file = io.open(file_path, "w")
     if not file then return end
     
@@ -1699,25 +1636,124 @@ end
 --- Initialize stats on script load
 STATS.load()
 
+
+--- Check if the current project has failed its deadline and track it uniquely
+function ACHIEVEMENTS.check_deadline_failure()
+    local idx = ACHIEVEMENTS.get_project_idx()
+    if idx == "unsaved" then return end
+
+    -- Get deadline for the active project
+    local proj_path, _ = DEADLINE.get_project_info()
+    if not proj_path then return end
+    
+    local global_data = DEADLINE.load_global()
+    local norm_path = DEADLINE.normalize_path(proj_path)
+    local deadline = global_data[norm_path] and global_data[norm_path].deadline
+    
+    if not deadline then
+        -- Check local backup
+        local retval, val = reaper.GetProjExtState(0, section_name, "project_deadline")
+        if retval and val ~= "" then deadline = tonumber(val) end
+    end
+
+    if deadline and os.time() > deadline then
+        local failed_list = reaper.GetExtState(section_ach_name, "ach_6_idx_list")
+        local idx_str = tostring(idx)
+        
+        -- Back-sync project index to global registry if missing
+        local registry_updated = false
+        if global_data[norm_path] and not global_data[norm_path].idx and tonumber(idx) then
+            global_data[norm_path].idx = tonumber(idx)
+            registry_updated = true
+        end
+        if registry_updated then
+            local json_str = STATS.json_encode(global_data)
+            reaper.SetExtState(section_name, "new_project_deadlines", json_str, true)
+        end
+
+        -- Unique failure tracking (only for numeric IDs)
+        if tonumber(idx_str) then
+            local search_pattern = "|" .. idx_str .. "|"
+            local wrapped_list = "|" .. failed_list .. "|"
+            if not wrapped_list:find(search_pattern, 1, true) then
+                local new_list = failed_list == "" and idx_str or (failed_list .. "|" .. idx_str)
+                reaper.SetExtState(section_ach_name, "ach_6_idx_list", new_list, true)
+                
+                -- Recalculate total unique count to ensure accuracy
+                local count = 0
+                for _ in new_list:gmatch("[^|]+") do count = count + 1 end
+                local current_stat = ACHIEVEMENTS.get_stat("ach_6_failed_count")
+                ACHIEVEMENTS.add_stat("ach_6_failed_count", count - current_stat)
+            end
+        end
+    end
+end
+
+--- Check if the current project has earned the 'Architect' achievement uniquely
+function ACHIEVEMENTS.check_project_architect_ach_10()
+    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_10")
+    if retval == 0 or earned ~= "1" then
+        ACHIEVEMENTS.add_stat("ach_10_count", 1)
+        reaper.SetProjExtState(0, section_name, "earned_ach_10", "1")
+        reaper.MarkProjectDirty(0)
+    end
+end
+
+--- Check if the current project has earned the 'Epic Saga' achievement uniquely
+function ACHIEVEMENTS.check_epic_saga_ach_18()
+    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_18")
+    if retval == 0 or earned ~= "1" then
+        local proj_len = reaper.GetProjectLength(0)
+        if proj_len > 4800 then -- 80 * 60 seconds
+            ACHIEVEMENTS.add_stat("ach_18_count", 1)
+            reaper.SetProjExtState(0, section_name, "earned_ach_18", "1")
+            reaper.MarkProjectDirty(0)
+        end
+    end
+end
+
+--- Check if the current project has earned the 'Project Veteran' achievement
+function ACHIEVEMENTS.check_project_veteran_ach_14()
+    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_14")
+    if retval == 0 or earned ~= "1" then
+        local _, duration = STATS.get_session_summary()
+        if duration > 43200 then -- 12 hours
+            ACHIEVEMENTS.add_stat("ach_14_count", 1)
+            reaper.SetProjExtState(0, section_name, "earned_ach_14", "1")
+            reaper.MarkProjectDirty(0)
+        end
+    end
+end
+
+
+function UTILS.is_markers_regions_changed()
+    local last_action = reaper.Undo_CanUndo2(0)
+    return last_action and (last_action:lower():find("marker") or last_action:lower():find("region"))
+end
+
 --- Update the global marker cache used by both drawer and prompter
 local function update_marker_cache()
     local state_count = reaper.GetProjectStateChangeCount(0)
+
     if state_count ~= prompter_drawer.marker_cache.count then
-        prompter_drawer.marker_cache.count = state_count
-        prompter_drawer.marker_cache.markers = {}
-        local count = reaper.CountProjectMarkers(0)
-        for i = 0, count - 1 do
-            local retval, isrgn, pos, rgnend, name, markindex, color = reaper.EnumProjectMarkers3(0, i)
-            if not isrgn then
-                table.insert(prompter_drawer.marker_cache.markers, {
-                    markindex = markindex,
-                    enum_idx = i, -- Store internal REAPER index
-                    name = (name == "" and "<пусто>" or name),
-                    pos = pos,
-                    color = (color ~= 0 and color or nil)
-                })
+        if prompter_drawer.marker_cache.count == -1 or UTILS.is_markers_regions_changed() then
+            prompter_drawer.marker_cache.markers = {}
+            local count = reaper.CountProjectMarkers(0)
+            for i = 0, count - 1 do
+                local retval, isrgn, pos, rgnend, name, markindex, color = reaper.EnumProjectMarkers3(0, i)
+                if not isrgn then
+                    table.insert(prompter_drawer.marker_cache.markers, {
+                        markindex = markindex,
+                        enum_idx = i, -- Store internal REAPER index
+                        name = (name == "" and "<пусто>" or name),
+                        pos = pos,
+                        color = (color ~= 0 and color or nil)
+                    })
+                end
             end
         end
+
+        prompter_drawer.marker_cache.count = state_count
     end
 end
 
@@ -2299,9 +2335,6 @@ end
 -- SHARED OVERLAY SYNC
 -- UTILITY FUNCTIONS
 -- =============================================================================
-
--- Helper to open URLs safely (fallback if SWS not installed)
-local UTILS = {}
 
 --- Serialize and send Prompter data to ExtState for the satellite Overlay script
 
@@ -4996,7 +5029,6 @@ function DICT.dict_load_selection()
             end
         end
     end
-    DICT._last_proj_id = reaper.GetProjectStateChangeCount(0)
 end
 DICT.dict_load_selection()
 
@@ -7792,6 +7824,7 @@ local function update_regions_cache()
         if changed then
             cleanup_actors()
             save_project_data()
+            UI_STATE._markers_is_dirty = true
         end
 
         -- Sync markers (non-regions)
@@ -14284,134 +14317,41 @@ function ACHIEVEMENTS.draw_window(input_queue)
             gfx.rect(cx, cy, item_sz, item_sz, 0)
 
             -- Progress Counter (Top Left)
+            local total = 0
             if ach.id == "ach_1" then
-                local total = (ACHIEVEMENTS.stats["ach_1_srt_import"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_1_ass_import"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_1_vtt_import"] or 0)
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
+                total = (ACHIEVEMENTS.stats["ach_1_srt_import"] or 0) + 
+                        (ACHIEVEMENTS.stats["ach_1_ass_import"] or 0) + 
+                        (ACHIEVEMENTS.stats["ach_1_vtt_import"] or 0)
             elseif ach.id == "ach_3" then
-                local total = (ACHIEVEMENTS.stats["ach_3_definition"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_3_conjugation"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_3_synonyms"] or 0) +
-                              (ACHIEVEMENTS.stats["ach_3_idioms"] or 0) +
-                              (ACHIEVEMENTS.stats["ach_3_word_usage"] or 0)
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
+                total = (ACHIEVEMENTS.stats["ach_3_definition"] or 0) + 
+                        (ACHIEVEMENTS.stats["ach_3_conjugation"] or 0) + 
+                        (ACHIEVEMENTS.stats["ach_3_synonyms"] or 0) +
+                        (ACHIEVEMENTS.stats["ach_3_idioms"] or 0) +
+                        (ACHIEVEMENTS.stats["ach_3_word_usage"] or 0)
+            elseif ach.id == "ach_4" then
+                for _, task in ipairs(OTHER.AI_TASKS) do
+                    total = total + (ACHIEVEMENTS.stats["ach_4_" .. task.id .. "_count"] or 0)
                 end
             elseif ach.id == "ach_7" then
-                local total = ACHIEVEMENTS.stats["ach_7_itachi_uchiha"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
+                total = ACHIEVEMENTS.stats["ach_7_itachi_uchiha"] or 0
             elseif ach.id == "ach_2" then
-                local total = ACHIEVEMENTS.stats["ach_2_run_count"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
+                total = ACHIEVEMENTS.stats["ach_2_run_count"] or 0
             elseif ach.id == "ach_8" then
-                local total = ACHIEVEMENTS.stats["ach_8_export_count"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
+                total = ACHIEVEMENTS.stats["ach_8_export_count"] or 0
             elseif ach.id == "ach_6" then
-                local total = ACHIEVEMENTS.stats["ach_6_failed_count"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
-            elseif ach.id == "ach_4" then
-                local total = (ACHIEVEMENTS.stats["ach_4_ref_count"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_4_long_count"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_4_short_count"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_4_stress_count"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_4_main_word_count"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_4_fun_count"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_4_drama_count"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_4_sarcasm_count"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_4_threat_count"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_4_simple_count"] or 0) + 
-                              (ACHIEVEMENTS.stats["ach_4_custom_count"] or 0)
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
+                total = ACHIEVEMENTS.stats["ach_6_failed_count"] or 0
             elseif ach.id == "ach_5" then
-                local total = ACHIEVEMENTS.stats["ach_5_import_count"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
-            elseif ach.id == "ach_11" then
-                local total = ACHIEVEMENTS.stats["ach_11_count"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
-            elseif ach.id == "ach_10" then
-                local total = ACHIEVEMENTS.stats["ach_10_count"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
-            elseif ach.id == "ach_18" then
-                local total = ACHIEVEMENTS.stats["ach_18_count"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
-            elseif ach.id == "ach_13" then
-                local total = ACHIEVEMENTS.stats["ach_13_count"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
-            elseif ach.id == "ach_12" then
-                local total = ACHIEVEMENTS.stats["ach_12_count"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
-            elseif ach.id == "ach_9" then
-                local total = ACHIEVEMENTS.stats["ach_9_count"] or 0
-                if total > 0 then
-                    gfx.setfont(F.bld)
-                    set_color(UI.C_TXT, 0.5)
-                    gfx.x, gfx.y = cx + S(6), cy + S(4)
-                    gfx.drawstr(tostring(total))
-                end
+                total = ACHIEVEMENTS.stats["ach_5_import_count"] or 0
+            else
+                -- Standard count mapping for ach_10, ach_11, ach_12, ach_13, ach_14, ach_18, etc.
+                total = ACHIEVEMENTS.stats[ach.id .. "_count"] or 0
+            end
+
+            if total > 0 then
+                gfx.setfont(F.bld)
+                set_color(UI.C_TXT, 0.5)
+                gfx.x, gfx.y = cx + S(6), cy + S(4)
+                gfx.drawstr(tostring(total))
             end
             
             -- Image
@@ -14518,9 +14458,17 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local total = ACHIEVEMENTS.stats["ach_10_count"] or 0
                         tooltip_text = string.format("Кількість створених проєктів: %d\n%s\n\"Для справжнього архітектора кожен проєкт — це новий всесвіт.\"", 
                             total, string.rep("—", 12))
+                    elseif ach.id == "ach_14" then
+                        local total = ACHIEVEMENTS.stats["ach_14_count"] or 0
+                        tooltip_text = string.format("Проєкти, в яких проведено понад 12 годин: %d\n%s\n\"Час — це матерія, з якої зроблено життя та ваші кращі проєкти.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_15" then
+                        local total = ACHIEVEMENTS.stats["ach_15_count"] or 0
+                        tooltip_text = string.format("За кожне промовлене слово \"секс\": %d\n%s\n\"Кожне слово має свою вагу, але деякі змушують серце битися частіше.\"", 
+                            total, string.rep("—", 12))
                     elseif ach.id == "ach_12" then
                         local total = ACHIEVEMENTS.stats["ach_12_count"] or 0
-                        tooltip_text = string.format("Запис надскладної репліки: %d\n%s\n\"Двадцять перший спроба — за замовчуванням шедевр.\"", 
+                        tooltip_text = string.format("Запис надскладної репліки: %d\n%s\n\"Двадцять перша спроба — за замовчуванням шедевр.\"", 
                             total, string.rep("—", 12))
                     elseif ach.id == "ach_9" then
                         local total = ACHIEVEMENTS.stats["ach_9_count"] or 0
@@ -17763,18 +17711,21 @@ local function draw_prompter_drawer(input_queue)
         -- Performance-optimized marker check
         local state_count = reaper.GetProjectStateChangeCount(0)
         if state_count ~= prompter_drawer.has_markers_cache.count then
-            prompter_drawer.has_markers_cache.count = state_count
-            prompter_drawer.has_markers_cache.result = false
-            local i = 0
-            while true do
-                local retval, isrgn = reaper.EnumProjectMarkers(i)
-                if retval == 0 then break end
-                if not isrgn then
-                    prompter_drawer.has_markers_cache.result = true
-                    break
+            if prompter_drawer.has_markers_cache.count == -1 or UTILS.is_markers_regions_changed() then
+                prompter_drawer.has_markers_cache.result = false
+                local i = 0
+                while true do
+                    local retval, isrgn = reaper.EnumProjectMarkers(i)
+                    if retval == 0 then break end
+                    if not isrgn then
+                        prompter_drawer.has_markers_cache.result = true
+                        break
+                    end
+                    i = i + 1
                 end
-                i = i + 1
             end
+
+            prompter_drawer.has_markers_cache.count = state_count
         end
 
         if not prompter_drawer.has_markers_cache.result then return end
@@ -17856,7 +17807,7 @@ local function draw_prompter_drawer(input_queue)
             update_marker_cache()
             
             -- 2. Update FILTERED and LAYOUT Cache if needed
-            if state_count ~= prompter_drawer.filtered_cache.state_count or 
+            if (state_count ~= prompter_drawer.filtered_cache.state_count and UTILS.is_markers_regions_changed()) or 
                query ~= prompter_drawer.filtered_cache.query or
                prompter_drawer.width ~= prompter_drawer.filtered_cache.width or
                cfg.gui_scale ~= prompter_drawer.filtered_cache.gui_scale then
@@ -17867,8 +17818,7 @@ local function draw_prompter_drawer(input_queue)
                 prompter_drawer.filtered_cache.gui_scale = cfg.gui_scale
                 prompter_drawer.filtered_cache.list = {}
                 prompter_drawer.filtered_cache.total_h = 0
-                
-                
+
                 -- Parse Query into OR/AND groups once
                 local queries = {}
                 local or_terms = {}
@@ -17986,6 +17936,10 @@ local function draw_prompter_drawer(input_queue)
                         prompter_drawer.filtered_cache.total_h = prompter_drawer.filtered_cache.total_h + m_h
                     end
                 end
+            end
+
+            if state_count ~= prompter_drawer.filtered_cache.state_count then
+                prompter_drawer.filtered_cache.state_count = state_count
             end
             
             local filtered_markers = prompter_drawer.filtered_cache.list
@@ -19253,12 +19207,12 @@ local function draw_prompter_slider(input_queue)
     local marker_state = prompter_drawer.marker_cache.count
     local dict_ts = DICT.last_update_ts or ""
     
-    if prompter_slider_cache.state_count ~= state_count or prompter_slider_cache.marker_state ~= marker_state or prompter_slider_cache.w ~= available_w or 
+    if (prompter_slider_cache.state_count ~= state_count and UTILS.is_markers_regions_changed()) or prompter_slider_cache.marker_state ~= marker_state or prompter_slider_cache.w ~= available_w or 
        prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
        prompter_slider_cache.p_corr ~= cfg.p_corr or prompter_slider_cache.dict_ts ~= dict_ts or
        prompter_slider_cache.p_lheight ~= cfg.p_lheight or prompter_slider_cache.c_lheight ~= cfg.c_lheight or
        prompter_slider_cache.text_assimilations ~= cfg.text_assimilations or prompter_slider_cache.text_euphonics ~= cfg.text_euphonics then
-        
+
         prompter_slider_cache.state_count, prompter_slider_cache.marker_state, prompter_slider_cache.w, prompter_slider_cache.fsize, prompter_slider_cache.font = state_count, marker_state, available_w, cfg.p_fsize, cfg.p_font
         prompter_slider_cache.project_id = reaper.GetProjectName(0, "")
         prompter_slider_cache.p_corr = cfg.p_corr
@@ -19343,6 +19297,10 @@ local function draw_prompter_slider(input_queue)
         end
     end
 
+    if prompter_slider_cache.state_count ~= state_count then
+        prompter_slider_cache.state_count = state_count
+    end
+
     local now = reaper.time_precise()
     local is_playing = reaper.GetPlayState() & 1 == 1
     local pos_jumped = math.abs(play_pos - (UI_STATE.last_tracked_pos or 0)) > 0.5
@@ -19408,6 +19366,7 @@ local function draw_prompter_slider(input_queue)
                                     open_text_editor(line.text, function(new_text)
                                         push_undo("Редагування тексту")
                                         edit_line.text = new_text
+                                        UI_STATE._markers_is_dirty = true
                                         rebuild_regions()
                                     end, idx, ass_lines)
                                     break
@@ -19794,6 +19753,7 @@ local function draw_prompter(input_queue)
                             open_text_editor(line.text, function(new_text)
                                 push_undo("Редагування тексту")
                                 edit_line.text = new_text
+                                UI_STATE._markers_is_dirty = true
                                 rebuild_regions()
                             end, i, ass_lines)
                             break
@@ -20121,6 +20081,7 @@ local function draw_prompter(input_queue)
                                     open_text_editor(line.text, function(new_text)
                                         push_undo("Редагування тексту")
                                         edit_line.text = new_text
+                                        UI_STATE._markers_is_dirty = true
                                         rebuild_regions()
                                     end, i, ass_lines)
                                     break
@@ -21826,8 +21787,16 @@ end
 function UTILS.rebuild_actors_index()
     local idx = {}
     for i, line in ipairs(ass_lines) do
-        idx[#idx + 1] = { t1 = line.t1, t2 = line.t2, actor = line.actor, _i = i }
+        idx[#idx + 1] = { 
+            t1 = line.t1, 
+            t2 = line.t2, 
+            actor = line.actor, 
+            text = line.text, 
+            enabled = (line.enabled ~= false),
+            _i = i 
+        }
     end
+
     table.sort(idx, function(a, b) return a.t1 < b.t1 end)
     director_state._actors_index     = idx
     director_state._actors_index_ref = ass_lines   -- detect future change
@@ -21843,9 +21812,10 @@ function UTILS.get_ass_lines_at_time(time, tolerance)
     if not ass_lines or #ass_lines == 0 then return {} end
     tolerance = tolerance or 0.001
 
-    -- Auto-rebuild sorted index when ass_lines table changes
-    if director_state._actors_index_ref ~= ass_lines then
+    -- Auto-rebuild sorted index when ass_lines table changes or manual invalidation occurred
+    if director_state._actors_index_ref ~= ass_lines or UI_STATE._markers_is_dirty then
         UTILS.rebuild_actors_index()
+        UI_STATE._markers_is_dirty = false
     end
 
     local idx = director_state._actors_index
@@ -23540,7 +23510,7 @@ local function draw_table(input_queue)
     -- --- DATA SOURCE PREPARATION (CACHED) ---
     local current_state_count = reaper.GetProjectStateChangeCount(0)
     local current_proj_id = UI_STATE.last_project_id
-    local cache_invalid = (table_data_cache.state_count ~= current_state_count or
+    local cache_invalid = ((table_data_cache.state_count ~= current_state_count and UTILS.is_markers_regions_changed()) or
                            table_data_cache.project_id ~= current_proj_id or
                            table_data_cache.filter ~= table_filter_state.text or
                            table_data_cache.sort_col ~= table_sort.col or
@@ -23550,6 +23520,11 @@ local function draw_table(input_queue)
                            table_data_cache.is_replace_mode ~= OTHER.find_replace_state.show or
                            table_data_cache.fr_show ~= OTHER.find_replace_state.show or
                            table_data_cache.dubbers_version ~= DUBBERS.version)
+
+    
+    if table_data_cache.state_count ~= current_state_count then
+        table_data_cache.state_count = current_state_count
+    end
 
     if cache_invalid then
         local raw_data = {}
@@ -24376,6 +24351,7 @@ local function draw_table(input_queue)
                                         open_text_editor(line.text, function(new_text)
                                             push_undo("Редагування тексту")
                                             edit_line.text = new_text
+                                            UI_STATE._markers_is_dirty = true
                                             rebuild_regions()
                                             table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
                                             last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
@@ -25174,6 +25150,7 @@ function OTHER.handle_remote_commands()
                         open_text_editor(line.text, function(new_text)
                             push_undo("Редагування тексту (Remote)")
                             line.text = new_text
+                            UI_STATE._markers_is_dirty = true
                             rebuild_regions()
                         end, i, ass_lines)
                         return
@@ -25204,6 +25181,7 @@ function OTHER.handle_remote_commands()
                     open_text_editor(line.text, function(new_text)
                         push_undo("Редагування тексту (Remote Next)")
                         line.text = new_text
+                        UI_STATE._markers_is_dirty = true
                         rebuild_regions()
                     end, i, ass_lines)
                     return
@@ -25285,6 +25263,7 @@ function OTHER.handle_remote_commands()
                     open_text_editor(line.text, function(new_text)
                         push_undo("Редагування тексту (Remote Specific)")
                         line.text = new_text
+                        UI_STATE._markers_is_dirty = true
                         rebuild_regions()
                     end, i, ass_lines)
                     return
@@ -25299,6 +25278,7 @@ function OTHER.handle_remote_commands()
                 open_text_editor(line.text, function(new_text)
                     push_undo("Редагування тексту (Remote Specific)")
                     line.text = new_text
+                    UI_STATE._markers_is_dirty = true
                     rebuild_regions()
                 end, i, ass_lines)
                 return
@@ -25498,12 +25478,27 @@ function OTHER.process_post_recording()
                     
                     local found_actor = false
                     local matched_lines = UTILS.get_ass_lines_at_time(item_pos, 0.5)
+                    local actor_accounted_for = false
+                    
                     for _, entry in ipairs(matched_lines) do
-                        unique_replica_indices[entry._i] = true
-                        if entry.actor and entry.actor ~= "" then
-                            recorded_actors[entry.actor] = (recorded_actors[entry.actor] or 0) + 1
-                            found_actor = true
-                            break -- Count once per item
+                        -- Only process ENABLED (visible) lines for statistics and achievements
+                        if entry.enabled then
+                            unique_replica_indices[entry._i] = true
+                            
+                            -- Achievement: The Seducer (ach_15: "секс")
+                            if entry.text and entry.text:lower():find("секс") then
+                                ACHIEVEMENTS.add_stat("ach_15_count", 1)
+                            end
+                            
+                            if entry.actor and entry.actor ~= "" then
+                                -- Only count the FIRST matched actor for the 'recorded_actors' global take count
+                                -- to avoid duplicating stats for the same duration.
+                                if not actor_accounted_for then
+                                    recorded_actors[entry.actor] = (recorded_actors[entry.actor] or 0) + 1
+                                    found_actor = true
+                                    actor_accounted_for = true
+                                end
+                            end
                         end
                     end
                     
@@ -25754,8 +25749,10 @@ local function main()
     
     local curs_state = reaper.GetProjectStateChangeCount(0)
     if curs_state ~= proj_change_count then
-        update_regions_cache()
-        load_director_actors_from_state()
+        if UTILS.is_markers_regions_changed() then
+            update_regions_cache()
+            load_director_actors_from_state()
+        end
         proj_change_count = curs_state
     end
 
