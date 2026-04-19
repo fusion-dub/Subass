@@ -964,6 +964,9 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_8_export_count")
     ACHIEVEMENTS.get_stat("ach_8_corr_item_count")
 
+    ACHIEVEMENTS.get_stat("ach_11_total_duration")
+    ACHIEVEMENTS.get_stat("ach_11_word_count")
+
     ACHIEVEMENTS.get_stat("ach_9_count")
     ACHIEVEMENTS.get_stat("ach_10_count")
     ACHIEVEMENTS.get_stat("ach_11_count")
@@ -1725,6 +1728,26 @@ function ACHIEVEMENTS.check_deadline_failure()
             end
         end
     end
+end
+
+function ACHIEVEMENTS.format_long_duration(s)
+    if not s or s <= 0 then return "0 хв." end
+    
+    local months = math.floor(s / 2592000) -- 30 days
+    s = s % 2592000
+    local days = math.floor(s / 86400)
+    s = s % 86400
+    local hours = math.floor(s / 3600)
+    s = s % 3600
+    local minutes = math.floor(s / 60)
+    
+    local parts = {}
+    if months > 0 then table.insert(parts, months .. " міс.") end
+    if days > 0 then table.insert(parts, days .. " д.") end
+    if hours > 0 then table.insert(parts, hours .. " год.") end
+    if minutes > 0 or #parts == 0 then table.insert(parts, minutes .. " хв.") end
+    
+    return table.concat(parts, " ")
 end
 
 --- Check if the current project has earned the 'Architect' achievement uniquely
@@ -14606,8 +14629,10 @@ function ACHIEVEMENTS.draw_window(input_queue)
                             imports, items, string.rep("—", 12))
                     elseif ach.id == "ach_11" then
                         local total = ACHIEVEMENTS.stats["ach_11_count"] or 0
-                        tooltip_text = string.format("Кількість записаних дублів: %d\n%s\n\"Тиша — це лише пауза між записом.\"", 
-                            total, string.rep("—", 12))
+                        local words = ACHIEVEMENTS.stats["ach_11_word_count"] or 0
+                        local duration = ACHIEVEMENTS.stats["ach_11_total_duration"] or 0
+                        tooltip_text = string.format("Записаних дублів: %d\nПромовлено слів: %d\nЗагальний час: %s\n%s\n\"Тиша — це лише пауза між записом.\"", 
+                            total, words, ACHIEVEMENTS.format_long_duration(duration), string.rep("—", 12))
                     elseif ach.id == "ach_10" then
                         local total = ACHIEVEMENTS.stats["ach_10_count"] or 0
                         tooltip_text = string.format("Кількість створених проєктів: %d\n%s\n\"Для справжнього архітектора кожен проєкт — це новий всесвіт.\"", 
@@ -21996,6 +22021,14 @@ function UTILS.rebuild_actors_index()
     end
 
     table.sort(idx, function(a, b) return a.t1 < b.t1 end)
+    
+    -- Augmented Interval logic: compute prefix-maximum of t2
+    local running_max = -1
+    for i = 1, #idx do
+        if idx[i].t2 > running_max then running_max = idx[i].t2 end
+        idx[i].max_t2 = running_max
+    end
+
     director_state._actors_index     = idx
     director_state._actors_index_ref = ass_lines   -- detect future change
     director_state._actors_cache     = nil          -- invalidate frame cache
@@ -22027,9 +22060,9 @@ function UTILS.get_ass_lines_at_time(time, tolerance)
         if idx[mid].t1 <= time + tolerance then lo = mid else hi = mid - 1 end
     end
     
-    -- Optimized walk-back: find most ancient possible relevant entry
+    -- Robust walk-back using augmented max_t2
     local start = lo
-    while start > 1 and idx[start - 1].t2 >= time - tolerance do
+    while start > 1 and idx[start - 1].max_t2 >= time - tolerance do
         start = start - 1
     end
 
@@ -22039,6 +22072,47 @@ function UTILS.get_ass_lines_at_time(time, tolerance)
         if entry.t1 > time + tolerance then break end -- sorted list, no more matches
         if time >= (entry.t1 - tolerance) and time <= (entry.t2 + tolerance) then
             list[#list + 1] = entry
+        end
+    end
+
+    return list
+end
+
+--- Find all ASS lines that overlap with the given time range [t1, t2].
+--- Optimized with binary search.
+--- @param t1 number Range start
+--- @param t2 number Range end
+--- @return table List of overlapping entries
+function UTILS.get_ass_lines_in_range(t1, t2)
+    if not ass_lines or #ass_lines == 0 then return {} end
+    if t1 > t2 then t1, t2 = t2, t1 end
+
+    if director_state._actors_index_ref ~= ass_lines or UI_STATE._markers_is_dirty then
+        UTILS.rebuild_actors_index()
+        UI_STATE._markers_is_dirty = false
+    end
+
+    local idx = director_state._actors_index
+    local n   = #idx
+    if n == 0 then return {} end
+
+    -- Binary search: find rightmost index where entry.t1 < t2
+    local lo, hi = 1, n
+    while lo < hi do
+        local mid = math.floor((lo + hi + 1) / 2)
+        if idx[mid].t1 < t2 then lo = mid else hi = mid - 1 end
+    end
+    
+    local list = {}
+    -- Walk back: regions starting before t2, checking if they end after t1
+    for i = lo, 1, -1 do
+        local entry = idx[i]
+        -- If the cumulative maximum end-time of all entries from 1..i is less than t1,
+        -- no entry in this range can possibly overlap [t1, t2].
+        if entry.max_t2 <= t1 then break end
+        
+        if entry.t2 > t1 then
+            table.insert(list, entry)
         end
     end
 
@@ -25661,6 +25735,9 @@ function OTHER.process_post_recording()
         if item_count > 0 then
             
             -- Track statistics: count recorded items and get actor names
+            -- Track statistics for ach_11
+            local total_words = 0
+            local total_duration = 0
             local recorded_actors = {}
             local max_take_len = 0
             local unique_replica_indices = {}
@@ -25670,13 +25747,14 @@ function OTHER.process_post_recording()
                 if item then
                     local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
                     if item_len > max_take_len then max_take_len = item_len end
+                    total_duration = total_duration + item_len
                     
                     -- Find actor by matching item position to ass_lines
                     local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
                     local item_end = item_pos + item_len
-                    
                     local found_actor = false
-                    local matched_lines = UTILS.get_ass_lines_at_time(item_pos, 0.5)
+                    -- Use range-based search to find ALL overlapped regions
+                    local matched_lines = UTILS.get_ass_lines_in_range(item_pos, item_end)
                     local actor_accounted_for = false
                     
                     for _, entry in ipairs(matched_lines) do
@@ -25684,11 +25762,17 @@ function OTHER.process_post_recording()
                         if entry.enabled then
                             unique_replica_indices[entry._i] = true
                             
-                            -- Achievement: The Seducer (ach_15: "секс")
+                            -- Count words (using identical logic to UTILS.calculate_lines_stats)
+                            if entry.text then
+                                local clean = entry.text:gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+                                local _, count = clean:gsub("%S+", "")
+                                total_words = total_words + count
+                            end
+
                             if entry.text and entry.text:lower():find("секс") then
                                 ACHIEVEMENTS.add_stat("ach_15_count", 1)
                             end
-
+                            
                             -- Achievement: Parseltongue (ach_19: > 8 hissing sounds)
                             if entry.text then
                                 local hiss_count = 0
@@ -25770,7 +25854,8 @@ function OTHER.process_post_recording()
             end
 
             ACHIEVEMENTS.add_stat("ach_11_count", 1)
-            -- Save stats immediately after recording
+            ACHIEVEMENTS.add_stat("ach_11_word_count", total_words)
+            ACHIEVEMENTS.add_stat("ach_11_total_duration", total_duration)
             STATS.save()
             
             -- Only proceed with trim/clipping if enabled
