@@ -1840,6 +1840,53 @@ function ACHIEVEMENTS.check_perfect_accuracy_ach_23()
     end
 end
 
+--- Check if the recorded take is 'absolute silence' for 'Lightness of a Feather' (ach_24)
+-- Requires take length >= 5.0s and Peak < -60 dB (0.001 linear)
+function ACHIEVEMENTS.check_feather_silence_ach_24(item, length)
+    if not item or not length or length < 5.0 then return false end
+    local take = reaper.GetActiveTake(item)
+    if not take or reaper.TakeIsMIDI(take) then return false end
+    
+    local source = reaper.GetMediaItemTake_Source(take)
+    if not source then return false end
+    local n_chans = reaper.GetMediaSourceNumChannels(source)
+    if not n_chans or n_chans == 0 then return false end
+    
+    local accessor = reaper.CreateTakeAudioAccessor(take)
+    if not accessor then return false end
+    
+    -- Optimized: Use low sample rate (1000Hz) for ultra-fast light analysis
+    local check_srate = 1000 
+    local total_samples = math.floor(length * check_srate)
+    if total_samples <= 0 then 
+        reaper.DestroyAudioAccessor(accessor)
+        return false 
+    end
+
+    local buffer = reaper.new_array(total_samples * n_chans)
+    local retval = reaper.GetAudioAccessorSamples(accessor, check_srate, n_chans, 0, total_samples, buffer)
+    reaper.DestroyAudioAccessor(accessor)
+    
+    if retval > 0 then
+        local sum_sq = 0
+        local total_values = total_samples * n_chans
+        
+        for i = 1, total_values do
+            local val = buffer[i] or 0
+            sum_sq = sum_sq + (val * val)
+        end
+        
+        local mean_sq = sum_sq / total_values
+        -- -60 dB threshold (square of 0.001 linear) is 0.000001
+        if mean_sq < 0.000001 then
+            ACHIEVEMENTS.add_stat("ach_24_count", 1)
+            return true
+        end
+    end
+    
+    return false
+end
+
 function UTILS.is_markers_regions_changed()
     local last_action = reaper.Undo_CanUndo2(0)
     return last_action and (last_action:lower():find("marker") or last_action:lower():find("region"))
@@ -14611,7 +14658,10 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local total = ACHIEVEMENTS.stats["ach_23_count"] or 0
                         tooltip_text = string.format("Проєкти з ідеальною точністю: %d\n%s\n\"Твоя влучність вражає. Кожне слово — точно в ціль, наче стріла богині полювання.\"\n(50+ реплік з коефіцієнтом дублів <= 1.1)", 
                             total, string.rep("—", 12))
-
+                    elseif ach.id == "ach_24" then
+                        local total = ACHIEVEMENTS.stats["ach_24_count"] or 0
+                        tooltip_text = string.format("Миттєвостей тиші зафіксовано: %d\n%s\n\"Тихіше за подих, легше за пір'їну. Вміння мовчати — це теж мистецтво.\"\n(Запис абсолютної тиші тривалістю 5+ секунд)", 
+                            total, string.rep("—", 12))
                     else
                         tooltip_text = ach.name
                     end
@@ -25669,6 +25719,10 @@ function OTHER.process_post_recording()
                     -- Achievement: Blessing of Artemis (ach_23: accuracy >= 50 lines, ratio <= 1.1)
                     ACHIEVEMENTS.check_perfect_accuracy_ach_23()
 
+                    -- Achievement: Lightness of a Feather (ach_24: 5s+ absolute silence)
+                    if item_len >= 5.0 then
+                        ACHIEVEMENTS.check_feather_silence_ach_24(item, item_len)
+                    end
 
                     -- Achievement: Midnight Vigil (ach_22: Record between 00:00 and 04:00 once per day)
                     ACHIEVEMENTS.check_midnight_vigil_ach_22()
