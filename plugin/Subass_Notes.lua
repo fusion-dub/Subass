@@ -9780,7 +9780,7 @@ function DUBBERS.draw_dashboard(input_queue)
             
             -- Card BG
             if is_assigned then
-                set_color(UI.C_GREEN, 0.15) -- User preferred value
+                set_color(UI.C_GREEN, 0.2) -- User preferred value
             else
                 set_color(UI.C_ROW, 0.2 * fade)
             end
@@ -9800,11 +9800,13 @@ function DUBBERS.draw_dashboard(input_queue)
                 end
             end
             
-            -- Light Border for assigned actors
+            -- Border logic: Green if assigned, Transparent Red if not
             if has_any_assignment then
-                set_color(UI.C_GREEN, 0.15)
-                gfx.rect(ax, cur_ay, actor_col_w - S(5), actor_item_h - S(5), 0)
+                set_color(UI.C_GREEN, 0.2)
+            else
+                set_color(UI.C_RED, 0.4)
             end
+            gfx.rect(ax, cur_ay, actor_col_w - S(5), actor_item_h - S(5), 0)
             
             -- Checkbox / Assignment
             local a_col = get_actor_color(act)
