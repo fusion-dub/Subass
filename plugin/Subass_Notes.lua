@@ -1729,6 +1729,9 @@ end
 
 --- Check if the current project has earned the 'Architect' achievement uniquely
 function ACHIEVEMENTS.check_project_architect_ach_10()
+    local _, filename = reaper.EnumProjects(-1)
+    if not filename or filename == "" then return end -- Skip unsaved (empty) projects
+    
     local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_10")
     if retval == 0 or earned ~= "1" then
         ACHIEVEMENTS.add_stat("ach_10_count", 1)
