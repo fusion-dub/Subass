@@ -4311,13 +4311,9 @@ function DEADLINE.draw_dashboard(input_queue)
             end
         end
         
-        -- Draw Scrollbar
+        -- Draw Interactive Scrollbar
         if max_scroll > 0 then
-            local sb_w = S(4)
-            local sb_h = (avail_h / content_h) * avail_h
-            local sb_y = list_y + (UI_STATE.dash_scroll_y / content_h) * avail_h
-            set_color(UI.C_BTN, 0.3)
-            gfx.rect(gfx.w - sb_w - S(2), sb_y, sb_w, sb_h, 1)
+            UI_STATE.dash_target_scroll_y = draw_scrollbar(gfx.w - S(10), list_y, S(10), avail_h, content_h, avail_h, UI_STATE.dash_target_scroll_y)
         end
     end
 
@@ -9883,6 +9879,11 @@ function DUBBERS.draw_dashboard(input_queue)
         end
     end
     
+    -- Draw Interactive Scrollbar
+    if max_scroll > 0 then
+        DUBBERS.target_scroll_y = draw_scrollbar(gfx.w - S(10), header_h, S(10), view_h, total_content_h, view_h, DUBBERS.target_scroll_y)
+    end
+    
     -- --- FIXED HEADER OVERLAY (Drawn last to stay on top) ---
     set_color(UI.C_BG, 1.0)
     gfx.rect(0, 0, gfx.w, header_h, 1)
@@ -14680,6 +14681,11 @@ function ACHIEVEMENTS.draw_window(input_queue)
                 end
             end
         end
+    end
+    
+    -- Draw scrollbar
+    if max_scroll > 0 then
+        ACHIEVEMENTS.target_scroll_y = draw_scrollbar(gfx.w - S(10), content_y, S(10), res_h, total_h, res_h, ACHIEVEMENTS.target_scroll_y)
     end
 
     -- Draw Header Overlay (draw ON TOP of grid items when scrolling)
