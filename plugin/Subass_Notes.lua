@@ -663,7 +663,8 @@ local UI_STATE = {
     AUTO_UPDATE_INTERVAL = 21600, -- 6 hours
     last_update_check_time = 0,
     is_restarting = false,
-    hotkey_capture_idx = nil -- Which action is waiting for a key press
+    hotkey_capture_idx = nil, -- Which action is waiting for a key press
+    is_loading = false -- Safety flag for project lifecycle
 }
 
 local DEADLINE = {
@@ -7119,6 +7120,10 @@ end
 
 --- Save subtitle data to project extended state
 local function save_project_data()
+    -- CRITICAL SAFETY: Never save data while a project is being loaded or switched.
+    -- This prevents race conditions from overwriting valid project state with empty/interim data.
+    if UI_STATE.is_loading then return end
+
     -- Chunked saving to avoid project state limits (usually ~64KB per key)
     -- We use a safer limit of 16KB to prevent truncation in some REAPER versions
     local CHUNK_SIZE = 16000 
@@ -7279,6 +7284,7 @@ end
 
 --- Load project data from ProjectExtState
 local function load_project_data()
+    UI_STATE.is_loading = true
     -- ALWAYS reset state first
     ass_lines = {}
     
@@ -7495,6 +7501,7 @@ local function load_project_data()
     end
 
     STATS.update_metadata()
+    UI_STATE.is_loading = false
 end
 
 -- LOAD DATA ON STARTUP
@@ -7724,6 +7731,12 @@ local function update_regions_cache()
         
         -- 2. Adopt "foreign" regions (created manually in REAPER)
         local is_empty_project = (#ass_lines == 0)
+        
+        -- SAFETY LOCK: If still loading project data, skip adoption logic to prevent overwriting correct state
+        -- with 'REAPER' actor names in case of a race condition or transient failure.
+        if is_empty_project and UI_STATE.is_loading then
+            return
+        end
         
         for idx, rgn in pairs(rgn_map) do
             if not tracked_rgn_idxs[idx] then
