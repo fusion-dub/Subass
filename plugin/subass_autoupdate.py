@@ -6,6 +6,15 @@ import re
 import zipfile
 import shutil
 import tempfile
+import ssl
+
+# Fix for macOS SSL certificate verification issue
+# This allows the script to download updates even if local certificates are not installed/outdated
+try:
+    if hasattr(ssl, '_create_unverified_context'):
+        ssl._create_default_https_context = ssl._create_unverified_context
+except Exception:
+    pass
 
 # Remote version file URL (Google Drive direct download)
 VERSION_URL = "https://drive.google.com/uc?export=download&id=1AXQOsOrNEls_bF1pxJ4CqWZYJwEqGEq4"
