@@ -225,15 +225,48 @@ local OTHER = {
         IMG_ACH_6=84,
         IMG_ACH_7=83,
         IMG_ACH_8=82,
+        IMG_ACH_9=81,
+        IMG_ACH_10=80,
+        IMG_ACH_11=79,
+        IMG_ACH_12=78,
+        IMG_ACH_13=77,
+        IMG_ACH_14=76,
+        IMG_ACH_15=75,
+        IMG_ACH_16=74,
+        IMG_ACH_17=73,
+        IMG_ACH_18=72,
+        IMG_ACH_19=71,
+        IMG_ACH_20=70,
+        IMG_ACH_21=69,
+        IMG_ACH_22=68,
+        IMG_ACH_23=67,
+        IMG_ACH_24=66,
+
         -- ach disabled
-        IMG_ACH_1_dis=81,
-        IMG_ACH_2_dis=80,
-        IMG_ACH_3_dis=79,
-        IMG_ACH_4_dis=78,
-        IMG_ACH_5_dis=77,
-        IMG_ACH_6_dis=76,
-        IMG_ACH_7_dis=75,
-        IMG_ACH_8_dis=74,
+        IMG_ACH_1_dis=65,
+        IMG_ACH_2_dis=64,
+        IMG_ACH_3_dis=63,
+        IMG_ACH_4_dis=62,
+        IMG_ACH_5_dis=61,
+        IMG_ACH_6_dis=60,
+        IMG_ACH_7_dis=59,
+        IMG_ACH_8_dis=58,
+        IMG_ACH_9_dis=57,
+        IMG_ACH_10_dis=56,
+        IMG_ACH_11_dis=55,
+        IMG_ACH_12_dis=54,
+        IMG_ACH_13_dis=53,
+        IMG_ACH_14_dis=52,
+        IMG_ACH_15_dis=51,
+        IMG_ACH_16_dis=50,
+        IMG_ACH_17_dis=49,
+        IMG_ACH_18_dis=48,
+        IMG_ACH_19_dis=47,
+        IMG_ACH_20_dis=46,
+        IMG_ACH_21_dis=45,
+        IMG_ACH_22_dis=44,
+        IMG_ACH_23_dis=43,
+        IMG_ACH_24_dis=42,
     },
     QWERTY_TO_UA = {
         [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
@@ -288,25 +321,175 @@ OTHER.LOADERS_CFG = {
 OTHER.DEADLINE_GIF_CFG = { path = "media" .. OTHER.SEPARATOR .. "deadline.png",  buf = OTHER.BUF.IMG_5, frames = 10, fps = 8, frame_w = 512, zoom = 0.85 }
 OTHER.COPA_GIF_CFG = { path = "media" .. OTHER.SEPARATOR .. "copa.png",  buf = OTHER.BUF.IMG_6, frames = 9, fps = 8, frame_w = 200, zoom = 0.75 }
 OTHER.ACH_CFG = {
-    { id = "ach_1", path = "media" .. OTHER.SEPARATOR .. "ach_1.png", buf = OTHER.BUF.IMG_ACH_1, name = "Прикликач тексту" },
-    { id = "ach_3", path = "media" .. OTHER.SEPARATOR .. "ach_3.png", buf = OTHER.BUF.IMG_ACH_3, name = "Смарагдовий урожай" },
-    { id = "ach_7", path = "media" .. OTHER.SEPARATOR .. "ach_7.png", buf = OTHER.BUF.IMG_ACH_7, name = "Довіра - це святе" },
-    { id = "ach_2", path = "media" .. OTHER.SEPARATOR .. "ach_2.png", buf = OTHER.BUF.IMG_ACH_2, name = "Наголошене вариво" },
-    { id = "ach_8", path = "media" .. OTHER.SEPARATOR .. "ach_8.png", buf = OTHER.BUF.IMG_ACH_8, name = "Виправне пекло" },
-    { id = "ach_6", path = "media" .. OTHER.SEPARATOR .. "ach_6.png", buf = OTHER.BUF.IMG_ACH_6, name = "Суцільний сором" },
-    { id = "ach_4", path = "media" .. OTHER.SEPARATOR .. "ach_4.png", buf = OTHER.BUF.IMG_ACH_4, name = "Дух у машині" },
-    { id = "ach_5", path = "media" .. OTHER.SEPARATOR .. "ach_5.png", buf = OTHER.BUF.IMG_ACH_5, name = "Прокляті заклинання" },
-}
-
-OTHER.ACH_DISABLED_CFG = {
-    { id = "ach_1", path = "media" .. OTHER.SEPARATOR .. "ach_1_disabled.png", buf = OTHER.BUF.IMG_ACH_1_dis},
-    { id = "ach_3", path = "media" .. OTHER.SEPARATOR .. "ach_3_disabled.png", buf = OTHER.BUF.IMG_ACH_3_dis},
-    { id = "ach_7", path = "media" .. OTHER.SEPARATOR .. "ach_7_disabled.png", buf = OTHER.BUF.IMG_ACH_7_dis},
-    { id = "ach_2", path = "media" .. OTHER.SEPARATOR .. "ach_2_disabled.png", buf = OTHER.BUF.IMG_ACH_2_dis},
-    { id = "ach_8", path = "media" .. OTHER.SEPARATOR .. "ach_8_disabled.png", buf = OTHER.BUF.IMG_ACH_8_dis},
-    { id = "ach_6", path = "media" .. OTHER.SEPARATOR .. "ach_6_disabled.png", buf = OTHER.BUF.IMG_ACH_6_dis},
-    { id = "ach_4", path = "media" .. OTHER.SEPARATOR .. "ach_4_disabled.png", buf = OTHER.BUF.IMG_ACH_4_dis},
-    { id = "ach_5", path = "media" .. OTHER.SEPARATOR .. "ach_5_disabled.png", buf = OTHER.BUF.IMG_ACH_5_dis},
+    {
+        id = "ach_11",
+        path = "media" .. OTHER.SEPARATOR .. "ach_11.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_11_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_11,
+        dis_buf = OTHER.BUF.IMG_ACH_11_dis,
+        name = "Порушник Тиші"
+    }, {
+        id = "ach_10",
+        path = "media" .. OTHER.SEPARATOR .. "ach_10.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_10_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_10,
+        dis_buf = OTHER.BUF.IMG_ACH_10_dis,
+        name = "Архітектор світів"
+    }, {
+        id = "ach_1",
+        path = "media" .. OTHER.SEPARATOR .. "ach_1.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_1_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_1,
+        dis_buf = OTHER.BUF.IMG_ACH_1_dis,
+        name = "Прикликач тексту"
+    }, {
+        id = "ach_3",
+        path = "media" .. OTHER.SEPARATOR .. "ach_3.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_3_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_3,
+        dis_buf = OTHER.BUF.IMG_ACH_3_dis,
+        name = "Смарагдовий урожай"
+    }, {
+        id = "ach_7",
+        path = "media" .. OTHER.SEPARATOR .. "ach_7.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_7_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_7,
+        dis_buf = OTHER.BUF.IMG_ACH_7_dis,
+        name = "Довіра - це святе"
+    }, {
+        id = "ach_2",
+        path = "media" .. OTHER.SEPARATOR .. "ach_2.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_2_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_2,
+        dis_buf = OTHER.BUF.IMG_ACH_2_dis,
+        name = "Наголошене вариво"
+    }, {
+        id = "ach_8",
+        path = "media" .. OTHER.SEPARATOR .. "ach_8.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_8_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_8,
+        dis_buf = OTHER.BUF.IMG_ACH_8_dis,
+        name = "Виправне пекло"
+    }, {
+        id = "ach_6",
+        path = "media" .. OTHER.SEPARATOR .. "ach_6.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_6_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_6,
+        dis_buf = OTHER.BUF.IMG_ACH_6_dis,
+        name = "Суцільний сором"
+    }, {
+        id = "ach_4",
+        path = "media" .. OTHER.SEPARATOR .. "ach_4.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_4_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_4,
+        dis_buf = OTHER.BUF.IMG_ACH_4_dis,
+        name = "Дух у машині"
+    }, {
+        id = "ach_5",
+        path = "media" .. OTHER.SEPARATOR .. "ach_5.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_5_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_5,
+        dis_buf = OTHER.BUF.IMG_ACH_5_dis,
+        name = "Прокляті заклинання"
+    }, {
+        id = "ach_9",
+        path = "media" .. OTHER.SEPARATOR .. "ach_9.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_9_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_9,
+        dis_buf = OTHER.BUF.IMG_ACH_9_dis,
+        name = "Сирена"
+    }, {
+        id = "ach_18",
+        path = "media" .. OTHER.SEPARATOR .. "ach_18.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_18_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_18,
+        dis_buf = OTHER.BUF.IMG_ACH_18_dis,
+        name = "Епічна Сага"
+    }, {
+        id = "ach_13",
+        path = "media" .. OTHER.SEPARATOR .. "ach_13.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_13_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_13,
+        dis_buf = OTHER.BUF.IMG_ACH_13_dis,
+        name = "Крик Банші"
+    }, {
+        id = "ach_12",
+        path = "media" .. OTHER.SEPARATOR .. "ach_12.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_12_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_12,
+        dis_buf = OTHER.BUF.IMG_ACH_12_dis,
+        name = "Король гори"
+    }, {
+        id = "ach_14",
+        path = "media" .. OTHER.SEPARATOR .. "ach_14.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_14_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_14,
+        dis_buf = OTHER.BUF.IMG_ACH_14_dis,
+        name = "Тінь вічності"
+    }, {
+        id = "ach_15",
+        path = "media" .. OTHER.SEPARATOR .. "ach_15.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_15_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_15,
+        dis_buf = OTHER.BUF.IMG_ACH_15_dis,
+        name = "Шепіт Сукуба"
+    }, {
+        id = "ach_16",
+        path = "media" .. OTHER.SEPARATOR .. "ach_16.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_16_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_16,
+        dis_buf = OTHER.BUF.IMG_ACH_16_dis,
+        name = "Поліфонічний вихр"
+    }, {
+        id = "ach_17",
+        path = "media" .. OTHER.SEPARATOR .. "ach_17.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_17_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_17,
+        dis_buf = OTHER.BUF.IMG_ACH_17_dis,
+        name = "Легіон"
+    }, {
+        id = "ach_19",
+        path = "media" .. OTHER.SEPARATOR .. "ach_19.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_19_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_19,
+        dis_buf = OTHER.BUF.IMG_ACH_19_dis,
+        name = "Парселтанг"
+    }, {
+        id = "ach_20",
+        path = "media" .. OTHER.SEPARATOR .. "ach_20.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_20_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_20,
+        dis_buf = OTHER.BUF.IMG_ACH_20_dis,
+        name = "Тисяча заклять"
+    }, {
+        id = "ach_21",
+        path = "media" .. OTHER.SEPARATOR .. "ach_21.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_21_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_21,
+        dis_buf = OTHER.BUF.IMG_ACH_21_dis,
+        name = "Магічний синхрон"
+    }, {
+        id = "ach_22",
+        path = "media" .. OTHER.SEPARATOR .. "ach_22.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_22_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_22,
+        dis_buf = OTHER.BUF.IMG_ACH_22_dis,
+        name = "Нічне Бдіння"
+    }, {
+        id = "ach_23",
+        path = "media" .. OTHER.SEPARATOR .. "ach_23.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_23_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_23,
+        dis_buf = OTHER.BUF.IMG_ACH_23_dis,
+        name = "Благословення Артеміди"
+    }, {
+        id = "ach_24",
+        path = "media" .. OTHER.SEPARATOR .. "ach_24.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_24_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_24,
+        dis_buf = OTHER.BUF.IMG_ACH_24_dis,
+        name = "Легкість пірїни"
+    },
 }
 
 -- Assets Loading
@@ -685,7 +868,16 @@ function ACHIEVEMENTS.add_stat(key, amount)
                 reaper.SetExtState(section_ach_name, "has_new", "1", true)
             end
             ACHIEVEMENTS.ach_snackbar_state.show_time = reaper.time_precise()
-            ACHIEVEMENTS.ach_snackbar_state.text = "Відкрито нове досягнення!"
+
+            -- Find achievement name
+            local ach_name = ""
+            for _, ach in ipairs(OTHER.ACH_CFG) do
+                if ach.id == prefix then
+                    ach_name = ": " .. ach.name
+                    break
+                end
+            end
+            ACHIEVEMENTS.ach_snackbar_state.text = "Відкрито нове досягнення" .. ach_name .. "!"
         end
     end
 end
@@ -729,11 +921,17 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_5_corr_item_count")
 
     ACHIEVEMENTS.get_stat("ach_6_failed_count")
-
     ACHIEVEMENTS.get_stat("ach_7_itachi_uchiha")
 
     ACHIEVEMENTS.get_stat("ach_8_export_count")
     ACHIEVEMENTS.get_stat("ach_8_corr_item_count")
+
+    ACHIEVEMENTS.get_stat("ach_9_count")
+    ACHIEVEMENTS.get_stat("ach_10_count")
+    ACHIEVEMENTS.get_stat("ach_11_count")
+    ACHIEVEMENTS.get_stat("ach_12_count")
+    ACHIEVEMENTS.get_stat("ach_13_count")
+    ACHIEVEMENTS.get_stat("ach_18_count")
 end
 
 -- Assets Loading
@@ -748,12 +946,10 @@ function ACHIEVEMENTS.load_assets()
         if reaper.file_exists(full_path) then
             gfx.loadimg(ach.buf, full_path)
         end
-    end
 
-    for _, ach in ipairs(OTHER.ACH_DISABLED_CFG) do
-        local full_path = script_path .. ach.path
-        if reaper.file_exists(full_path) then
-            gfx.loadimg(ach.buf, full_path)
+        local dis_full_path = script_path .. ach.dis_path
+        if reaper.file_exists(dis_full_path) then
+            gfx.loadimg(ach.dis_buf, dis_full_path)
         end
     end
 
@@ -850,6 +1046,29 @@ function ACHIEVEMENTS.check_deadline_failure()
     end
 end
 
+--- Check if the current project has earned the 'Architect' achievement uniquely
+function ACHIEVEMENTS.check_project_architect_ach_10()
+    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_10")
+    if retval == 0 or earned ~= "1" then
+        ACHIEVEMENTS.add_stat("ach_10_count", 1)
+        reaper.SetProjExtState(0, section_name, "earned_ach_10", "1")
+        reaper.MarkProjectDirty(0)
+    end
+end
+
+--- Check if the current project has earned the 'Epic Saga' achievement uniquely
+function ACHIEVEMENTS.check_epic_saga_ach_18()
+    local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_18")
+    if retval == 0 or earned ~= "1" then
+        local proj_len = reaper.GetProjectLength(0)
+        if proj_len > 4800 then -- 80 * 60 seconds
+            ACHIEVEMENTS.add_stat("ach_18_count", 1)
+            reaper.SetProjExtState(0, section_name, "earned_ach_18", "1")
+            reaper.MarkProjectDirty(0)
+        end
+    end
+end
+
 -- Prompter Drawer State
 local prompter_drawer = {
     open = false,
@@ -889,7 +1108,8 @@ local STATS = {
         initialized = false,     -- True after first recording stop (cache is warm)
         last_count = 0,          -- Recorded count at last Stop event
         last_activity_time = 0,  -- Tracks real recording activity (not buffer pop time)
-        PAUSE_THRESHOLD = 300    -- 5 minutes of no new unique regions → reset speed buffer
+        PAUSE_THRESHOLD = 300,   -- 5 minutes of no new unique regions → reset speed buffer
+        replica_takes = {}       -- Temporary session tracking for ach_12
     }
 }
 
@@ -7061,6 +7281,9 @@ end
 local function load_project_data()
     -- ALWAYS reset state first
     ass_lines = {}
+    
+    -- Reset temporary session takes for ach_12 (King of the Hill)
+    if STATS and STATS.etc then STATS.etc.replica_takes = {} end
     ass_actors = {}
     ASS.actor_colors = {}
     ass_markers = {} -- Added explicit reset
@@ -14025,6 +14248,13 @@ function ACHIEVEMENTS.draw_window(input_queue)
     end
     ACHIEVEMENTS.scroll_y = ACHIEVEMENTS.scroll_y + (ACHIEVEMENTS.target_scroll_y - ACHIEVEMENTS.scroll_y) * 0.5
     
+    local open_count = 0
+    for _, ach in ipairs(OTHER.ACH_CFG) do
+        if ACHIEVEMENTS.stats[ach.id .. "_tracking"] == 1 then
+            open_count = open_count + 1
+        end
+    end
+
     for i, ach in ipairs(OTHER.ACH_CFG) do
         local col = (i - 1) % cols
         local row = math.floor((i - 1) / cols)
@@ -14121,6 +14351,54 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     gfx.x, gfx.y = cx + S(6), cy + S(4)
                     gfx.drawstr(tostring(total))
                 end
+            elseif ach.id == "ach_11" then
+                local total = ACHIEVEMENTS.stats["ach_11_count"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
+            elseif ach.id == "ach_10" then
+                local total = ACHIEVEMENTS.stats["ach_10_count"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
+            elseif ach.id == "ach_18" then
+                local total = ACHIEVEMENTS.stats["ach_18_count"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
+            elseif ach.id == "ach_13" then
+                local total = ACHIEVEMENTS.stats["ach_13_count"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
+            elseif ach.id == "ach_12" then
+                local total = ACHIEVEMENTS.stats["ach_12_count"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
+            elseif ach.id == "ach_9" then
+                local total = ACHIEVEMENTS.stats["ach_9_count"] or 0
+                if total > 0 then
+                    gfx.setfont(F.bld)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = cx + S(6), cy + S(4)
+                    gfx.drawstr(tostring(total))
+                end
             end
             
             -- Image
@@ -14143,10 +14421,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
                 else
                     gfx.set(1, 1, 1, 0.3) -- Add a bit of transparency for locked icons
                     -- Use the pre-rendered disabled image from the configuration
-                    local dis_ach = OTHER.ACH_DISABLED_CFG[i]
-                    if dis_ach and dis_ach.buf then
-                        gfx.blit(dis_ach.buf, 1, 0, 0, 0, iw, ih, dx, dy, dw, dh)
-                    end
+                    gfx.blit(ach.dis_buf, 1, 0, 0, 0, iw, ih, dx, dy, dw, dh)
                 end
             end
             
@@ -14171,7 +14446,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local vtt = ACHIEVEMENTS.stats["ach_1_vtt_import"] or 0
                         local total = ACHIEVEMENTS.stats["ach_1_total_lines"] or 0
                         
-                        tooltip_text = string.format("Імпортовано SRT файлів: %d\nІмпортовано ASS файлів: %d\nІмпортовано VTT файлів: %d\n%s\nІмпортовано реплік: %d", 
+                        tooltip_text = string.format("Імпортовано SRT: %d\nІмпортовано ASS: %d\nІмпортовано VTT: %d\n%s\nІмпортовано реплік: %d", 
                             srt, ass, vtt, string.rep("—", 12), total)
                     elseif ach.id == "ach_3" then
                         local def = ACHIEVEMENTS.stats["ach_3_definition"] or 0
@@ -14180,7 +14455,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local idiom = ACHIEVEMENTS.stats["ach_3_idioms"] or 0
                         local usage = ACHIEVEMENTS.stats["ach_3_word_usage"] or 0
                         
-                        tooltip_text = string.format("Відкрито словник ГОРОХ\n%s\nТлумачення: %d\nСловозміна: %d\nСиноніми: %d\nФразеологія: %d\nСлововживання: %d", 
+                        tooltip_text = string.format("Перегляд словника ГОРОХ\n%s\nТлумачення: %d\nСловозміна: %d\nСиноніми: %d\nФразеологія: %d\nСлововживання: %d", 
                             string.rep("—", 12), def, conj, syn, idiom, usage)
                     elseif ach.id == "ach_7" then
                         local total = ACHIEVEMENTS.stats["ach_7_itachi_uchiha"] or 0
@@ -14189,20 +14464,19 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     elseif ach.id == "ach_2" then
                         local total = ACHIEVEMENTS.stats["ach_2_total_lines"] or 0
                         local runs = ACHIEVEMENTS.stats["ach_2_run_count"] or 0
-                        tooltip_text = string.format("Кількість застосувань наголосів: %d\n%s\nНаголошено реплік: %d", 
-                            runs, string.rep("—", 12), total)
+                        tooltip_text = string.format("Застосувань наголосів: %d\nНаголошено реплік: %d\n%s\n\"Правильний наголос — як спеція:\nзабагато зіпсує, замало — знебарвить.\"", 
+                            runs, total, string.rep("—", 12))
                     elseif ach.id == "ach_8" then
                         local export = ACHIEVEMENTS.stats["ach_8_export_count"] or 0
                         local items = ACHIEVEMENTS.stats["ach_8_corr_item_count"] or 0
-                        tooltip_text = string.format("Віддано паків правок: %d\n%s\nКількість переданих правок: %d", 
-                            export, string.rep("—", 12), items)
+                        tooltip_text = string.format("Віддано паків правок: %d\nПередано зауважень: %d\n%s\n\"Справжній майстер помічає кожну помилку не заради осуду, а щоб допомогти іншим досягти досконалості.\"", 
+                            export, items, string.rep("—", 12))
                     elseif ach.id == "ach_6" then
                         local total = ACHIEVEMENTS.stats["ach_6_failed_count"] or 0
-                        tooltip_text = string.format("Ви підвели команду\n%s\nПроєкти з простроченим дедлайном: %d", 
-                            string.rep("—", 12), total)
+                        tooltip_text = string.format("Прострочено дедлайнів: %d\n%s\n\"Ви підвели команду, не здавши проєкт вчасно. Терміни — це не просто дати, це Ваше слово.\"", 
+                            total, string.rep("—", 12))
                     elseif ach.id == "ach_4" then
                         local parts = { "Використано ШІ" .. "\n" .. string.rep("—", 12) }
-                        local total = 0
                         
                         -- Dynamically build tooltip from OTHER.AI_TASKS
                         for _, task in ipairs(OTHER.AI_TASKS) do
@@ -14210,20 +14484,43 @@ function ACHIEVEMENTS.draw_window(input_queue)
                             local val = ACHIEVEMENTS.stats[stat_key] or 0
                             if val > 0 then
                                 table.insert(parts, string.format("%s: %d", task.name, val))
-                                total = total + val
                             end
                         end
                         
                         if #parts == 1 then
                             tooltip_text = "Ви ще не використовували AI-функції"
                         else
-                            tooltip_text = table.concat(parts, "\n") .. "\n"
+                            tooltip_text = table.concat(parts, "\n")
                         end
                     elseif ach.id == "ach_5" then
                         local imports = ACHIEVEMENTS.stats["ach_5_import_count"] or 0
                         local items = ACHIEVEMENTS.stats["ach_5_corr_item_count"] or 0
-                        tooltip_text = string.format("Прийнято паків правок: %d\n%s\nКількість отриманих правок: %d", 
-                            imports, string.rep("—", 12), items)
+                        tooltip_text = string.format("Прийнято паків правок: %d\nОтримано правок: %d\n%s\n\"Критика — це лише інше ім'я для можливості стати кращим.\"", 
+                            imports, items, string.rep("—", 12))
+                    elseif ach.id == "ach_11" then
+                        local total = ACHIEVEMENTS.stats["ach_11_count"] or 0
+                        tooltip_text = string.format("Кількість записаних дублів: %d\n%s\n\"Тиша — це лише пауза між записом.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_10" then
+                        local total = ACHIEVEMENTS.stats["ach_10_count"] or 0
+                        tooltip_text = string.format("Кількість створених проєктів: %d\n%s\n\"Для справжнього архітектора кожен проєкт — це новий всесвіт.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_12" then
+                        local total = ACHIEVEMENTS.stats["ach_12_count"] or 0
+                        tooltip_text = string.format("Запис надскладної репліки: %d\n%s\n\"Двадцять перший спроба — за замовчуванням шедевр.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_9" then
+                        local total = ACHIEVEMENTS.stats["ach_9_count"] or 0
+                        tooltip_text = string.format("Кількість довгих записів (>30с): %d\n%s\n\"Голос, що зачаровує своєю тривалістю.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_13" then
+                        local total = ACHIEVEMENTS.stats["ach_13_count"] or 0
+                        tooltip_text = string.format("Випадків розриву реальності (кліпінгу): %d\n%s\n\"Деякі звуки неможливо приборкати — вони просто спалюють все на своєму шляху.\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_18" then
+                        local total = ACHIEVEMENTS.stats["ach_18_count"] or 0
+                        tooltip_text = string.format("Участь у епічних сагах (80хв+): %d\n%s\n\"Великі історії вимагають великого терпіння та майстерності.\"", 
+                            total, string.rep("—", 12))
                     else
                         tooltip_text = ach.name
                     end
@@ -14260,7 +14557,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
     -- Title
     gfx.setfont(F.title)
     set_color(UI.C_TXT)
-    local title = "Мої досягнення"
+    local title = "Мої досягнення: " .. open_count .. "/" .. #OTHER.ACH_CFG
     local avail_tw = close_x - pad - S(10)
     local draw_title = fit_text_width(title, avail_tw)
     gfx.x, gfx.y = pad, pad
@@ -21524,6 +21821,50 @@ function UTILS.rebuild_actors_index()
     director_state._actors_cache     = nil          -- invalidate frame cache
 end
 
+--- Find all ass_lines (index entries) at a specific project time with tolerance.
+--- Uses binary search on director_state._actors_index.
+--- @param time number The project time (seconds)
+--- @param tolerance number Optional time tolerance (seconds, defaults to 0.001)
+--- @return table List of entries { t1, t2, actor, _i }
+function UTILS.get_ass_lines_at_time(time, tolerance)
+    if not ass_lines or #ass_lines == 0 then return {} end
+    tolerance = tolerance or 0.001
+
+    -- Auto-rebuild sorted index when ass_lines table changes
+    if director_state._actors_index_ref ~= ass_lines then
+        UTILS.rebuild_actors_index()
+    end
+
+    local idx = director_state._actors_index
+    local n   = #idx
+    if n == 0 then return {} end
+
+    -- Binary search: find the rightmost index where t1 <= time + tolerance
+    local lo, hi = 1, n
+    while lo < hi do
+        local mid = math.floor((lo + hi + 1) / 2)
+        if idx[mid].t1 <= time + tolerance then lo = mid else hi = mid - 1 end
+    end
+    
+    -- Optimized walk-back: find most ancient possible relevant entry
+    local start = lo
+    while start > 1 and idx[start - 1].t2 >= time - tolerance do
+        start = start - 1
+    end
+
+    local list = {}
+    for i = start, n do
+        local entry = idx[i]
+        if entry.t1 > time + tolerance then break end -- sorted list, no more matches
+        if time >= (entry.t1 - tolerance) and time <= (entry.t2 + tolerance) then
+            list[#list + 1] = entry
+        end
+    end
+
+    return list
+end
+
+
 --- Find all speaking character names at a specific project time.
 --- Uses a pre-sorted index + binary search so cost is O(log n + k) per unique
 --- call instead of O(n). Frame-level cache makes repeated calls within the same
@@ -21539,41 +21880,16 @@ function UTILS.get_ass_actors_at_time(time)
         return cache.result
     end
 
-    -- Auto-rebuild sorted index when ass_lines table changes
-    if director_state._actors_index_ref ~= ass_lines then
-        UTILS.rebuild_actors_index()
-    end
-
-    local idx = director_state._actors_index
-    local n   = #idx
-
-    -- Binary search: find the rightmost index where t1 <= time
-    -- (first pass to narrow down candidates)
-    local lo, hi = 1, n
-    while lo < hi do
-        local mid = math.floor((lo + hi + 1) / 2)
-        if idx[mid].t1 <= time + 0.001 then lo = mid else hi = mid - 1 end
-    end
-    -- `lo` is now the last entry with t1 <= time.
-    -- Walk backwards to find entries where t2 >= time (long subtitles that started earlier).
-    -- In practice subtitles are short (<30s), so this loop is tiny.
-    local start = lo
-    while start > 1 and idx[start - 1].t2 >= time - 0.001 do
-        start = start - 1
-    end
-
+    local lines = UTILS.get_ass_lines_at_time(time, 0.001)
+    
     local list = {}
     local seen = {}
-    for i = start, n do
-        local entry = idx[i]
-        if entry.t1 > time + 0.001 then break end  -- all remaining start after time
-        if time >= entry.t1 and time <= entry.t2 then
-            if entry.actor and entry.actor ~= "" then
-                local cname = UTILS.clean_name_ass_actor(entry.actor)
-                if not seen[cname] then
-                    list[#list + 1] = cname
-                    seen[cname] = true
-                end
+    for _, entry in ipairs(lines) do
+        if entry.actor and entry.actor ~= "" then
+            local cname = UTILS.clean_name_ass_actor(entry.actor)
+            if not seen[cname] then
+                list[#list + 1] = cname
+                seen[cname] = true
             end
         end
     end
@@ -25154,28 +25470,27 @@ function OTHER.process_post_recording()
             
             -- Track statistics: count recorded items and get actor names
             local recorded_actors = {}
+            local max_take_len = 0
+            local unique_replica_indices = {}
+            
             for i = 0, item_count - 1 do
                 local item = reaper.GetSelectedMediaItem(0, i)
                 if item then
+                    local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                    if item_len > max_take_len then max_take_len = item_len end
+                    
                     -- Find actor by matching item position to ass_lines
                     local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
-                    local item_end = item_pos + reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                    local item_end = item_pos + item_len
                     
                     local found_actor = false
-                    if ass_lines then
-                        for _, line in ipairs(ass_lines) do
-                            -- Check if item overlaps line time range
-                            if line.enabled ~= false and line.t1 and line.t2 then
-                                -- Simple check: does the item start near this line?
-                                -- Giving 0.5s tolerance
-                                if item_pos >= (line.t1 - 0.5) and item_pos < (line.t2 + 0.5) then
-                                    if line.actor and line.actor ~= "" then
-                                        recorded_actors[line.actor] = (recorded_actors[line.actor] or 0) + 1
-                                        found_actor = true
-                                        break -- Count once per item
-                                    end
-                                end
-                            end
+                    local matched_lines = UTILS.get_ass_lines_at_time(item_pos, 0.5)
+                    for _, entry in ipairs(matched_lines) do
+                        unique_replica_indices[entry._i] = true
+                        if entry.actor and entry.actor ~= "" then
+                            recorded_actors[entry.actor] = (recorded_actors[entry.actor] or 0) + 1
+                            found_actor = true
+                            break -- Count once per item
                         end
                     end
                     
@@ -25184,6 +25499,19 @@ function OTHER.process_post_recording()
                         recorded_actors["_OUTSIDE_"] = (recorded_actors["_OUTSIDE_"] or 0) + 1
                     end
                 end
+            end
+            
+            -- Track takes per replica (ach_12: King of the Hill)
+            for idx, _ in pairs(unique_replica_indices) do
+                STATS.etc.replica_takes[idx] = (STATS.etc.replica_takes[idx] or 0) + 1
+                if STATS.etc.replica_takes[idx] == 21 then
+                    ACHIEVEMENTS.add_stat("ach_12_count", 1)
+                end
+            end
+
+            -- Achievement for long take (ach_9: Siren)
+            if max_take_len > 30 then
+                ACHIEVEMENTS.add_stat("ach_9_count", 1)
             end
             
             -- Increment stats for each actor
@@ -25196,7 +25524,8 @@ function OTHER.process_post_recording()
                     end
                 end
             end
-            
+
+            ACHIEVEMENTS.add_stat("ach_11_count", 1)
             -- Save stats immediately after recording
             STATS.save()
             
@@ -25314,6 +25643,7 @@ function OTHER.process_post_recording()
                                     -- Pure RED
                                     r, g, b = 255, 0, 0
                                     clipped_count = clipped_count + 1
+                                    ACHIEVEMENTS.add_stat("ach_13_count", 1)
                                 else
                                     -- Gradient from Yellow (255,255,0) at max_peak_warning to Red (255,0,0) at 0.99
                                     local t = (max_peak - max_peak_warning) / (0.99 - max_peak_warning) -- 0.0 at max_peak_warning, 1.0 at 0.99
@@ -25353,6 +25683,8 @@ local function main()
         
         -- Trigger achievement check for the initial project context
         ACHIEVEMENTS.check_deadline_failure()
+        ACHIEVEMENTS.check_project_architect_ach_10()
+        ACHIEVEMENTS.check_epic_saga_ach_18()
         DUBBERS.load() -- Load dubber data for initial project
         DUBBERS.last_project_id = UI_STATE.last_project_id
     end
@@ -25394,6 +25726,8 @@ local function main()
 
         -- Trigger achievement check for the new project context
         ACHIEVEMENTS.check_deadline_failure()
+        ACHIEVEMENTS.check_project_architect_ach_10()
+        ACHIEVEMENTS.check_epic_saga_ach_18()
 
         DUBBERS.load() -- Reload dubber data for this project
         DUBBERS.last_project_id = current_project_id
