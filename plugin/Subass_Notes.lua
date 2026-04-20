@@ -267,6 +267,12 @@ local OTHER = {
         IMG_ACH_22_dis=44,
         IMG_ACH_23_dis=43,
         IMG_ACH_24_dis=42,
+
+        IMG_ACH_25 = 41,
+        IMG_ACH_25_dis=40,
+
+        IMG_ACH_26 = 39,
+        IMG_ACH_26_dis=38,
     },
     QWERTY_TO_UA = {
         [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
@@ -395,6 +401,13 @@ OTHER.ACH_CFG = {
         dis_buf = OTHER.BUF.IMG_ACH_5_dis,
         name = "Прокляті заклинання"
     }, {
+        id = "ach_25",
+        path = "media" .. OTHER.SEPARATOR .. "ach_25.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_25_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_25,
+        dis_buf = OTHER.BUF.IMG_ACH_25_dis,
+        name = "Виклик Джина"
+    }, {
         id = "ach_9",
         path = "media" .. OTHER.SEPARATOR .. "ach_9.png",
         dis_path = "media" .. OTHER.SEPARATOR .. "ach_9_disabled.png",
@@ -457,6 +470,13 @@ OTHER.ACH_CFG = {
         buf = OTHER.BUF.IMG_ACH_19,
         dis_buf = OTHER.BUF.IMG_ACH_19_dis,
         name = "Парселтанг"
+    }, {
+        id = "ach_26",
+        path = "media" .. OTHER.SEPARATOR .. "ach_26.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_26_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_26,
+        dis_buf = OTHER.BUF.IMG_ACH_26_dis,
+        name = "Еврика"
     }, {
         id = "ach_20",
         path = "media" .. OTHER.SEPARATOR .. "ach_20.png",
@@ -983,6 +1003,8 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_22_count")
     ACHIEVEMENTS.get_stat("ach_23_count")
     ACHIEVEMENTS.get_stat("ach_24_count")
+    ACHIEVEMENTS.get_stat("ach_25_count")
+    ACHIEVEMENTS.get_stat("ach_26_count")
 end
 
 -- Assets Loading
@@ -9321,6 +9343,7 @@ function DUBBERS.copy_to_clipboard(extended)
     
     local out = table.concat(lines, "\n\n")
     set_clipboard(out)
+    ACHIEVEMENTS.add_stat("ach_26_count", 1)
     show_snackbar("Розподіл скопійовано в буфер", "success")
 end
 
@@ -10603,6 +10626,8 @@ local function copy_actors_statistics(include_time)
     
     local text = table.concat(lines, "\n")
     set_clipboard(text)
+
+    ACHIEVEMENTS.add_stat("ach_26_count", 1)
     show_snackbar("Статистику скопійовано", "success")
 end
 
@@ -14693,6 +14718,14 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local total = ACHIEVEMENTS.stats["ach_24_count"] or 0
                         tooltip_text = string.format("Миттєвостей тиші зафіксовано: %d\n%s\n\"Тихіше за подих, легше за пір'їну. Вміння мовчати — це теж мистецтво.\"\n(Запис абсолютної тиші тривалістю 5+ секунд)", 
                             total, string.rep("—", 12))
+                    elseif ach.id == "ach_25" then
+                        local total = ACHIEVEMENTS.stats["ach_25_count"] or 0
+                        tooltip_text = string.format("Викликано джина: %d\n%s\n\"Обережно у вас є тільки три бажання!\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_26" then
+                        local total = ACHIEVEMENTS.stats["ach_26_count"] or 0
+                        tooltip_text = string.format("Скопійовано статистику: %d\n%s\n\"Математика успіху проста: кожен крок наближає тебе до мети. Тепер це офіційно зафіксовано!\"", 
+                            total, string.rep("—", 12))
                     else
                         tooltip_text = ach.name
                     end
@@ -17495,6 +17528,7 @@ local function draw_file()
            gfx.mouse_y >= f_sy and gfx.mouse_y <= f_sy + th then
             set_clipboard("@fusion_ford")
             show_snackbar("Скопійовано: @fusion_ford", "info")
+            ACHIEVEMENTS.add_stat("ach_25_count", 1)
         end
     end
     y_cursor = y_cursor + S(40)
