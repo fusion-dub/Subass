@@ -26050,6 +26050,7 @@ local function main()
         prompter_drawer.filtered_cache.state_count = -1
         table_data_cache.state_count = -1
         prompter_slider_cache.state_count = -1
+        prompter_drawer.has_markers_cache.count = -1
         reaper.Undo_OnStateChangeEx2(0, "Subass: Init marker", -1, -1) 
 
         local proj, filename = reaper.EnumProjects(-1)
@@ -26100,6 +26101,7 @@ local function main()
         prompter_drawer.filtered_cache.state_count = -1
         table_data_cache.state_count = -1
         prompter_slider_cache.state_count = -1
+        prompter_drawer.has_markers_cache.count = -1
         reaper.Undo_OnStateChangeEx2(0, "Subass: Init marker", -1, -1) 
         save_session_state(UI_STATE.last_project_id)
         UI_STATE.last_project_id = current_project_id
