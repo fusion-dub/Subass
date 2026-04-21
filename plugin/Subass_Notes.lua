@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.8.1
+-- @version 6.9
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v6.8.1",
+    script_title = "Subass Notes v6.9",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -691,7 +691,7 @@ local UI_STATE = {
 
     last_marker_cache_proj_state = 0, -- last reaper.GetProjectStateChangeCount(0)
     last_global_proj_state = 0, -- last reaper.GetProjectStateChangeCount(0)
-    _markers_is_dirty = true  -- Forces search index rebuild on first use
+    _markers_is_dirty = true,  -- Forces search index rebuild on first use
 }
 
 local DEADLINE = {
@@ -724,7 +724,7 @@ local DUBBERS = {
 }
 
 local regions = {}
-local proj_change_count = reaper.GetProjectStateChangeCount(0)
+local proj_change_count = -1
 
 -- Text Editor Modal State
 local text_editor_state = {
@@ -1937,7 +1937,12 @@ end
 
 function UTILS.is_markers_regions_changed()
     local last_action = reaper.Undo_CanUndo2(0)
-    return last_action and (last_action:lower():find("marker") or last_action:lower():find("region"))
+
+    if last_action == nil or proj_change_count == -1 then
+        return true
+    end
+
+    return last_action:lower():find("marker") or last_action:lower():find("region")
 end
 
 --- Update the global marker cache used by both drawer and prompter
@@ -18066,6 +18071,7 @@ local function draw_prompter_drawer(input_queue)
             -- 2. Update FILTERED and LAYOUT Cache if needed
             if (state_count ~= prompter_drawer.filtered_cache.state_count and UTILS.is_markers_regions_changed()) or 
                query ~= prompter_drawer.filtered_cache.query or
+               prompter_drawer.filtered_cache.state_count == -1 or
                prompter_drawer.width ~= prompter_drawer.filtered_cache.width or
                cfg.gui_scale ~= prompter_drawer.filtered_cache.gui_scale then
                 
@@ -19464,7 +19470,7 @@ local function draw_prompter_slider(input_queue)
     local marker_state = prompter_drawer.marker_cache.count
     local dict_ts = DICT.last_update_ts or ""
     
-    if (prompter_slider_cache.state_count ~= state_count and UTILS.is_markers_regions_changed()) or prompter_slider_cache.marker_state ~= marker_state or prompter_slider_cache.w ~= available_w or 
+    if (prompter_slider_cache.state_count ~= state_count and UTILS.is_markers_regions_changed()) or prompter_slider_cache.state_count == -1 or prompter_slider_cache.marker_state ~= marker_state or prompter_slider_cache.w ~= available_w or 
        prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
        prompter_slider_cache.p_corr ~= cfg.p_corr or prompter_slider_cache.dict_ts ~= dict_ts or
        prompter_slider_cache.p_lheight ~= cfg.p_lheight or prompter_slider_cache.c_lheight ~= cfg.c_lheight or
@@ -23819,6 +23825,7 @@ local function draw_table(input_queue)
     local cache_invalid = ((table_data_cache.state_count ~= current_state_count and UTILS.is_markers_regions_changed()) or
                            table_data_cache.project_id ~= current_proj_id or
                            table_data_cache.filter ~= table_filter_state.text or
+                           table_data_cache.state_count == -1 or
                            table_data_cache.sort_col ~= table_sort.col or
                            table_data_cache.sort_dir ~= table_sort.dir or
                            table_data_cache.show_markers ~= cfg.show_markers_in_table or
@@ -26038,6 +26045,13 @@ local function main()
     
     -- Initial project state load (if first run)
     if UI_STATE.last_project_id == "" then
+        proj_change_count = -1
+        prompter_drawer.marker_cache.count = -1
+        prompter_drawer.filtered_cache.state_count = -1
+        table_data_cache.state_count = -1
+        prompter_slider_cache.state_count = -1
+        reaper.Undo_OnStateChangeEx2(0, "Subass: Init marker", -1, -1) 
+
         local proj, filename = reaper.EnumProjects(-1)
         local id_fname = (not filename or filename == "") and "unsaved" or filename
         UI_STATE.last_project_id = proj and (tostring(proj) .. "_" .. id_fname) or "none"
@@ -26081,6 +26095,12 @@ local function main()
     local id_fname = (not filename or filename == "") and "unsaved" or filename
     local current_project_id = proj and (tostring(proj) .. "_" .. id_fname) or "none"
     if current_project_id ~= UI_STATE.last_project_id then
+        proj_change_count = -1
+        prompter_drawer.marker_cache.count = -1
+        prompter_drawer.filtered_cache.state_count = -1
+        table_data_cache.state_count = -1
+        prompter_slider_cache.state_count = -1
+        reaper.Undo_OnStateChangeEx2(0, "Subass: Init marker", -1, -1) 
         save_session_state(UI_STATE.last_project_id)
         UI_STATE.last_project_id = current_project_id
         
@@ -26101,7 +26121,6 @@ local function main()
         ACHIEVEMENTS.check_high_take_count_ach_20()
         ACHIEVEMENTS.check_perfect_accuracy_ach_23()
 
-
         DUBBERS.load() -- Reload dubber data for this project
         DUBBERS.last_project_id = current_project_id
         DUBBERS.conflicts = {} 
@@ -26109,7 +26128,7 @@ local function main()
         
         -- Immediate cache update after loading
         update_regions_cache()
-        proj_change_count = reaper.GetProjectStateChangeCount(0)
+        load_director_actors_from_state()
     end
     
     local curs_state = reaper.GetProjectStateChangeCount(0)
