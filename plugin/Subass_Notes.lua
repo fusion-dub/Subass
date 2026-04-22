@@ -19920,14 +19920,9 @@ local function draw_prompter(input_queue)
     -- Use first active region for interactions (backward compatibility)
     local region_idx = -1
     if #active_regions > 0 then
-        -- Find the region_idx for the first active region
-        for i = 0, reaper.CountProjectMarkers(0) - 1 do
-            local retval, isrgn, pos, rgnend, name, idx = reaper.EnumProjectMarkers(i)
-            if isrgn and idx == active_regions[1].idx then
-                region_idx = i
-                break
-            end
-        end
+        -- We already have rgn_index (internal REAPER index) stored in our region object!
+        -- No need to loop through EnumProjectMarkers every frame.
+        region_idx = active_regions[1].rgn_index or -1
     end
     
     -- Helper function to render next replica (defined here to be accessible in both branches)
