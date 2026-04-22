@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.9
+-- @version 6.9.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v6.9",
+    script_title = "Subass Notes v6.9.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -2799,6 +2799,10 @@ local global_async_pool = {} -- { { id=str, out_file=str, done_file=str, callbac
 
 --- Check statuses of active async tasks and trigger callbacks if done
 local function check_async_pool()
+    if #global_async_pool == 0 then
+        UI_STATE.script_loading_state.active = false
+        return
+    end
     local has_non_silent = false
     for i = #global_async_pool, 1, -1 do
         local task = global_async_pool[i]
@@ -4675,6 +4679,14 @@ function UTILS.get_recording_progress()
         return OTHER.progress_cache.percent, OTHER.progress_cache.recorded or 0, OTHER.progress_cache.regions_count or 0
     end
     
+    -- Throttle: don't recalculate more than once per 0.5s.
+    -- The triple-nested regions×tracks×items loop is very expensive in large projects.
+    local now = reaper.time_precise()
+    if OTHER.progress_cache.last_calc_time and (now - OTHER.progress_cache.last_calc_time) < 0.5 then
+        return OTHER.progress_cache.percent or 0, OTHER.progress_cache.recorded or 0, OTHER.progress_cache.regions_count or #regions
+    end
+    OTHER.progress_cache.last_calc_time = now
+    
     local cur_state = reaper.GetProjectStateChangeCount(0)
     
     -- Invalidate whole track cache if project state or regions count changes
@@ -4695,26 +4707,29 @@ function UTILS.get_recording_progress()
         return OTHER.progress_cache.percent, OTHER.progress_cache.recorded, #regions
     end
     
+    -- OPTIMIZATION: Collect all item ranges ONCE to avoid thousands of API calls in the nested loop
+    local items_ranges = {}
+    for _, tr in ipairs(tracks_to_check) do
+        local item_count = reaper.CountTrackMediaItems(tr)
+        for i = 0, item_count - 1 do
+            local item = reaper.GetTrackMediaItem(tr, i)
+            if item and reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
+                local i_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                local i_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                table.insert(items_ranges, {s = i_pos, e = i_pos + i_len})
+            end
+        end
+    end
+
     local recorded_count = 0
     for _, rgn in ipairs(regions) do
         local rgn_recorded = false
-        for _, tr in ipairs(tracks_to_check) do
-            local item_count = reaper.CountTrackMediaItems(tr)
-            for i = 0, item_count - 1 do
-                local item = reaper.GetTrackMediaItem(tr, i)
-                if item and reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
-                    local i_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
-                    local i_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
-                    local i_end = i_pos + i_len
-                    
-                    -- Check overlap: (StartA < EndB) and (EndA > StartB)
-                    if i_pos < rgn.rgnend and i_end > rgn.pos then
-                        rgn_recorded = true
-                        break
-                    end
-                end
+        -- Efficient check against pre-collected ranges
+        for _, it in ipairs(items_ranges) do
+            if it.s < rgn.rgnend and it.e > rgn.pos then
+                rgn_recorded = true
+                break
             end
-            if rgn_recorded then break end
         end
         if rgn_recorded then recorded_count = recorded_count + 1 end
     end
@@ -25770,11 +25785,10 @@ function OTHER.process_post_recording()
             STATS.dirty = true
             STATS.save()
         end
-        
+
         -- Recording just stopped (Existing items processing)
         local item_count = reaper.CountSelectedMediaItems(0)
         if item_count > 0 then
-            
             -- Track statistics: count recorded items and get actor names
             -- Track statistics for ach_11
             local total_words = 0
@@ -26158,7 +26172,14 @@ local function main()
     -- If JS_API is available, we can check if REAPER or our window is actually in foreground
     if reaper.JS_Window_GetForeground then
         local fg_hwnd = reaper.JS_Window_GetForeground()
-        local my_hwnd = reaper.JS_Window_Find(GL.script_title, true)
+        -- Cache my_hwnd: JS_Window_Find searches ALL OS windows every call (expensive on macOS).
+        -- Invalidate only when gfx handle changes (dock/undock/restart).
+        local cur_gfx_hwnd = reaper.GetMainHwnd and gfx.dock(-1) -- use dock state as proxy
+        if not GL._my_hwnd_cache or GL._my_hwnd_dock_state ~= cur_gfx_hwnd then
+            GL._my_hwnd_cache = reaper.JS_Window_Find(GL.script_title, true)
+            GL._my_hwnd_dock_state = cur_gfx_hwnd
+        end
+        local my_hwnd = GL._my_hwnd_cache
         local main_hwnd = reaper.GetMainHwnd()
         
         if fg_hwnd then
