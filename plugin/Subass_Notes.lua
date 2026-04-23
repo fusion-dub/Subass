@@ -88,6 +88,7 @@ local cfg = {
     ui_theme = get_set("ui_theme", "Titanium"),
     gemini_api_key = get_set("gemini_api_key", ""),
     mistral_api_key = get_set("mistral_api_key", ""),
+    groq_api_key = get_set("groq_api_key", ""),
     ai_provider = get_set("ai_provider", "gemini"),
     eleven_api_key = get_set("eleven_api_key", ""),
     p_drawer = (get_set("p_drawer", "1") == "1" or get_set("p_drawer", 1) == 1),
@@ -102,6 +103,7 @@ local cfg = {
     auto_startup = (get_set("auto_startup", "0") == "1" or get_set("auto_startup", 0) == 1),
     gemini_key_status = tonumber(reaper.GetExtState(section_name, "gemini_key_status")) or 0,
     mistral_key_status = tonumber(reaper.GetExtState(section_name, "mistral_key_status")) or 0,
+    groq_key_status = tonumber(reaper.GetExtState(section_name, "groq_key_status")) or 0,
     eleven_key_status = tonumber(reaper.GetExtState(section_name, "eleven_key_status")) or 0,
 
     col_table_index = (get_set("col_table_index", "1") == "1" or get_set("col_table_index", 1) == 1),
@@ -2495,6 +2497,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "prompter_slider_mode", cfg.prompter_slider_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "gemini_api_key", cfg.gemini_api_key, true)
     reaper.SetExtState(section_name, "mistral_api_key", cfg.mistral_api_key, true)
+    reaper.SetExtState(section_name, "groq_api_key", cfg.groq_api_key, true)
     reaper.SetExtState(section_name, "ai_provider", cfg.ai_provider, true)
     reaper.SetExtState(section_name, "eleven_api_key", cfg.eleven_api_key, true)
     reaper.SetExtState(section_name, "p_drawer", cfg.p_drawer and "1" or "0", true)
@@ -6693,6 +6696,24 @@ function UTILS.validate_mistral_key(key)
     end)
 end
 
+--- Validate Groq API Key
+--- @param key string API Key
+function UTILS.validate_groq_key(key)
+    show_snackbar("Перевірка ключа Groq...", "info")
+    ai_api_call_async("groq", key, "hi", function(status, body)
+        cfg.groq_key_status = status
+        reaper.SetExtState(section_name, "groq_key_status", tostring(status), true)
+        
+        if status == 200 then
+            show_snackbar("Groq API ключ валідний", "success")
+        elseif status == 429 then
+            show_snackbar("Ліміти вичерпані (429)", "error")
+        else
+            show_snackbar("Помилка Groq ключа (код: " .. tostring(status) .. ")", "error")
+        end
+    end)
+end
+
 --- Validate ElevenLabs API Key
 --- @param key string API Key
 function UTILS.validate_eleven_key(key)
@@ -6777,7 +6798,9 @@ local function request_ai_assistant_task(ai_task_id_ach, task_name, text, varian
     prompt = prompt .. instruction
     
     local provider = cfg.ai_provider or "gemini"
-    local provider_key = (provider == "mistral") and cfg.mistral_api_key or cfg.gemini_api_key
+    local provider_key = cfg.gemini_api_key
+    if provider == "mistral" then provider_key = cfg.mistral_api_key
+    elseif provider == "groq" then provider_key = cfg.groq_api_key end
 
     ai_api_call_async(provider, provider_key, prompt, function(status, response)
         -- Callback executed when async request finishes
@@ -13640,7 +13663,7 @@ local function draw_text_editor(input_queue)
     gfx.rect(box_x, box_y, box_w, box_h, 1)
     
     -- AI Button dimensions
-    local provider_name = (cfg.ai_provider == "mistral") and "Mistral" or "Gemini"
+    local provider_name = (cfg.ai_provider == "mistral") and "Mistral" or (cfg.ai_provider == "groq" and "Groq" or "Gemini")
     local ai_btn_text = "Запитати " .. provider_name
     local ai_btn_w, ai_btn_h = S(130), S(24)
     local ai_btn_x, ai_btn_y = box_x + box_w - ai_btn_w - S(10), box_y + S(8)
@@ -13697,7 +13720,9 @@ local function draw_text_editor(input_queue)
     local ai_hover = (gfx.mouse_x >= ai_btn_x and gfx.mouse_x <= ai_btn_x + ai_btn_w and gfx.mouse_y >= ai_btn_y and gfx.mouse_y <= ai_btn_y + ai_btn_h)
 
     if ai_hover and is_right_mouse_clicked() then
-        local menu_str = (cfg.ai_provider == "gemini" and "!" or "") .. "Gemini AI|" .. (cfg.ai_provider == "mistral" and "!" or "") .. "Mistral AI"
+        local menu_str = (cfg.ai_provider == "gemini" and "!" or "") .. "Gemini AI|" .. 
+                         (cfg.ai_provider == "mistral" and "!" or "") .. "Mistral AI|" ..
+                         (cfg.ai_provider == "groq" and "!" or "") .. "Groq AI"
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local ret = gfx.showmenu(menu_str)
         if ret == 1 then
@@ -13706,14 +13731,23 @@ local function draw_text_editor(input_queue)
         elseif ret == 2 then
             cfg.ai_provider = "mistral"
             save_settings()
+        elseif ret == 3 then
+            cfg.ai_provider = "groq"
+            save_settings()
         end
         UI_STATE.mouse_handled = true
     end
 
     if btn(ai_btn_x, ai_btn_y, ai_btn_w, ai_btn_h, ai_btn_text) then
-        local is_mistral = (cfg.ai_provider == "mistral")
-        local key = is_mistral and cfg.mistral_api_key or cfg.gemini_api_key
-        local status = is_mistral and cfg.mistral_key_status or cfg.gemini_key_status
+        local prov = cfg.ai_provider or "gemini"
+        local key, status
+        if prov == "mistral" then
+            key, status = cfg.mistral_api_key, cfg.mistral_key_status
+        elseif prov == "groq" then
+            key, status = cfg.groq_api_key, cfg.groq_key_status
+        else
+            key, status = cfg.gemini_api_key, cfg.gemini_key_status
+        end
         
         if not key or key == "" or (status ~= 200 and status ~= 429) then
             show_snackbar("Ключ " .. provider_name .. " API не валідний або відсутній", "error")
@@ -20495,7 +20529,7 @@ local function draw_prompter(input_queue)
                 prompter_drawer.active_markindex = (ch > 0) and cms[1].markindex or nil
 
                 if ch > 0 then
-                    -- Minimal Fix: Render the actual corrections instead of just a placeholder text
+                    -- Render the actual corrections instead of just a placeholder text
                     local cor_fsize = cfg.c_fsize
                     gfx.setfont(F.cor, cfg.p_font, cor_fsize)
                     local cor_y = (gfx.h - ch) / 2
@@ -20970,12 +21004,12 @@ local function draw_settings()
 
     y_cursor = y_cursor + S(45)
 
-    -- Mistral API Key
+    -- Mistral & Groq Row
     local mistral_btn_col = UI.C_BTN
     if cfg.mistral_key_status == 200 or cfg.mistral_key_status == 429 then
-        mistral_btn_col = UI.C_BTN_MEDIUM -- Greenish (Theme Aware)
+        mistral_btn_col = UI.C_BTN_MEDIUM -- Greenish
     elseif cfg.mistral_api_key ~= "" and cfg.mistral_key_status ~= 0 then
-        mistral_btn_col = UI.C_BTN_ERROR -- Reddish (Theme Aware)
+        mistral_btn_col = UI.C_BTN_ERROR
     end
 
     if s_btn(x_start, y_cursor, S(200), S(30), "Mistral API ключ", "Ключ доступу до Mistral AI для функцій перефразування та редагування тексту.", mistral_btn_col) then
@@ -20984,6 +21018,22 @@ local function draw_settings()
             cfg.mistral_api_key = key
             save_settings()
             UTILS.validate_mistral_key(cfg.mistral_api_key)
+        end
+    end
+
+    local groq_btn_col = UI.C_BTN
+    if cfg.groq_key_status == 200 or cfg.groq_key_status == 429 then
+        groq_btn_col = UI.C_BTN_MEDIUM -- Greenish
+    elseif cfg.groq_api_key ~= "" and cfg.groq_key_status ~= 0 then
+        groq_btn_col = UI.C_BTN_ERROR
+    end
+
+    if s_btn(x_start + S(215), y_cursor, S(200), S(30), "Groq API ключ", "Ключ доступу до Groq AI (Llama-3).", groq_btn_col) then
+        local retval, key = reaper.GetUserInputs("Groq API Key", 1, "Ключ API:,extrawidth=300", cfg.groq_api_key)
+        if retval then
+            cfg.groq_api_key = key
+            save_settings()
+            UTILS.validate_groq_key(cfg.groq_api_key)
         end
     end
    
