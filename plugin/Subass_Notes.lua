@@ -4814,23 +4814,28 @@ function UTILS.jump_to_first_unrecorded_region()
         return 
     end
     
+    -- OPTIMIZATION: Collect all item ranges ONCE to avoid API calls in the nested loop
+    local items_ranges = {}
+    for _, tr in ipairs(tracks_to_check) do
+        local item_count = reaper.CountTrackMediaItems(tr)
+        for i = 0, item_count - 1 do
+            local item = reaper.GetTrackMediaItem(tr, i)
+            if item and reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
+                local i_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                local i_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+                table.insert(items_ranges, {s = i_pos, e = i_pos + i_len})
+            end
+        end
+    end
+    
     for _, rgn in ipairs(regions) do
         local rgn_recorded = false
-        for _, tr in ipairs(tracks_to_check) do
-            local item_count = reaper.CountTrackMediaItems(tr)
-            for i = 0, item_count - 1 do
-                local item = reaper.GetTrackMediaItem(tr, i)
-                if item and reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
-                    local i_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
-                    local i_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
-                    local i_end = i_pos + i_len
-                    if i_pos < rgn.rgnend and i_end > rgn.pos then
-                        rgn_recorded = true
-                        break
-                    end
-                end
+        -- Efficient check against pre-collected ranges
+        for _, it in ipairs(items_ranges) do
+            if it.s < rgn.rgnend and it.e > rgn.pos then
+                rgn_recorded = true
+                break
             end
-            if rgn_recorded then break end
         end
         
         if not rgn_recorded then
