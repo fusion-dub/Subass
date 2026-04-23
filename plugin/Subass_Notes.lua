@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.9.1
+-- @version 6.9.2
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v6.9.1",
+    script_title = "Subass Notes v6.9.2",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -87,6 +87,8 @@ local cfg = {
     prmt_theme = get_set("prmt_theme", "Бетон"),
     ui_theme = get_set("ui_theme", "Titanium"),
     gemini_api_key = get_set("gemini_api_key", ""),
+    mistral_api_key = get_set("mistral_api_key", ""),
+    ai_provider = get_set("ai_provider", "gemini"),
     eleven_api_key = get_set("eleven_api_key", ""),
     p_drawer = (get_set("p_drawer", "1") == "1" or get_set("p_drawer", 1) == 1),
     p_drawer_left = (get_set("p_drawer_left", "1") == "1" or get_set("p_drawer_left", 1) == 1),
@@ -99,6 +101,7 @@ local cfg = {
     reader_mode = (get_set("reader_mode", "0") == "1" or get_set("reader_mode", 0) == 1),
     auto_startup = (get_set("auto_startup", "0") == "1" or get_set("auto_startup", 0) == 1),
     gemini_key_status = tonumber(reaper.GetExtState(section_name, "gemini_key_status")) or 0,
+    mistral_key_status = tonumber(reaper.GetExtState(section_name, "mistral_key_status")) or 0,
     eleven_key_status = tonumber(reaper.GetExtState(section_name, "eleven_key_status")) or 0,
 
     col_table_index = (get_set("col_table_index", "1") == "1" or get_set("col_table_index", 1) == 1),
@@ -2491,6 +2494,8 @@ local function save_settings()
     reaper.SetExtState(section_name, "cps_warning", cfg.cps_warning and "1" or "0", true)
     reaper.SetExtState(section_name, "prompter_slider_mode", cfg.prompter_slider_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "gemini_api_key", cfg.gemini_api_key, true)
+    reaper.SetExtState(section_name, "mistral_api_key", cfg.mistral_api_key, true)
+    reaper.SetExtState(section_name, "ai_provider", cfg.ai_provider, true)
     reaper.SetExtState(section_name, "eleven_api_key", cfg.eleven_api_key, true)
     reaper.SetExtState(section_name, "p_drawer", cfg.p_drawer and "1" or "0", true)
     reaper.SetExtState(section_name, "p_drawer_left", cfg.p_drawer_left and "1" or "0", true)
@@ -6443,100 +6448,68 @@ local function fetch_dictionary_category(word, display_name)
     return "Завантаження..." -- Placeholder
 end
 
---- Call Gemini API Asynchronously
+--- Call AI API Asynchronously (delegates to subass_ai.py)
+--- @param provider string AI Provider ("gemini" or "mistral")
 --- @param key string API Key
 --- @param prompt string Prompt text
 --- @param final_callback function(status, body)
 --- @param use_json_schema boolean|nil Use structured JSON output
-local function gemini_api_call_async(key, prompt, final_callback, use_json_schema)
-    if not key or key == "" then 
+local function ai_api_call_async(provider, key, prompt, final_callback, use_json_schema)
+    if not key or key == "" then
         final_callback(0, "No API Key")
-        return 
-    end
-
-    local models = {
-        "gemini-flash-latest",
-        "gemini-3-flash-preview",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite",
-    }
-    
-    -- Improved JSON text escaping
-    local escaped_prompt = prompt:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n"):gsub("\r", "")
-    
-    local data
-    if use_json_schema then
-        data = '{"contents": [{"parts":[{"text": "' .. escaped_prompt .. '"}]}], "generationConfig": {"responseMimeType": "application/json", "responseSchema": {"type": "ARRAY", "items": {"type": "STRING"}}}}'
-    else
-        data = '{"contents": [{"parts":[{"text": "' .. escaped_prompt .. '"}]}]}'
-    end
-    
-    -- Create temporary file for request body (Safer than CLI arguments)
-    local temp_file = reaper.GetResourcePath() .. "/subass_gemini_req.json"
-    if reaper.GetOS():match("Win") then temp_file = temp_file:gsub("/", "\\") end
-    
-    local f = io.open(temp_file, "w")
-    if f then
-        f:write(data)
-        f:close()
-    else
-        final_callback(0, "Failed to create temp request file")
         return
     end
 
-    -- Recursive function to try models one by one
-    local function try_model(idx)
-        if idx > #models then
-            -- All failed
-            if temp_file then os.remove(temp_file) end
-            final_callback(0, "All models failed")
-            return
-        end
-        
-        local model = models[idx]
-        local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. key
-        
-        local cmd
-        if reaper.GetOS():match("Win") then
-            -- Use --ssl-no-revoke to avoid common Windows curl issues
-            cmd = 'curl -s -k --ssl-no-revoke -w "\\n%{http_code}" -X POST "' .. url .. '" -H "Content-Type: application/json" -d "@' .. temp_file .. '"'
-        else
-            -- macOS/Linux
-            cmd = "curl -s -w '\\n%{http_code}' -X POST '" .. url .. "' -H 'Content-Type: application/json' -d '@" .. temp_file .. "'"
-        end
-        
-        -- Async Execution
-        run_async_command(cmd, function(output)
-            if output and output ~= "" then
-                local lines = {}
-                for line in output:gmatch("[^\r\n]+") do table.insert(lines, line) end
-                
-                if #lines > 0 then
-                    local status_code = tonumber(lines[#lines]) or 0
-                    table.remove(lines, #lines)
-                    local body = table.concat(lines, "\n")
-                    
-                    if status_code == 200 then
-                        -- Success!
-                        if temp_file then os.remove(temp_file) end
-                        final_callback(status_code, body)
-                    else
-                        -- Failed, try next
-                        try_model(idx + 1)
-                    end
-                else
-                     try_model(idx + 1)
-                end
-            else
-                try_model(idx + 1)
-            end
-        end)
+    -- Write prompt and key to temp files (avoids all shell-quoting issues)
+    local is_win = reaper.GetOS():match("Win")
+    local res_path = reaper.GetResourcePath()
+    local temp_prompt = res_path .. "/subass_gemini_prompt.txt"
+    local temp_key    = res_path .. "/subass_gemini_key.txt"
+    if is_win then
+        temp_prompt = temp_prompt:gsub("/", "\\")
+        temp_key    = temp_key:gsub("/", "\\")
     end
-    
-    -- Start chain
-    try_model(1)
+
+    local fp = io.open(temp_prompt, "w")
+    if fp then fp:write(prompt); fp:close()
+    else final_callback(0, "Failed to write prompt file"); return end
+
+    local fk = io.open(temp_key, "w")
+    if fk then fk:write(key); fk:close()
+    else final_callback(0, "Failed to write key file"); return end
+
+    local source = debug.getinfo(1, 'S').source
+    local script_dir = source:match([[^@?(.*[\\/])]]) or ""
+    local py_script = script_dir .. "stats/subass_ai.py"
+    local schema_flag = use_json_schema and " --json-schema" or ""
+
+    local cmd
+    if is_win then
+        py_script = py_script:gsub("/", "\\")
+        local py_exe = (OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or "py -3"
+        cmd = py_exe .. ' "' .. py_script .. '" --provider ' .. provider .. ' --key-file "' .. temp_key .. '" --prompt-file "' .. temp_prompt .. '"' .. schema_flag
+    else
+        cmd = 'python3 "' .. py_script .. '" --provider ' .. provider .. ' --key-file "' .. temp_key .. '" --prompt-file "' .. temp_prompt .. '"' .. schema_flag
+    end
+
+    run_async_command(cmd, function(output)
+        os.remove(temp_prompt)
+        os.remove(temp_key)
+        if output and output ~= "" then
+            local trimmed = output:gsub("^%s+", ""):gsub("%s+$", "")
+            -- Catch: our "Error: ...", argparse "path: error: ...", and "usage: ..."
+            if trimmed:match("^Error:") or trimmed:match(": error:") or trimmed:match("^usage:") then
+                final_callback(0, trimmed)
+            else
+                -- Wrap in minimal Gemini JSON so gemini_extract_text works unchanged
+                local escaped = trimmed:gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\n", "\\n"):gsub("\r", "")
+                local wrapped = '{"candidates":[{"content":{"parts":[{"text":"' .. escaped .. '"}]}}]}'
+                final_callback(200, wrapped)
+            end
+        else
+            final_callback(0, "No output from subass_ai.py")
+        end
+    end)
 end
 
 --- Asynchronous call to ElevenLabs API to check key validity
@@ -6686,14 +6659,14 @@ end
 
 --- Validate Gemini API Key with a simple prompt
 --- @param key string API Key
-local function validate_gemini_key(key)
-    show_snackbar("Перевірка ключа...", "info")
-    gemini_api_call_async(key, "hi", function(status, body)
+function UTILS.validate_gemini_key(key)
+    show_snackbar("Перевірка ключа Gemini...", "info")
+    ai_api_call_async("gemini", key, "hi", function(status, body)
         cfg.gemini_key_status = status
         reaper.SetExtState(section_name, "gemini_key_status", tostring(status), true)
         
         if status == 200 then
-            show_snackbar("API ключ валідний", "success")
+            show_snackbar("Gemini API ключ валідний", "success")
         elseif status == 429 then
             show_snackbar("Ліміти вичерпані (429)", "error")
         else
@@ -6702,9 +6675,27 @@ local function validate_gemini_key(key)
     end)
 end
 
+--- Validate Mistral API Key
+--- @param key string API Key
+function UTILS.validate_mistral_key(key)
+    show_snackbar("Перевірка ключа Mistral...", "info")
+    ai_api_call_async("mistral", key, "hi", function(status, body)
+        cfg.mistral_key_status = status
+        reaper.SetExtState(section_name, "mistral_key_status", tostring(status), true)
+        
+        if status == 200 then
+            show_snackbar("Mistral API ключ валідний", "success")
+        elseif status == 429 then
+            show_snackbar("Ліміти вичерпані (429)", "error")
+        else
+            show_snackbar("Помилка Mistral ключа (код: " .. tostring(status) .. ")", "error")
+        end
+    end)
+end
+
 --- Validate ElevenLabs API Key
 --- @param key string API Key
-local function validate_eleven_key(key)
+function UTILS.validate_eleven_key(key)
     local trimmed_key = key:gsub("^%s*(.-)%s*$", "%1")
     show_snackbar("Перевірка ElevenLabs ключа...", "info")
     eleven_api_call_async(trimmed_key, function(status, body)
@@ -6785,7 +6776,10 @@ local function request_ai_assistant_task(ai_task_id_ach, task_name, text, varian
     
     prompt = prompt .. instruction
     
-    gemini_api_call_async(cfg.gemini_api_key, prompt, function(status, response)
+    local provider = cfg.ai_provider or "gemini"
+    local provider_key = (provider == "mistral") and cfg.mistral_api_key or cfg.gemini_api_key
+
+    ai_api_call_async(provider, provider_key, prompt, function(status, response)
         -- Callback executed when async request finishes
         if status == 200 then
             local content = gemini_extract_text(response)
@@ -13646,8 +13640,11 @@ local function draw_text_editor(input_queue)
     gfx.rect(box_x, box_y, box_w, box_h, 1)
     
     -- AI Button dimensions
-    local ai_btn_w, ai_btn_h = S(40), S(24)
+    local provider_name = (cfg.ai_provider == "mistral") and "Mistral" or "Gemini"
+    local ai_btn_text = "Запитати " .. provider_name
+    local ai_btn_w, ai_btn_h = S(130), S(24)
     local ai_btn_x, ai_btn_y = box_x + box_w - ai_btn_w - S(10), box_y + S(8)
+    local ai_box_x = box_w - S(24)
 
     -- AI History Button
     local hist_btn_w, hist_btn_h = S(30), S(24)
@@ -13697,9 +13694,29 @@ local function draw_text_editor(input_queue)
     local sel_max = math.max(text_editor_state.cursor, text_editor_state.anchor)
     local has_sel = (sel_min ~= sel_max)
 
-    if btn(ai_btn_x, ai_btn_y, ai_btn_w, ai_btn_h, "AI") then
-        if not cfg.gemini_api_key or cfg.gemini_api_key == "" or (cfg.gemini_key_status ~= 200 and cfg.gemini_key_status ~= 429) then
-            show_snackbar("Ключ Gemini API не валідний або відсутній", "error")
+    local ai_hover = (gfx.mouse_x >= ai_btn_x and gfx.mouse_x <= ai_btn_x + ai_btn_w and gfx.mouse_y >= ai_btn_y and gfx.mouse_y <= ai_btn_y + ai_btn_h)
+
+    if ai_hover and is_right_mouse_clicked() then
+        local menu_str = (cfg.ai_provider == "gemini" and "!" or "") .. "Gemini AI|" .. (cfg.ai_provider == "mistral" and "!" or "") .. "Mistral AI"
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        local ret = gfx.showmenu(menu_str)
+        if ret == 1 then
+            cfg.ai_provider = "gemini"
+            save_settings()
+        elseif ret == 2 then
+            cfg.ai_provider = "mistral"
+            save_settings()
+        end
+        UI_STATE.mouse_handled = true
+    end
+
+    if btn(ai_btn_x, ai_btn_y, ai_btn_w, ai_btn_h, ai_btn_text) then
+        local is_mistral = (cfg.ai_provider == "mistral")
+        local key = is_mistral and cfg.mistral_api_key or cfg.gemini_api_key
+        local status = is_mistral and cfg.mistral_key_status or cfg.gemini_key_status
+        
+        if not key or key == "" or (status ~= 200 and status ~= 429) then
+            show_snackbar("Ключ " .. provider_name .. " API не валідний або відсутній", "error")
         else
             if has_sel then
                 -- Word wrap selection logic
@@ -13730,7 +13747,7 @@ local function draw_text_editor(input_queue)
                 ai_modal.current_step = "SELECT_TASK"
                 ai_modal.suggestions = {}
                 ai_modal.scroll = 0
-                ai_modal.anchor_x, ai_modal.anchor_y = ai_btn_x, ai_btn_y + ai_btn_h
+                ai_modal.anchor_x, ai_modal.anchor_y = ai_box_x, ai_btn_y + ai_btn_h
                 ai_modal.show = true
             end
             
@@ -13744,7 +13761,7 @@ local function draw_text_editor(input_queue)
                 end
             elseif (ai_modal.text ~= "") then
                 text_editor_state.cursor, text_editor_state.anchor = ai_modal.sel_max, ai_modal.sel_min
-                ai_modal.anchor_x, ai_modal.anchor_y = ai_btn_x, ai_btn_y + ai_btn_h
+                ai_modal.anchor_x, ai_modal.anchor_y = ai_box_x, ai_btn_y + ai_btn_h
                 ai_modal.show = true
             elseif #text_editor_state.text > 0 then
                 text_editor_state.anchor, text_editor_state.cursor = 0, #text_editor_state.text
@@ -20916,7 +20933,7 @@ local function draw_settings()
     -- ═══════════════════════════════════════════
     s_section(y_cursor, "API КЛЮЧІ")
     y_cursor = y_cursor + S(35)
-    
+
     -- Gemini API Key
     local gemini_btn_col = UI.C_BTN
     if cfg.gemini_key_status == 200 or cfg.gemini_key_status == 429 then
@@ -20930,7 +20947,7 @@ local function draw_settings()
         if retval then
             cfg.gemini_api_key = key
             save_settings()
-            validate_gemini_key(cfg.gemini_api_key)
+            UTILS.validate_gemini_key(cfg.gemini_api_key)
         end
     end
 
@@ -20942,15 +20959,34 @@ local function draw_settings()
         eleven_btn_col = UI.C_BTN_ERROR -- Reddish (Theme Aware)
     end
 
-    if s_btn(x_start + S(220), y_cursor, S(200), S(30), "ElevenLabs API ключ", "Ключ доступу до ElevenLabs для озвучування преміальними голосами.", eleven_btn_col) then
+    if s_btn(x_start + S(215), y_cursor, S(200), S(30), "ElevenLabs API ключ", "Ключ доступу до ElevenLabs для озвучування преміальними голосами.", eleven_btn_col) then
         local retval, key = reaper.GetUserInputs("ElevenLabs API Key", 1, "Ключ API:,extrawidth=300", cfg.eleven_api_key)
         if retval then
             cfg.eleven_api_key = key
             save_settings()
-            validate_eleven_key(cfg.eleven_api_key)
+            UTILS.validate_eleven_key(cfg.eleven_api_key)
         end
     end
 
+    y_cursor = y_cursor + S(45)
+
+    -- Mistral API Key
+    local mistral_btn_col = UI.C_BTN
+    if cfg.mistral_key_status == 200 or cfg.mistral_key_status == 429 then
+        mistral_btn_col = UI.C_BTN_MEDIUM -- Greenish (Theme Aware)
+    elseif cfg.mistral_api_key ~= "" and cfg.mistral_key_status ~= 0 then
+        mistral_btn_col = UI.C_BTN_ERROR -- Reddish (Theme Aware)
+    end
+
+    if s_btn(x_start, y_cursor, S(200), S(30), "Mistral API ключ", "Ключ доступу до Mistral AI для функцій перефразування та редагування тексту.", mistral_btn_col) then
+        local retval, key = reaper.GetUserInputs("Mistral API Key", 1, "Ключ API:,extrawidth=300", cfg.mistral_api_key)
+        if retval then
+            cfg.mistral_api_key = key
+            save_settings()
+            UTILS.validate_mistral_key(cfg.mistral_api_key)
+        end
+    end
+   
     y_cursor = y_cursor + S(60)
 
     -- ═══════════════════════════════════════════
