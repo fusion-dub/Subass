@@ -129,6 +129,7 @@ local cfg = {
     trim_end = get_set("trim_end", 80),
     check_clipping = (get_set("check_clipping", "1") == "1" or get_set("check_clipping", 1) == 1),
     director_autofill = (get_set("director_autofill", "1") == "1" or get_set("director_autofill", 1) == 1),
+    director_ignore_green = (get_set("director_ignore_green", "0") == "1" or get_set("director_ignore_green", 0) == 1),
 
     tts_voice = get_set("tts_voice", "Горох: Оксана (Wavenet)"),
     tts_voice_map = {
@@ -2507,6 +2508,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "director_mode", cfg.director_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "director_layout", cfg.director_layout, true)
     reaper.SetExtState(section_name, "director_autofill", cfg.director_autofill and "1" or "0", true)
+    reaper.SetExtState(section_name, "director_ignore_green", cfg.director_ignore_green and "1" or "0", true)
     reaper.SetExtState(section_name, "w_director", tostring(cfg.w_director), true)
     reaper.SetExtState(section_name, "h_director", tostring(cfg.h_director), true)
 
@@ -11023,8 +11025,17 @@ local function import_notes_from_csv(file_path)
             end
             
             if time and name then
+                local color_hex = parts[4]
+                local color_val
+                if color_hex and color_hex:match("^%x%x%x%x%x%x$") then
+                    local r = tonumber(color_hex:sub(1,2), 16)
+                    local g = tonumber(color_hex:sub(3,4), 16)
+                    local b = tonumber(color_hex:sub(5,6), 16)
+                    color_val = reaper.ColorToNative(r, g, b) | 0x1000000
+                end
+                
                 ensure_director_actors(name)
-                table.insert(notes, {time = time, text = name})
+                table.insert(notes, {time = time, text = name, color = color_val})
             end
         end
     end
@@ -11053,7 +11064,8 @@ local function import_notes_from_csv(file_path)
     for _, note in ipairs(notes) do
         local key = string.format("%.3f_%s", note.time, note.text)
         if not existing_markers[key] then
-            reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, reaper.ColorToNative(255, 200, 100) | 0x1000000)
+            local marker_color = note.color or (reaper.ColorToNative(255, 200, 100) | 0x1000000)
+            reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, marker_color)
             created_count = created_count + 1
         else
             skipped_count = skipped_count + 1
@@ -18396,7 +18408,7 @@ local function draw_prompter_drawer(input_queue)
                                         if gfx.mouse_x < col_text_x then
                                             -- ID Column: Cycle Color
                                             local g_r, g_g, g_b = 0, 255, 0
-                                            local orange_r, orange_g, orange_b = 255, 100, 100
+                                            local orange_r, orange_g, orange_b = 255, 200, 100
                                             local target_color
                                             local cur_r, cur_g, cur_b = reaper.ColorFromNative((m.color or 0) & 0xFFFFFF)
                                             if cur_r == 0 and cur_g == 255 and cur_b == 0 then
@@ -21954,70 +21966,121 @@ function UTILS.export_markers_to_csv(markers, deadline_str)
             return
         end
         
+        local exported_count = 0
         file:write("#,Name,Start,Color\n")
         for _, m in ipairs(markers) do
-            local marker_id = "M" .. m.markindex
-            local time_str = reaper.format_timestr(m.pos, "")
-            local escaped_name = m.name
-            if m.name:match('[,"\n\r]') then
-                escaped_name = '"' .. m.name:gsub('"', '""') .. '"'
+            -- Ignore green if option is active
+            local is_green = false
+            if cfg.director_ignore_green then
+                local r, g, b = reaper.ColorFromNative((m.color or 0) & 0xFFFFFF)
+                if r == 0 and g == 255 and b == 0 then
+                    is_green = true
+                end
             end
-            
-            local color_str = ""
-            if m.color and m.color > 0 then
-                local r = (m.color & 0xFF)
-                local g = (m.color >> 8) & 0xFF
-                local b = (m.color >> 16) & 0xFF
-                color_str = string.format("%02X%02X%02X", r, g, b)
+
+            if not is_green then
+                exported_count = exported_count + 1
+                local marker_id = "M" .. m.markindex
+                local time_str = reaper.format_timestr(m.pos, "")
+                local escaped_name = m.name
+                if m.name:match('[,"\n\r]') then
+                    escaped_name = '"' .. m.name:gsub('"', '""') .. '"'
+                end
+                
+                local color_str = ""
+                if m.color and m.color > 0 then
+                    local r, g, b = reaper.ColorFromNative((m.color or 0) & 0xFFFFFF)
+                    color_str = string.format("%02X%02X%02X", r, g, b)
+                end
+                
+                file:write(string.format("%s,%s,%s,%s\n", marker_id, escaped_name, time_str, color_str))
             end
-            
-            file:write(string.format("%s,%s,%s,%s\n", marker_id, escaped_name, time_str, color_str))
         end
         file:close()
-        show_snackbar("Експортовано " .. #markers .. " правок у CSV", "success")
 
-        ACHIEVEMENTS.add_stat("ach_8_export_count", 1)
-        ACHIEVEMENTS.add_stat("ach_8_corr_item_count", #markers)
+        if exported_count > 0 then
+            show_snackbar("Експортовано " .. exported_count .. " правок у CSV", "success")
+            ACHIEVEMENTS.add_stat("ach_8_export_count", 1)
+            ACHIEVEMENTS.add_stat("ach_8_corr_item_count", exported_count)
+        else
+            show_snackbar("Немає правок для експорту (всі ігноровані)", "info")
+        end
     end
 end
 
-function UTILS.copy_markers_to_clipboard(markers)
+function UTILS.copy_markers_to_clipboard(markers, filter_actors)
     if #markers > 0 then
         local groups = {}
         local no_actor_key = "-- без актора --"
         local actors_list = {} -- Keep track of actors found for sorting
         local seen_actors = {}
+        local total_filtered = 0
 
         for _, m in ipairs(markers) do
             local text = m.name
             local list, _ = get_actors_from_text(text)
             local content = ""
             
-            if #list > 0 then
+            local has_actor = (#list > 0)
+            local current_actors = {}
+            
+            if has_actor then
                 content = text:gsub("^%[.-%]%s*", "")
+                current_actors = list
             else
                 -- Fallback: Try pattern "Actor: Text"
-                -- Ensure that the 'act' we find doesn't look like a number (timestamp part)
                 local s, e, act = string.find(text, "^(.-):%s*")
                 if s and not act:match("^%d+$") then
-                    table.insert(list, act)
+                    table.insert(current_actors, act)
                     content = string.sub(text, e + 1)
                 else
                     content = text
-                    table.insert(list, no_actor_key)
+                    table.insert(current_actors, no_actor_key)
                 end
             end
 
-            for _, actor in ipairs(list) do
-                if not groups[actor] then
-                    groups[actor] = {}
-                    if not seen_actors[actor] then
-                        table.insert(actors_list, actor)
-                        seen_actors[actor] = true
+            -- Apply filter if provided
+            local skip = false
+
+            -- Check for green color if the option is active
+            if cfg.director_ignore_green then
+                local r, g, b = reaper.ColorFromNative((m.color or 0) & 0xFFFFFF)
+                if r == 0 and g == 255 and b == 0 then
+                    skip = true
+                end
+            end
+
+            if not skip and filter_actors then
+                skip = true
+                for _, a in ipairs(current_actors) do
+                    if filter_actors[a] then
+                        skip = false
+                        break
                     end
                 end
-                table.insert(groups[actor], {time = m.pos, text = content})
             end
+
+            if not skip then
+                total_filtered = total_filtered + 1
+                for _, actor in ipairs(current_actors) do
+                    -- Double check filter on the actor level during grouping
+                    if not filter_actors or filter_actors[actor] then
+                        if not groups[actor] then
+                            groups[actor] = {}
+                            if not seen_actors[actor] then
+                                table.insert(actors_list, actor)
+                                seen_actors[actor] = true
+                            end
+                        end
+                        table.insert(groups[actor], {time = m.pos, text = content})
+                    end
+                end
+            end
+        end
+
+        if total_filtered == 0 then
+            show_snackbar("Немає правок для вибраних акторів", "info")
+            return
         end
 
         -- Sort actors alphabetically, but put no_actor_key last
@@ -22043,10 +22106,10 @@ function UTILS.copy_markers_to_clipboard(markers)
         end
         
         set_clipboard(table.concat(out_lines, "\n"))
-        show_snackbar("Скопійовано " .. #markers .. " правок", "success")
+        show_snackbar("Скопійовано " .. total_filtered .. " правок", "success")
 
         ACHIEVEMENTS.add_stat("ach_8_export_count", 1)
-        ACHIEVEMENTS.add_stat("ach_8_corr_item_count", #markers)
+        ACHIEVEMENTS.add_stat("ach_8_corr_item_count", total_filtered)
     else
         show_snackbar("Немає правок для копіювання", "info")
     end
@@ -22716,16 +22779,19 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             local dock_check = gfx.dock(-1) > 0 and "!" or ""
             local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
             local autofill_check = cfg.director_autofill and "• " or ""
-            local menu_str = "Копіювати правки в буфер||>Експортувати правки в CSV|Просто експорт|Експорт з дедлайном|<|Імпортувати імена акторів з субтитрів||" .. autofill_check .. "Автоматично підставляти ім'я дабера|Інтегрувати трек правок||" .. layout_label .. "|Закрити вікно"
+            local ignore_green_check = cfg.director_ignore_green and "• " or ""
+            local menu_str = "Копіювати всі правки в буфер||>Експортувати правки в CSV|Просто експорт|Експорт з дедлайном|<|Імпортувати імена акторів з субтитрів||" .. autofill_check .. "Автоматично підставляти ім'я дабера|" .. ignore_green_check .. "Ігнорувати копіювання зелених правок|Інтегрувати трек правок||" .. layout_label .. "|Закрити вікно"
             
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu(menu_str)
 
             if ret == 1 then
                 -- Copy
+                ass_markers = capture_project_markers()
                 UTILS.copy_markers_to_clipboard(ass_markers)
             elseif ret == 2 then
                 -- Просто експорт
+                ass_markers = capture_project_markers()
                 UTILS.export_markers_to_csv(ass_markers)
             elseif ret == 3 then
                 -- Експорт з дедлайном
@@ -22733,6 +22799,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                     if not ts then return end
                     local dt = os.date("*t", ts)
                     local d_str = string.format("[%02d.%02d.%02d]", dt.day, dt.month, dt.year % 100)
+                    ass_markers = capture_project_markers()
                     UTILS.export_markers_to_csv(ass_markers, d_str)
                 end)
             elseif ret == 4 then
@@ -22797,9 +22864,13 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 cfg.director_autofill = not cfg.director_autofill
                 save_settings()
             elseif ret == 6 then
+                -- Toggle Ignore Green
+                cfg.director_ignore_green = not cfg.director_ignore_green
+                save_settings()
+            elseif ret == 7 then
                 -- Integrate Correction Tracks
                 UTILS.integrate_correction_tracks()
-            elseif ret == 7 then
+            elseif ret == 8 then
                 -- Toggle Layout
                 if cfg.director_layout == "right" then
                     cfg.director_layout = "bottom"
@@ -22808,7 +22879,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 end
                 save_settings() -- Save state immediately
                 last_layout_state.state_count = -1 -- Force redraw
-            elseif ret == 8 then
+            elseif ret == 9 then
                 cfg.director_mode = not cfg.director_mode
                 save_settings()
             end
@@ -22925,14 +22996,17 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                 local has_multiple_selected = (#sel_list > 1)
 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str2 = "Змінити ім'я||Видалити ім'я"
+                local menu_str2 = "Копіювати правки для: " .. actor .. "||Змінити ім'я|Видалити ім'я"
                 
                 if has_multiple_selected then
-                    menu_str2 = menu_str2 .. "||Видалити вибрані імена (" .. #sel_list .. ")"
+                    menu_str2 = menu_str2 .. "||Видалити вибрані імена (" .. #sel_list .. ")|Копіювати правки вибраних імен (" .. #sel_list .. ")"
                 end
                 
                 local ret2 = gfx.showmenu(menu_str2)
                 if ret2 == 1 then
+                    -- COPY SINGLE ACTOR
+                    UTILS.copy_markers_to_clipboard(ass_markers, {[actor] = true})
+                elseif ret2 == 2 then
                     -- RENAME
                     local ok, new_name = reaper.GetUserInputs("Змінити ім'я актора", 1, "Нове ім'я:", actor)
                     if ok then
@@ -23001,7 +23075,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                             end
                         end
                     end
-                elseif ret2 == 2 then
+                elseif ret2 == 3 then
                     -- DELETE
                     local ok = reaper.MB("Ви дійсно хочете видалити ім'я актора '" .. actor .. "'? Це видалить його префікс з усіх правок, але не самі правки.", "Підтвердження", 4)
                     if ok == 6 then
@@ -23035,7 +23109,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         
                         show_snackbar("Видалено актора та '" .. ops .. "' префіксів (Режисер)", "info")
                     end
-                elseif ret2 == 3 and has_multiple_selected then
+                elseif ret2 == 4 and has_multiple_selected then
                     -- BULK DELETE SELECTED
                     local names_list = table.concat(sel_list, ", ")
                     local ok = reaper.MB("Ви дійсно хочете видалити ВСІХ вибраних акторів (" .. #sel_list .. ")?\n\nАктори: " .. names_list .. "\n\nЇх префікси будуть видалені з усіх правок.", "Підтвердження", 4)
@@ -23081,6 +23155,9 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         
                         show_snackbar("Видалено " .. #sel_list .. " акторів та '" .. total_ops .. "' префіксів", "info")
                     end
+                elseif ret2 == 5 and has_multiple_selected then
+                    -- COPY SELECTED ACTORS
+                    UTILS.copy_markers_to_clipboard(ass_markers, sel_set)
                 end
             end
         end
