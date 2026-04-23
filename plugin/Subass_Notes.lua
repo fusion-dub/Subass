@@ -276,9 +276,10 @@ local OTHER = {
 
         IMG_ACH_25 = 41,
         IMG_ACH_25_dis=40,
-
         IMG_ACH_26 = 39,
         IMG_ACH_26_dis=38,
+        IMG_ACH_27 = 37,
+        IMG_ACH_27_dis=36,
     },
     QWERTY_TO_UA = {
         [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
@@ -518,6 +519,13 @@ OTHER.ACH_CFG = {
         buf = OTHER.BUF.IMG_ACH_24,
         dis_buf = OTHER.BUF.IMG_ACH_24_dis,
         name = "Легкість пірїни"
+    }, {
+        id = "ach_27",
+        path = "media" .. OTHER.SEPARATOR .. "ach_27.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_27_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_27,
+        dis_buf = OTHER.BUF.IMG_ACH_27_dis,
+        name = "Легенда про стихії"
     },
 }
 
@@ -1011,6 +1019,7 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_24_count")
     ACHIEVEMENTS.get_stat("ach_25_count")
     ACHIEVEMENTS.get_stat("ach_26_count")
+    ACHIEVEMENTS.get_stat("ach_27_count")
 end
 
 -- Assets Loading
@@ -1939,6 +1948,13 @@ function ACHIEVEMENTS.check_feather_silence_ach_24(item, length)
     end
     
     return false
+end
+
+--- Check if the current project has earned the 'Architect' achievement uniquely
+function ACHIEVEMENTS.check_api_keys_ach_27()
+    if cfg.gemini_key_status == 200 and cfg.mistral_key_status == 200 and cfg.groq_key_status == 200 and cfg.eleven_key_status == 200 and not ACHIEVEMENTS.stats["ach_26_count"] then
+        ACHIEVEMENTS.add_stat("ach_27_count", 1)
+    end
 end
 
 function UTILS.is_markers_regions_changed()
@@ -6670,6 +6686,7 @@ function UTILS.validate_gemini_key(key)
         
         if status == 200 then
             show_snackbar("Gemini API ключ валідний", "success")
+            ACHIEVEMENTS.check_api_keys_ach_27()
         elseif status == 429 then
             show_snackbar("Ліміти вичерпані (429)", "error")
         else
@@ -6688,6 +6705,7 @@ function UTILS.validate_mistral_key(key)
         
         if status == 200 then
             show_snackbar("Mistral API ключ валідний", "success")
+            ACHIEVEMENTS.check_api_keys_ach_27()
         elseif status == 429 then
             show_snackbar("Ліміти вичерпані (429)", "error")
         else
@@ -6706,6 +6724,7 @@ function UTILS.validate_groq_key(key)
         
         if status == 200 then
             show_snackbar("Groq API ключ валідний", "success")
+            ACHIEVEMENTS.check_api_keys_ach_27()
         elseif status == 429 then
             show_snackbar("Ліміти вичерпані (429)", "error")
         else
@@ -6734,6 +6753,7 @@ function UTILS.validate_eleven_key(key)
         
         if is_valid then
             show_snackbar("ElevenLabs ключ валідний", "success")
+            ACHIEVEMENTS.check_api_keys_ach_27()
         else
             show_snackbar("Помилка ElevenLabs ключа (код: " .. tostring(status) .. ")", "error")
         end
@@ -14813,6 +14833,10 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     elseif ach.id == "ach_26" then
                         local total = ACHIEVEMENTS.stats["ach_26_count"] or 0
                         tooltip_text = string.format("Скопійовано статистику: %d\n%s\n\"Математика успіху проста: кожен крок наближає тебе до мети. Тепер це офіційно зафіксовано!\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_27" then
+                        local total = ACHIEVEMENTS.stats["ach_27_count"] or 0
+                        tooltip_text = string.format("Зібрати всі API ключи: %d\n%s\n\"Ключі від усіх дверей світу. Тепер ти володар незвіданих знань!\"", 
                             total, string.rep("—", 12))
                     else
                         tooltip_text = ach.name
