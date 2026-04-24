@@ -23623,12 +23623,21 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     end
     
     if not current_region then
+        -- Clear input if we just left a region and didn't make any changes
+        if editor_state.last_region_id ~= nil then
+            if editor_state.input.text == editor_state.original_text then
+                editor_state.input.text = ""
+                editor_state.original_text = ""
+                editor_state.current_actor = ""
+                editor_state.input.focus = false
+            end
+        end
         editor_state.last_region_id = nil
-        -- If we were editing but now we are not, we keep the text for "Create" mode
     end
 
     local is_editing = (current_region ~= nil)
-    local is_creating = (not is_editing and has_selection)
+    local is_in_selection = (has_selection and cur_time >= start_ts and cur_time <= end_ts)
+    local is_creating = (not is_editing and is_in_selection)
     local is_disabled = (not is_editing and not is_creating)
     
     local opt_btn_w = S(30)
@@ -23744,6 +23753,14 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             end
             cur_x = cur_x + b_w + S(5)
         end
+        
+        -- Add wrap check for "+" button in height calculation
+        local plus_btn_w = S(24)
+        if cur_x + plus_btn_w > limit_x - padding then
+            cur_x = 0
+            cur_y = cur_y + act_row_h
+        end
+        
         needed_actor_h = needed_actor_h + cur_y + act_row_h + S(2) -- Add rows height + small bottom buffer
     end
     
@@ -23806,15 +23823,15 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                             local new_col = get_actor_color(actor)
                             -- Use existing color if get_actor_color returns 0 (default/not found)
                             if not new_col or new_col == 0 then new_col = current_region.col end
-                            
+
                             -- Update REAPER marker immediately (including color!)
+                            push_undo("Зміна актора")
                             reaper.SetProjectMarker3(0, current_region.id, true, current_region.start_pos, current_region.end_pos, current_region.name, new_col)
                             current_region.col = new_col -- Update local state for immediate feedback
                             
                             for _, line in ipairs(ass_lines) do
                                 if line.markindex == current_region.id or (line.t1 and math.abs(line.t1 - current_region.start_pos) < 0.001) then
                                     line.actor = actor
-                                    reaper.Undo_OnStateChangeEx2(0, "Subass: Зміна актора та кольору", 8, -1)
                                     break
                                 end
                             end
@@ -23827,6 +23844,53 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         draw_x = panel_x + x
     end
     
+    -- 5. Draw "+" button
+    local plus_w = S(24)
+    if draw_x + plus_w > limit_x then
+        x = padding
+        y = y + btn_h + S(5)
+        draw_x = panel_x + x
+        draw_y = panel_y + y
+    end
+    
+    if not calc_only then
+        local sdraw_y_plus = draw_y - math.floor(editor_state.scroll_y or 0)
+        if sdraw_y_plus + btn_h > panel_y and sdraw_y_plus < actor_area_bottom then
+            if draw_btn_clipped(draw_x, sdraw_y_plus, plus_w, btn_h, "+", UI.C_ACCENT_N, panel_y, actor_area_bottom) then
+                if not is_opt_hover then
+                    local ok, name = reaper.GetUserInputs("Додати актора (Редактор)", 1, "Ім'я актора:", "")
+                    if ok then
+                        -- Remove variation selector and trim spaces
+                        name = name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
+                        if name ~= "" then
+                            if not ass_actors[name] then
+                                ass_actors[name] = true
+                            end
+                            editor_state.current_actor = name
+                            
+                            -- Immediate sync if editing an existing region
+                            if current_region then
+                                local new_col = get_actor_color(name)
+                                if not new_col or new_col == 0 then new_col = current_region.col end
+                                
+                                push_undo("Додавання та зміна актора")
+                                reaper.SetProjectMarker3(0, current_region.id, true, current_region.start_pos, current_region.end_pos, current_region.name, new_col)
+                                current_region.col = new_col
+                                
+                                for _, line in ipairs(ass_lines) do
+                                    if line.markindex == current_region.id or (line.t1 and math.abs(line.t1 - current_region.start_pos) < 0.001) then
+                                        line.actor = name
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     if not calc_only then
         local total_actors_h = y + btn_h + S(20)
         local viewport_h = actor_area_bottom - panel_y
@@ -23861,6 +23925,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             
             if is_editing and current_region then
                 -- Region name is ONLY text, no actor brackets
+                push_undo("Оновлення регіону")
                 reaper.SetProjectMarker3(0, current_region.id, true, current_region.start_pos, current_region.end_pos, txt, current_region.col)
                 
                 -- Sync with ass_lines
@@ -23874,13 +23939,16 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
 
                 editor_state.original_text = txt
                 show_snackbar("Регіон оновлено", "success")
-                reaper.Undo_OnStateChangeEx2(0, "Subass: update region", 8, -1)
             elseif is_creating then
-                local actor = editor_state.current_actor or ""
+                push_undo("Створення регіону")
+                local actor = editor_state.current_actor
+                if not actor or actor == "" then
+                    actor = "REAPER"
+                    editor_state.current_actor = "REAPER"
+                end
                 local col = get_actor_color(actor)
                 -- If color is 0 (not found/black), use -1 for REAPER's default region color
                 if not col or col == 0 then col = -1 end
-                
                 local r_idx = reaper.AddProjectMarker2(0, true, start_ts, end_ts, txt, -1, col)
                 local _, _, _, _, _, r_id = reaper.EnumProjectMarkers3(0, r_idx)
                 
@@ -23894,7 +23962,8 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 })
 
                 show_snackbar("Регіон створено", "success")
-                reaper.Undo_OnStateChangeEx2(0, "Subass: create region", 8, -1)
+                cleanup_actors()
+                rebuild_regions()
             end
         end
 
@@ -23930,7 +23999,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
 
         for i, label in ipairs(fmt_btns) do
             local bx = input_draw_x + (i-1) * (fmt_btn_w + fmt_gap)
-            local b_col = is_disabled and UI.C_BTN_DISABLED or UI.C_BTN
+            local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
             if draw_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, label, b_col) then
                 apply_fmt(fmt_tags[i])
             end
@@ -23943,13 +24012,13 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         gfx.setfont(corr_font, cfg.p_font, S(base_sz or 18))
         
         local has_changes = (editor_state.input.text ~= editor_state.original_text)
-        local save_col = is_disabled and UI.C_BTN_DISABLED or (is_creating and UI.C_ACCENT_G or (has_changes and UI.C_BTN_UPDATE or UI.C_BTN))
-        local save_label = is_creating and "Створити" or "Оновити"
+        local save_col = is_disabled and UI.C_TAB_INA or (is_creating and UI.C_ACCENT_G or (has_changes and UI.C_BTN_UPDATE or UI.C_BTN))
+        local save_label = is_editing and "Оновити" or (is_disabled and "Не в ділянці" or "Створити")
         local save_btn_w = is_right_layout and S(80) or S(110)
         local left_w = full_w - save_btn_w - padding
         
         -- Column 1: Row 2 (Input)
-        ui_text_input("editor_panel", input_draw_x, input_draw_y, left_w, input_row_h, editor_state.input, is_disabled and "Виберіть ділянку..." or "Редагування репліки...", input_queue, not is_disabled, true, corr_font)
+        ui_text_input("editor_panel", input_draw_x, input_draw_y, left_w, input_row_h, editor_state.input, is_disabled and "Виділіть та перейдіть до ділянки..." or "Редагування репліки...", input_queue, true, false, corr_font)
 
         -- Column 2: Large Action Button (Spans both rows)
         local save_x = input_draw_x + left_w + padding
@@ -25491,6 +25560,10 @@ local function draw_table(input_queue)
                                     if ass_actors[new_actor] == nil then ass_actors[new_actor] = true end
                                     for _, l in ipairs(selected_entries) do
                                         l.actor = new_actor
+                                        -- Sync editor state if we're renaming the active region
+                                        if editor_state.last_region_id and l.rgn_idx == editor_state.last_region_id then
+                                            editor_state.current_actor = new_actor
+                                        end
                                     end
                                     cleanup_actors()
                                     rebuild_regions()
