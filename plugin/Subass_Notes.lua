@@ -132,6 +132,7 @@ local cfg = {
     editor_layout = get_set("editor_layout", "bottom"),
     editor_actor_sort = get_set("editor_actor_sort", "alpha"),
     editor_fast_jump = (get_set("editor_fast_jump", "0") == "1" or get_set("editor_fast_jump", 0) == 1),
+    editor_auto_scroll = (get_set("editor_auto_scroll", "1") == "1" or get_set("editor_auto_scroll", 1) == 1),
     prompter_slider_mode = (get_set("prompter_slider_mode", "0") == "1" or get_set("prompter_slider_mode", 0) == 1),
     auto_trim = (get_set("auto_trim", "0") == "1" or get_set("auto_trim", 0) == 1),
     trim_start = get_set("trim_start", 40),
@@ -2486,6 +2487,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "t_corr_size", cfg.t_corr_size, true)
     reaper.SetExtState(section_name, "editor_actor_sort", cfg.editor_actor_sort, true)
     reaper.SetExtState(section_name, "editor_fast_jump", cfg.editor_fast_jump and "1" or "0", true)
+    reaper.SetExtState(section_name, "editor_auto_scroll", cfg.editor_auto_scroll and "1" or "0", true)
 
     -- Invalidate prompter cache when settings change (like wrap length)
     if draw_prompter_cache then
@@ -23715,6 +23717,9 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 editor_state.input.cursor = #r_name
                 editor_state.input.anchor = #r_name
                 ai_modal.show = false
+                if cfg.editor_auto_scroll then
+                    editor_state.scroll_to_actor = actor
+                end
             end
         end
     end
@@ -23813,8 +23818,9 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             local alpha_mark = (cfg.editor_actor_sort == "alpha" or not cfg.editor_actor_sort) and "• " or ""
             local count_mark = (cfg.editor_actor_sort == "count") and "• " or ""
             local fast_jump_mark = cfg.editor_fast_jump and "• " or ""
+            local auto_scroll_mark = cfg.editor_auto_scroll and "• " or ""
             
-            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|<" .. count_mark .. "По кількості реплік|" .. fast_jump_mark .. "Швидкий перехід||" .. layout_label .. "|Закрити вікно"
+            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|<" .. count_mark .. "По кількості реплік|" .. fast_jump_mark .. "Швидкий перехід|" .. auto_scroll_mark .. "Автопрокрутка до актора||" .. layout_label .. "|Закрити вікно"
             
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu(menu_str)
@@ -23830,10 +23836,13 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 cfg.editor_fast_jump = not cfg.editor_fast_jump
                 save_settings()
             elseif ret == 4 then
+                cfg.editor_auto_scroll = not cfg.editor_auto_scroll
+                save_settings()
+            elseif ret == 5 then
                 if cfg.editor_layout == "right" then cfg.editor_layout = "bottom" else cfg.editor_layout = "right" end
                 save_settings()
                 last_layout_state.state_count = -1
-            elseif ret == 5 then
+            elseif ret == 6 then
                 cfg.editor_mode = false
                 save_settings()
             end
@@ -23952,6 +23961,12 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             draw_y = panel_y + y
         end
         
+        if editor_state.scroll_to_actor == actor then
+            editor_state.target_scroll_y = y - (is_right_layout and S(2) or padding)
+            if editor_state.target_scroll_y < 0 then editor_state.target_scroll_y = 0 end
+            editor_state.scroll_to_actor = nil
+        end
+        
         if not calc_only then
             local is_active = (actor == editor_state.current_actor)
             local bg_col = is_active and UI.C_ACCENT_G or UI.C_BTN
@@ -24000,9 +24015,22 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                             replicas_count = replicas_count + 1
                         end
                     end
+                    local is_visible = (ass_actors[act] ~= false)
+                    local vis_opt_str = is_visible and "Приховати репліки актора" or "Відобразити репліки актора"
                     
-                    local ret = gfx.showmenu("#Кількість реплік: " .. replicas_count .. "||Змінити колір|Змінити ім'я актора||Видалити актора")
+                    local ret = gfx.showmenu("#Кількість реплік: " .. replicas_count .. "||" .. vis_opt_str .. "|Змінити колір|Змінити ім'я актора||Видалити актора")
                     if ret == 2 then
+                        local new_state = not is_visible
+                        ass_actors[act] = new_state
+                        for _, l in ipairs(ass_lines) do
+                            if l.actor == act then l.enabled = new_state end
+                        end
+                        push_undo("Зміна видимості актора " .. act)
+                        UI_STATE._markers_is_dirty = true
+                        rebuild_regions()
+                        save_project_data()
+                        reaper.MarkProjectDirty(0)
+                    elseif ret == 3 then
                         local current_native = get_actor_color(act)
                         if current_native == 0 then current_native = 2500134 end
                         local retval, color = reaper.GR_SelectColor(reaper.GetMainHwnd(), current_native)
@@ -24016,7 +24044,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                             save_project_data()
                             reaper.MarkProjectDirty(0)
                         end
-                    elseif ret == 3 then
+                    elseif ret == 4 then
                         local ok, new_name = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", act)
                         if ok then
                             new_name = new_name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
@@ -24044,7 +24072,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                                 reaper.MarkProjectDirty(0)
                             end
                         end
-                    elseif ret == 4 then
+                    elseif ret == 5 then
                         local confirm = reaper.MB("Видалити актора '" .. act .. "' і всі його репліки?", "Підтвердження", 4)
                         if confirm == 6 then
                             push_undo("Видалення актора " .. act)
