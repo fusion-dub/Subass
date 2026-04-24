@@ -282,6 +282,8 @@ local OTHER = {
         IMG_ACH_26_dis=38,
         IMG_ACH_27 = 37,
         IMG_ACH_27_dis=36,
+        IMG_ACH_28 = 35,
+        IMG_ACH_28_dis=34,
     },
     QWERTY_TO_UA = {
         [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
@@ -521,11 +523,11 @@ OTHER.ACH_CFG = {
         name = "Благословення Артеміди"
     }, {
         id = "ach_24",
-        path = "media" .. OTHER.SEPARATOR .. "ach_24.png",
-        dis_path = "media" .. OTHER.SEPARATOR .. "ach_24_disabled.png",
+        path = "media" .. OTHER.SEPARATOR .. "ach_28.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_28_disabled.png",
         buf = OTHER.BUF.IMG_ACH_24,
         dis_buf = OTHER.BUF.IMG_ACH_24_dis,
-        name = "Легкість пірїни"
+        name = "Внутрішній спокій"
     }, {
         id = "ach_27",
         path = "media" .. OTHER.SEPARATOR .. "ach_27.png",
@@ -533,7 +535,14 @@ OTHER.ACH_CFG = {
         buf = OTHER.BUF.IMG_ACH_27,
         dis_buf = OTHER.BUF.IMG_ACH_27_dis,
         name = "Легенда про стихії"
-    },
+    }, {
+        id = "ach_28",
+        path = "media" .. OTHER.SEPARATOR .. "ach_24.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_24_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_28,
+        dis_buf = OTHER.BUF.IMG_ACH_28_dis,
+        name = "Легкість пірїни"
+    }
 }
 
 -- Assets Loading
@@ -1035,6 +1044,7 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_25_count")
     ACHIEVEMENTS.get_stat("ach_26_count")
     ACHIEVEMENTS.get_stat("ach_27_count")
+    ACHIEVEMENTS.get_stat("ach_28_count")
 end
 
 -- Assets Loading
@@ -14882,7 +14892,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
                             total, string.rep("—", 12))
                     elseif ach.id == "ach_24" then
                         local total = ACHIEVEMENTS.stats["ach_24_count"] or 0
-                        tooltip_text = string.format("Миттєвостей тиші зафіксовано: %d\n%s\n\"Тихіше за подих, легше за пір'їну. Вміння мовчати — це теж мистецтво.\"\n(Запис абсолютної тиші тривалістю 5+ секунд)", 
+                        tooltip_text = string.format("Миттєвостей тиші зафіксовано: %d\n%s\n\"Вміння мовчати — це теж мистецтво.\"\n(Запис абсолютної тиші тривалістю 5+ секунд)", 
                             total, string.rep("—", 12))
                     elseif ach.id == "ach_25" then
                         local total = ACHIEVEMENTS.stats["ach_25_count"] or 0
@@ -14895,6 +14905,10 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     elseif ach.id == "ach_27" then
                         local total = ACHIEVEMENTS.stats["ach_27_count"] or 0
                         tooltip_text = string.format("Зібрати всі API ключи: %d\n%s\n\"Ключі від усіх дверей світу. Тепер ти володар незвіданих знань!\"", 
+                            total, string.rep("—", 12))
+                    elseif ach.id == "ach_28" then
+                        local total = ACHIEVEMENTS.stats["ach_28_count"] or 0
+                        tooltip_text = string.format("Редакцій тексту: %d\n%s\n\"Письменник без пера, як двірник без граблів\"\n(Видається за редагування тексту в режимі Редактора)", 
                             total, string.rep("—", 12))
                     else
                         tooltip_text = ach.name
@@ -23796,29 +23810,26 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     local max_actor_h_limit = max_actor_rows * act_row_h + S(10)
     
     -- 1. Calculate how much height actors ACTUALLY need (simulating wrap)
-    local needed_actor_h = padding -- Start with top padding
-    if #actors_list > 0 then
-        local cur_x = 0
-        local cur_y = 0
-        for _, actor in ipairs(actors_list) do
-            local w, _ = gfx.measurestr(actor)
-            local b_w = w + S(20)
-            if cur_x + b_w > limit_x - padding then
-                cur_x = 0
-                cur_y = cur_y + act_row_h
-            end
-            cur_x = cur_x + b_w + S(5)
-        end
-        
-        -- Add wrap check for "+" button in height calculation
-        local plus_btn_w = S(24)
-        if cur_x + plus_btn_w > limit_x - padding then
+    local cur_x = 0
+    local cur_y = 0
+    for _, actor in ipairs(actors_list) do
+        local w, _ = gfx.measurestr(actor)
+        local b_w = w + S(20)
+        if cur_x + b_w > limit_x - padding then
             cur_x = 0
             cur_y = cur_y + act_row_h
         end
-        
-        needed_actor_h = needed_actor_h + cur_y + act_row_h + S(2) -- Add rows height + small bottom buffer
+        cur_x = cur_x + b_w + S(5)
     end
+    
+    -- Add wrap check for "+" button in height calculation
+    local plus_btn_w = S(24)
+    if cur_x + plus_btn_w > limit_x - padding then
+        cur_x = 0
+        cur_y = cur_y + act_row_h
+    end
+    
+    local needed_actor_h = padding + cur_y + act_row_h + S(2) -- Add rows height + small bottom buffer
     
     -- 2. Determine Actor Area Height (clamped to 3 rows)
     local control_row_h = S(28)
@@ -23995,6 +24006,9 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
 
                 editor_state.original_text = txt
                 show_snackbar("Регіон оновлено", "success")
+                cleanup_actors()
+                rebuild_regions()
+                ACHIEVEMENTS.add_stat("ach_28_count", 1)
             elseif is_creating then
                 push_undo("Створення регіону")
                 local actor = editor_state.current_actor
@@ -24020,6 +24034,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 show_snackbar("Регіон створено", "success")
                 cleanup_actors()
                 rebuild_regions()
+                ACHIEVEMENTS.add_stat("ach_28_count", 1)
             end
         end
 
