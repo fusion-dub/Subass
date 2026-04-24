@@ -130,6 +130,7 @@ local cfg = {
     director_mode = (get_set("director_mode", "0") == "1" or get_set("director_mode", 0) == 1),
     director_layout = get_set("director_layout", "bottom"),
     editor_layout = get_set("editor_layout", "bottom"),
+    editor_actor_sort = get_set("editor_actor_sort", "alpha"),
     prompter_slider_mode = (get_set("prompter_slider_mode", "0") == "1" or get_set("prompter_slider_mode", 0) == 1),
     auto_trim = (get_set("auto_trim", "0") == "1" or get_set("auto_trim", 0) == 1),
     trim_start = get_set("trim_start", 40),
@@ -840,7 +841,8 @@ local editor_state = {
     current_actor = "",
     scroll_y = 0,
     target_scroll_y = 0,
-    cached_max_scroll = 0
+    cached_max_scroll = 0,
+    sort_cache = { valid = false, list = {}, method = "" }
 }
 
 -- ASS/Subtitle Data
@@ -2481,6 +2483,7 @@ local function save_settings()
 
     reaper.SetExtState(section_name, "t_editor_size", cfg.t_editor_size, true)
     reaper.SetExtState(section_name, "t_corr_size", cfg.t_corr_size, true)
+    reaper.SetExtState(section_name, "editor_actor_sort", cfg.editor_actor_sort, true)
 
     -- Invalidate prompter cache when settings change (like wrap length)
     if draw_prompter_cache then
@@ -7879,6 +7882,10 @@ end
 --- Identify used actors and remove unused ones from list
 local function cleanup_actors()
     if not ass_lines then return end
+    
+    if editor_state and editor_state.sort_cache then
+        editor_state.sort_cache.valid = false
+    end
     
     local current_actors = {}
     for _, line in ipairs(ass_lines) do
@@ -23784,15 +23791,27 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     local function draw_options_menu()
         if not calc_only and draw_btn_inline(opt_x, opt_draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
             local layout_label = is_editor_right and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
-            local menu_str = layout_label .. "|Закрити вікно"
+            
+            local alpha_mark = (cfg.editor_actor_sort == "alpha" or not cfg.editor_actor_sort) and "• " or ""
+            local count_mark = (cfg.editor_actor_sort == "count") and "• " or ""
+            
+            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|<" .. count_mark .. "По кількості реплік||" .. layout_label .. "|Закрити вікно"
             
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu(menu_str)
             if ret == 1 then
+                cfg.editor_actor_sort = "alpha"
+                editor_state.sort_cache.valid = false
+                save_settings()
+            elseif ret == 2 then
+                cfg.editor_actor_sort = "count"
+                editor_state.sort_cache.valid = false
+                save_settings()
+            elseif ret == 3 then
                 if cfg.editor_layout == "right" then cfg.editor_layout = "bottom" else cfg.editor_layout = "right" end
                 save_settings()
                 last_layout_state.state_count = -1
-            elseif ret == 2 then
+            elseif ret == 4 then
                 cfg.editor_mode = false
                 save_settings()
             end
@@ -23801,10 +23820,43 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
 
     -- Sourcing actors from ass_actors
     local actors_list = {}
+    local current_actor_count = 0
     for act, _ in pairs(ass_actors) do
-        if act and act ~= "" then table.insert(actors_list, act) end
+        if act and act ~= "" then 
+            table.insert(actors_list, act) 
+            current_actor_count = current_actor_count + 1
+        end
     end
-    table.sort(actors_list)
+    
+    local sort_mode = cfg.editor_actor_sort or "alpha"
+    
+    -- Check cache validity
+    if editor_state.sort_cache.valid and 
+       editor_state.sort_cache.method == sort_mode and 
+       #editor_state.sort_cache.list == current_actor_count then
+        actors_list = editor_state.sort_cache.list
+    else
+        if sort_mode == "alpha" then
+            table.sort(actors_list)
+        else
+            -- Count replicas
+            local counts = {}
+            for _, line in ipairs(ass_lines) do
+                if line.actor and line.actor ~= "" then
+                    counts[line.actor] = (counts[line.actor] or 0) + 1
+                end
+            end
+            table.sort(actors_list, function(a, b)
+                local ca = counts[a] or 0
+                local cb = counts[b] or 0
+                if ca ~= cb then return ca > cb end
+                return a < b
+            end)
+        end
+        editor_state.sort_cache.list = actors_list
+        editor_state.sort_cache.method = sort_mode
+        editor_state.sort_cache.valid = true
+    end
 
     -- --- DYNAMIC LAYOUT CALCULATION ---
     local act_row_h = btn_h + S(5)
