@@ -12444,11 +12444,12 @@ local function draw_ai_modal(skip_draw)
                         if gfx.mouse_x >= bx and gfx.mouse_x <= bx + bw and
                            gfx.mouse_y >= by and gfx.mouse_y <= by + block_h then
                             ai_modal.last_click_time = now
-                            local before = text_editor_state.text:sub(1, ai_modal.sel_min)
-                            local after = text_editor_state.text:sub(ai_modal.sel_max + 1)
-                            text_editor_state.text = before .. sugg.text .. after
-                            text_editor_state.cursor = ai_modal.sel_min + #sugg.text
-                            text_editor_state.anchor = text_editor_state.cursor
+                            local target = ai_modal.target_state or text_editor_state
+                            local before = target.text:sub(1, ai_modal.sel_min)
+                            local after = target.text:sub(ai_modal.sel_max + 1)
+                            target.text = before .. sugg.text .. after
+                            target.cursor = ai_modal.sel_min + #sugg.text
+                            target.anchor = target.cursor
                             
                             changed = true
                             ai_modal.show = false
@@ -13730,6 +13731,84 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
     gfx.setfont(F.std)
 end
 
+local function trigger_ai_modal(target_state, anchor_x, anchor_y, provider_name)
+    local prov = cfg.ai_provider or "gemini"
+    local key, status
+    if prov == "mistral" then
+        key, status = cfg.mistral_api_key, cfg.mistral_key_status
+    elseif prov == "groq" then
+        key, status = cfg.groq_api_key, cfg.groq_key_status
+    else
+        key, status = cfg.gemini_api_key, cfg.gemini_key_status
+    end
+    
+    if not key or key == "" or (status ~= 200 and status ~= 429) then
+        show_snackbar("Ключ " .. provider_name .. " API не валідний або відсутній", "error")
+        return
+    end
+
+    local sel_min = math.min(target_state.cursor, target_state.anchor)
+    local sel_max = math.max(target_state.cursor, target_state.anchor)
+    local has_sel = (sel_min ~= sel_max)
+
+    if has_sel then
+        -- Word wrap selection logic
+        local word_pattern = "[%a\128-\255\'%-]+[\128-\255]*"
+        local new_min, new_max = sel_min, sel_max
+        local pos = 1
+        while pos <= #target_state.text do
+            local s, e = target_state.text:find(word_pattern, pos)
+            if not s then break end
+            local w_min, w_max = s - 1, e
+            if w_max > sel_min and w_min < sel_max then
+                if w_min < new_min then new_min = w_min end
+                if w_max > new_max then new_max = w_max end
+            end
+            pos = e + 1
+        end
+        if target_state.cursor > target_state.anchor then
+            target_state.cursor, target_state.anchor = new_max, new_min
+        else
+            target_state.cursor, target_state.anchor = new_min, new_max
+        end
+        sel_min, sel_max = new_min, new_max
+    end
+
+    local function init_selection(s_min, s_max)
+        ai_modal.text = target_state.text:sub(s_min + 1, s_max)
+        ai_modal.sel_min, ai_modal.sel_max = s_min, s_max
+        ai_modal.current_step = "SELECT_TASK"
+        ai_modal.suggestions = {}
+        ai_modal.scroll = 0
+        ai_modal.anchor_x, ai_modal.anchor_y = anchor_x, anchor_y
+        ai_modal.target_state = target_state
+        ai_modal.show = true
+        ai_modal.last_click_time = os.clock()
+        ai_modal.last_step_change_time = os.clock()
+    end
+    
+    if has_sel and sel_max - sel_min < 8 then
+        show_snackbar("Треба виділити більше тексту", "error")
+    elseif has_sel then
+        if (ai_modal.text ~= "") and sel_min == ai_modal.sel_min and sel_max == ai_modal.sel_max and ai_modal.target_state == target_state then
+            ai_modal.show = true
+            ai_modal.last_click_time = os.clock()
+        else
+            init_selection(sel_min, sel_max)
+        end
+    elseif (ai_modal.text ~= "") and ai_modal.target_state == target_state then
+        target_state.cursor, target_state.anchor = ai_modal.sel_max, ai_modal.sel_min
+        ai_modal.anchor_x, ai_modal.anchor_y = anchor_x, anchor_y
+        ai_modal.show = true
+        ai_modal.last_click_time = os.clock()
+    elseif #target_state.text > 0 then
+        target_state.anchor, target_state.cursor = 0, #target_state.text
+        init_selection(0, #target_state.text)
+    else
+        show_snackbar("Треба виділити цільовий текст для роботи", "error")
+    end
+end
+
 --- Draw and handle text editor modal dialog
 --- @param input_queue table Input events queue
 --- @return boolean True if editor consumed the input
@@ -13836,71 +13915,7 @@ local function draw_text_editor(input_queue)
     end
 
     if btn(ai_btn_x, ai_btn_y, ai_btn_w, ai_btn_h, ai_btn_text) then
-        local prov = cfg.ai_provider or "gemini"
-        local key, status
-        if prov == "mistral" then
-            key, status = cfg.mistral_api_key, cfg.mistral_key_status
-        elseif prov == "groq" then
-            key, status = cfg.groq_api_key, cfg.groq_key_status
-        else
-            key, status = cfg.gemini_api_key, cfg.gemini_key_status
-        end
-        
-        if not key or key == "" or (status ~= 200 and status ~= 429) then
-            show_snackbar("Ключ " .. provider_name .. " API не валідний або відсутній", "error")
-        else
-            if has_sel then
-                -- Word wrap selection logic
-                local word_pattern = "[%a\128-\255\'%-]+[\128-\255]*"
-                local new_min, new_max = sel_min, sel_max
-                local pos = 1
-                while pos <= #text_editor_state.text do
-                    local s, e = text_editor_state.text:find(word_pattern, pos)
-                    if not s then break end
-                    local w_min, w_max = s - 1, e
-                    if w_max > sel_min and w_min < sel_max then
-                        if w_min < new_min then new_min = w_min end
-                        if w_max > new_max then new_max = w_max end
-                    end
-                    pos = e + 1
-                end
-                if text_editor_state.cursor > text_editor_state.anchor then
-                    text_editor_state.cursor, text_editor_state.anchor = new_max, new_min
-                else
-                    text_editor_state.cursor, text_editor_state.anchor = new_min, new_max
-                end
-                sel_min, sel_max = new_min, new_max
-            end
-
-            local function init_selection(s_min, s_max)
-                ai_modal.text = text_editor_state.text:sub(s_min + 1, s_max)
-                ai_modal.sel_min, ai_modal.sel_max = s_min, s_max
-                ai_modal.current_step = "SELECT_TASK"
-                ai_modal.suggestions = {}
-                ai_modal.scroll = 0
-                ai_modal.anchor_x, ai_modal.anchor_y = ai_box_x, ai_btn_y + ai_btn_h
-                ai_modal.show = true
-            end
-            
-            if has_sel and sel_max - sel_min < 8 then
-                show_snackbar("Треба виділити більше тексту", "error")
-            elseif has_sel then
-                if (ai_modal.text ~= "") and sel_min == ai_modal.sel_min and sel_max == ai_modal.sel_max then
-                    ai_modal.show = true
-                else
-                    init_selection(sel_min, sel_max)
-                end
-            elseif (ai_modal.text ~= "") then
-                text_editor_state.cursor, text_editor_state.anchor = ai_modal.sel_max, ai_modal.sel_min
-                ai_modal.anchor_x, ai_modal.anchor_y = ai_box_x, ai_btn_y + ai_btn_h
-                ai_modal.show = true
-            elseif #text_editor_state.text > 0 then
-                text_editor_state.anchor, text_editor_state.cursor = 0, #text_editor_state.text
-                init_selection(0, #text_editor_state.text)
-            else
-                show_snackbar("Треба виділити цільовий текст для роботи", "error")
-            end
-        end
+        trigger_ai_modal(text_editor_state, ai_box_x, ai_btn_y + ai_btn_h, provider_name)
     end
     
     local text_x, text_y = box_x + S(10), box_y + S(35)
@@ -23860,9 +23875,8 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
 
     -- --- DYNAMIC LAYOUT CALCULATION ---
     local act_row_h = btn_h + S(5)
-    local max_actor_rows = 3
-    local max_actor_h_limit = max_actor_rows * act_row_h + S(10)
-    
+    local max_actor_h_limit = is_right_layout and (4 * act_row_h + S(2)) or (3 * act_row_h + S(10))
+
     -- 1. Calculate how much height actors ACTUALLY need (simulating wrap)
     local cur_x = 0
     local cur_y = 0
@@ -24122,35 +24136,76 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             inp.focus = true
         end
 
+        local save_btn_w = is_right_layout and S(80) or S(110)
+        local left_w = full_w - save_btn_w - padding
+
+        -- Calculate AI Button position first
+        local provider_name = (cfg.ai_provider == "mistral") and "Mistral" or (cfg.ai_provider == "groq" and "Groq" or "Gemini")
+        local ai_btn_text = "Запитати " .. provider_name
+        local ai_btn_w = S(130)
+        local ai_btn_x = input_draw_x + left_w - ai_btn_w
+        local ai_b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
+
         for i, label in ipairs(fmt_btns) do
             local bx = input_draw_x + (i-1) * (fmt_btn_w + fmt_gap)
-            local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
             
-            -- Apply styling for preview
-            if label == "B" then gfx.setfont(F.bld)
-            elseif label == "I" then gfx.setfont(F.ital)
-            else gfx.setfont(F.std) end
+            -- Only draw if it does not overlap with the AI button
+            if bx + fmt_btn_w <= ai_btn_x then
+                local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
+                
+                -- Apply styling for preview
+                if label == "B" then gfx.setfont(F.bld)
+                elseif label == "I" then gfx.setfont(F.ital)
+                else gfx.setfont(F.std) end
 
-            if draw_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, label, b_col) then
-                apply_fmt(fmt_tags[i])
-            end
-            
-            -- Draw extra lines for U and S
-            local str_w, str_h = gfx.measurestr(label)
-            local tx = bx + (fmt_btn_w - str_w) / 2
-            local ty = control_draw_y + (control_row_h - str_h) / 2
-            local s1 = S(1)
-            local s2 = S(2)
+                if draw_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, label, b_col) then
+                    apply_fmt(fmt_tags[i])
+                end
+                
+                -- Draw extra lines for U and S
+                local str_w, str_h = gfx.measurestr(label)
+                local tx = bx + (fmt_btn_w - str_w) / 2
+                local ty = control_draw_y + (control_row_h - str_h) / 2
+                local s1 = S(1)
+                local s2 = S(2)
 
-            if label == "U" then
-                set_color(UI.C_TXT)
-                gfx.line(tx, ty + str_h - s1, tx + str_w, ty + str_h - s1)
-            elseif label == "S" then
-                set_color(UI.C_TXT)
-                gfx.line(tx - s2, ty + str_h/2 - s2, tx + str_w + s2, ty + str_h/2 - s2)
+                if label == "U" then
+                    set_color(UI.C_TXT)
+                    gfx.line(tx, ty + str_h - s1, tx + str_w, ty + str_h - s1)
+                elseif label == "S" then
+                    set_color(UI.C_TXT)
+                    gfx.line(tx - s2, ty + str_h/2 - s2, tx + str_w + s2, ty + str_h/2 - s2)
+                end
             end
         end
         gfx.setfont(F.std)
+
+        local ai_btn_fits = ai_btn_x >= input_draw_x
+        if ai_btn_fits then
+            if draw_btn_inline(ai_btn_x, control_draw_y, ai_btn_w, control_row_h, ai_btn_text, ai_b_col) and not is_disabled then
+                trigger_ai_modal(editor_state.input, ai_btn_x + ai_btn_w - S(30), control_draw_y + control_row_h, provider_name)
+            end
+
+            local ai_hover = (gfx.mouse_x >= ai_btn_x and gfx.mouse_x <= ai_btn_x + ai_btn_w and gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
+            if ai_hover and is_right_mouse_clicked() then
+                local menu_str = (cfg.ai_provider == "gemini" and "!" or "") .. "Gemini AI|" .. 
+                                 (cfg.ai_provider == "mistral" and "!" or "") .. "Mistral AI|" ..
+                                 (cfg.ai_provider == "groq" and "!" or "") .. "Groq AI"
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local ret = gfx.showmenu(menu_str)
+                if ret == 1 then
+                    cfg.ai_provider = "gemini"
+                    save_settings()
+                elseif ret == 2 then
+                    cfg.ai_provider = "mistral"
+                    save_settings()
+                elseif ret == 3 then
+                    cfg.ai_provider = "groq"
+                    save_settings()
+                end
+                UI_STATE.mouse_handled = true
+            end
+        end
 
         -- 2. INPUT & ACTION AREA (2 Columns)
         local was_focused = editor_state.input.focus
@@ -24158,12 +24213,16 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         local base_sz = OTHER.FONT_SIZES.normal[cfg.t_corr_size]
         gfx.setfont(corr_font, cfg.p_font, S(base_sz or 18))
         
+        if ai_modal.show and ai_modal.target_state == editor_state.input then
+            if draw_ai_modal(true) then
+                editor_state.input.focus = true
+            end
+        end
+        
         local has_changes = (editor_state.input.text ~= editor_state.original_text)
         local save_col = is_disabled and UI.C_TAB_INA or (is_creating and UI.C_ACCENT_G or (has_changes and UI.C_BTN_UPDATE or UI.C_BTN))
         local save_label = is_editing and "Оновити" or (is_disabled and "Не в ділянці" or "Створити")
-        local save_btn_w = is_right_layout and S(80) or S(110)
-        local left_w = full_w - save_btn_w - padding
-        
+
         -- Column 1: Row 2 (Input)
         ui_text_input("editor_panel", input_draw_x, input_draw_y, left_w, input_row_h, editor_state.input, is_disabled and "Виділіть та перейдіть до ділянки..." or "Редагування репліки...", input_queue, true, false, corr_font)
 
@@ -27216,6 +27275,11 @@ local function main()
             -- Draw Tabs LAST (Z-Index top)
             draw_tabs()
             
+            -- Draw AI modal over panels if active outside text editor
+            if not text_editor_state.active and ai_modal.show then
+                draw_ai_modal(false)
+            end
+
             -- Context Menu logic (Right-click on tab bar / empty space)
             -- Must strictly check UI_STATE.mouse_handled AND window bounds to avoid global capture.
             if UI_STATE.inside_window and gfx.mouse_cap == 2 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
