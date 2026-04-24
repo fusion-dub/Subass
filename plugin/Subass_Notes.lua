@@ -23884,13 +23884,13 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     local max_actor_h_limit = is_right_layout and (4 * act_row_h + S(2)) or (3 * act_row_h + S(10))
 
     -- 1. Calculate how much height actors ACTUALLY need (simulating wrap)
-    local cur_x = 0
+    local cur_x = padding
     local cur_y = 0
     for _, actor in ipairs(actors_list) do
         local w, _ = gfx.measurestr(actor)
         local b_w = w + S(20)
-        if cur_x + b_w > limit_x - padding then
-            cur_x = 0
+        if panel_x + cur_x + b_w > limit_x then
+            cur_x = padding
             cur_y = cur_y + act_row_h
         end
         cur_x = cur_x + b_w + S(5)
@@ -23898,12 +23898,13 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     
     -- Add wrap check for "+" button in height calculation
     local plus_btn_w = S(24)
-    if cur_x + plus_btn_w > limit_x - padding then
-        cur_x = 0
+    if panel_x + cur_x + plus_btn_w > limit_x then
+        cur_x = padding
         cur_y = cur_y + act_row_h
     end
     
-    local needed_actor_h = padding + cur_y + act_row_h + S(2) -- Add rows height + small bottom buffer
+    local start_y = is_right_layout and S(8) or S(16)
+    local needed_actor_h = start_y + cur_y + btn_h
     
     -- 2. Determine Actor Area Height (clamped to 3 rows)
     local control_row_h = S(28)
