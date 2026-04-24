@@ -24363,6 +24363,7 @@ local function draw_table(input_queue)
         if draw_btn_inline(btn_x, filter_y, opt_btn_w, filter_h, "≡", UI.C_BTN) then
             -- Clear input focus on menu click
             director_state.input.focus = false
+            editor_state.input.focus = false
             table_filter_state.focus = false
             OTHER.find_replace_state.find.focus = false
             OTHER.find_replace_state.replace.focus = false
@@ -24667,7 +24668,8 @@ local function draw_table(input_queue)
         for _, key in ipairs(input_queue) do
             -- Verify we are not typing in a text field
             if not table_filter_state.focus and not OTHER.find_replace_state.find.focus and 
-               not OTHER.find_replace_state.replace.focus and not director_state.input.focus then
+               not OTHER.find_replace_state.replace.focus and not director_state.input.focus
+               and not editor_state.input.focus then
                 -- Ctrl+A (Select All Filtered)
                 if key == 1 then
                     table_selection = {}
@@ -25114,7 +25116,7 @@ local function draw_table(input_queue)
 
     local total_h = #table_layout_cache > 0 and (table_layout_cache[#table_layout_cache].y + table_layout_cache[#table_layout_cache].h) or 0
     local min_panel_h = S(84)
-    if cfg.editor_mode then min_panel_h = S(148) end 
+    if cfg.editor_mode then min_panel_h = S(188) end 
 
     -- Safeguard: auto-close bottom panels if window is too small
     if not is_panel_right and gfx.h < min_panel_h + S(60) then
@@ -25491,6 +25493,7 @@ local function draw_table(input_queue)
                         
                         -- Clear input focus on checkbox click
                         director_state.input.focus = false
+                        editor_state.input.focus = false
                         table_filter_state.focus = false
                         OTHER.find_replace_state.find.focus = false
                         OTHER.find_replace_state.replace.focus = false
@@ -25548,6 +25551,7 @@ local function draw_table(input_queue)
                             
                             -- Clear input focus on row click
                             director_state.input.focus = false
+                            editor_state.input.focus = false
                             table_filter_state.focus = false
                             OTHER.find_replace_state.find.focus = false
                             OTHER.find_replace_state.replace.focus = false
