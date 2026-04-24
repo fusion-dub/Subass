@@ -131,6 +131,7 @@ local cfg = {
     director_layout = get_set("director_layout", "bottom"),
     editor_layout = get_set("editor_layout", "bottom"),
     editor_actor_sort = get_set("editor_actor_sort", "alpha"),
+    editor_fast_jump = (get_set("editor_fast_jump", "0") == "1" or get_set("editor_fast_jump", 0) == 1),
     prompter_slider_mode = (get_set("prompter_slider_mode", "0") == "1" or get_set("prompter_slider_mode", 0) == 1),
     auto_trim = (get_set("auto_trim", "0") == "1" or get_set("auto_trim", 0) == 1),
     trim_start = get_set("trim_start", 40),
@@ -2484,6 +2485,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "t_editor_size", cfg.t_editor_size, true)
     reaper.SetExtState(section_name, "t_corr_size", cfg.t_corr_size, true)
     reaper.SetExtState(section_name, "editor_actor_sort", cfg.editor_actor_sort, true)
+    reaper.SetExtState(section_name, "editor_fast_jump", cfg.editor_fast_jump and "1" or "0", true)
 
     -- Invalidate prompter cache when settings change (like wrap length)
     if draw_prompter_cache then
@@ -23809,8 +23811,9 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             
             local alpha_mark = (cfg.editor_actor_sort == "alpha" or not cfg.editor_actor_sort) and "• " or ""
             local count_mark = (cfg.editor_actor_sort == "count") and "• " or ""
+            local fast_jump_mark = cfg.editor_fast_jump and "• " or ""
             
-            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|<" .. count_mark .. "По кількості реплік||" .. layout_label .. "|Закрити вікно"
+            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|<" .. count_mark .. "По кількості реплік|" .. fast_jump_mark .. "Швидкий перехід||" .. layout_label .. "|Закрити вікно"
             
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu(menu_str)
@@ -23823,10 +23826,13 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 editor_state.sort_cache.valid = false
                 save_settings()
             elseif ret == 3 then
+                cfg.editor_fast_jump = not cfg.editor_fast_jump
+                save_settings()
+            elseif ret == 4 then
                 if cfg.editor_layout == "right" then cfg.editor_layout = "bottom" else cfg.editor_layout = "right" end
                 save_settings()
                 last_layout_state.state_count = -1
-            elseif ret == 4 then
+            elseif ret == 5 then
                 cfg.editor_mode = false
                 save_settings()
             end
@@ -23970,6 +23976,8 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                                     break
                                 end
                             end
+
+                            reaper.MarkProjectDirty(0)
                         end
                     end
                 end
@@ -24074,9 +24082,6 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
 
                 editor_state.original_text = txt
                 show_snackbar("Регіон оновлено", "success")
-                cleanup_actors()
-                rebuild_regions()
-                ACHIEVEMENTS.add_stat("ach_28_count", 1)
             elseif is_creating then
                 push_undo("Створення регіону")
                 local actor = editor_state.current_actor
@@ -24100,9 +24105,30 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 })
 
                 show_snackbar("Регіон створено", "success")
+            end
+
+            if is_editing or is_creating then 
                 cleanup_actors()
                 rebuild_regions()
                 ACHIEVEMENTS.add_stat("ach_28_count", 1)
+
+                if cfg.editor_fast_jump then
+                    local base_pos = is_editing and current_region.start_pos or start_ts
+                    local next_r_start = math.huge
+                    local retval, num_markers, num_regions = reaper.CountProjectMarkers(0)
+                    for i = 0, num_markers + num_regions - 1 do
+                        local _, isr, pos, r_end, _, _, _ = reaper.EnumProjectMarkers3(0, i)
+                        if isr and pos > base_pos + 0.001 then
+                            if pos < next_r_start then
+                                next_r_start = pos
+                            end
+                        end
+                    end
+                    if next_r_start < math.huge then
+                        reaper.SetEditCurPos(next_r_start, true, false)
+                        editor_state.input.focus = true
+                    end
+                end
             end
         end
 
