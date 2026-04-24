@@ -19378,7 +19378,7 @@ local function handle_info_overlay_interaction(content_offset_left, content_offs
     end
 end
 
-local function draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, override_time)
+local function draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, override_time, active_idx)
     if not cfg.p_info then return end
     
     gfx.setfont(F.std)
@@ -19390,7 +19390,33 @@ local function draw_info_overlay_graphics(content_offset_left, content_offset_ri
     
     if active_regions and #active_regions > 0 then
         local r = active_regions[1]
-        right_str = tostring(r.idx) .. "/" .. tostring(#regions)
+        
+        -- Use provided active_idx or find it sequentially in regions table
+        local current_seq_idx = active_idx
+        if not current_seq_idx then
+            for i, region in ipairs(regions) do
+                if region.idx == r.idx then current_seq_idx = i; break end
+            end
+        end
+        
+        local display_idx = current_seq_idx and current_seq_idx or r.idx
+        local normal_str = tostring(display_idx) .. "/" .. tostring(#regions)
+        
+        -- Hover detection: determine bounds of the region counter
+        local tw, th = gfx.measurestr(normal_str)
+        local rx = gfx.w - tw - S(10) - content_offset_right
+        local ry = S(30)
+        
+        if gfx.mouse_x >= rx - S(5) and gfx.mouse_x <= gfx.w - content_offset_right and
+           gfx.mouse_y >= ry - S(5) and gfx.mouse_y <= ry + th + S(5) then
+            -- Show remaining count on hover
+            local remaining = #regions - (current_seq_idx or 1)
+            right_str = "-" .. tostring(remaining)
+
+            if remaining == 0 then right_str = "Це останній регіон!" end
+        else
+            right_str = normal_str
+        end
     elseif cfg.p_progress and regions and #regions > 0 then
         local percent = UTILS.get_recording_progress()
         right_str = percent .. "%"
@@ -19898,7 +19924,7 @@ local function draw_prompter_slider(input_queue)
     -- Info Overlay graphics (at the end of content)
     local current_active_regions = {}
     if active_idx ~= -1 then table.insert(current_active_regions, regions[active_idx]) end
-    draw_info_overlay_graphics(content_offset_left, content_offset_right, current_active_regions, UI_STATE.latched_overlay_time)
+    draw_info_overlay_graphics(content_offset_left, content_offset_right, current_active_regions, UI_STATE.latched_overlay_time, active_idx)
 
     if cfg.p_drawer then draw_prompter_drawer(input_queue) end
 
@@ -20015,12 +20041,14 @@ local function draw_prompter(input_queue)
 
     -- Find ALL regions that contain the current position
     local active_regions = {}
+    local active_idx = -1
     local next_rgn = nil
     local next_rgn2 = nil
     local prev_rgn_end = 0
-    for _, rgn in ipairs(regions) do
+    for i, rgn in ipairs(regions) do
         if cur_pos >= rgn.pos and cur_pos < rgn.rgnend then
             table.insert(active_regions, rgn)
+            if active_idx == -1 then active_idx = i end
         end
         if rgn.pos > cur_pos then
             if not next_rgn then
@@ -20715,7 +20743,7 @@ local function draw_prompter(input_queue)
     end
 
     -- Info Overlay graphics (OVER EVERYTHING ELSE)
-    draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, UI_STATE.latched_overlay_time)
+    draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, UI_STATE.latched_overlay_time, active_idx)
 
     -- === DRAWER UI DRAWING (OVER EVERYTHING) ===
     if cfg.p_drawer then
