@@ -8243,6 +8243,20 @@ local function undo_action()
     ass_markers = last_state.markers
     if last_state.dubbers then DUBBERS.data = last_state.dubbers end
     if last_state.dir_actors then director_actors = last_state.dir_actors end
+
+    if editor_state.last_region_id ~= nil then
+        local _, isrgn, _, _, name, _ = reaper.EnumProjectMarkers3(0, editor_state.last_region_id)
+        if isrgn then
+            editor_state.original_text = name
+        end
+
+        for _, line in ipairs(ass_lines) do
+            if line.rgn_idx and line.rgn_idx == editor_state.last_region_id then
+                editor_state.current_actor = line.actor
+                break
+            end
+        end
+    end
     
     DUBBERS.save()
     cleanup_actors()
@@ -8276,6 +8290,20 @@ local function redo_action()
     ass_markers = next_state.markers
     if next_state.dubbers then DUBBERS.data = next_state.dubbers end
     if next_state.dir_actors then director_actors = next_state.dir_actors end
+
+    if editor_state.last_region_id ~= nil then
+        local _, isrgn, _, _, name, _ = reaper.EnumProjectMarkers3(0, editor_state.last_region_id)
+        if isrgn then
+            editor_state.original_text = name
+        end
+
+        for _, line in ipairs(ass_lines) do
+            if line.rgn_idx and line.rgn_idx == editor_state.last_region_id then
+                editor_state.current_actor = line.actor
+                break
+            end
+        end
+    end
     
     DUBBERS.save()
     cleanup_actors()
@@ -8354,14 +8382,14 @@ local function apply_item_coloring(reset)
                 for j = 0, total - 1 do
                     local _, isrgn, r_start, r_end, _, _, color = reaper.EnumProjectMarkers3(0, j)
                     if isrgn and color ~= 0 then
-                            -- Calculate intersection
-                            local overlap_start = math.max(item_start, r_start)
-                            local overlap_end = math.min(item_end, r_end)
-                            local overlap = overlap_end - overlap_start
-                            
-                            if overlap > max_overlap then
-                                max_overlap = overlap
-                                best_color = color
+                        -- Calculate intersection
+                        local overlap_start = math.max(item_start, r_start)
+                        local overlap_end = math.min(item_end, r_end)
+                        local overlap = overlap_end - overlap_start
+                        
+                        if overlap > max_overlap then
+                            max_overlap = overlap
+                            best_color = color
                         end
                     end
                 end
