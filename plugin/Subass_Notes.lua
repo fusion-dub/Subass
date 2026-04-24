@@ -600,6 +600,7 @@ local F = {
     tr_XXL = 16,
     tr_XXXL = 17,
     title = 18,
+    ital = 19,
 }
 
 -- Prompter Rendering Cache (moved to global for invalidation on font change)
@@ -633,6 +634,7 @@ local function update_prompter_fonts()
     gfx.setfont(F.std, "Arial", S(14))
     gfx.setfont(F.bld, "Arial", S(14), string.byte('b')) -- Reduced from 16
     gfx.setfont(F.title, "Arial", S(22), string.byte('b'))
+    gfx.setfont(F.ital, "Arial", S(14), string.byte('i'))
     
     -- Dictionary Fonts
     gfx.setfont(F.dict_std, "Arial", S(17))
@@ -24071,10 +24073,32 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         for i, label in ipairs(fmt_btns) do
             local bx = input_draw_x + (i-1) * (fmt_btn_w + fmt_gap)
             local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
+            
+            -- Apply styling for preview
+            if label == "B" then gfx.setfont(F.bld)
+            elseif label == "I" then gfx.setfont(F.ital)
+            else gfx.setfont(F.std) end
+
             if draw_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, label, b_col) then
                 apply_fmt(fmt_tags[i])
             end
+            
+            -- Draw extra lines for U and S
+            local str_w, str_h = gfx.measurestr(label)
+            local tx = bx + (fmt_btn_w - str_w) / 2
+            local ty = control_draw_y + (control_row_h - str_h) / 2
+            local s1 = S(1)
+            local s2 = S(2)
+
+            if label == "U" then
+                set_color(UI.C_TXT)
+                gfx.line(tx, ty + str_h - s1, tx + str_w, ty + str_h - s1)
+            elseif label == "S" then
+                set_color(UI.C_TXT)
+                gfx.line(tx - s2, ty + str_h/2 - s2, tx + str_w + s2, ty + str_h/2 - s2)
+            end
         end
+        gfx.setfont(F.std)
 
         -- 2. INPUT & ACTION AREA (2 Columns)
         local was_focused = editor_state.input.focus
