@@ -23714,6 +23714,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 editor_state.current_actor = actor
                 editor_state.input.cursor = #r_name
                 editor_state.input.anchor = #r_name
+                ai_modal.show = false
             end
         end
     end
@@ -23981,6 +23982,92 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                             reaper.MarkProjectDirty(0)
                         end
                     end
+                end
+                
+                -- Right-click Context Menu
+                local vis_y1 = math.max(sdraw_y, panel_y)
+                local vis_y2 = math.min(sdraw_y + btn_h, actor_area_bottom)
+                local hover = UI_STATE.window_focused and not is_opt_hover and
+                    (gfx.mouse_x >= draw_x and gfx.mouse_x <= draw_x + btn_w and
+                     gfx.mouse_y >= vis_y1 and gfx.mouse_y <= vis_y2)
+                     
+                if hover and is_right_mouse_clicked() then
+                    gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                    local act = actor
+                    local replicas_count = 0
+                    for _, l in ipairs(ass_lines) do
+                        if l.actor == act then
+                            replicas_count = replicas_count + 1
+                        end
+                    end
+                    
+                    local ret = gfx.showmenu("#Кількість реплік: " .. replicas_count .. "||Змінити колір|Змінити ім'я актора||Видалити актора")
+                    if ret == 2 then
+                        local current_native = get_actor_color(act)
+                        if current_native == 0 then current_native = 2500134 end
+                        local retval, color = reaper.GR_SelectColor(reaper.GetMainHwnd(), current_native)
+                        if retval > 0 then
+                            local final_color = color | 0x1000000
+                            ASS.actor_colors[act] = final_color
+                            OTHER.update_global_actor_color(act, final_color)
+                            
+                            cfg.random_color_actors = true
+                            rebuild_regions()
+                            save_project_data()
+                            reaper.MarkProjectDirty(0)
+                        end
+                    elseif ret == 3 then
+                        local ok, new_name = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", act)
+                        if ok then
+                            new_name = new_name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
+                            if new_name ~= "" then
+                                push_undo("Зміна імені актора")
+                                for _, l in ipairs(ass_lines) do
+                                    if l.actor == act then l.actor = new_name end
+                                end
+                                local state = ass_actors[act]
+                                ass_actors[act] = nil
+                                if state ~= nil then ass_actors[new_name] = state else ass_actors[new_name] = true end
+                                
+                                local current_color = get_actor_color(act)
+                                if current_color and current_color ~= 0 then ASS.actor_colors[new_name] = current_color end
+                                ASS.actor_colors[act] = nil
+                                
+                                if editor_state.current_actor == act then
+                                    editor_state.current_actor = new_name
+                                end
+                                
+                                cleanup_actors()
+                                editor_state.sort_cache.valid = false
+                                rebuild_regions()
+                                save_project_data()
+                                reaper.MarkProjectDirty(0)
+                            end
+                        end
+                    elseif ret == 4 then
+                        local confirm = reaper.MB("Видалити актора '" .. act .. "' і всі його репліки?", "Підтвердження", 4)
+                        if confirm == 6 then
+                            push_undo("Видалення актора " .. act)
+                            ass_actors[act] = nil
+                            ASS.actor_colors[act] = nil
+                            local new_lines = {}
+                            for _, line in ipairs(ass_lines) do
+                                if line.actor ~= act then table.insert(new_lines, line) end
+                            end
+                            ass_lines = new_lines
+                            
+                            if editor_state.current_actor == act then
+                                editor_state.current_actor = ""
+                            end
+                            
+                            cleanup_actors()
+                            editor_state.sort_cache.valid = false
+                            rebuild_regions()
+                            save_project_data()
+                            reaper.MarkProjectDirty(0)
+                        end
+                    end
+                    UI_STATE.mouse_handled = true
                 end
             end
         end
