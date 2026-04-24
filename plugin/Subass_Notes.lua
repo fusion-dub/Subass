@@ -126,8 +126,10 @@ local cfg = {
     col_w_actor = get_set("col_w_actor", 100),
 
     gui_scale = get_set("gui_scale", 1.1),
+    editor_mode = (get_set("editor_mode", "0") == "1" or get_set("editor_mode", 0) == 1),
     director_mode = (get_set("director_mode", "0") == "1" or get_set("director_mode", 0) == 1),
     director_layout = get_set("director_layout", "bottom"),
+    editor_layout = get_set("editor_layout", "bottom"),
     prompter_slider_mode = (get_set("prompter_slider_mode", "0") == "1" or get_set("prompter_slider_mode", 0) == 1),
     auto_trim = (get_set("auto_trim", "0") == "1" or get_set("auto_trim", 0) == 1),
     trim_start = get_set("trim_start", 40),
@@ -320,6 +322,11 @@ end
 
 cfg.w_director = get_set("w_director", S(300))
 cfg.h_director = get_set("h_director", S(120))
+cfg.w_editor = get_set("w_editor", S(300))
+cfg.h_editor = get_set("h_editor", S(120))
+
+local dynamic_director_h = nil
+local dynamic_editor_h = nil
 
 -- OS Detection for hybrid stress mark rendering
 local is_windows = reaper.GetOS():match("Win") ~= nil
@@ -814,8 +821,16 @@ local director_state = {
     last_ass_actor = nil,        -- To track character changes for auto-fill
 }
 
--- Proximity helper for marker detection
-local function is_near(t1, t2) return math.abs(t1-t2) < 0.001 end
+-- Editor Mode State
+local editor_state = {
+    input = { text = "", cursor = 0, anchor = 0, focus = false },
+    last_region_id = nil,
+    original_text = "",
+    current_actor = "",
+    scroll_y = 0,
+    target_scroll_y = 0,
+    cached_max_scroll = 0
+}
 
 -- ASS/Subtitle Data
 local ass_lines = {}
@@ -2529,12 +2544,16 @@ local function save_settings()
     reaper.SetExtState(section_name, "reader_mode", cfg.reader_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "show_markers_in_table", cfg.show_markers_in_table and "1" or "0", true)
     reaper.SetExtState(section_name, "gui_scale", tostring(cfg.gui_scale), true)
+    reaper.SetExtState(section_name, "editor_mode", cfg.editor_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "director_mode", cfg.director_mode and "1" or "0", true)
     reaper.SetExtState(section_name, "director_layout", cfg.director_layout, true)
+    reaper.SetExtState(section_name, "editor_layout", cfg.editor_layout, true)
     reaper.SetExtState(section_name, "director_autofill", cfg.director_autofill and "1" or "0", true)
     reaper.SetExtState(section_name, "director_ignore_green", cfg.director_ignore_green and "1" or "0", true)
     reaper.SetExtState(section_name, "w_director", tostring(cfg.w_director), true)
     reaper.SetExtState(section_name, "h_director", tostring(cfg.h_director), true)
+    reaper.SetExtState(section_name, "w_editor", tostring(cfg.w_editor), true)
+    reaper.SetExtState(section_name, "h_editor", tostring(cfg.h_editor), true)
 
     reaper.SetExtState(section_name, "col_w_enabled", tostring(cfg.col_w_enabled), true)
     reaper.SetExtState(section_name, "col_w_index", tostring(cfg.col_w_index), true)
@@ -2558,8 +2577,10 @@ end
 -- UTILITY FUNCTIONS
 -- =============================================================================
 
---- Serialize and send Prompter data to ExtState for the satellite Overlay script
+-- Proximity helper for marker detection
+function UTILS.is_near(t1, t2) return math.abs(t1-t2) < 0.001 end
 
+--- Serialize and send Prompter data to ExtState for the satellite Overlay script
 function UTILS.find_satellite_window(title_pattern)
     if not reaper.JS_Window_ArrayAllChild then return nil end
     
@@ -3541,6 +3562,7 @@ local function is_any_text_input_focused()
     if table_filter_state and table_filter_state.focus then return true end
     if prompter_drawer and prompter_drawer.filter and prompter_drawer.filter.focus then return true end
     if director_state and director_state.input and director_state.input.focus then return true end
+    if editor_state and editor_state.input and editor_state.input.focus then return true end
     if SEARCH_ITEM and SEARCH_ITEM.show and SEARCH_ITEM.input and SEARCH_ITEM.input.focus then return true end
     if OTHER.find_replace_state and OTHER.find_replace_state.show then
         if OTHER.find_replace_state.find and OTHER.find_replace_state.find.focus then return true end
@@ -6954,6 +6976,7 @@ UTILS.GLOBAL_HOTKEY_ACTIONS = {
         UTILS.close_all_modals()
         UI_STATE.current_tab = 2
         cfg.director_mode = not cfg.director_mode
+        cfg.editor_mode = false
         save_settings()
     end },
     { label = "Відобразити SubOverlay від Lionzz", action = function() UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end },
@@ -6974,6 +6997,13 @@ UTILS.GLOBAL_HOTKEY_ACTIONS = {
     end },
     { label = "Відкрити Нотатник", action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_Notepad.lua", "Нотатник") end },
     { label = "Відкрити Словник", action = function() UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end },
+    { label = "Перейти в Режим Редактора", action = function()
+        UTILS.close_all_modals()
+        UI_STATE.current_tab = 2
+        cfg.editor_mode = not cfg.editor_mode
+        cfg.director_mode = false
+        save_settings()
+    end },
 }
 
 function UTILS.execute_hotkey_action(idx)
@@ -20965,11 +20995,19 @@ local function draw_settings()
         {name = "Режим Режисера", tip = "Перемикає інтерфейс у режим перегляду для режисера: вкладка реплік з активним режимом контролю та зауважень.", color = cfg.director_mode and UI.C_BTN_MEDIUM or nil, action = function() 
             UI_STATE.current_tab = 2 
             cfg.director_mode = not cfg.director_mode 
+            cfg.editor_mode = false
             save_settings() 
         end},
         {name = "Режим Слайдера", tip = "Перемикає інтерфейс на вкладку суфлера та перемкне режим плавного прокручування (Slider Mode) для комфортного читання.", color = cfg.prompter_slider_mode and UI.C_BTN_MEDIUM or nil, action = function() 
             UI_STATE.current_tab = 3 
             cfg.prompter_slider_mode = not cfg.prompter_slider_mode 
+            save_settings() 
+        end},
+        {name = "Відкрити мої досягнення", tip = "Перегляд здобутих користувачем досягнень.", action = function() ACHIEVEMENTS.show = true end},
+        {name = "Режим Редактора", tip = "Перемикає інтерфейс у режим перегляду для редактора: вкладка редагування регіонів з активним режимом назначення акторів.", color = cfg.editor_mode and UI.C_BTN_MEDIUM or nil, action = function() 
+            UI_STATE.current_tab = 2 
+            cfg.editor_mode = not cfg.editor_mode 
+            cfg.director_mode = false
             save_settings() 
         end},
         {name = "Видалити ВСІ регіони", tip = "Видаляє всі регіони з проекту REAPER. Дія незворотна!", color = UI.C_BTN_ERROR, action = function() delete_all_regions() end},
@@ -21156,12 +21194,12 @@ local function draw_settings()
 
     -- Hotkeys Button
     local keys = {}
-    for k in cfg.hotkeys:gmatch("([^,]+)") do table.insert(keys, k) end
+    for k in (cfg.hotkeys .. ","):gmatch("(.-),") do table.insert(keys, k) end
 
     if s_btn(x_start, y_cursor, S(200), S(35), "Гарячі клавіші", "Налаштування глобальних гарячих клавіш для швидкого перемикання лише коли плагін в фокусі") then
         local menu_str = ""
         for i, item in ipairs(UTILS.GLOBAL_HOTKEY_ACTIONS) do
-            local key = keys[i] or "?"
+            local key = (keys[i] and keys[i] ~= "") and keys[i] or "?"
             menu_str = menu_str .. "[" .. key .. "] " .. item.label .. "||"
         end
         local ret = gfx.showmenu(menu_str)
@@ -21697,7 +21735,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(35)
 
     -- Alignment
-    s_text(x_start, y_cursor, "Розмір шрифту поля редагування тексту:")
+    s_text(x_start, y_cursor, "Розмір шрифту модального вікна редагування:")
     y_cursor = y_cursor + S(25)
     for i, opt in ipairs(text_size_options) do
         local bx = x_start + ((i-1) * S(70))
@@ -21712,7 +21750,7 @@ local function draw_settings()
     y_cursor = y_cursor + S(60)
 
     -- Alignment
-    s_text(x_start, y_cursor, "Розмір шрифту поля редагування правки:")
+    s_text(x_start, y_cursor, "Розмір шрифту нижньої панелі редагування:")
     y_cursor = y_cursor + S(25)
     for i, opt in ipairs(text_size_options) do
         local bx = x_start + ((i-1) * S(70))
@@ -22428,12 +22466,12 @@ function UTILS.update_director_marker_and_autofill(cur_time, current_ass_actors)
         end
     end
 
-    if not is_near(cur_time, director_state.last_time) then
+    if not UTILS.is_near(cur_time, director_state.last_time) then
         director_state.last_time = cur_time
         
         local found_m = nil
         for _, m in ipairs(ass_markers) do
-            if is_near(m.pos, cur_time) then
+            if UTILS.is_near(m.pos, cur_time) then
                 found_m = m
                 break
             end
@@ -23535,6 +23573,407 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     return (actor_area_bottom - panel_y) + input_area_h
 end
 
+local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
+    if not calc_only then
+        set_color(UI.C_BG)
+        gfx.rect(panel_x, panel_y, panel_w, panel_h, 1)
+        gfx.setfont(F.std)
+    end
+    
+    local is_editor_right = (cfg.editor_layout == "right")
+    local padding = S(10)
+    local btn_h = S(24)
+
+    -- --- AUTO-DETECT CURRENT STATE ---
+    local play_pos = reaper.GetPlayPosition()
+    local edit_pos = reaper.GetCursorPosition()
+    local cur_time = reaper.GetPlayState() > 0 and play_pos or edit_pos
+    
+    local start_ts, end_ts = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
+    local has_selection = (end_ts > start_ts)
+    
+    -- Find region at cur_time
+    local _, marker_idx = reaper.GetLastMarkerAndCurRegion(0, cur_time)
+    local current_region = nil
+    if marker_idx ~= -1 then
+        local retval, isr, r_start, r_end, r_name, r_id, r_col = reaper.EnumProjectMarkers3(0, marker_idx)
+        if isr and cur_time >= r_start and cur_time <= r_end then
+            -- Find actor in ass_lines instead of parsing text
+            local actor = ""
+            for _, line in ipairs(ass_lines) do
+                -- Match by markindex or by start time (fallback)
+                if line.markindex == r_id or (line.t1 and math.abs(line.t1 - r_start) < 0.001) then
+                    actor = line.actor or ""
+                    break
+                end
+            end
+            
+            current_region = {idx = marker_idx, start_pos = r_start, end_pos = r_end, name = r_name, id = r_id, col = r_col, actor = actor}
+            
+            -- Sync text if entering a new region
+            if editor_state.last_region_id ~= r_id then
+                editor_state.last_region_id = r_id
+                editor_state.input.text = r_name
+                editor_state.original_text = r_name
+                editor_state.current_actor = actor
+                editor_state.input.cursor = #r_name
+                editor_state.input.anchor = #r_name
+            end
+        end
+    end
+    
+    if not current_region then
+        editor_state.last_region_id = nil
+        -- If we were editing but now we are not, we keep the text for "Create" mode
+    end
+
+    local is_editing = (current_region ~= nil)
+    local is_creating = (not is_editing and has_selection)
+    local is_disabled = (not is_editing and not is_creating)
+    
+    local opt_btn_w = S(30)
+    local opt_x = panel_x + panel_w - padding - opt_btn_w
+    local opt_draw_y = panel_y + (is_editor_right and S(2) or padding)
+    local is_opt_hover = false
+    if not calc_only then
+        is_opt_hover = UI_STATE.window_focused and
+                       (gfx.mouse_x >= opt_x and gfx.mouse_x <= opt_x + opt_btn_w and
+                        gfx.mouse_y >= opt_draw_y and gfx.mouse_y <= opt_draw_y + btn_h)
+    end
+
+    -- Clipped button: renders the button but crops it to [clip_y_top, clip_y_bot]
+    local function draw_btn_clipped(x, y, w, h, text, bg_col, clip_y_top, clip_y_bot)
+        local vis_y1 = math.max(y, clip_y_top)
+        local vis_y2 = math.min(y + h, clip_y_bot)
+        if vis_y1 >= vis_y2 then return false end -- fully outside
+        
+        local is_fully_visible = (y >= clip_y_top and y + h <= clip_y_bot)
+        if is_fully_visible then
+            return draw_btn_inline(x, y, w, h, text, bg_col, is_opt_hover)
+        end
+        
+        local buf = OTHER.BUF.DIRECTOR -- Reuse same buffer
+        gfx.setimgdim(buf, w, h)
+        local prev_dest = gfx.dest
+        gfx.dest = buf
+        
+        local hover = UI_STATE.window_focused and not is_opt_hover and
+            (gfx.mouse_x >= x and gfx.mouse_x <= x + w and
+             gfx.mouse_y >= vis_y1 and gfx.mouse_y <= vis_y2)
+        set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
+        gfx.rect(0, 0, w, h, 1)
+        set_color(UI.C_TXT)
+        local sw, sh = gfx.measurestr(text)
+        gfx.x = (w - sw) / 2
+        gfx.y = (h - sh) / 2
+        gfx.drawstr(text)
+        
+        gfx.dest = prev_dest
+        local src_y = vis_y1 - y
+        local slice_h = vis_y2 - vis_y1
+        gfx.blit(buf, 1, 0, 0, src_y, w, slice_h, x, vis_y1, w, slice_h)
+        
+        if hover and not director_resize_drag and is_mouse_clicked() then return true end
+        return false
+    end
+
+    -- --- ROW 1: ACTORS ---
+    local x = padding
+    local y = is_editor_right and S(2) or padding
+    
+    if not calc_only then
+        set_color(UI.C_BG)
+        gfx.rect(panel_x, panel_y, panel_w, panel_h, 1)
+        set_color(UI.C_MEDIUM_GREY)
+        if is_editor_right then
+            gfx.line(panel_x, panel_y, panel_x, panel_y + panel_h)
+        else
+            gfx.line(panel_x, panel_y, panel_x + panel_w, panel_y)
+        end
+    end
+    
+    local draw_x = panel_x + x
+    local draw_y = panel_y + y
+    local _, current_actors_set = get_actors_from_text(editor_state.input.text)
+    local save_btn_w = S(100)
+    local is_right_layout = is_editor_right
+    local input_w = is_right_layout and (panel_w - padding*2) or (panel_w - padding*2 - save_btn_w - S(10))
+    local limit_x = opt_x - S(5)
+
+    local function draw_options_menu()
+        if not calc_only and draw_btn_inline(opt_x, opt_draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
+            local layout_label = is_editor_right and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
+            local menu_str = layout_label .. "|Закрити вікно"
+            
+            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+            local ret = gfx.showmenu(menu_str)
+            if ret == 1 then
+                if cfg.editor_layout == "right" then cfg.editor_layout = "bottom" else cfg.editor_layout = "right" end
+                save_settings()
+                last_layout_state.state_count = -1
+            elseif ret == 2 then
+                cfg.editor_mode = false
+                save_settings()
+            end
+        end
+    end
+
+    -- Sourcing actors from ass_actors
+    local actors_list = {}
+    for act, _ in pairs(ass_actors) do
+        if act and act ~= "" then table.insert(actors_list, act) end
+    end
+    table.sort(actors_list)
+
+    -- --- DYNAMIC LAYOUT CALCULATION ---
+    local act_row_h = btn_h + S(5)
+    local max_actor_rows = 3
+    local max_actor_h_limit = max_actor_rows * act_row_h + S(10)
+    
+    -- 1. Calculate how much height actors ACTUALLY need (simulating wrap)
+    local needed_actor_h = padding -- Start with top padding
+    if #actors_list > 0 then
+        local cur_x = 0
+        local cur_y = 0
+        for _, actor in ipairs(actors_list) do
+            local w, _ = gfx.measurestr(actor)
+            local b_w = w + S(20)
+            if cur_x + b_w > limit_x - padding then
+                cur_x = 0
+                cur_y = cur_y + act_row_h
+            end
+            cur_x = cur_x + b_w + S(5)
+        end
+        needed_actor_h = needed_actor_h + cur_y + act_row_h + S(2) -- Add rows height + small bottom buffer
+    end
+    
+    -- 2. Determine Actor Area Height (clamped to 3 rows)
+    local control_row_h = S(28)
+    local actor_area_h = math.min(needed_actor_h, max_actor_h_limit)
+    local actor_area_bottom = panel_y + actor_area_h
+    
+    -- 3. Input Row takes ALL remaining space
+    local input_row_h = panel_h - actor_area_h - control_row_h - padding*3
+    if input_row_h < S(40) then input_row_h = S(40) end -- Safety minimum
+    
+    local input_area_h = control_row_h + input_row_h + padding*3
+    if not calc_only and UI_STATE.window_focused and gfx.mouse_wheel ~= 0 and
+       gfx.mouse_x >= panel_x and gfx.mouse_x <= panel_x + panel_w and
+       gfx.mouse_y >= panel_y and gfx.mouse_y <= actor_area_bottom then
+        local step = btn_h + S(5)
+        editor_state.wheel_accum = (editor_state.wheel_accum or 0) + gfx.mouse_wheel
+        local wheel_sensitivity = 80
+        local new_scroll = editor_state.target_scroll_y or 0
+        while editor_state.wheel_accum >= wheel_sensitivity do
+            new_scroll = math.floor((new_scroll - 1) / step) * step
+            if new_scroll < 0 then new_scroll = 0 end
+            editor_state.wheel_accum = editor_state.wheel_accum - wheel_sensitivity
+        end
+        while editor_state.wheel_accum <= -wheel_sensitivity do
+            new_scroll = math.ceil((new_scroll + 1) / step) * step
+            editor_state.wheel_accum = editor_state.wheel_accum + wheel_sensitivity
+        end
+        editor_state.target_scroll_y = new_scroll
+        local cached_max = editor_state.cached_max_scroll or 0
+        editor_state.target_scroll_y = math.max(0, math.min(cached_max, editor_state.target_scroll_y))
+        gfx.mouse_wheel = 0
+    end
+    editor_state.scroll_y = editor_state.target_scroll_y or 0
+
+    for i, actor in ipairs(actors_list) do
+        local label = actor
+        local w, _ = gfx.measurestr(label)
+        local btn_w = w + S(20)
+        
+        if draw_x + btn_w > limit_x then
+            x = padding
+            y = y + btn_h + S(5)
+            draw_x = panel_x + x
+            draw_y = panel_y + y
+        end
+        
+        if not calc_only then
+            local is_active = (actor == editor_state.current_actor)
+            local bg_col = is_active and UI.C_ACCENT_G or UI.C_BTN
+            local sdraw_y = draw_y - math.floor(editor_state.scroll_y or 0)
+            
+            if sdraw_y + btn_h > panel_y and sdraw_y < actor_area_bottom then
+                if draw_btn_clipped(draw_x, sdraw_y, btn_w, btn_h, label, bg_col, panel_y, actor_area_bottom) then
+                    if not is_opt_hover then
+                        editor_state.current_actor = actor
+                        -- Immediate sync if editing
+                        if current_region then
+                            local new_col = get_actor_color(actor)
+                            -- Use existing color if get_actor_color returns 0 (default/not found)
+                            if not new_col or new_col == 0 then new_col = current_region.col end
+                            
+                            -- Update REAPER marker immediately (including color!)
+                            reaper.SetProjectMarker3(0, current_region.id, true, current_region.start_pos, current_region.end_pos, current_region.name, new_col)
+                            current_region.col = new_col -- Update local state for immediate feedback
+                            
+                            for _, line in ipairs(ass_lines) do
+                                if line.markindex == current_region.id or (line.t1 and math.abs(line.t1 - current_region.start_pos) < 0.001) then
+                                    line.actor = actor
+                                    reaper.Undo_OnStateChangeEx2(0, "Subass: Зміна актора та кольору", 8, -1)
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        x = x + btn_w + S(5)
+        draw_x = panel_x + x
+    end
+    
+    if not calc_only then
+        local total_actors_h = y + btn_h + S(20)
+        local viewport_h = actor_area_bottom - panel_y
+        local max_scroll = math.max(0, total_actors_h - viewport_h)
+        editor_state.cached_max_scroll = max_scroll
+        editor_state.target_scroll_y = math.max(0, math.min(max_scroll, editor_state.target_scroll_y or 0))
+        editor_state.scroll_y = math.max(0, math.min(max_scroll, editor_state.scroll_y or 0))
+        if max_scroll > 0 then
+            local bar_h = math.max(S(20), (viewport_h / total_actors_h) * viewport_h)
+            local bar_y = panel_y + ((editor_state.scroll_y or 0) / total_actors_h) * viewport_h
+            set_color(UI.C_TXT_DIM)
+            gfx.rect(panel_x + panel_w - S(4), bar_y, S(3), bar_h, 1)
+        end
+    end
+
+    draw_options_menu()
+    
+    -- Separator Line
+    if not calc_only then
+        set_color(UI.C_MEDIUM_GREY)
+        gfx.line(panel_x, actor_area_bottom, panel_x + panel_w, actor_area_bottom)
+    end
+
+    -- --- ROW 2 & 3: CONTROLS & INPUT ---
+    local control_draw_y = actor_area_bottom + padding
+    local input_draw_y = control_draw_y + control_row_h + padding
+    local input_draw_x = panel_x + padding
+    local full_w = panel_w - padding*2
+    if not calc_only then
+        local function save_editor_changes()
+            local txt = editor_state.input.text
+            
+            if is_editing and current_region then
+                -- Region name is ONLY text, no actor brackets
+                reaper.SetProjectMarker3(0, current_region.id, true, current_region.start_pos, current_region.end_pos, txt, current_region.col)
+                
+                -- Sync with ass_lines
+                for _, line in ipairs(ass_lines) do
+                    if line.markindex == current_region.id or (line.t1 and math.abs(line.t1 - current_region.start_pos) < 0.001) then
+                        line.actor = editor_state.current_actor
+                        line.text = txt
+                        break
+                    end
+                end
+
+                editor_state.original_text = txt
+                show_snackbar("Регіон оновлено", "success")
+                reaper.Undo_OnStateChangeEx2(0, "Subass: update region", 8, -1)
+            elseif is_creating then
+                local actor = editor_state.current_actor or ""
+                local col = get_actor_color(actor)
+                -- If color is 0 (not found/black), use -1 for REAPER's default region color
+                if not col or col == 0 then col = -1 end
+                
+                local r_idx = reaper.AddProjectMarker2(0, true, start_ts, end_ts, txt, -1, col)
+                local _, _, _, _, _, r_id = reaper.EnumProjectMarkers3(0, r_idx)
+                
+                -- Ensure new region is also in ass_lines for immediate selection/editing
+                table.insert(ass_lines, {
+                    t1 = start_ts,
+                    t2 = end_ts,
+                    text = txt,
+                    actor = actor,
+                    markindex = r_id
+                })
+
+                show_snackbar("Регіон створено", "success")
+                reaper.Undo_OnStateChangeEx2(0, "Subass: create region", 8, -1)
+            end
+        end
+
+        -- 1. CONTROL ROW (Formatting + Save)
+        local fmt_btn_w = S(28)
+        local fmt_gap = S(4)
+        local fmt_btns = {"B", "I", "U", "S"}
+        local fmt_tags = {"b", "i", "u", "s"}
+        
+        local function apply_fmt(tag)
+            if is_disabled then return end
+            local inp = editor_state.input
+            local s_idx = math.min(inp.cursor, inp.anchor)
+            local e_idx = math.max(inp.cursor, inp.anchor)
+            local txt = inp.text
+            
+            if s_idx ~= e_idx then
+                -- Wrap selection
+                local selected = txt:sub(s_idx + 1, e_idx)
+                local new_txt = txt:sub(1, s_idx) .. "{\\" .. tag .. "1}" .. selected .. "{\\" .. tag .. "0}" .. txt:sub(e_idx + 1)
+                inp.text = new_txt
+                inp.cursor = s_idx + #tag + 3 + #selected + #tag + 3
+                inp.anchor = inp.cursor
+            else
+                -- Insert tag at cursor
+                local new_txt = txt:sub(1, s_idx) .. "{\\" .. tag .. "1}" .. txt:sub(s_idx + 1)
+                inp.text = new_txt
+                inp.cursor = s_idx + #tag + 3
+                inp.anchor = inp.cursor
+            end
+            inp.focus = true
+        end
+
+        for i, label in ipairs(fmt_btns) do
+            local bx = input_draw_x + (i-1) * (fmt_btn_w + fmt_gap)
+            local b_col = is_disabled and UI.C_BTN_DISABLED or UI.C_BTN
+            if draw_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, label, b_col) then
+                apply_fmt(fmt_tags[i])
+            end
+        end
+
+        -- 2. INPUT & ACTION AREA (2 Columns)
+        local was_focused = editor_state.input.focus
+        local corr_font = F[cfg.t_corr_size]
+        local base_sz = OTHER.FONT_SIZES.normal[cfg.t_corr_size]
+        gfx.setfont(corr_font, cfg.p_font, S(base_sz or 18))
+        
+        local has_changes = (editor_state.input.text ~= editor_state.original_text)
+        local save_col = is_disabled and UI.C_BTN_DISABLED or (is_creating and UI.C_ACCENT_G or (has_changes and UI.C_BTN_UPDATE or UI.C_BTN))
+        local save_label = is_creating and "Створити" or "Оновити"
+        local save_btn_w = is_right_layout and S(80) or S(110)
+        local left_w = full_w - save_btn_w - padding
+        
+        -- Column 1: Row 2 (Input)
+        ui_text_input("editor_panel", input_draw_x, input_draw_y, left_w, input_row_h, editor_state.input, is_disabled and "Виберіть ділянку..." or "Редагування репліки...", input_queue, not is_disabled, true, corr_font)
+
+        -- Column 2: Large Action Button (Spans both rows)
+        local save_x = input_draw_x + left_w + padding
+        local save_y = control_draw_y
+        local save_h = (input_draw_y + input_row_h) - control_draw_y
+
+        gfx.setfont(F.std)
+        if draw_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
+            if not is_disabled then save_editor_changes() end
+        end
+
+        if input_queue and not is_disabled then
+            local is_shift = (gfx.mouse_cap & 8 == 8)
+            for _, char in ipairs(input_queue) do
+                if char == 13 and not is_shift and was_focused then
+                    save_editor_changes()
+                end
+            end
+        end
+    end
+    
+    return (actor_area_bottom - panel_y) + input_area_h
+end
+
 local function draw_table(input_queue)
     local show_actor = UI_STATE.ass_file_loaded
     local start_y = S(65)
@@ -23555,23 +23994,25 @@ local function draw_table(input_queue)
     local filter_y = S(35)
     local filter_h = S(25)
     -- LAYOUT INITIALIZATION (Calculate avail sizes first)
-    local w_director = cfg.w_director or S(300)
-    local is_dir_right = (cfg.director_layout == "right")
+    local w_panel = (cfg.editor_mode and cfg.w_editor or cfg.w_director) or S(300)
+    local is_panel_right = (cfg.editor_mode and cfg.editor_layout == "right") or (cfg.director_mode and cfg.director_layout == "right")
     
-    if cfg.director_mode and is_dir_right then 
+    if (cfg.director_mode or cfg.editor_mode) and is_panel_right then 
         -- Prevent overlapping the main list (leaving at least S(150) for the left side)
         local max_allowed_w = math.max(S(120), gfx.w - S(150))
-        if w_director > max_allowed_w then
-            w_director = max_allowed_w
-            if not director_resize_drag then cfg.w_director = w_director end
+        if w_panel > max_allowed_w then
+            w_panel = max_allowed_w
+            if not director_resize_drag then 
+                if cfg.editor_mode then cfg.w_editor = w_panel else cfg.w_director = w_panel end
+            end
         end
     end
     
-    local h_director = (cfg.director_mode and not is_dir_right) and (dynamic_director_h or S(150)) or 0
-    if cfg.director_mode and is_dir_right then h_director = 0 end
+    local h_panel = ((cfg.director_mode or cfg.editor_mode) and not is_panel_right) and (cfg.editor_mode and (cfg.h_editor or dynamic_editor_h) or (cfg.h_director or dynamic_director_h) or S(150)) or 0
+    if (cfg.director_mode or cfg.editor_mode) and is_panel_right then h_panel = 0 end
     
     local avail_w = gfx.w
-    if cfg.director_mode and is_dir_right then avail_w = gfx.w - w_director end
+    if (cfg.director_mode or cfg.editor_mode) and is_panel_right then avail_w = gfx.w - w_panel end
 
     local filter_x = S(10)
     local opt_btn_w = S(30)
@@ -23628,12 +24069,12 @@ local function draw_table(input_queue)
         local m_h = S(125) -- Matches the visual height
         mouse_in_menu = gfx.mouse_x >= OTHER.time_shift_menu.x and gfx.mouse_x <= OTHER.time_shift_menu.x + OTHER.time_shift_menu.w and
                         gfx.mouse_y >= OTHER.time_shift_menu.y and gfx.mouse_y <= OTHER.time_shift_menu.y + m_h
-    elseif cfg.director_mode then
-        -- Also block clicks if mouse is inside Director Panel
-        if is_dir_right then
+    elseif cfg.director_mode or cfg.editor_mode then
+        -- Also block clicks if mouse is inside Director/Editor Panel
+        if is_panel_right then
             if gfx.mouse_x >= avail_w and gfx.mouse_y >= S(35) then mouse_in_menu = true end
         else
-            if gfx.mouse_y >= (gfx.h - h_director) then mouse_in_menu = true end
+            if gfx.mouse_y >= (gfx.h - h_panel) then mouse_in_menu = true end
         end
     end
 
@@ -23660,9 +24101,10 @@ local function draw_table(input_queue)
                 local reader_label = (cfg.reader_mode and "• " or "") .. "Режим читача"
                 local markers_label = (cfg.show_markers_in_table and "• " or "") .. "Відображати правки в таблиці"
                 local director_label = (cfg.director_mode and "• " or "") .. "Режим Режисера"
+                local editor_label = (cfg.editor_mode and "• " or "") .. "Режим Редактора"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)|<"
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам|" .. editor_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     OTHER.find_replace_state.show = true
@@ -23689,6 +24131,7 @@ local function draw_table(input_queue)
                 elseif ret == 6 then
                     cfg.director_mode = not cfg.director_mode
                     if cfg.director_mode then
+                        cfg.editor_mode = false -- Mutual exclusion
                         cfg.show_markers_in_table = true
                     end
                     save_settings()
@@ -23696,12 +24139,19 @@ local function draw_table(input_queue)
                     DUBBERS.show_dashboard = true
                     DUBBERS.load()
                 elseif ret == 8 then
-                    apply_item_coloring(false) -- Colorize
+                    cfg.editor_mode = not cfg.editor_mode
+                    if cfg.editor_mode then
+                        cfg.director_mode = false -- Mutual exclusion
+                        cfg.show_markers_in_table = true
+                    end
+                    save_settings()
                 elseif ret == 9 then
-                    apply_item_coloring(true) -- Reset
+                    apply_item_coloring(false) -- Colorize
                 elseif ret == 10 then
-                    filter_unique_item_replicas()
+                    apply_item_coloring(true) -- Reset
                 elseif ret == 11 then
+                    filter_unique_item_replicas()
+                elseif ret == 12 then
                     ebu_r128_replicas_normalize()
                 end
             end
@@ -24388,33 +24838,29 @@ local function draw_table(input_queue)
     end
 
     local total_h = #table_layout_cache > 0 and (table_layout_cache[#table_layout_cache].y + table_layout_cache[#table_layout_cache].h) or 0
-    
-    -- Dynamic Layout Variables
-    local is_dir_right = (cfg.director_mode and cfg.director_layout == "right")
-    -- (Variables w_director, is_dir_right, avail_w, h_director already calculated at top of function)
+    local min_panel_h = S(84)
+    if cfg.editor_mode then min_panel_h = S(148) end 
 
-    -- Logic for manual vs dynamic height is handled at top.
-    -- Just need to ensure `h_director` variable is correct for Bottom/Manual logic below.
-    local content_y = start_y + h_header
-
-    if cfg.director_mode and not is_dir_right and cfg.h_director then
-        local manual = cfg.h_director or S(150)
-        if dynamic_director_h and dynamic_director_h > manual and not director_resize_drag then
-            h_director = dynamic_director_h
-        else
-            h_director = manual
+    -- Safeguard: auto-close bottom panels if window is too small
+    if not is_panel_right and gfx.h < min_panel_h + S(60) then
+        if cfg.editor_mode or cfg.director_mode then
+            cfg.editor_mode = false
+            cfg.director_mode = false
+            save_settings()
         end
-        
-        -- Prevent overlapping the top toolbar AND leave space for at least 1 row (S(40))
-        local max_allowed_h = math.max(S(84), gfx.h - content_y - S(40))
-        if h_director > max_allowed_h then
-            h_director = max_allowed_h
-            -- Permanently shrink the saved setting so it doesn't bounce back
-            if not director_resize_drag then cfg.h_director = h_director end
+    end
+
+    -- Layout Adjustments (Calculated at top, but validated here for overlap)
+    local content_y = start_y + h_header
+    local max_allowed_h = math.max(min_panel_h, gfx.h - content_y - S(40))
+    if h_panel > max_allowed_h then
+        h_panel = max_allowed_h
+        if not director_resize_drag then 
+            if cfg.editor_mode then cfg.h_editor = h_panel else cfg.h_director = h_panel end
         end
     end
     
-    local avail_h = gfx.h - content_y - h_director
+    local avail_h = gfx.h - content_y - h_panel
     if avail_h < 0 then avail_h = 0 end
 
     local max_scroll = math.max(0, total_h - avail_h)
@@ -24484,11 +24930,11 @@ local function draw_table(input_queue)
     end
     
     -- Smooth Scroll Logic
-    local mouse_in_director = cfg.director_mode and (
-        (not (cfg.director_layout == "right") and gfx.mouse_y >= gfx.h - h_director) or
-        ((cfg.director_layout == "right") and gfx.mouse_x >= (cfg.w_director and gfx.w - cfg.w_director or gfx.w - S(300)))
+    local mouse_in_panel = (cfg.director_mode or cfg.editor_mode) and (
+        (not is_panel_right and gfx.mouse_y >= gfx.h - h_panel) or
+        (is_panel_right and gfx.mouse_x >= (gfx.w - w_panel))
     )
-    if gfx.mouse_wheel ~= 0 and not mouse_in_director then
+    if gfx.mouse_wheel ~= 0 and not mouse_in_panel and not mouse_in_menu then
         UI_STATE.target_scroll_y = UI_STATE.target_scroll_y - (gfx.mouse_wheel * 0.25)
         if UI_STATE.target_scroll_y < 0 then UI_STATE.target_scroll_y = 0 end
         if UI_STATE.target_scroll_y > max_scroll then UI_STATE.target_scroll_y = max_scroll end
@@ -25404,29 +25850,35 @@ local function draw_table(input_queue)
         end
     end
 
-    -- Draw Director Panel
-    if cfg.director_mode then
-        if is_dir_right then
+    -- Draw Director/Editor Panel
+    if cfg.director_mode or cfg.editor_mode then
+        local draw_func = cfg.director_mode and draw_director_panel or draw_editor_panel
+        if is_panel_right then
             -- Right Layout (Align with filters: S(35))
             local dir_y = S(35)
-            draw_director_panel(avail_w, dir_y, w_director, gfx.h - dir_y, input_queue, false)
+            draw_func(avail_w, dir_y, w_panel, gfx.h - dir_y, input_queue, false)
         else
             -- Bottom Layout
-            local draw_y = gfx.h - h_director
+            local draw_y = gfx.h - h_panel
             
             -- Draw
-            draw_director_panel(0, draw_y, gfx.w, h_director, input_queue, false)
+            draw_func(0, draw_y, gfx.w, h_panel, input_queue, false)
             
             -- Recalculate height for NEXT frame to ensure smooth resizing
-            local needed = draw_director_panel(0, draw_y, gfx.w, h_director, nil, true)
-            if needed < S(84) then needed = S(84) end
+            local needed = draw_func(0, draw_y, gfx.w, h_panel, nil, true)
+            if needed < min_panel_h then needed = min_panel_h end
             
-            -- Auto-expand logic: If content needs more than current setting AND we are not resizing
-            local max_allowed_dynamic = math.max(S(84), gfx.h - content_y - S(40))
-            if not director_resize_drag and needed > h_director then
-                cfg.h_director = math.min(needed, max_allowed_dynamic)
+            -- Auto-expand logic: Only expand if content needs more than current setting AND we are not resizing
+            -- AND only if the panel is currently at its "natural" state or we haven't manually shrunk it too much
+            local max_allowed_dynamic = math.max(min_panel_h, gfx.h - content_y - S(40))
+            if not director_resize_drag and needed > h_panel and h_panel < max_allowed_dynamic then
+                -- Only auto-expand if we haven't manually set a height that is already large enough
+                local current_cfg_h = cfg.editor_mode and cfg.h_editor or cfg.h_director
+                if h_panel <= current_cfg_h + 5 then
+                    if cfg.editor_mode then cfg.h_editor = math.min(needed, max_allowed_dynamic) else cfg.h_director = math.min(needed, max_allowed_dynamic) end
+                end
             end
-            dynamic_director_h = needed -- Keep tracking for ref
+            if cfg.editor_mode then dynamic_editor_h = needed else dynamic_director_h = needed end
         end
         
         -- RESIZE HANDLE LOGIC (Moved to end for Z-order)
@@ -25438,7 +25890,7 @@ local function draw_table(input_queue)
         local is_hover = false
         
         -- Helper: Check if mouse is strictly inside window
-        if is_dir_right then
+        if is_panel_right then
             local dir_y = S(35)
             local border_x = avail_w
             handle_w = grab_thick
@@ -25465,7 +25917,7 @@ local function draw_table(input_queue)
                 if new_w < S(120) then new_w = S(120) end
                 local max_w = gfx.w - S(150)
                 if new_w > max_w then new_w = max_w end
-                cfg.w_director = new_w
+                if cfg.editor_mode then cfg.w_editor = new_w else cfg.w_director = new_w end
             elseif director_resize_drag then
                 director_resize_drag = false
                 save_settings()
@@ -25473,7 +25925,7 @@ local function draw_table(input_queue)
             end
         else
             -- Bottom
-            local border_y = gfx.h - h_director
+            local border_y = gfx.h - h_panel
             handle_w = grab_long
             handle_h = grab_thick
             handle_x = (gfx.w - handle_w) / 2
@@ -25492,10 +25944,10 @@ local function draw_table(input_queue)
             
             if director_resize_drag and gfx.mouse_cap == 1 then
                 local new_h = gfx.h - gfx.mouse_y
-                if new_h < S(84) then new_h = S(84) end
+                if new_h < min_panel_h then new_h = min_panel_h end
                 local max_h = gfx.h - content_y - S(40)
                 if new_h > max_h then new_h = max_h end
-                cfg.h_director = new_h
+                if cfg.editor_mode then cfg.h_editor = new_h else cfg.h_director = new_h end
             elseif director_resize_drag then
                 director_resize_drag = false
                 save_settings()
@@ -25863,7 +26315,7 @@ function OTHER.highlight_marker_with_end_time()
         
         local g_found = nil
         for _, m in ipairs(ass_markers) do
-            if is_near(m.pos, cur_time) then
+            if UTILS.is_near(m.pos, cur_time) then
                 g_found = m
                 break
             end
@@ -26408,13 +26860,14 @@ local function main()
             
             if key_str then
                 local keys = {}
-                for k in cfg.hotkeys:gmatch("([^,]+)") do table.insert(keys, k) end
+                -- Reliable split for "1,,3"
+                for k in (cfg.hotkeys .. ","):gmatch("(.-),") do table.insert(keys, k) end
+                while #keys < UI_STATE.hotkey_capture_idx do table.insert(keys, "") end
                 
-                local old_key = keys[UI_STATE.hotkey_capture_idx]
-                -- Find where the NEW key was before and swap
+                local old_key = keys[UI_STATE.hotkey_capture_idx] or ""
                 local swap_idx = nil
                 for idx, k in ipairs(keys) do
-                    if k == key_str and idx ~= UI_STATE.hotkey_capture_idx then
+                    if k ~= "" and k == key_str and idx ~= UI_STATE.hotkey_capture_idx then
                         swap_idx = idx
                         break
                     end
@@ -26425,13 +26878,14 @@ local function main()
                     keys[UI_STATE.hotkey_capture_idx] = key_str
                     cfg.hotkeys = table.concat(keys, ",")
                     save_settings()
-                    show_snackbar("Клавіші поміняно місцями: [" .. key_str .. "] <-> [" .. (old_key or "?") .. "]", "info")
+                    show_snackbar("Клавіші поміняно місцями: [" .. key_str .. "] <-> [" .. (old_key ~= "" and old_key or "нічого") .. "]", "info")
                 else
                     keys[UI_STATE.hotkey_capture_idx] = key_str
                     cfg.hotkeys = table.concat(keys, ",")
                     save_settings()
                     show_snackbar("Змінено на [" .. key_str .. "]", "success")
                 end
+                UI_STATE.hotkey_capture_idx = nil
             else
                 show_snackbar("Помилка: використовуйте 0-9, - або =", "error")
             end
@@ -26492,7 +26946,7 @@ local function main()
 
                 if char_str then
                     local keys = {}
-                    for k in cfg.hotkeys:gmatch("([^,]+)") do table.insert(keys, k) end
+                    for k in (cfg.hotkeys .. ","):gmatch("(.-),") do table.insert(keys, k) end
                     for idx, k in ipairs(keys) do
                         if k == char_str then
                             UTILS.execute_hotkey_action(idx)
