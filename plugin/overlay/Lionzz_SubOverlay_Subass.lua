@@ -2092,10 +2092,10 @@ end
 local function format_actor_string(name, t1, t2, rgn_id)
     local act, cln = extract_actor(name, t1, t2, rgn_id)
     if act ~= "" then
-        -- Check for comment at start
-        local comment, rest = cln:match("^(%b{})%s*(.*)")
-        if comment then
-            return comment .. "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. rest
+        -- Check for comment at start (move to front ONLY if it's a comment, not a formatting tag)
+        local tag, rest = cln:match("^(%b{})%s*(.*)")
+        if tag and not tag:find("\\", 1, true) then
+            return tag .. "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. rest
         else
             return "{\\alpha:128}[" .. act .. "]{\\alpha:255} " .. cln
         end
