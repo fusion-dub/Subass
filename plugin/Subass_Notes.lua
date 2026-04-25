@@ -289,6 +289,8 @@ local OTHER = {
         IMG_ACH_28_dis=34,
         IMG_ACH_29 = 33,
         IMG_ACH_29_dis=32,
+        IMG_ACH_30 = 31,
+        IMG_ACH_30_dis=30,
     },
     QWERTY_TO_UA = {
         [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
@@ -415,13 +417,6 @@ OTHER.ACH_CFG = {
         dis_buf = OTHER.BUF.IMG_ACH_4_dis,
         name = "Дух у машині"
     }, {
-        id = "ach_29",
-        path = "media" .. OTHER.SEPARATOR .. "ach_29.png",
-        dis_path = "media" .. OTHER.SEPARATOR .. "ach_29_disabled.png",
-        buf = OTHER.BUF.IMG_ACH_29,
-        dis_buf = OTHER.BUF.IMG_ACH_29_dis,
-        name = "Трансмутація тексту"
-    }, {
         id = "ach_5",
         path = "media" .. OTHER.SEPARATOR .. "ach_5.png",
         dis_path = "media" .. OTHER.SEPARATOR .. "ach_5_disabled.png",
@@ -442,6 +437,13 @@ OTHER.ACH_CFG = {
         buf = OTHER.BUF.IMG_ACH_9,
         dis_buf = OTHER.BUF.IMG_ACH_9_dis,
         name = "Сирена"
+    }, {
+        id = "ach_29",
+        path = "media" .. OTHER.SEPARATOR .. "ach_29.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_29_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_29,
+        dis_buf = OTHER.BUF.IMG_ACH_29_dis,
+        name = "Трансмутація тексту"
     }, {
         id = "ach_18",
         path = "media" .. OTHER.SEPARATOR .. "ach_18.png",
@@ -554,6 +556,13 @@ OTHER.ACH_CFG = {
         buf = OTHER.BUF.IMG_ACH_28,
         dis_buf = OTHER.BUF.IMG_ACH_28_dis,
         name = "Легкість пірїни"
+    }, {
+        id = "ach_30",
+        path = "media" .. OTHER.SEPARATOR .. "ach_30.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_30_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_30,
+        dis_buf = OTHER.BUF.IMG_ACH_30_dis,
+        name = "Півень правосуддя"
     },
 }
 
@@ -1062,6 +1071,7 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_28_count")
     ACHIEVEMENTS.get_stat("ach_29_count")
     ACHIEVEMENTS.get_stat("ach_29_import_count")
+    ACHIEVEMENTS.get_stat("ach_30_count")
 end
 
 -- Assets Loading
@@ -4505,6 +4515,7 @@ function DEADLINE.draw_dashboard(input_queue)
                     local cmd = string.format('nohup python3 "%s" %s > /dev/null 2>&1 &', py_script, cmd_args)
                     os.execute(cmd)
                 end
+                ACHIEVEMENTS.add_stat("ach_30_count", 1)
                 show_snackbar("Запит на налаштування надіслано на " .. ret_time, "info")
             end
         end
@@ -7333,10 +7344,14 @@ local function parse_prompter_to_lines(str, skip_transforms)
                 
                 if not is_formatting and content ~= "" then
                     content = content:gsub("^%s+", ""):gsub("%s+$", "") -- Trim
-                    if not has_text or #all_spans == 0 then
+                    
+                    -- Rule: If preceded by a newline, make it global. Otherwise, word-specific.
+                    local is_after_newline = (#all_spans > 0 and all_spans[#all_spans].is_newline)
+                    
+                    if not has_text or is_after_newline then
                         global_comment = merge_comments(global_comment, content)
                     elseif #all_spans > 0 then
-                        -- SPLIT LAST SPAN to attach only to the last word
+                        -- Word-specific (attach to last word only)
                         local last_span = all_spans[#all_spans]
                         if last_span.comment then
                             last_span.comment = merge_comments(last_span.comment, content)
@@ -15007,6 +15022,10 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local import_count = ACHIEVEMENTS.stats["ach_29_import_count"] or 0
                         tooltip_text = string.format("Інтегровано переклад від ШІ: %d\nКількість перекладених реплік: %d\n%s\n\"Нитка за ниткою, цифра за цифрою — слова перетворюються на сенси, невідомі досі.\"", 
                             total, import_count, string.rep("—", 12))
+                    elseif ach.id == "ach_30" then
+                        local total = ACHIEVEMENTS.stats["ach_30_count"] or 0
+                        tooltip_text = string.format("Налаштовано сповіщень: %d\n%s\n\"Тепер ви не забудете про дедлайн бо півень правосуддя вам про нього нагадає\"", 
+                            total, string.rep("—", 12))
                     else
                         tooltip_text = ach.name
                     end
