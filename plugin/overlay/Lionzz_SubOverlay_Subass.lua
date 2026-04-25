@@ -1946,7 +1946,7 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                 if tok.comment then
                     local dash_color = text_color 
                     -- Apply alpha 0.4 roughly to integer color
-                    local alpha = (dash_color & 0xFF) * 0.4
+                    local alpha = (dash_color & 0xFF) * 0.5
                     dash_color = (dash_color & 0xFFFFFF00) | math.floor(alpha)
 
                     local comm_len = utf8.len(tok.comment) or #tok.comment
