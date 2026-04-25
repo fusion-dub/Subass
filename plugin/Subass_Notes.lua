@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 6.9.2
+-- @version 7.0
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v6.9.2",
+    script_title = "Subass Notes v7.0",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -13626,6 +13626,18 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             bracket_end = state.text:find("]") or -1
         end
 
+        -- Yellow highlight detection ({...})
+        local yellow_ranges = {}
+        if state.text then
+            local s_idx = 1
+            while true do
+                local s, e = state.text:find("%b{}", s_idx)
+                if not s then break end
+                table.insert(yellow_ranges, {s = s - 1, e = e})
+                s_idx = e + 1
+            end
+        end
+
         if not is_multiline then
             -- Single line logic
             local cx = gfx.measurestr(state.text:sub(1, state.cursor))
@@ -13643,6 +13655,14 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                 local bw = gfx.measurestr(state.text:sub(1, b_end))
                 set_color(UI.C_ED_HILI_G) -- Subtle green highlight
                 gfx.rect(padding - state.scroll - S(2), ty - S(1), bw + S(4), line_h + S(2), 1)
+            end
+
+            -- Yellow highlight for single line
+            for _, range in ipairs(yellow_ranges) do
+                local x1 = padding + gfx.measurestr(state.text:sub(1, range.s)) - state.scroll
+                local x2 = padding + gfx.measurestr(state.text:sub(1, range.e)) - state.scroll
+                set_color(UI.C_HILI_YELLOW)
+                gfx.rect(x1 - S(1), ty - S(1), (x2 - x1) + S(2), line_h + S(2), 1)
             end
 
             if has_sel then
@@ -13697,6 +13717,17 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                             local x2 = padding + gfx.measurestr(v_line.text:sub(1, b_end - l_start))
                             set_color(UI.C_ED_HILI_G) -- Subtle green highlight
                             gfx.rect(x1 - S(2), ly - S(1), (x2 - x1) + S(4), line_h + S(2), 1)
+                        end
+                    end
+
+                    -- Yellow highlight for multi-line
+                    for _, range in ipairs(yellow_ranges) do
+                        local b_start, b_end = math.max(l_start, range.s), math.min(l_end, range.e)
+                        if b_start < b_end then
+                            local x1 = padding + gfx.measurestr(v_line.text:sub(1, b_start - l_start))
+                            local x2 = padding + gfx.measurestr(v_line.text:sub(1, b_end - l_start))
+                            set_color(UI.C_HILI_YELLOW)
+                            gfx.rect(x1 - S(1), ly - S(1), (x2 - x1) + S(2), line_h + S(2), 1)
                         end
                     end
 
