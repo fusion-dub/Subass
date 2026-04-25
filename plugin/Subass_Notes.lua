@@ -4988,14 +4988,6 @@ local function strip_accents(s)
     return s:gsub(acute, "")
 end
 
---- Remove ASS/RTF style tags and newline codes from a string
---- @param s string Input string
---- @return string Clean string
-local function strip_tags(s)
-    if not s then return "" end
-    return s:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", " "):gsub("\\n", " ")
-end
-
 -- Helper: UTF-8 safe uppercase
 --- Convert UTF-8 string to uppercase (supports Cyrillic)
 --- @param s string Input string
@@ -25273,14 +25265,9 @@ local function draw_table(input_queue)
                             index_match = tostring(line.index or ""):find(q, 1, true)
                             if index_match and not h_index then h_index = {tostring(line.index or ""):find(q, 1, true)} end
                         else
-                            local clean_text = strip_accents(utf8_lower(strip_tags(target_text)))
+                            local clean_text = strip_accents(utf8_lower((target_text or ""):gsub("\\N", " "):gsub("\\n", " ")))
                             text_match = clean_text:find(q_clean, 1, true)
-                            
-                            -- Fallback: if not found in visible text, search in raw text (including tags and comments)
-                            if not text_match then
-                                local raw_clean = strip_accents(utf8_lower(target_text))
-                                text_match = raw_clean:find(q_clean, 1, true)
-                            end
+
                             if text_match and not h_text then 
                                 local s, e = utf8_find_accent_blind(target_text, q)
                                 if s then h_text = {s, e} end
