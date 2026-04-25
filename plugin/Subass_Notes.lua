@@ -13992,6 +13992,9 @@ local function draw_text_editor(input_queue)
     end
     if btn(box_x + box_w - S(90), btn_y, S(80), S(30), "Зберегти") then
         if text_editor_state.callback then text_editor_state.callback(text_editor_state.text) end
+        if text_editor_state.context_line_idx == editor_state.last_region_id then 
+            editor_state.last_region_id = -1
+        end
         text_editor_state.active = false
         ai_modal.text = ""
         ai_modal.suggestions = {}
@@ -14040,6 +14043,9 @@ local function draw_text_editor(input_queue)
             -- Main shortcuts (Enter to Save, Esc to Cancel)
             if char == 13 and not is_shift then
                 if text_editor_state.callback then text_editor_state.callback(text_editor_state.text) end
+                if text_editor_state.context_line_idx == editor_state.last_region_id then 
+                    editor_state.last_region_id = -1
+                end
                 text_editor_state.active = false
                 ai_modal.text = ""
                 ai_modal.suggestions = {}
@@ -23905,10 +23911,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                     end
                 end
 
-                if editor_state.original_text then
-                    editor_state.original_text = editor_state.original_text:gsub("%s*\n\n{{+.-}}+", ""):gsub("%s*{{+.-}}+", "")
-                    editor_state.input.text = editor_state.input.text:gsub("%s*\n\n{{+.-}}+", ""):gsub("%s*{{+.-}}+", "")
-                end
+                editor_state.last_region_id = -1
 
                 if count > 0 then
                     cleanup_actors()
@@ -24624,8 +24627,10 @@ function OTHER.AI_insert_result()
         rebuild_regions()
         save_project_data(UI_STATE.last_project_id)
         reaper.MarkProjectDirty(0)
-        
+
+        editor_state.last_region_id = -1
         table_data_cache.state_count = -1 -- Force table refresh
+
         show_snackbar(string.format("Оновлено %d реплік", update_count), "success")
     else
         show_snackbar("Не знайдено жодної відповідності по ID", "warning")
