@@ -2202,7 +2202,7 @@ function STATS.update_metadata()
             total_lines = total_lines + 1
             
             -- Word count logic matching line 10094 (strip tags, convert breaks, count non-whitespace)
-            local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+            local clean = (line.text or ""):gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
             local _, count = clean:gsub("%S+", "")
             total_words = total_words + count
             
@@ -3121,7 +3121,7 @@ function UTILS.calculate_lines_stats(lines)
     local total_words = 0
     if lines then
         for _, l in ipairs(lines) do
-            local clean = (l.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+            local clean = (l.text or ""):gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
             local _, count = clean:gsub("%S+", "")
             total_words = total_words + count
         end
@@ -4993,7 +4993,7 @@ end
 --- @return string Clean string
 local function strip_tags(s)
     if not s then return "" end
-    return s:gsub("{.-}", ""):gsub("\\N", " "):gsub("\\n", " ")
+    return s:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", " "):gsub("\\n", " ")
 end
 
 -- Helper: UTF-8 safe uppercase
@@ -9269,7 +9269,7 @@ function DUBBERS.get_actor_stats(actor_name)
             stats.time = stats.time + (line.t2 - line.t1)
             
             -- Word count logic from draw_file
-            local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+            local clean = (line.text or ""):gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
             local _, count = clean:gsub("%S+", "")
             stats.words = stats.words + count
         end
@@ -10703,7 +10703,7 @@ local function copy_actors_statistics(include_time)
             st.r = st.r + 1
             total_repl = total_repl + 1
             
-            local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+            local clean = (line.text or ""):gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
             local _, count = clean:gsub("%S+", "")
             st.w = st.w + count
             total_words = total_words + count
@@ -14077,7 +14077,7 @@ function SEARCH_ITEM.open()
     
     for _, rgn in ipairs(regions) do
         if cur_pos >= rgn.pos and cur_pos < rgn.rgnend then
-            local t = rgn.name:gsub("{.-}", ""):gsub("\\n", " "):gsub("\n", " "):gsub("  +", " "):gsub("^%s+", ""):gsub("%s+$", "")
+            local t = rgn.name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\n", " "):gsub("\n", " "):gsub("  +", " "):gsub("^%s+", ""):gsub("%s+$", "")
             SEARCH_ITEM.input.text = t
             local l = #t
             SEARCH_ITEM.input.cursor = l
@@ -17486,7 +17486,7 @@ local function draw_file()
             local act = line.actor or "Default"
             if not actor_tooltips[act] then actor_tooltips[act] = {replicas = 0, words = 0} end
             actor_tooltips[act].replicas = actor_tooltips[act].replicas + 1
-            local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+            local clean = (line.text or ""):gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
             local _, count = clean:gsub("%S+", "")
             actor_tooltips[act].words = actor_tooltips[act].words + count
         end
@@ -17696,7 +17696,7 @@ local function draw_file()
             if line.enabled then
                 stats_replicas = stats_replicas + 1
                 -- Word count: Strip tags, convert breaks to spaces, count non-whitespace chunks
-                local clean = (line.text or ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+                local clean = (line.text or ""):gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
                 local _, count = clean:gsub("%S+", "")
                 stats_words = stats_words + count
                 -- Calculate time
@@ -20215,7 +20215,7 @@ local function draw_prompter(input_queue)
         
         -- Parse Text (with Cache)
         local display_name = next_rgn.name
-        if not display_name or display_name:gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
+        if not display_name or display_name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
         if not draw_prompter_cache.next_cache[display_name] then
             draw_prompter_cache.next_cache[display_name] = parse_prompter_to_lines(display_name)
         end
@@ -20341,7 +20341,7 @@ local function draw_prompter(input_queue)
                 -- Use cache for first region (optimization)
                 if region_num == 1 then
                     local display_name = rgn.name
-                    if not display_name or display_name:gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
+                    if not display_name or display_name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
                     if display_name ~= draw_prompter_cache.last_text then
                         draw_prompter_cache.lines = parse_prompter_to_lines(display_name)
                         draw_prompter_cache.last_text = display_name
@@ -20361,7 +20361,7 @@ local function draw_prompter(input_queue)
                 else
                     -- Parse text for other regions
                     local display_name = rgn.name
-                    if not display_name or display_name:gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
+                    if not display_name or display_name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
                     lines = parse_prompter_to_lines(display_name)
                     if cfg.karaoke_mode then
                         local w_count = count_words_in_lines(lines)
@@ -25275,6 +25275,12 @@ local function draw_table(input_queue)
                         else
                             local clean_text = strip_accents(utf8_lower(strip_tags(target_text)))
                             text_match = clean_text:find(q_clean, 1, true)
+                            
+                            -- Fallback: if not found in visible text, search in raw text (including tags and comments)
+                            if not text_match then
+                                local raw_clean = strip_accents(utf8_lower(target_text))
+                                text_match = raw_clean:find(q_clean, 1, true)
+                            end
                             if text_match and not h_text then 
                                 local s, e = utf8_find_accent_blind(target_text, q)
                                 if s then h_text = {s, e} end
@@ -27143,7 +27149,7 @@ function OTHER.process_post_recording()
                             
                             -- Count words (using identical logic to UTILS.calculate_lines_stats)
                             if entry.text then
-                                local clean = entry.text:gsub("{.-}", ""):gsub("\\[Nnh]", " ")
+                                local clean = entry.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nnh]", " ")
                                 local _, count = clean:gsub("%S+", "")
                                 total_words = total_words + count
                             end
