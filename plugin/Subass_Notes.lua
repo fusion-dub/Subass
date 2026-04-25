@@ -287,6 +287,8 @@ local OTHER = {
         IMG_ACH_27_dis=36,
         IMG_ACH_28 = 35,
         IMG_ACH_28_dis=34,
+        IMG_ACH_29 = 33,
+        IMG_ACH_29_dis=32,
     },
     QWERTY_TO_UA = {
         [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
@@ -412,6 +414,13 @@ OTHER.ACH_CFG = {
         buf = OTHER.BUF.IMG_ACH_4,
         dis_buf = OTHER.BUF.IMG_ACH_4_dis,
         name = "Дух у машині"
+    }, {
+        id = "ach_29",
+        path = "media" .. OTHER.SEPARATOR .. "ach_29.png",
+        dis_path = "media" .. OTHER.SEPARATOR .. "ach_29_disabled.png",
+        buf = OTHER.BUF.IMG_ACH_29,
+        dis_buf = OTHER.BUF.IMG_ACH_29_dis,
+        name = "Трансмутація тексту"
     }, {
         id = "ach_5",
         path = "media" .. OTHER.SEPARATOR .. "ach_5.png",
@@ -545,7 +554,7 @@ OTHER.ACH_CFG = {
         buf = OTHER.BUF.IMG_ACH_28,
         dis_buf = OTHER.BUF.IMG_ACH_28_dis,
         name = "Легкість пірїни"
-    }
+    },
 }
 
 -- Assets Loading
@@ -1051,6 +1060,8 @@ function ACHIEVEMENTS.sync_stats()
     ACHIEVEMENTS.get_stat("ach_26_count")
     ACHIEVEMENTS.get_stat("ach_27_count")
     ACHIEVEMENTS.get_stat("ach_28_count")
+    ACHIEVEMENTS.get_stat("ach_29_count")
+    ACHIEVEMENTS.get_stat("ach_29_import_count")
 end
 
 -- Assets Loading
@@ -14991,6 +15002,11 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local total = ACHIEVEMENTS.stats["ach_28_count"] or 0
                         tooltip_text = string.format("Редакцій тексту: %d\n%s\n\"Письменник без пера, як двірник без граблів\"\n(Видається за редагування тексту в режимі Редактора)", 
                             total, string.rep("—", 12))
+                    elseif ach.id == "ach_29" then
+                        local total = ACHIEVEMENTS.stats["ach_29_count"] or 0
+                        local import_count = ACHIEVEMENTS.stats["ach_29_import_count"] or 0
+                        tooltip_text = string.format("Інтегровано переклад від ШІ: %d\nКількість перекладених реплік: %d\n%s\n\"Нитка за ниткою, цифра за цифрою — слова перетворюються на сенси, невідомі досі.\"", 
+                            total, import_count, string.rep("—", 12))
                     else
                         tooltip_text = ach.name
                     end
@@ -24622,6 +24638,9 @@ function OTHER.AI_insert_result()
 
         editor_state.last_region_id = -1
         table_data_cache.state_count = -1 -- Force table refresh
+
+        ACHIEVEMENTS.add_stat("ach_29_count", 1)
+        ACHIEVEMENTS.add_stat("ach_29_import_count", update_count)
 
         show_snackbar(string.format("Оновлено %d реплік", update_count), "success")
     else
