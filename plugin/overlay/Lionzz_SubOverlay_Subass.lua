@@ -333,7 +333,7 @@ local assimilation_rules = {
     {"зш", "шш", {word_start_only = true}},
     {"зш", "жш", {not_word_start = true}},
 
-    {"сш", "шш"},              -- сш → шш
+    {"сш", "шш", {not_word_start = true}},              -- сш → шш
 
     -- зч: позиційно залежне (правило УМ)
     --   початок слова: зч → шч  (зчепити → шчепити)  [з оглушується перед ч → с, + с→ш]
@@ -1945,7 +1945,7 @@ local function draw_tokens(ctx, tokens, font_index, font_scale, text_color, shad
                 -- 3. Draw Comment Dash
                 if tok.comment then
                     local dash_color = text_color 
-                    -- Apply alpha 0.4 roughly to integer color
+                    -- Apply alpha 0.5 roughly to integer color
                     local alpha = (dash_color & 0xFF) * 0.5
                     dash_color = (dash_color & 0xFFFFFF00) | math.floor(alpha)
 
