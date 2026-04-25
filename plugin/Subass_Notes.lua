@@ -2289,6 +2289,7 @@ local UI = {
     C_HILI_BLUE = {0.0, 0.4, 1.0, 0.3},
     C_HILI_GREEN = {0.1, 0.35, 0.2, 0.5},
     C_HILI_YELLOW = {1, 1, 0, 0.3},
+    C_HILI_PINK = {1.0, 0.4, 0.7, 0.2},
     C_HILI_WHITE = {1, 1, 1, 0.1},
     C_HILI_WHITE_LOW = {1, 1, 1, 0.05},
     C_HILI_WHITE_MID = {1, 1, 1, 0.3},
@@ -6558,7 +6559,7 @@ local function ai_api_call_async(provider, key, prompt, final_callback, use_json
         if output and output ~= "" then
             local trimmed = output:gsub("^%s+", ""):gsub("%s+$", "")
             -- Catch: our "Error: ...", argparse "path: error: ...", and "usage: ..."
-            if trimmed:match("^Error:") or trimmed:match(": error:") or trimmed:match("^usage:") then
+            if trimmed:match("^Error:") or trimmed:match(": error:") or trimmed:match("^usage:") or trimmed:match("subass_ai.py") then
                 final_callback(0, trimmed)
             else
                 -- Wrap in minimal Gemini JSON so gemini_extract_text works unchanged
@@ -7214,6 +7215,22 @@ local function merge_comments(old, new)
 end
 
 local function parse_prompter_to_lines(str, skip_transforms)
+    -- Remove double-brace comments {{...}} completely from display
+    if str:find("{{") then
+        str = str:gsub("{{", "\1"):gsub("}}", "\2")
+        str = str:gsub("%b\1\2", "\3") -- Use \3 as placeholder for removed comment
+        
+        -- Remove lines that ONLY contain placeholders and whitespace to avoid empty lines
+        str = str:gsub("\n[\3%s]*\3[\3%s]*\n", "\n")
+        str = str:gsub("^[\3%s]*\3[\3%s]*\n", "")
+        str = str:gsub("\n[\3%s]*\3[\3%s]*$", "")
+        str = str:gsub("^[\3%s]*\3[\3%s]*$", "")
+        
+        -- Remove any remaining placeholders and restore unmatched braces
+        str = str:gsub("\3", "")
+        str = str:gsub("\1", "{{"):gsub("\2", "}}")
+    end
+
     local all_spans = {}
     
     local state = {b=false, i=false, u=false, s=false}
@@ -13285,7 +13302,13 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
     state.suppress_auto_scroll_until = state.suppress_auto_scroll_until or 0
     state.cursor = state.cursor or 0
     state.anchor = state.anchor or state.cursor
+    if (gfx.mouse_cap & 1 == 0) then state.is_dragging = false end
     
+    if state.needs_focus_nudge and state.needs_focus_nudge > 0 then
+        state.focus = true
+        state.needs_focus_nudge = state.needs_focus_nudge - 1
+    end
+
     -- Initialize history if not present
     if not state.history then
         state.history = {}
@@ -13375,48 +13398,47 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         end
     end
 
-    if (gfx.mouse_cap & 1 == 1) then
-        if (UI_STATE.last_mouse_cap & 1 == 0) and hover then
-            -- Check for interaction suppression (e.g., preventing bleed-through from opening click)
-            if state.interaction_start_time and reaper.time_precise() < state.interaction_start_time then
-                -- Ignore this click
+    if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and hover and not UI_STATE.mouse_handled then
+        -- Check for interaction suppression (e.g., preventing bleed-through from opening click)
+        if state.interaction_start_time and reaper.time_precise() < state.interaction_start_time then
+            -- Ignore this click
+        else
+            state.focus = true
+            state.is_dragging = true
+            local idx = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
+            local now = reaper.time_precise()
+        if (now - (state.last_click_time or 0)) < 0.3 then
+            state.last_click_state = (state.last_click_state or 0) + 1
+        else
+            state.last_click_state = 1
+        end
+        state.last_click_time = now
+        
+        if state.last_click_state == 1 then
+            if (gfx.mouse_cap & 8 == 8) then
+                state.cursor = idx
             else
-                state.focus = true
-                local idx = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
-                local now = reaper.time_precise()
-            if (now - (state.last_click_time or 0)) < 0.3 then
-                state.last_click_state = (state.last_click_state or 0) + 1
-            else
-                state.last_click_state = 1
+                state.cursor, state.anchor = idx, idx
             end
-            state.last_click_time = now
-            
-            if state.last_click_state == 1 then
-                if (gfx.mouse_cap & 8 == 8) then
-                    state.cursor = idx
-                else
-                    state.cursor, state.anchor = idx, idx
-                end
-            elseif state.last_click_state == 2 then
-                local s, e = idx, idx
-                while s > 0 do
-                    local c = state.text:sub(s, s)
-                    if c:match("[%s%p]") then break end
-                    s = s - 1
-                end
-                while e < #state.text do
-                    local c = state.text:sub(e+1, e+1)
-                    if c:match("[%s%p]") then break end
-                    e = e + 1
-
-                    end
-                    state.cursor, state.anchor = e, s
-                elseif state.last_click_state >= 3 then
-                    state.cursor, state.anchor = #state.text, 0
-                end
+        elseif state.last_click_state == 2 then
+            local s, e = idx, idx
+            while s > 0 do
+                local c = state.text:sub(s, s)
+                if c:match("[%s%p]") then break end
+                s = s - 1
             end
+            while e < #state.text do
+                local c = state.text:sub(e+1, e+1)
+                if c:match("[%s%p]") then break end
+                e = e + 1
 
-    elseif state.focus and (UI_STATE.last_mouse_cap & 1 == 1) then
+                end
+                state.cursor, state.anchor = e, s
+            elseif state.last_click_state >= 3 then
+                state.cursor, state.anchor = #state.text, 0
+            end
+        end
+    elseif (gfx.mouse_cap & 1 == 1) and state.focus and state.is_dragging then
         -- Check for interaction suppression
         if state.interaction_start_time and reaper.time_precise() < state.interaction_start_time then
             -- Ignore drag during suppression period
@@ -13451,24 +13473,22 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                 state.cursor = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
             end
         end
-
-        elseif not hover and (UI_STATE.last_mouse_cap & 1 == 0) then
-            -- Guard: Don't lose focus if clicking inside the AI modal OR if ai_modal was JUST shown (prevents closing focus on suggestion selection)
-            local in_ai = false
-            if ai_modal and ai_modal.show and ai_modal.x then
-                if gfx.mouse_x >= ai_modal.x and gfx.mouse_x <= ai_modal.x + ai_modal.w and
-                   gfx.mouse_y >= ai_modal.y and gfx.mouse_y <= ai_modal.y + ai_modal.h then
-                    in_ai = true
-                end
+    elseif (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and not hover and not UI_STATE.mouse_handled then
+        -- Guard: Don't lose focus if clicking inside the AI modal OR if ai_modal was JUST shown (prevents closing focus on suggestion selection)
+        local in_ai = false
+        if ai_modal and ai_modal.show and ai_modal.x then
+            if gfx.mouse_x >= ai_modal.x and gfx.mouse_x <= ai_modal.x + ai_modal.w and
+               gfx.mouse_y >= ai_modal.y and gfx.mouse_y <= ai_modal.y + ai_modal.h then
+                in_ai = true
             end
-            
-            -- Also check if we just clicked the AI button itself to prevent focus flickers
-            local ai_btn_hover = UI_STATE.window_focused and (gfx.mouse_x >= ai_modal.anchor_x - 40 and gfx.mouse_x <= ai_modal.anchor_x and 
-                                  gfx.mouse_y >= ai_modal.anchor_y - 24 and gfx.mouse_y <= ai_modal.anchor_y)
+        end
 
-            if not in_ai and not ai_btn_hover then
-                state.focus = false
-            end
+        -- Also check if we just clicked the AI button itself to prevent focus flickers
+        local ai_btn_hover = UI_STATE.window_focused and (gfx.mouse_x >= ai_modal.anchor_x - 40 and gfx.mouse_x <= ai_modal.anchor_x and 
+                              gfx.mouse_y >= ai_modal.anchor_y - 24 and gfx.mouse_y <= ai_modal.anchor_y)
+
+        if not in_ai and not ai_btn_hover then
+            state.focus = false
         end
     elseif (gfx.mouse_cap & 2 == 2) and (UI_STATE.last_mouse_cap & 2 == 0) and hover and not UI_STATE.mouse_handled then
         -- Context Menu (Right Click) - Rising Edge Detection
@@ -13626,14 +13646,18 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             bracket_end = state.text:find("]") or -1
         end
 
-        -- Yellow highlight detection ({...})
-        local yellow_ranges = {}
+        -- Highlight detection ({...} yellow, {{...}} pink)
+        local highlight_ranges = {}
         if state.text then
             local s_idx = 1
             while true do
                 local s, e = state.text:find("%b{}", s_idx)
                 if not s then break end
-                table.insert(yellow_ranges, {s = s - 1, e = e})
+                local color = UI.C_HILI_YELLOW
+                if state.text:sub(s, s+1) == "{{" and state.text:sub(e-1, e) == "}}" then
+                    color = UI.C_HILI_PINK
+                end
+                table.insert(highlight_ranges, {s = s - 1, e = e, color = color})
                 s_idx = e + 1
             end
         end
@@ -13657,11 +13681,11 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                 gfx.rect(padding - state.scroll - S(2), ty - S(1), bw + S(4), line_h + S(2), 1)
             end
 
-            -- Yellow highlight for single line
-            for _, range in ipairs(yellow_ranges) do
+            -- Highlight for single line
+            for _, range in ipairs(highlight_ranges) do
                 local x1 = padding + gfx.measurestr(state.text:sub(1, range.s)) - state.scroll
                 local x2 = padding + gfx.measurestr(state.text:sub(1, range.e)) - state.scroll
-                set_color(UI.C_HILI_YELLOW)
+                set_color(range.color)
                 gfx.rect(x1 - S(1), ty - S(1), (x2 - x1) + S(2), line_h + S(2), 1)
             end
 
@@ -13720,13 +13744,13 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                         end
                     end
 
-                    -- Yellow highlight for multi-line
-                    for _, range in ipairs(yellow_ranges) do
+                    -- Highlight for multi-line
+                    for _, range in ipairs(highlight_ranges) do
                         local b_start, b_end = math.max(l_start, range.s), math.min(l_end, range.e)
                         if b_start < b_end then
                             local x1 = padding + gfx.measurestr(v_line.text:sub(1, b_start - l_start))
                             local x2 = padding + gfx.measurestr(v_line.text:sub(1, b_end - l_start))
-                            set_color(UI.C_HILI_YELLOW)
+                            set_color(range.color)
                             gfx.rect(x1 - S(1), ly - S(1), (x2 - x1) + S(2), line_h + S(2), 1)
                         end
                     end
@@ -24282,8 +24306,8 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         -- 1. CONTROL ROW (Formatting + Save)
         local fmt_btn_w = S(28)
         local fmt_gap = S(4)
-        local fmt_btns = {"B", "I", "U", "S"}
-        local fmt_tags = {"b", "i", "u", "s"}
+        local fmt_btns = {"B", "I", "U", "S", "C"}
+        local fmt_tags = {"b", "i", "u", "s", "c"}
         
         local function apply_fmt(tag)
             if is_disabled then return end
@@ -24292,21 +24316,45 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             local e_idx = math.max(inp.cursor, inp.anchor)
             local txt = inp.text
             
-            if s_idx ~= e_idx then
-                -- Wrap selection
-                local selected = txt:sub(s_idx + 1, e_idx)
-                local new_txt = txt:sub(1, s_idx) .. "{\\" .. tag .. "1}" .. selected .. "{\\" .. tag .. "0}" .. txt:sub(e_idx + 1)
-                inp.text = new_txt
-                inp.cursor = s_idx + #tag + 3 + #selected + #tag + 3
-                inp.anchor = inp.cursor
+            if tag == "c" then
+                if s_idx ~= e_idx then
+                    -- Wrap selection in braces
+                    local selected = txt:sub(s_idx + 1, e_idx)
+                    local new_txt = txt:sub(1, s_idx) .. "{" .. selected .. "}" .. txt:sub(e_idx + 1)
+                    inp.text = new_txt
+                    inp.cursor = s_idx + 1 + #selected + 1
+                    inp.anchor = inp.cursor
+                else
+                    -- Insert empty braces and place cursor inside
+                    local new_txt = txt:sub(1, s_idx) .. "{}" .. txt:sub(s_idx + 1)
+                    inp.text = new_txt
+                    inp.cursor = s_idx + 1
+                    inp.anchor = inp.cursor
+                end
             else
-                -- Insert tag at cursor
-                local new_txt = txt:sub(1, s_idx) .. "{\\" .. tag .. "1}" .. txt:sub(s_idx + 1)
-                inp.text = new_txt
-                inp.cursor = s_idx + #tag + 3
-                inp.anchor = inp.cursor
+                if s_idx ~= e_idx then
+                    -- Wrap selection in both tags
+                    local selected = txt:sub(s_idx + 1, e_idx)
+                    local open_tag = "{\\" .. tag .. "1}"
+                    local close_tag = "{\\" .. tag .. "0}"
+                    local new_txt = txt:sub(1, s_idx) .. open_tag .. selected .. close_tag .. txt:sub(e_idx + 1)
+                    inp.text = new_txt
+                    inp.cursor = s_idx + #open_tag + #selected + #close_tag
+                    inp.anchor = inp.cursor
+                else
+                    -- Insert both tags and place cursor between them
+                    local open_tag = "{\\" .. tag .. "1}"
+                    local close_tag = "{\\" .. tag .. "0}"
+                    local new_txt = txt:sub(1, s_idx) .. open_tag .. close_tag .. txt:sub(s_idx + 1)
+                    inp.text = new_txt
+                    inp.cursor = s_idx + #open_tag
+                    inp.anchor = inp.cursor
+                end
             end
             inp.focus = true
+            inp.needs_focus_nudge = 3 -- Nudge focus for several frames
+            inp.suppress_auto_scroll_until = 0 -- Force scroll to cursor if needed
+            UI_STATE.mouse_handled = true
         end
 
         local save_btn_w = is_right_layout and S(80) or S(110)
