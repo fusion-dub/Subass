@@ -23875,7 +23875,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             local fast_jump_mark = cfg.editor_fast_jump and "• " or ""
             local auto_scroll_mark = cfg.editor_auto_scroll and "• " or ""
             
-            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|<" .. count_mark .. "По кількості реплік|" .. fast_jump_mark .. "Швидкий перехід|" .. auto_scroll_mark .. "Автопрокрутка до актора||" .. layout_label .. "|Закрити вікно"
+            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|<" .. count_mark .. "По кількості реплік|" .. fast_jump_mark .. "Швидкий перехід|" .. auto_scroll_mark .. "Автопрокрутка до актора||Видалити всі приховані коментарі||" .. layout_label .. "|Закрити вікно"
             
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu(menu_str)
@@ -23894,10 +23894,28 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 cfg.editor_auto_scroll = not cfg.editor_auto_scroll
                 save_settings()
             elseif ret == 5 then
+                -- Delete all hidden comments from all lines
+                local count = 0
+                push_undo("Видалити всі приховані коментарі")
+                for _, line in ipairs(ass_lines or {}) do
+                    local old = line.text or ""
+                    line.text = old:gsub("%s*\n\n{{+.-}}+", ""):gsub("%s*{{+.-}}+", "")
+                    if line.text ~= old then
+                        count = count + 1
+                    end
+                end
+                if count > 0 then
+                    cleanup_actors()
+                    rebuild_regions()
+                    show_snackbar("Видалено коментарі у " .. count .. " репліках", "success")
+                else
+                    show_snackbar("Прихованих коментарів не знайдено", "info")
+                end
+            elseif ret == 6 then
                 if cfg.editor_layout == "right" then cfg.editor_layout = "bottom" else cfg.editor_layout = "right" end
                 save_settings()
                 last_layout_state.state_count = -1
-            elseif ret == 6 then
+            elseif ret == 7 then
                 cfg.editor_mode = false
                 save_settings()
             end
