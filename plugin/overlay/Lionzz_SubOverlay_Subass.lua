@@ -441,7 +441,7 @@ local function parse_to_tokens(text)
 
     local tokens = {}
     local cursor = 1
-    local global_comment = nil
+    local global_comments = {} -- Table to store global comments per meta_id
     local pending_comment = nil
     local has_text = false
     
@@ -540,7 +540,8 @@ local function parse_to_tokens(text)
                 if not is_formatting and content ~= "" then
                     content = content:gsub("^%s+", ""):gsub("%s+$", "") -- Trim
                     if not has_text or (#tokens > 0 and tokens[#tokens].is_newline) then
-                        global_comment = merge_comments(global_comment, content)
+                        local m_id = state.meta_id or "default"
+                        global_comments[m_id] = merge_comments(global_comments[m_id], content)
                     elseif #tokens > 0 and not tokens[#tokens].is_newline then
                         -- Attach to last token
                         tokens[#tokens].comment = merge_comments(tokens[#tokens].comment, content)
@@ -582,14 +583,15 @@ local function parse_to_tokens(text)
         end
     end
     
-    -- Final Pass: Apply global_comment to all tokens that don't have a specific comment
-    if global_comment then
-        for _, tok in ipairs(tokens) do
+    -- Final Pass: Apply global_comments to all tokens that don't have a specific comment
+    for _, tok in ipairs(tokens) do
+        local m_id = tok.meta_id or "default"
+        if global_comments[m_id] then
             if not tok.is_newline and not tok.comment then
                 -- Avoid attaching global comment to Actor Name (which uses alpha 128)
                 -- We assume "content" text has standard opacity (typically 255)
                 if (tok.alpha or 255) > 200 then
-                    tok.comment = global_comment
+                    tok.comment = global_comments[m_id]
                 end
             end
         end
