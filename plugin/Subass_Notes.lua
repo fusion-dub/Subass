@@ -5475,7 +5475,7 @@ function UTILS.apply_text_transforms(line_spans, no_assimilation)
             {"зш", "шш", {word_start_only = true}},
             {"зш", "жш", {not_word_start = true}},
 
-            {"сш", "шш"},              -- сш → шш
+            {"сш", "шш", {not_word_start = true}},              -- сш → шш
 
             -- зч: позиційно залежне (правило УМ)
             --   початок слова: зч → шч  (зчепити → шчепити)  [з оглушується перед ч → с, + с→ш]
