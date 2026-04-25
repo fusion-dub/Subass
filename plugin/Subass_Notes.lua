@@ -20176,7 +20176,7 @@ local function draw_prompter(input_queue)
                 local dur = rgn.rgnend - rgn.pos
                 if dur > 0 then
                     -- Strip formatting and comments for accurate char count
-                    local clean_text = rgn.name:gsub("{{.-}}", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("\n", ""):gsub(" ", ""):gsub(acute, "")
+                    local clean_text = rgn.name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("\n", ""):gsub(" ", ""):gsub(acute, "")
                     -- Use utf8.len
                     local char_count = utf8.len(clean_text) or #clean_text
                     local cps = char_count / dur
@@ -21976,7 +21976,7 @@ local function get_sort_value(item, col, is_ass)
     if col == "Кінець" or col == "end" then return t2 end
     if col == "CPS" or col == "cps" then
         local dur = t2 - t1
-        local clean = txt:gsub("{{.-}}", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("%s+", ""):gsub(acute, "")
+        local clean = txt:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("%s+", ""):gsub(acute, "")
         local chars = utf8.len(clean) or #clean
         return dur > 0 and (chars / dur) or 0
     end
@@ -24306,8 +24306,8 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         -- 1. CONTROL ROW (Formatting + Save)
         local fmt_btn_w = S(28)
         local fmt_gap = S(4)
-        local fmt_btns = {"B", "I", "U", "S", "C"}
-        local fmt_tags = {"b", "i", "u", "s", "c"}
+        local fmt_btns = {"B", "I", "U", "S", "{/}", "{x}"}
+        local fmt_tags = {"b", "i", "u", "s", "c", "x"}
         
         local function apply_fmt(tag)
             if is_disabled then return end
@@ -24330,6 +24330,22 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                     inp.text = new_txt
                     inp.cursor = s_idx + 1
                     inp.anchor = inp.cursor
+                end
+            elseif tag == "x" then
+                -- Remove {{}} block (supports 2 or more braces) and preceding whitespace/newlines
+                local new_txt = txt:gsub("%s*\n\n{{+.-}}+", "")
+                if new_txt == txt then
+                    -- Fallback: try removing without double newline if the first pattern didn't match
+                    new_txt = txt:gsub("%s*{{+.-}}+", "")
+                end
+                
+                if new_txt ~= txt then
+                    inp.text = new_txt
+                    -- Adjust cursor if it was inside or after the removed block
+                    if inp.cursor > #new_txt then inp.cursor = #new_txt end
+                    if inp.anchor > #new_txt then inp.anchor = #new_txt end
+                else
+                    show_snackbar("Не знайдено приховані коментарі {{}} для видалення.", "warning")
                 end
             else
                 if s_idx ~= e_idx then
@@ -25273,7 +25289,7 @@ local function draw_table(input_queue)
                 
                 -- Pre-calculate CPS and strings for table view
                 local duration = (line.t2 or 0) - (line.t1 or 0)
-                local clean_txt = (line.text or ""):gsub("{{.-}}", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("%s+", ""):gsub(acute, "")
+                local clean_txt = (line.text or ""):gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("%s+", ""):gsub(acute, "")
                 local char_count = utf8.len(clean_txt) or #clean_txt
                 line.cps = duration > 0 and (char_count / duration) or 0
                 line.cps_str = line.is_marker and "" or string.format("%.1f", line.cps)
