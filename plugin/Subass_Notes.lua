@@ -20175,8 +20175,8 @@ local function draw_prompter(input_queue)
             for _, rgn in ipairs(regions_to_check) do
                 local dur = rgn.rgnend - rgn.pos
                 if dur > 0 then
-                    -- Strip formatting for accurate char count
-                    local clean_text = rgn.name:gsub("{.-}", ""):gsub("\\N", ""):gsub("\n", ""):gsub(" ", ""):gsub(acute, "")
+                    -- Strip formatting and comments for accurate char count
+                    local clean_text = rgn.name:gsub("{{.-}}", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("\n", ""):gsub(" ", ""):gsub(acute, "")
                     -- Use utf8.len
                     local char_count = utf8.len(clean_text) or #clean_text
                     local cps = char_count / dur
@@ -21976,7 +21976,7 @@ local function get_sort_value(item, col, is_ass)
     if col == "Кінець" or col == "end" then return t2 end
     if col == "CPS" or col == "cps" then
         local dur = t2 - t1
-        local clean = txt:gsub(acute, ""):gsub("%s+", "")
+        local clean = txt:gsub("{{.-}}", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("%s+", ""):gsub(acute, "")
         local chars = utf8.len(clean) or #clean
         return dur > 0 and (chars / dur) or 0
     end
@@ -24470,6 +24470,108 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     return (actor_area_bottom - panel_y) + input_area_h
 end
 
+function OTHER.AI_generate_prompt()
+    if not ass_lines or #ass_lines == 0 then 
+        show_snackbar("Немає реплік для обробки", "error")
+        return 
+    end
+    
+    local selected_lines = {}
+    -- Determine which items to include based on table selection
+    for i, line in ipairs(ass_lines) do
+        local sel_idx = line.index or i
+        if table_selection[sel_idx] then
+            local id = sel_idx
+            local start_t = format_timestamp(line.t1 or 0)
+            local end_t = format_timestamp(line.t2 or 0)
+            local actor = line.actor or "Unknown"
+            -- Replace newlines with spaces to keep each line in the prompt as a single unit
+            local text = (line.text or ""):gsub("\n", " "):gsub("\r", "")
+            
+            table.insert(selected_lines, string.format("id:%s,start:%s,end:%s,actor:%s,text:%s", id, start_t, end_t, actor, text))
+        end
+    end
+    
+    if #selected_lines == 0 then
+        show_snackbar("Виділіть репліки в таблиці", "warning")
+        return
+    end
+
+    local prompt = [[Ти — професійний перекладач та спеціаліст з дубляжу. Твоє завдання: перекласти надані репліки українською мовою, суворо дотримуючись наступних критеріїв:
+1. **Ліпсінк (Артикуляція)**: Переклад має максимально відповідати довжині оригіналу та ритміці губ (кількість складів має бути приблизно рівною оригіналу). Використовуй слова, які природно вкладаються в таймінг.
+2. **Логіка та Контекст**: Переклад має бути живим, емоційним та логічно пов'язаним. Уникай дослівного перекладу, якщо він звучить штучно.
+3. **Формат даних**: Поверни результат виключно у тому ж форматі, який надано в оригіналі (id:...,start:...,end:...,actor:...,text:...). Не змінюй ID, таймкоди чи імена персонажів.
+4. **Послідовність**: Одне й те саме звертання (Ти/Ви) для однієї пари персонажів.
+5. **Суворі обмеження**: Не додавай жодних вступних чи підсумкових фраз.
+ - Тільки "сирі" дані.
+ - Жодних повторів або пояснень.
+ - Текст має бути лише українською мовою.
+ - Якщо в тексті є помилка або незрозуміле слово, перекладай за контекстом, але ніколи не переривай структуру рядка.
+ - Забезпеч логічний зв'язок між репліками (id:1 впливає на контекст id:2).
+
+**Оригінал для перекладу**:
+]] .. table.concat(selected_lines, "\n")
+    
+    set_clipboard(prompt)
+    show_snackbar("Промпт скопійовано в буфер", "success")
+end
+
+function OTHER.AI_insert_result()
+    local clipboard = get_clipboard()
+    if not clipboard or clipboard == "" then
+        show_snackbar("Буфер обміну порожній", "error")
+        return
+    end
+
+    if not ass_lines or #ass_lines == 0 then
+        show_snackbar("Немає реплік для оновлення", "error")
+        return
+    end
+
+    -- Create a quick lookup map for lines by their ID
+    local id_to_line = {}
+    for i, line in ipairs(ass_lines) do
+        local id = tostring(line.index or i)
+        id_to_line[id] = line
+    end
+
+    local update_count = 0
+    push_undo("Вставити результат ШІ")
+
+    -- Parse lines from clipboard
+    for line_text in clipboard:gmatch("[^\r\n]+") do
+        -- Pattern matches 'id:<id>' and 'text:<text>'
+        -- We use a more flexible pattern to handle possible variations in AI output
+        local id = line_text:match("id:(%w+)")
+        local translated = line_text:match("text:(.*)$")
+
+        if id and translated and id_to_line[id] then
+            local target = id_to_line[id]
+            local original_old = target.text
+            
+            -- Strip potential whitespace from translated text
+            translated = translated:match("^%s*(.-)%s*$")
+            
+            -- Format: <translated text>\n\n{{ <original old text> }}
+            target.text = string.format("%s\n\n{{ %s }}", translated, original_old)
+            update_count = update_count + 1
+        end
+    end
+
+    if update_count > 0 then
+        -- Sync changes
+        cleanup_actors()
+        rebuild_regions()
+        save_project_data(UI_STATE.last_project_id)
+        reaper.MarkProjectDirty(0)
+        
+        table_data_cache.state_count = -1 -- Force table refresh
+        show_snackbar(string.format("Оновлено %d реплік", update_count), "success")
+    else
+        show_snackbar("Не знайдено жодної відповідності по ID", "warning")
+    end
+end
+
 local function draw_table(input_queue)
     local show_actor = UI_STATE.ass_file_loaded
     local start_y = S(65)
@@ -24601,7 +24703,7 @@ local function draw_table(input_queue)
                 local editor_label = (cfg.editor_mode and "• " or "") .. "Режим Редактора"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам|" .. editor_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)|<"
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам|" .. editor_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)||<|>Переклад з ШІ|Згенерувати промпт для виділених реплік|Вставити результат від ШІ|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     OTHER.find_replace_state.show = true
@@ -24650,6 +24752,10 @@ local function draw_table(input_queue)
                     filter_unique_item_replicas()
                 elseif ret == 12 then
                     ebu_r128_replicas_normalize()
+                elseif ret == 13 then
+                    OTHER.AI_generate_prompt()
+                elseif ret == 14 then
+                    OTHER.AI_insert_result()
                 end
             end
         end
@@ -25145,7 +25251,7 @@ local function draw_table(input_queue)
                 
                 -- Pre-calculate CPS and strings for table view
                 local duration = (line.t2 or 0) - (line.t1 or 0)
-                local clean_txt = (line.text or ""):gsub(acute, ""):gsub("%s+", "")
+                local clean_txt = (line.text or ""):gsub("{{.-}}", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("%s+", ""):gsub(acute, "")
                 local char_count = utf8.len(clean_txt) or #clean_txt
                 line.cps = duration > 0 and (char_count / duration) or 0
                 line.cps_str = line.is_marker and "" or string.format("%.1f", line.cps)
