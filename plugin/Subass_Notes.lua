@@ -23052,7 +23052,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         if cfg.director_layout == "right" then
             gfx.line(panel_x, panel_y, panel_x, panel_y + panel_h)
         else
-            gfx.line(panel_x, panel_y, panel_x + panel_w, panel_y)
+            gfx.rect(panel_x, panel_y, panel_w, 2, 1)
         end
     end
     
@@ -23854,7 +23854,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         if is_editor_right then
             gfx.line(panel_x, panel_y, panel_x, panel_y + panel_h)
         else
-            gfx.line(panel_x, panel_y, panel_x + panel_w, panel_y)
+            gfx.rect(panel_x, panel_y, panel_w, 2, 1)
         end
     end
     
@@ -24685,7 +24685,7 @@ local function draw_table(input_queue)
     local prev_text = table_filter_state.text
     local filter_placeholder = OTHER.find_replace_state.show 
         and "Фільтр (Текст для заміни)..." 
-        or "Фільтр (Текст, Актор або ID. Умова або ʼ|ʼ, умова та ʼ&ʼ)..."
+        or "Фільтр (Текст, Актор або ID. Умова '|', '&', {%AA})..."
     ui_text_input("table_filter", filter_x, filter_y, filter_w - counter_reserve, filter_h, table_filter_state, filter_placeholder, input_queue)
     gfx.setfont(F.std)
     -- Display results count in the top-right corner of filter input
@@ -25237,7 +25237,15 @@ local function draw_table(input_queue)
                         local q_clean = strip_accents(q_lower)
                         local text_match, actor_match, index_match, dubber_match = false, false, false, false
                         
-                        if use_case then
+                        -- Special Command: {%AA} - All Uppercase (Caps Lock filter)
+                        if q == "{%AA}" and not is_replace_mode then
+                            local visible = target_text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", "")
+                            -- Remove spaces, punctuation and digits to check only actual letters
+                            local letters_only = visible:gsub("%s+", ""):gsub("[%p%d]", "")
+                            if #letters_only > 0 and letters_only == utf8_upper(letters_only) then
+                                text_match = true
+                            end
+                        elseif use_case then
                             text_match = target_text:find(q, 1, true)
                             if text_match and not h_text then h_text = {target_text:find(q, 1, true)} end
                             if show_actor and line.actor then
