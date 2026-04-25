@@ -1,5 +1,5 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.2.8
+-- @version 0.2.9
 -- @author Lionzz + Fusion (Fusion Dub)
 
 if not reaper.ImGui_CreateContext then
@@ -422,6 +422,23 @@ end
 
 local function parse_to_tokens(text)
     if not text then return {} end
+    
+    -- Remove double-brace comments {{...}} completely from display
+    if text:find("{{") then
+        text = text:gsub("{{", "\1"):gsub("}}", "\2")
+        text = text:gsub("%b\1\2", "\3") -- Use \3 as placeholder for removed comment
+        
+        -- Remove lines that ONLY contain placeholders and whitespace to avoid empty lines
+        text = text:gsub("\n[\3%s]*\3[\3%s]*\n", "\n")
+        text = text:gsub("^[\3%s]*\3[\3%s]*\n", "")
+        text = text:gsub("\n[\3%s]*\3[\3%s]*$", "")
+        text = text:gsub("^[\3%s]*\3[\3%s]*$", "")
+        
+        -- Remove any remaining placeholders and restore unmatched braces
+        text = text:gsub("\3", "")
+        text = text:gsub("\1", "{{"):gsub("\2", "}}")
+    end
+
     local tokens = {}
     local cursor = 1
     local global_comment = nil
