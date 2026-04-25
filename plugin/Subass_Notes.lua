@@ -23904,6 +23904,12 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                         count = count + 1
                     end
                 end
+
+                if editor_state.original_text then
+                    editor_state.original_text = editor_state.original_text:gsub("%s*\n\n{{+.-}}+", ""):gsub("%s*{{+.-}}+", "")
+                    editor_state.input.text = editor_state.input.text:gsub("%s*\n\n{{+.-}}+", ""):gsub("%s*{{+.-}}+", "")
+                end
+
                 if count > 0 then
                     cleanup_actors()
                     rebuild_regions()
