@@ -19073,7 +19073,7 @@ local function draw_rich_line(line_spans, center_x, y_base, font_slot, font_name
         draw_text_with_stress_marks(span.text, cfg.all_caps, cfg.all_caps_acute)
         if span.comment then
             local sr, sg, sb, sa = gfx.r, gfx.g, gfx.b, gfx.a
-            set_color(UI.GET_P_COLOR(0.15))
+            set_color(UI.GET_P_COLOR(0.5))
             local comment_width = span.text_width or span.width
             local comm_len = utf8.len(span.comment) or #span.comment
             local dash_w = math.max(S(3), S(8) - math.min(S(5), math.floor(comm_len / 15)))
