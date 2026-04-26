@@ -27849,14 +27849,24 @@ local function main()
         local import_req = reaper.GetExtState("Subass_Notes", "import_request")
         if import_req ~= "" then
             reaper.SetExtState("Subass_Notes", "import_request", "", false) -- clear immediately
-            local ext = import_req:match("%.([^%.]+)$") or ""
-            ext = ext:lower()
-            if ext == "ass" or ext == "ssa" then
+            local low_req = import_req:lower()
+            local ext = ""
+            if low_req:match("%.ass") or low_req:match("%.ssa") then
+                ext = "ass"
+            elseif low_req:match("%.vtt") then
+                ext = "vtt"
+            elseif low_req:match("%.srt") then
+                ext = "srt"
+            else
+                ext = low_req:match("%.([^%.]+)$") or ""
+            end
+
+            if ext == "ass" then
                 import_ass(import_req)
             elseif ext == "vtt" then
                 import_vtt(import_req)
             else
-                import_srt(import_req) -- default: srt
+                import_srt(import_req) -- default/srt
             end
         end
     end
