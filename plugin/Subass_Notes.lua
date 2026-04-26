@@ -23799,6 +23799,15 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     -- Find all regions at cur_time using existing utility
     local overlapping_lines = UTILS.get_ass_lines_at_time(cur_time, 0.001)
     local current_region = nil
+
+    -- Filter out disabled regions
+    local filtered_lines = {}
+    for _, line in ipairs(overlapping_lines) do
+        if line.enabled ~= false then
+            table.insert(filtered_lines, line)
+        end
+    end
+    overlapping_lines = filtered_lines
     
     if #overlapping_lines > 0 then
         -- Pick the best matching line
@@ -24353,6 +24362,10 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             local txt = editor_state.input.text
             
             if is_editing and current_region then
+                if not current_region.id then
+                    show_snackbar("Помилка: ID регіону не знайдено", "error")
+                    return
+                end
                 -- Region name is ONLY text, no actor brackets
                 push_undo("Оновлення регіону")
                 reaper.SetProjectMarker3(0, current_region.id, true, current_region.start_pos, current_region.end_pos, txt, current_region.col)
@@ -26046,8 +26059,11 @@ local function draw_table(input_queue)
                             last_selected_row = i 
                             UI_STATE.last_tracked_pos = line.t1 -- Always sync position on click
                             last_auto_scroll_idx = i -- Sync to prevent auto-centering immediately after click
-                            editor_state.last_region_id = line.rgn_idx
-                            editor_state.needs_sync = true
+                            
+                            if line.enabled then
+                                editor_state.last_region_id = line.rgn_idx
+                                editor_state.needs_sync = true
+                            end
                             
                             -- Clear input focus on row click
                             director_state.input.focus = false
@@ -27826,6 +27842,24 @@ local function main()
 
     -- Async handling and Loader must be drawn BEFORE gfx.update
     check_async_pool()
+
+    -- Handle subtitle import request from Subass_Dictionary (throttled: once per second)
+    if not UI_STATE.last_import_check_t or (reaper.time_precise() - UI_STATE.last_import_check_t) >= 1.0 then
+        UI_STATE.last_import_check_t = reaper.time_precise()
+        local import_req = reaper.GetExtState("Subass_Notes", "import_request")
+        if import_req ~= "" then
+            reaper.SetExtState("Subass_Notes", "import_request", "", false) -- clear immediately
+            local ext = import_req:match("%.([^%.]+)$") or ""
+            ext = ext:lower()
+            if ext == "ass" or ext == "ssa" then
+                import_ass(import_req)
+            elseif ext == "vtt" then
+                import_vtt(import_req)
+            else
+                import_srt(import_req) -- default: srt
+            end
+        end
+    end
     
     -- Periodic Update Check
     if reaper.time_precise() - UI_STATE.last_update_check_time > UI_STATE.AUTO_UPDATE_INTERVAL then
