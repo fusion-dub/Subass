@@ -7,6 +7,7 @@ import argparse
 import urllib.request
 import urllib.parse
 import urllib.error
+import time
 
 # --- Default API Keys ---
 OSUB_DEFAULT_KEY = "5J3F15q8wOSyoydqLoM7R9ghLDnEESmu"
@@ -18,11 +19,12 @@ SUBDL_DEFAULT_KEY = "uJMHXZhLG1_rpAVOLQJI1kUj0jkF54sB"
 try:
     import yt_dlp
 except ImportError:
-    print("\n[DOWNLOAD] Бібліотека 'yt-dlp' не знайдена.")
-    print("Якщо ви хочете встановити її зараз, введіть 'install' та натисніть Enter.")
-    
     try:
         # Check if we're in a terminal that supports input
+        if not sys.stdin.isatty():
+            print(json.dumps({"error": "yt-dlp not found. Run this script in Terminal to install."}, ensure_ascii=False))
+            sys.exit(1)
+            
         choice = input("\n> ").strip().lower()
         if choice == "install":
             print("\n[DOWNLOAD] Встановлення yt-dlp... (Це може зайняти деякий час)")
@@ -44,7 +46,7 @@ except ImportError:
             sys.exit(0)
     except EOFError:
         print("[DOWNLOAD] Помилка: yt-dlp не встановлено і не вдалося отримати ввід користувача.")
-        sys.exit(1)
+    sys.exit(1)
 
 def get_info(url):
     """Fetch info about the URL and return a simplified JSON structure."""
@@ -89,52 +91,49 @@ def get_info(url):
             all_formats = sorted(info.get("formats", []), key=format_sort_key)
             seen_audio_notes = set()
             seen_video_notes = set()
-
             for f in all_formats:
-                # We care about resolution, extension, and if it's audio/video
+                vcodec = f.get("vcodec", "none")
+                acodec = f.get("acodec", "none")
+                
+                if vcodec != "none":
+                    m_type = "video"
+                elif acodec != "none":
+                    m_type = "audio"
+                else:
+                    continue
+
+                note = f.get("format_note") or f.get("resolution") or ""
+                
+                # If it's a video-only DASH format, mention we'll add audio
+                if m_type == "video" and acodec == "none":
+                    note = f"{note} (+Best Audio)"
+
                 f_info = {
                     "format_id": f.get("format_id"),
-                    "ext": f.get("ext"),
-                    "resolution": f.get("resolution"),
-                    "vcodec": f.get("vcodec"),
-                    "acodec": f.get("acodec"),
+                    "ext": "mp4" if m_type == "video" else f.get("ext"),
+                    "type": m_type,
+                    "note": note,
                     "filesize": f.get("filesize") or f.get("filesize_approx"),
-                    "note": f.get("format_note")
                 }
                 
-                # Categorize
-                if f.get("vcodec") != "none" and f.get("acodec") != "none":
-                    f_info["type"] = "video+audio"
-                elif f.get("vcodec") != "none":
-                    f_info["type"] = "video_only"
-                elif f.get("acodec") != "none":
-                    f_info["type"] = "audio_only"
-                else:
-                    f_info["type"] = "unknown"
+                # Deduplicate audio by note
+                if m_type == "audio":
+                    if note in seen_audio_notes: continue
+                    seen_audio_notes.add(note)
                 
-                # Only include relevant media formats
-                if f_info["type"] != "unknown":
-                    note = f_info["note"] or "unknown"
-                    
-                    # Deduplicate audio by quality (note)
-                    if f_info["type"] == "audio_only":
-                        if note in seen_audio_notes:
-                            continue
-                        seen_audio_notes.add(note)
-                    
-                    # Deduplicate video by quality (note/resolution)
-                    if f_info["type"] in ["video_only", "video+audio"]:
-                        # Use resolution as a fallback for note if it's missing or generic
-                        quality_key = note
-                        if quality_key in seen_video_notes:
-                            continue
-                        seen_video_notes.add(quality_key)
-                    
-                    result["formats"].append(f_info)
+                # Deduplicate video by note/resolution
+                if m_type == "video":
+                    if note in seen_video_notes: continue
+                    seen_video_notes.add(note)
+                
+                result["formats"].append(f_info)
             
-            # Process subtitles
+            # Process subtitles (Manual)
             subs = info.get("subtitles", {})
+            manual_langs = set()
             for lang, s_list in subs.items():
+                if lang == "live_chat": continue
+                manual_langs.add(lang)
                 result["subtitles"].append({
                     "lang": lang,
                     "formats": [s.get("ext") for s in s_list]
@@ -143,7 +142,11 @@ def get_info(url):
             # Process automatic captions
             auto_subs = info.get("automatic_captions", {})
             for lang, s_list in auto_subs.items():
-                # Filter auto-captions to only allow Ukrainian and English
+                if lang == "live_chat": continue
+                # Skip if we already have manual subtitles for this language
+                if lang in manual_langs: continue
+                
+                # Only include auto-captions for Ukrainian and English
                 if lang in ['uk', 'en']:
                     result["subtitles"].append({
                         "lang": lang,
@@ -155,14 +158,35 @@ def get_info(url):
     except Exception as e:
         return {"error": str(e)}
 
-def download_resource(url, format_id, output_path, subtitle_lang=None):
+def download_resource(url, format_id, output_path, subtitle_lang=None, media_type=None):
     """Download resource with specific format."""
+    # If it's a video, we always want the best audio to go with it
+    if not format_id:
+        final_format = 'best'
+    elif media_type == "video":
+        # Force merge chosen video with best audio track, but fallback to original format
+        # This fixes issues with platforms like TikTok where audio/video are already combined.
+        final_format = f"{format_id}+bestaudio/{format_id}"
+    else:
+        # Audio or specific combined format
+        final_format = format_id
+
     ydl_opts = {
-        'format': format_id if format_id else 'best',
+        'format': final_format,
         'outtmpl': output_path,
-        'quiet': False,
-        'no_warnings': False,
+        'quiet': True,
+        'no_warnings': True,
+        'noprogress': True,
+        'noplaylist': True,
+        'merge_output_format': 'mp4',
+        'overwrites': True,
     }
+    
+    if sys.platform == "darwin":
+        ydl_opts['ffmpeg_location'] = '/opt/homebrew/bin/ffmpeg'
+        # Also check if it's in /usr/local/bin
+        if not os.path.exists(ydl_opts['ffmpeg_location']):
+            ydl_opts['ffmpeg_location'] = '/usr/local/bin/ffmpeg'
     
     if subtitle_lang:
         ydl_opts['writesubtitles'] = True
@@ -448,6 +472,70 @@ def _append_source(result, source_name, data):
         entry["error"] = data.get("error", "Unknown error")
     result["sources"].append(entry)
 
+def get_subtitle_from_url(url, lang):
+    """Extract subtitle for a given language from a video URL via yt-dlp."""
+    import tempfile, os, glob
+    tmp_dir = tempfile.gettempdir()
+    # Use a unique ID for this download to avoid collisions
+    uid = str(os.getpid()) + "_" + str(int(time.time()))
+    out_tmpl = os.path.join(tmp_dir, f'subass_sub_{uid}_%(id)s.%(ext)s')
+    
+    ydl_opts = {
+        'quiet': True, 
+        'no_warnings': True,
+        'noprogress': True,
+        'writesubtitles': True, 
+        'writeautomaticsub': True,
+        'subtitleslangs': [lang], # Just the requested lang
+        'skip_download': True,
+        'noplaylist': True,
+        'outtmpl': out_tmpl,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            vid_id = info.get('id', '')
+        
+        # Search for the file
+        pattern = os.path.join(tmp_dir, f'subass_sub_{uid}_{vid_id}*')
+        matches = glob.glob(pattern)
+        
+        if not matches:
+            return {"error": f"No subtitle found for language '{lang}' in this video."}
+            
+        # Pick the best match (smallest extension/most likely subtitle)
+        # Filters out .json if it exists
+        matches = [m for m in matches if not m.endswith('.json') and not m.endswith('.info')]
+        if not matches:
+            return {"error": f"Subtitle file found but extension not supported."}
+            
+        best_match = matches[0]
+        ext = best_match.rsplit('.', 1)[-1]
+        
+        with open(best_match, 'r', encoding='utf-8', errors='replace') as f:
+            content = f.read()
+        
+        # Cleanup
+        for m in glob.glob(pattern):
+            try: os.remove(m)
+            except: pass
+            
+        return {"status": "success", "content": content, "format": ext}
+    except Exception as e:
+        return {"error": str(e)}
+
+def download_thumbnail(url, output_path):
+    """Download thumbnail image to output_path."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Subass/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = resp.read()
+        with open(output_path, 'wb') as f:
+            f.write(data)
+        return {"status": "success", "path": output_path}
+    except Exception as e:
+        return {"error": str(e)}
+
 def search_subtitles(query, osub_key=None, jimaku_key=None, subdl_key=None):
     """Search for subtitles from multiple sources by title name."""
     result = {
@@ -475,6 +563,7 @@ def main():
     parser.add_argument("--info", action="store_true", help="Get info in JSON format")
     parser.add_argument("--download", action="store_true", help="Download the resource")
     parser.add_argument("--format", help="Format ID to download")
+    parser.add_argument("--type", help="Media type (video/audio)")
     parser.add_argument("--output", help="Output path for download")
     parser.add_argument("--sub-lang", help="Subtitle language to download")
     parser.add_argument("--osub-key", help="OpenSubtitles.com API key (free at opensubtitles.com)")
@@ -482,12 +571,33 @@ def main():
     
     # Subtitle download specific
     parser.add_argument("--get-subtitle", action="store_true", help="Download subtitle content to stdout")
+    parser.add_argument("--get-sub-from-url", action="store_true", help="Extract embedded subtitle from video URL")
+    parser.add_argument("--download-thumb", action="store_true", help="Download thumbnail image to --output path")
     parser.add_argument("--source", help="Source name (opensubtitles, subdl, etc.)")
     parser.add_argument("--id", help="File ID or unique identifier for the subtitle")
     parser.add_argument("--url", help="Direct URL for the subtitle file")
     
     args = parser.parse_args()
     target = args.target if args.target else ""
+
+    # --- Thumbnail Download ---
+    if getattr(args, 'download_thumb', False):
+        if not target or not args.output:
+            print(json.dumps({"error": "Need --target URL and --output PATH"}, ensure_ascii=False))
+            return
+        res = download_thumbnail(target, args.output)
+        print(json.dumps(res, ensure_ascii=False))
+        return
+
+    # --- Subtitle from URL (embedded tracks via yt-dlp) ---
+    if getattr(args, 'get_sub_from_url', False):
+        if not target:
+            print(json.dumps({"error": "Need --target URL"}, ensure_ascii=False))
+            return
+        lang = getattr(args, 'sub_lang', None) or 'en'
+        res = get_subtitle_from_url(target, lang)
+        print(json.dumps(res, ensure_ascii=False))
+        return
 
     # --- Subtitle Content Download ---
     if args.get_subtitle:
@@ -526,7 +636,7 @@ def main():
             if not args.output:
                 print(json.dumps({"error": "Output path is required for download"}, ensure_ascii=False))
                 sys.exit(1)
-            res = download_resource(target, args.format, args.output, args.sub_lang)
+            res = download_resource(target, args.format, args.output, args.sub_lang, args.type)
             print(json.dumps(res, ensure_ascii=False))
             return
     else:
