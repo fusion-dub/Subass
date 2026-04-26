@@ -1,5 +1,5 @@
 -- @description Subass Dictionary
--- @version 1.8
+-- @version 1.9
 -- @author Fusion (Fusion Dub)
 -- @about Dictionary of slang, idioms and terminology for dubbing.
 
@@ -80,7 +80,13 @@ local cfg_dwn = {
     search_data = nil,
     is_searching = false,
     preview_data = nil,
+    loading_item = nil,
+    error_tooltip = nil,
+    thumbnail_tex = nil,
+    thumbnail_path = nil,
 }
+local temp_path = script_path .. "temp/"
+reaper.RecursiveCreateDirectory(temp_path, 0)
 
 -- Read last selected dict from ExtState
 local last_dict = tonumber(reaper.GetExtState("Subass_Dictionary", "last_dict_idx"))
@@ -92,6 +98,16 @@ end
 
 -- Async Command Execution
 UTILS.async_pool = {}
+
+function UTILS.get_python_cmd(args)
+    local script = script_path .. "../stats/subass_download.py"
+    if reaper.GetOS():match("Win") then
+        return string.format('py -3 "%s" %s || python "%s" %s', script, args, script, args)
+    else
+        -- On Mac, ensure homebrew paths are available
+        return string.format('export PATH=$PATH:/opt/homebrew/bin:/usr/local/bin; python3 "%s" %s', script, args)
+    end
+end
 
 function UTILS.run_async_command(shell_cmd, callback)
     local id = tostring(os.time()) .. "_" .. math.random(1000, 9999)
@@ -727,14 +743,15 @@ end
 
 UTILS.load_data()
 
-function UTILS.import_subtitle_to_project(content, title)
+function UTILS.import_subtitle_to_project(content, title, fmt)
     local prj_path = reaper.GetProjectPath("")
     if prj_path == "" then
         cfg_dwn.error_tooltip = { text = "Спершу збережіть проект!", t = reaper.time_precise() }
         return
     end
     
-    local filename = title:gsub('[\\/:*?"<>|]', "_") .. ".srt"
+    local ext = (fmt and fmt:lower():match("^%a+$") and fmt:lower()) or "srt"
+    local filename = title:gsub('[\\/:*?"<>|]', "_") .. "." .. ext
     local full_path = prj_path .. "/" .. filename
     
     local f = io.open(full_path, "w")
@@ -748,24 +765,24 @@ function UTILS.import_subtitle_to_project(content, title)
     end
 end
 
-function UTILS.trigger_subtitle_download(item, source, mode)
-    local script = script_path .. "../stats/subass_download.py"
-    
-    local cmd = string.format('python3 "%s" --get-subtitle --source "%s"', script, source)
+function UTILS.trigger_subtitle_download(item, source, mode, item_key)
+    local cmd_args = string.format('--get-subtitle --source "%s"', source)
     
     if item.file_id then
-        cmd = cmd .. string.format(' --id "%s"', item.file_id)
+        cmd_args = cmd_args .. string.format(' --id "%s"', item.file_id)
     elseif item.download_url then
-        cmd = cmd .. string.format(' --url "%s"', item.download_url)
+        cmd_args = cmd_args .. string.format(' --url "%s"', item.download_url)
     elseif item.files_url then
-        cmd = cmd .. string.format(' --url "%s"', item.files_url)
+        cmd_args = cmd_args .. string.format(' --url "%s"', item.files_url)
     end
     
-    -- Show loading status WITHOUT clearing the results list
-    cfg_dwn.dl_status_msg = "Завантаження контенту..."
+    local cmd = UTILS.get_python_cmd(cmd_args)
+    
+    -- Mark this specific button as loading
+    cfg_dwn.loading_item = item_key
     
     UTILS.run_async_command(cmd, function(output)
-        cfg_dwn.dl_status_msg = nil
+        cfg_dwn.loading_item = nil
         if output == "TIMEOUT" then
             cfg_dwn.error_tooltip = { text = "Помилка: Час очікування вичерпано.", t = reaper.time_precise() }
         else
@@ -777,11 +794,77 @@ function UTILS.trigger_subtitle_download(item, source, mode)
                         content = res.content
                     }
                 else
-                    UTILS.import_subtitle_to_project(res.content, item.title or item.file_name or "Subtitle")
+                    UTILS.import_subtitle_to_project(res.content, item.title or item.file_name or "Subtitle", res.format or item.format)
                 end
             else
                 cfg_dwn.error_tooltip = { text = "Помилка завантаження: " .. (res and (res.error or "невідома відповідь") or "невідома помилка"), t = reaper.time_precise() }
             end
+        end
+    end)
+end
+
+function UTILS.trigger_subtitle_from_url(url, lang, item_key)
+    local cmd_args = string.format('--get-sub-from-url --target "%s" --sub-lang "%s"', url, lang)
+    local cmd = UTILS.get_python_cmd(cmd_args)
+    
+    cfg_dwn.loading_item = item_key
+    
+    UTILS.run_async_command(cmd, function(output)
+        cfg_dwn.loading_item = nil
+        local success, res = pcall(UTILS.json_decode, output)
+        if success and res and res.status == "success" then
+            UTILS.import_subtitle_to_project(res.content, "Subtitle_" .. lang, res.format)
+        else
+            local err_msg = (res and res.error) or "Субтитри не знайдено."
+            cfg_dwn.error_tooltip = { text = "Помилка: " .. err_msg, t = reaper.time_precise() }
+        end
+    end)
+end
+
+function UTILS.download_thumbnail(url, callback)
+    if not url or url == "" then return end
+    local ext = url:match("%.([^%.%?]+)($|%?)") or "jpg"
+    local filename = "thumb_" .. reaper.genGuid():gsub("[{}-]", "") .. "." .. ext
+    local full_path = temp_path .. filename
+    
+    local cmd_args = string.format('--download-thumb --target "%s" --output "%s"', url, full_path)
+    local cmd = UTILS.get_python_cmd(cmd_args)
+    
+    UTILS.run_async_command(cmd, function(output)
+        local success, res = pcall(UTILS.json_decode, output)
+        if success and res and res.status == "success" then
+            if callback then callback(full_path) end
+        end
+    end)
+end
+
+function UTILS.download_media(url, format_id, title, ext, m_type, item_key)
+    local prj_path = reaper.GetProjectPath("")
+    if prj_path == "" then
+        cfg_dwn.error_tooltip = { text = "Спершу збережіть проект!", t = reaper.time_precise() }
+        return
+    end
+    
+    local filename = title:gsub('[\\/:*?"<>|]', "_") .. "." .. (ext or "mp4")
+    local full_path = prj_path .. "/" .. filename
+    
+    local cmd_args = string.format('--download --target "%s" --format "%s" --type "%s" --output "%s"', 
+        url, format_id, m_type or "", full_path)
+    local cmd = UTILS.get_python_cmd(cmd_args)
+    
+    cfg_dwn.loading_item = item_key
+    
+    UTILS.run_async_command(cmd, function(output)
+        cfg_dwn.loading_item = nil
+        local success, res = pcall(UTILS.json_decode, output)
+        if success and res and res.status == "success" then
+            -- Insert into REAPER on a new track
+            reaper.defer(function()
+                reaper.InsertMedia(res.path, 0) -- 0: add to new track
+            end)
+        else
+            local err_msg = (res and res.error) or "Завантаження не вдалося."
+            cfg_dwn.error_tooltip = { text = "Помилка: " .. err_msg, t = reaper.time_precise() }
         end
     end)
 end
@@ -2201,50 +2284,67 @@ local function RenderTab_DownloadCenter()
         if changed then cfg_dwn.dwn_search = new_query end
 
         reaper.ImGui_SameLine(ctx)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
-        if reaper.ImGui_Button(ctx, "Шукати", 110) then
+        local is_searching = (dl_search_results ~= nil and dl_search_results:find("Шукаєм"))
+        local spinner_chars = { "|" , "/", "-", "\\" }
+        local spin_label = is_searching
+            and (spinner_chars[math.floor(reaper.time_precise() * 6) % 4 + 1] .. " ...")
+            or "Шукати"
+
+        if is_searching then
+            reaper.ImGui_BeginDisabled(ctx)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x444444FF)
+        else
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
+        end
+
+        if reaper.ImGui_Button(ctx, spin_label, 110) then
             if cfg_dwn.dwn_search ~= "" then
-                cfg_dwn.search_data = nil
-                dl_search_results = "Шукаємо: " .. cfg_dwn.dwn_search .. "..."
-                
-                local script = script_path .. "../stats/subass_download.py"
-                local query = cfg_dwn.dwn_search:gsub('"', '\\"')
-                
-                local cmd = string.format('python3 "%s" --info --target "%s"', script, query)
-                if reaper.GetOS():match("Win") then 
-                    cmd = string.format('py -3 "%s" --info --target "%s" || python "%s" --info --target "%s"', 
-                        script, query, script, query) 
+                -- Cleanup old thumbnail
+                if cfg_dwn.thumbnail_tex then
+                    if reaper.ImGui_Detach then reaper.ImGui_Detach(ctx, cfg_dwn.thumbnail_tex) end
+                    if reaper.ImGui_DeleteTexture then reaper.ImGui_DeleteTexture(cfg_dwn.thumbnail_tex) end
+                    cfg_dwn.thumbnail_tex = nil
                 end
+                if cfg_dwn.thumbnail_path then
+                    os.remove(cfg_dwn.thumbnail_path)
+                    cfg_dwn.thumbnail_path = nil
+                end
+
+                cfg_dwn.search_data = nil
+                dl_search_results = "Шукаєм"
+                
+                local query = cfg_dwn.dwn_search:gsub('"', '\\"')
+                local cmd_args = string.format('--info --target "%s"', query)
+                local cmd = UTILS.get_python_cmd(cmd_args)
 
                 UTILS.run_async_command(cmd, function(output)
                     if output == "TIMEOUT" then
-                        dl_search_results = "Помилка: Час очікування вичерпано."
+                        dl_search_results = nil
+                        cfg_dwn.error_tooltip = { text = "Помилка: Час очікування вичерпано.", t = reaper.time_precise() }
                     elseif output and output:match("}%s*$") then
                         local success, data = pcall(UTILS.json_decode, output)
                         if success and type(data) == "table" then
                             cfg_dwn.search_data = data
                             dl_search_results = nil
                         else
-                            dl_search_results = "Помилка обробки результатів JSON.\n" .. tostring(output)
+                            dl_search_results = nil
+                            cfg_dwn.error_tooltip = { text = "Помилка обробки JSON.", t = reaper.time_precise() }
                         end
                     else
-                        dl_search_results = "Помилка: невірний формат відповіді або скрипт повернув помилку.\nВивід:\n" .. tostring(output)
+                        dl_search_results = nil
+                        cfg_dwn.error_tooltip = { text = "Скрипт повернув помилку.", t = reaper.time_precise() }
                     end
                 end)
             end
         end
         reaper.ImGui_PopStyleColor(ctx)
+        if is_searching then reaper.ImGui_EndDisabled(ctx) end
         reaper.ImGui_PopStyleVar(ctx) -- Pop FramePadding for search/add bar
 
         reaper.ImGui_Dummy(ctx, 0, 10)
         reaper.ImGui_Separator(ctx)
         reaper.ImGui_Dummy(ctx, 0, 10)
 
-        -- Status / error overlay (shown without clearing results)
-        if cfg_dwn.dl_status_msg then
-            reaper.ImGui_TextDisabled(ctx, cfg_dwn.dl_status_msg)
-            reaper.ImGui_Dummy(ctx, 0, 4)
-        end
 
         -- Error banner: fixed at bottom-center of the current window, auto-dismiss after 4s
         if cfg_dwn.error_tooltip then
@@ -2286,6 +2386,126 @@ local function RenderTab_DownloadCenter()
                 reaper.ImGui_TextWrapped(ctx, dl_search_results)
             elseif cfg_dwn.search_data then
                 local has_results = false
+                
+                if cfg_dwn.search_data.formats then
+                    -- =========================================================
+                    -- LARGE CARD (URL INFO)
+                    -- =========================================================
+                    local data = cfg_dwn.search_data
+                    
+                    -- Load thumbnail if available
+                    if data.thumbnail and not cfg_dwn.thumbnail_tex and not cfg_dwn.is_loading_thumb then
+                        cfg_dwn.is_loading_thumb = true
+                        UTILS.download_thumbnail(data.thumbnail, function(path)
+                            cfg_dwn.thumbnail_path = path
+                            if reaper.ImGui_CreateImage then
+                                local img = reaper.ImGui_CreateImage(path)
+                                if reaper.ImGui_Attach then reaper.ImGui_Attach(ctx, img) end
+                                cfg_dwn.thumbnail_tex = img
+                            end
+                            cfg_dwn.is_loading_thumb = false
+                        end)
+                    end
+
+                    reaper.ImGui_BeginGroup(ctx)
+                    
+                    -- Header Section: Thumbnail + Title
+                    local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
+                    local thumb_w = math.min(180, avail_w * 0.4)
+                    local thumb_h = thumb_w * 9 / 16
+                    
+                    if cfg_dwn.thumbnail_tex then
+                        reaper.ImGui_Image(ctx, cfg_dwn.thumbnail_tex, thumb_w, thumb_h)
+                        reaper.ImGui_SameLine(ctx, nil, 15)
+                    else
+                        reaper.ImGui_Dummy(ctx, thumb_w, thumb_h)
+                        reaper.ImGui_SameLine(ctx, nil, 15)
+                    end
+                    
+                    reaper.ImGui_BeginGroup(ctx)
+                    reaper.ImGui_PushFont(ctx, font_main, 19)
+                    reaper.ImGui_TextWrapped(ctx, data.title or "Unknown Video")
+                    reaper.ImGui_PopFont(ctx)
+                    if data.duration then
+                        local m = math.floor(data.duration / 60)
+                        local s = data.duration % 60
+                        reaper.ImGui_TextDisabled(ctx, string.format("Тривалість: %d:%02d", m, s))
+                    end
+                    reaper.ImGui_EndGroup(ctx)
+                    
+                    reaper.ImGui_Dummy(ctx, 0, 10)
+                    reaper.ImGui_Separator(ctx)
+                    reaper.ImGui_Dummy(ctx, 0, 10)
+                    
+                    -- Subtitles Section
+                    if data.subtitles and #data.subtitles > 0 then
+                        reaper.ImGui_PushFont(ctx, font_main, 17)
+                        reaper.ImGui_Text(ctx, "Субтитри (вбудовані)")
+                        reaper.ImGui_PopFont(ctx)
+                        reaper.ImGui_Dummy(ctx, 0, 5)
+                        
+                        local spin_chars = { "|", "/", "-", "\\" }
+                        local spin = spin_chars[math.floor(reaper.time_precise() * 6) % 4 + 1]
+                        
+                        for i, s in ipairs(data.subtitles) do
+                            local label = s.lang:upper() .. (s.is_auto and " (Auto)" or "")
+                            local btn_key = "url_sub_" .. s.lang
+                            local is_loading = (cfg_dwn.loading_item == btn_key)
+                            
+                            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 3)
+                            reaper.ImGui_Text(ctx, label)
+                            reaper.ImGui_SameLine(ctx, avail_w - 60)
+                            
+                            if is_loading then
+                                reaper.ImGui_BeginDisabled(ctx)
+                                reaper.ImGui_Button(ctx, spin .. "##" .. btn_key, 56)
+                                reaper.ImGui_EndDisabled(ctx)
+                            else
+                                if reaper.ImGui_Button(ctx, "DL##" .. btn_key, 56) then
+                                    UTILS.trigger_subtitle_from_url(cfg_dwn.dwn_search, s.lang, btn_key)
+                                end
+                            end
+                            reaper.ImGui_PopStyleVar(ctx)
+                            reaper.ImGui_Separator(ctx)
+                        end
+                        reaper.ImGui_Dummy(ctx, 0, 10)
+                    end
+                    
+                    -- Formats Section (Media download)
+                    if data.formats and #data.formats > 0 then
+                        reaper.ImGui_PushFont(ctx, font_main, 17)
+                        reaper.ImGui_Text(ctx, "Медіа (тільки відео/аудіо)")
+                        reaper.ImGui_PopFont(ctx)
+                        reaper.ImGui_Dummy(ctx, 0, 5)
+                        
+                        local spin_chars = { "|", "/", "-", "\\" }
+                        local spin = spin_chars[math.floor(reaper.time_precise() * 6) % 4 + 1]
+                        
+                        for i, f in ipairs(data.formats) do
+                            local f_label = string.format("[%s] %s %s", f.ext:upper(), f.type:upper(), f.note or f.resolution or "")
+                            local btn_key = "url_fmt_" .. (f.format_id or i)
+                            local is_loading = (cfg_dwn.loading_item == btn_key)
+                            
+                            reaper.ImGui_Text(ctx, f_label)
+                            reaper.ImGui_SameLine(ctx, avail_w - 60)
+                            
+                            if is_loading then
+                                reaper.ImGui_BeginDisabled(ctx)
+                                reaper.ImGui_Button(ctx, spin .. "##" .. btn_key, 56)
+                                reaper.ImGui_EndDisabled(ctx)
+                            else
+                                if reaper.ImGui_Button(ctx, "DL##" .. btn_key, 56) then
+                                    UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or "Video", f.ext, f.type, btn_key)
+                                end
+                            end
+                            reaper.ImGui_Separator(ctx)
+                        end
+                    end
+                    
+                    reaper.ImGui_EndGroup(ctx)
+                    has_results = true
+                end
+
                 for _, source_group in ipairs(cfg_dwn.search_data.sources or {}) do
                     local items = source_group.items or {}
                     if #items > 0 then
@@ -2302,6 +2522,13 @@ local function RenderTab_DownloadCenter()
                             local btn_w = 56
                             local btn_gap = 4
                             local text_w = avail_w - (btn_w * 2) - btn_gap * 3 - 8
+                            local spin_chars = { "|", "/", "-", "\\" }
+                            local spin = spin_chars[math.floor(reaper.time_precise() * 6) % 4 + 1]
+                            local prev_key = i .. source_group.source .. "preview"
+                            local add_key  = i .. source_group.source .. "import"
+                            local prev_loading = (cfg_dwn.loading_item == prev_key)
+                            local add_loading  = (cfg_dwn.loading_item == add_key)
+                            local any_loading  = (cfg_dwn.loading_item ~= nil)
 
                             -- Title (truncated to fit)
                             local title = item.title or item.file_name or "Unknown"
@@ -2322,9 +2549,6 @@ local function RenderTab_DownloadCenter()
 
                             reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 3)
 
-                            -- Row background on hover
-                            local row_y = reaper.ImGui_GetCursorPosY(ctx)
-
                             -- Title text
                             reaper.ImGui_Text(ctx, title)
                             reaper.ImGui_SameLine(ctx, nil, 6)
@@ -2332,22 +2556,43 @@ local function RenderTab_DownloadCenter()
                             reaper.ImGui_Text(ctx, meta)
                             reaper.ImGui_PopStyleColor(ctx)
 
-                            -- Buttons pinned to right
+                            -- Preview button
                             reaper.ImGui_SameLine(ctx, avail_w - btn_w * 2 - btn_gap - 4)
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
-                            if reaper.ImGui_Button(ctx, "▶##prev" .. i .. source_group.source, btn_w) then
-                                UTILS.trigger_subtitle_download(item, source_group.source, "preview")
+                            if prev_loading then
+                                reaper.ImGui_BeginDisabled(ctx)
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x444444FF)
+                                reaper.ImGui_Button(ctx, spin .. "##prev" .. i .. source_group.source, btn_w)
+                                reaper.ImGui_PopStyleColor(ctx)
+                                reaper.ImGui_EndDisabled(ctx)
+                            else
+                                if any_loading then reaper.ImGui_BeginDisabled(ctx) end
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
+                                if reaper.ImGui_Button(ctx, ">##prev" .. i .. source_group.source, btn_w) then
+                                    UTILS.trigger_subtitle_download(item, source_group.source, "preview", prev_key)
+                                end
+                                reaper.ImGui_PopStyleColor(ctx)
+                                if any_loading then reaper.ImGui_EndDisabled(ctx) end
                             end
                             if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Preview") end
-                            reaper.ImGui_PopStyleColor(ctx)
 
+                            -- Add button
                             reaper.ImGui_SameLine(ctx, nil, btn_gap)
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
-                            if reaper.ImGui_Button(ctx, "+##add" .. i .. source_group.source, btn_w) then
-                                UTILS.trigger_subtitle_download(item, source_group.source, "import")
+                            if add_loading then
+                                reaper.ImGui_BeginDisabled(ctx)
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x444444FF)
+                                reaper.ImGui_Button(ctx, spin .. "##add" .. i .. source_group.source, btn_w)
+                                reaper.ImGui_PopStyleColor(ctx)
+                                reaper.ImGui_EndDisabled(ctx)
+                            else
+                                if any_loading then reaper.ImGui_BeginDisabled(ctx) end
+                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
+                                if reaper.ImGui_Button(ctx, "+##add" .. i .. source_group.source, btn_w) then
+                                    UTILS.trigger_subtitle_download(item, source_group.source, "import", add_key)
+                                end
+                                reaper.ImGui_PopStyleColor(ctx)
+                                if any_loading then reaper.ImGui_EndDisabled(ctx) end
                             end
                             if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Add to project") end
-                            reaper.ImGui_PopStyleColor(ctx)
 
                             reaper.ImGui_PopStyleVar(ctx)
                             reaper.ImGui_Separator(ctx)
