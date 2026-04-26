@@ -6,6 +6,7 @@
 local ctx = reaper.ImGui_CreateContext('Subass Dictionary')
 local font_main = reaper.ImGui_CreateFont('sans-serif', 15)
 local font_tabs = reaper.ImGui_CreateFont('sans-serif', 17)
+
 reaper.ImGui_Attach(ctx, font_main)
 reaper.ImGui_Attach(ctx, font_tabs)
 
@@ -13,36 +14,161 @@ reaper.ImGui_Attach(ctx, font_tabs)
 local WIN_W, WIN_H = 600, 500
 local dict_open = true
 
--- Tab Persistence
-local last_tab = tonumber(reaper.GetExtState("Subass_Dictionary", "last_tab")) or 0
-local restore_tab = true
+-- Color Constants (Hex)
+local C_BTN_OK = 0x50C850FF
+local C_BTN_MEDIUM = 0x4B824BFF
+local C_BTN_CLOSE = 0x0000000F
+local C_SEL_BG = 0x4CA6FFFF
 
 -- Load dictionary data
 local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
+
 -- Global ImGui Style
 local Style = dofile(script_path .. "Subass_ReaImGuiGlobalStyle.lua")
-local data_file = script_path .. "dictionary_data.lua"
-local categories = {}
-local cached_results = {}
-local last_filter = nil
 
 -- Data paths for Glossary
 local data_path = script_path .. "data/"
 local glossary_file = data_path .. "glossary.json"
 
+local user_dicts_file = data_path .. "user_dictionaries.json"
+
+local UTILS = {}
+
+local cfg = {
+    -- Tab Persistence
+    last_tab = tonumber(reaper.GetExtState("Subass_Dictionary", "last_tab")) or 0,
+    restore_tab = true,
+}
+
+local cfg_ref = {
+    categories = {},
+    cached_results = {},
+    last_filter = nil,
+    ref_filter = "",
+}
+
+local cfg_glos = {
+    glossary_data = { entries = {} },
+    add_entry_pending = nil,
+    edit_entry_idx = nil,
+    edit_entry_data = {},
+    open_edit_popup = false,
+    current_preview_source = nil,
+    layout_has_player = false,
+    current_preview_name = "",
+    current_preview_file = "",
+    current_preview_paused = false,
+    current_preview_pause_pos = 0,
+    current_preview_length = 0,
+    active_tags = {},  -- Set of active tags: { ["tag"] = true }
+    glos_filter = "",
+}
+
+local cfg_dict = {
+    udd = { dictionaries = {} },
+    dict_filter = "",
+    entry_selection = {}, -- { index = true }
+    last_selected_idx = nil,
+    new_dict_name = "",
+    rename_dict_idx = nil,
+    rename_dict_name = "",
+    sd_inx = nil,
+}
+
+local cfg_dwn = {
+    dwn_search = "",
+    search_data = nil,
+    is_searching = false,
+    preview_data = nil,
+}
+
+-- Read last selected dict from ExtState
+local last_dict = tonumber(reaper.GetExtState("Subass_Dictionary", "last_dict_idx"))
+if last_dict and last_dict > 0 and last_dict <= #cfg_dict.udd.dictionaries then
+    cfg_dict.sd_inx = last_dict
+elseif #cfg_dict.udd.dictionaries > 0 then
+    cfg_dict.sd_inx = 1
+end
+
+-- Async Command Execution
+UTILS.async_pool = {}
+
+function UTILS.run_async_command(shell_cmd, callback)
+    local id = tostring(os.time()) .. "_" .. math.random(1000, 9999)
+    local path = reaper.GetResourcePath() .. "/Scripts/"
+    local out_file = path .. "subass_dict_out_" .. id .. ".tmp"
+    local done_file = path .. "subass_dict_done_" .. id .. ".marker"
+    
+    if reaper.GetOS():match("Win") then
+        out_file = out_file:gsub("/", "\\")
+        done_file = done_file:gsub("/", "\\")
+        local bat_file = (path .. "subass_dict_exec_" .. id .. ".bat"):gsub("/", "\\")
+
+        local f_bat = io.open(bat_file, "w")
+        if f_bat then
+            f_bat:write("@echo off\r\n")
+            f_bat:write("chcp 65001 > NUL\r\n")
+            local bat_cmd = shell_cmd:gsub("%%", "%%%%")
+            f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
+            f_bat:write('echo DONE > "' .. done_file .. '"\r\n')
+            f_bat:write('del "%~f0"\r\n')
+            f_bat:close()
+
+            local safe_bat = bat_file:gsub("'", "''")
+            local ps_cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process \'' .. safe_bat .. '\' -WindowStyle Hidden"'
+            reaper.ExecProcess(ps_cmd, 0)
+        end
+    else
+        local env_path = "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; "
+        local full_cmd = '( ' .. env_path .. shell_cmd .. ' > "' .. out_file .. '" 2>&1 ; touch "' .. done_file .. '" ) &'
+        os.execute(full_cmd)
+    end
+    
+    table.insert(UTILS.async_pool, {
+        id = id,
+        out_file = out_file,
+        done_file = done_file,
+        callback = callback,
+        start_time = os.time()
+    })
+end
+
+function UTILS.check_async_tasks()
+    local now = os.time()
+    for i = #UTILS.async_pool, 1, -1 do
+        local task = UTILS.async_pool[i]
+        if reaper.file_exists(task.done_file) then
+            local f = io.open(task.out_file, "r")
+            local output = ""
+            if f then output = f:read("*all"); f:close() end
+            
+            os.remove(task.out_file)
+            os.remove(task.done_file)
+            
+            if task.callback then task.callback(output) end
+            table.remove(UTILS.async_pool, i)
+        elseif task.start_time and (now - task.start_time > 30) then
+            os.remove(task.out_file)
+            os.remove(task.done_file)
+            if task.callback then task.callback("TIMEOUT") end
+            table.remove(UTILS.async_pool, i)
+        end
+    end
+end
+
 -- Simple JSON Helpers
-local function json_encode(v)
+function UTILS.json_encode(v)
     if type(v) == "string" then return string.format("%q", v)
     elseif type(v) == "number" or type(v) == "boolean" then return tostring(v)
     elseif type(v) == "table" then
         local is_array = #v > 0
         local parts = {}
         if is_array then
-            for _, val in ipairs(v) do table.insert(parts, json_encode(val)) end
+            for _, val in ipairs(v) do table.insert(parts, UTILS.json_encode(val)) end
             return "[" .. table.concat(parts, ",") .. "]"
         else
             for k, val in pairs(v) do
-                table.insert(parts, string.format("%q:%s", tostring(k), json_encode(val)))
+                table.insert(parts, string.format("%q:%s", tostring(k), UTILS.json_encode(val)))
             end
             return "{" .. table.concat(parts, ",") .. "}"
         end
@@ -50,7 +176,7 @@ local function json_encode(v)
     return "null"
 end
 
-local function json_decode(s)
+function UTILS.json_decode(s)
     local pos = 1
     
     local skip_ws = function()
@@ -182,42 +308,37 @@ local function json_decode(s)
     return {}
 end
 
-local glossary_data = { entries = {} }
-
-local function load_glossary()
+function UTILS.load_glossary()
     local f = io.open(glossary_file, "r")
     if f then
         local content = f:read("*a")
         f:close()
-        glossary_data = json_decode(content)
-        if not glossary_data.entries then glossary_data = { entries = {} } end
+        cfg_glos.glossary_data = UTILS.json_decode(content)
+        if not cfg_glos.glossary_data.entries then cfg_glos.glossary_data = { entries = {} } end
     end
 end
 
-local function save_glossary()
+function UTILS.save_glossary()
     local f = io.open(glossary_file, "w")
     if f then
-        f:write(json_encode(glossary_data))
+        f:write(UTILS.json_encode(cfg_glos.glossary_data))
         f:close()
     end
 end
 
-load_glossary()
+UTILS.load_glossary()
 
-local user_dicts_file = data_path .. "user_dictionaries.json"
-local user_dicts_data = { dictionaries = {} }
-
-local function load_user_dicts()
+function UTILS.load_user_dicts()
     local f = io.open(user_dicts_file, "r")
     if f then
         local content = f:read("*a")
         f:close()
-        user_dicts_data = json_decode(content)
-        if type(user_dicts_data) ~= "table" or type(user_dicts_data.dictionaries) ~= "table" then 
-            user_dicts_data = { dictionaries = {} } 
+        cfg_dict.udd = UTILS.json_decode(content)
+        if type(cfg_dict.udd) ~= "table" or type(cfg_dict.udd.dictionaries) ~= "table" then 
+            cfg_dict.udd = { dictionaries = {} } 
         else
             -- Migration: assign IDs to existing entries
-            for _, dict in ipairs(user_dicts_data.dictionaries) do
+            for _, dict in ipairs(cfg_dict.udd.dictionaries) do
                 if not dict.next_id then
                     local max_id = 0
                     for i, entry in ipairs(dict.entries) do
@@ -281,7 +402,7 @@ local function utf8_lower(s)
     return table.concat(res)
 end
 
-local function entry_exists(entries, word, rep, com)
+function UTILS.entry_exists(entries, word, rep, com)
     for _, e in ipairs(entries) do
         if e.word == word and e.replacement == rep and e.comment == com then
             return true
@@ -290,33 +411,20 @@ local function entry_exists(entries, word, rep, com)
     return false
 end
 
-local function save_user_dicts()
+function UTILS.save_user_dicts()
     local f = io.open(user_dicts_file, "w")
     if f then
-        f:write(json_encode(user_dicts_data))
+        f:write(UTILS.json_encode(cfg_dict.udd))
         f:close()
     end
 end
 
-load_user_dicts()
+UTILS.load_user_dicts()
 
-local selected_dict_idx = nil
--- Read last selected dict from ExtState
-local last_dict = tonumber(reaper.GetExtState("Subass_Dictionary", "last_dict_idx"))
-if last_dict and last_dict > 0 and last_dict <= #user_dicts_data.dictionaries then
-    selected_dict_idx = last_dict
-elseif #user_dicts_data.dictionaries > 0 then
-    selected_dict_idx = 1
-end
-
-local dict_filter = ""
-local entry_selection = {} -- { index = true }
-local last_selected_idx = nil
-
-local function update_last_selected_dict(idx)
-    selected_dict_idx = idx
-    entry_selection = {}
-    last_selected_idx = nil
+function UTILS.update_last_selected_dict(idx)
+    cfg_dict.sd_inx = idx
+    cfg_dict.entry_selection = {}
+    cfg_dict.last_selected_idx = nil
     if idx then
         reaper.SetExtState("Subass_Dictionary", "last_dict_idx", tostring(idx), true)
     else
@@ -324,27 +432,23 @@ local function update_last_selected_dict(idx)
     end
 end
 
-local function move_dict_to_top(idx)
-    if idx and idx > 1 and user_dicts_data.dictionaries[idx] then
-        local dict = table.remove(user_dicts_data.dictionaries, idx)
-        table.insert(user_dicts_data.dictionaries, 1, dict)
-        if selected_dict_idx == idx then
-            selected_dict_idx = 1
-        elseif selected_dict_idx and selected_dict_idx < idx then
-            selected_dict_idx = selected_dict_idx + 1
+function UTILS.move_dict_to_top(idx)
+    if idx and idx > 1 and cfg_dict.udd.dictionaries[idx] then
+        local dict = table.remove(cfg_dict.udd.dictionaries, idx)
+        table.insert(cfg_dict.udd.dictionaries, 1, dict)
+        if cfg_dict.sd_inx == idx then
+            cfg_dict.sd_inx = 1
+        elseif cfg_dict.sd_inx and cfg_dict.sd_inx < idx then
+            cfg_dict.sd_inx = cfg_dict.sd_inx + 1
         end
-        save_user_dicts()
-        update_last_selected_dict(selected_dict_idx)
+        UTILS.save_user_dicts()
+        UTILS.update_last_selected_dict(cfg_dict.sd_inx)
     end
 end
 
-local new_dict_name = ""
-local rename_dict_idx = nil
-local rename_dict_name = ""
-
-local function check_dict_name_exists(name, exclude_idx)
+function UTILS.check_dict_name_exists(name, exclude_idx)
     if not name or name == "" then return false end
-    for i, d in ipairs(user_dicts_data.dictionaries) do
+    for i, d in ipairs(cfg_dict.udd.dictionaries) do
         if i ~= exclude_idx and d.name == name then
             return true
         end
@@ -352,7 +456,7 @@ local function check_dict_name_exists(name, exclude_idx)
     return false
 end
 
-local function import_dict_csv()
+function UTILS.import_dict_csv()
     local retval, filename = reaper.GetUserFileNameForRead(data_path, "Виберіть .csv файл", ".csv")
     if not retval or filename == "" then return end
     
@@ -363,7 +467,7 @@ local function import_dict_csv()
     base_name = base_name:match("^%s*(.-)%s*$") -- Trim whitespace
     local name = base_name
     local counter = 1
-    while check_dict_name_exists(name) do
+    while UTILS.check_dict_name_exists(name) do
         name = base_name .. " (" .. counter .. ")"
         counter = counter + 1
     end
@@ -404,7 +508,7 @@ local function import_dict_csv()
         
         -- Skip empty words and duplicates
         if word and word:gsub("%s+", "") ~= "" then
-            if not entry_exists(new_dict.entries, word, rep or "", com or "") then
+            if not UTILS.entry_exists(new_dict.entries, word, rep or "", com or "") then
                 table.insert(new_dict.entries, {
                     uid = counter_id,
                     word = word, 
@@ -420,16 +524,16 @@ local function import_dict_csv()
     
     if #new_dict.entries > 0 then
         new_dict.next_id = counter_id
-        table.insert(user_dicts_data.dictionaries, 1, new_dict)
-        save_user_dicts()
-        update_last_selected_dict(1)
+        table.insert(cfg_dict.udd.dictionaries, 1, new_dict)
+        UTILS.save_user_dicts()
+        UTILS.update_last_selected_dict(1)
         reaper.MB("Імпортовано " .. #new_dict.entries .. " записів.", "Імпорт", 0)
     else
         reaper.MB("Не знайдено записів для імпорту.", "Помилка", 0)
     end
 end
 
-local function export_dict_csv(dict)
+function UTILS.export_dict_csv(dict)
     local safe_name = (dict.name or "Словник"):gsub("[^%wА-Яа-яІіЇїЄєҐґ-]", "_")
     local default_filename = safe_name .. "_Dictionary.csv"
     local path = ""
@@ -470,13 +574,7 @@ local function export_dict_csv(dict)
     end
 end
 
--- Color Constants (Hex)
-local C_BTN_OK = 0x50C850FF
-local C_BTN_MEDIUM = 0x4B824BFF
-local C_BTN_CLOSE = 0x0000000F
-local C_SEL_BG = 0x4CA6FFFF
-
-local function copy_file(src, dst)
+function UTILS.copy_file(src, dst)
     local f_src = io.open(src, "rb")
     if not f_src then return false end
     local content = f_src:read("*a")
@@ -489,7 +587,7 @@ local function copy_file(src, dst)
     return true
 end
 
-local function add_from_reaper()
+function UTILS.add_from_reaper()
     local item = reaper.GetSelectedMediaItem(0, 0)
     if not item then
         reaper.MB("Будь ласка, виберіть айтем у REAPER", "Помилка", 0)
@@ -530,7 +628,7 @@ local function add_from_reaper()
                 local dst_path = data_path .. filename
                 
                 -- 4. Copy to data
-                if copy_file(src_path, dst_path) then
+                if UTILS.copy_file(src_path, dst_path) then
                     success = true
                     filename_result = filename
                 end
@@ -559,54 +657,41 @@ local function add_from_reaper()
     end
 end
 
-local add_entry_pending = nil
-local edit_entry_idx = nil
-local edit_entry_data = {}
-local open_edit_popup = false
-local current_preview_source = nil
-local layout_has_player = false
-local current_preview_name = ""
-local current_preview_file = ""
-local current_preview_paused = false
-local current_preview_pause_pos = 0
-local current_preview_length = 0
-local active_tags = {}  -- Set of active tags: { ["tag"] = true }
-
-local function format_time(seconds)
+function UTILS.format_time(seconds)
     if not seconds then return "0:00" end
     local mins = math.floor(seconds / 60)
     local secs = math.floor(seconds % 60)
     return string.format("%d:%02d", mins, secs)
 end
 
-local function stop_preview()
-    if current_preview_source and reaper.CF_Preview_Stop then
-        reaper.CF_Preview_Stop(current_preview_source)
+function UTILS.stop_preview()
+    if cfg_glos.current_preview_source and reaper.CF_Preview_Stop then
+        reaper.CF_Preview_Stop(cfg_glos.current_preview_source)
     end
-    current_preview_source = nil
-    current_preview_name = ""
-    current_preview_paused = false
-    current_preview_pause_pos = 0
+    cfg_glos.current_preview_source = nil
+    cfg_glos.current_preview_name = ""
+    cfg_glos.current_preview_paused = false
+    cfg_glos.current_preview_pause_pos = 0
 end
 
-local function load_data()
-    local f, err = loadfile(data_file)
+function UTILS.load_data()
+    local f, err = loadfile(script_path .. "dictionary_data.lua")
     if f then
-        categories = f()
+        cfg_ref.categories = f()
     else
         reaper.ShowConsoleMsg("Error loading dictionary data: " .. tostring(err) .. "\n")
-        categories = { { name = "Помилка завантаження", entries = {} } }
+        cfg_ref.categories = { { name = "Помилка завантаження", entries = {} } }
     end
-    last_filter = nil -- Force cache rebuild
+    cfg_ref.last_filter = nil -- Force cache rebuild
 end
 
-local function update_search_cache(filter)
+function UTILS.update_search_cache(filter)
     local search_term = utf8_lower(filter)
-    cached_results = {}
+    cfg_ref.cached_results = {}
     
     -- Categories can be an array or a map
     local sorted_categories = {}
-    for k, v in pairs(categories) do
+    for k, v in pairs(cfg_ref.categories) do
         local cat_name, entries
         if type(k) == "number" then
             cat_name = v.name
@@ -636,13 +721,114 @@ local function update_search_cache(filter)
     
     -- Sort categories by name
     table.sort(sorted_categories, function(a, b) return a.name < b.name end)
-    cached_results = sorted_categories
-    last_filter = filter
+    cfg_ref.cached_results = sorted_categories
+    cfg_ref.last_filter = filter
 end
 
-load_data()
+UTILS.load_data()
 
-local filter = ""
+function UTILS.import_subtitle_to_project(content, title)
+    local prj_path = reaper.GetProjectPath("")
+    if prj_path == "" then
+        cfg_dwn.error_tooltip = { text = "Спершу збережіть проект!", t = reaper.time_precise() }
+        return
+    end
+    
+    local filename = title:gsub('[\\/:*?"<>|]', "_") .. ".srt"
+    local full_path = prj_path .. "/" .. filename
+    
+    local f = io.open(full_path, "w")
+    if f then
+        f:write(content)
+        f:close()
+        -- Signal Subass_Notes to import the saved file
+        reaper.SetExtState("Subass_Notes", "import_request", full_path, false)
+    else
+        cfg_dwn.error_tooltip = { text = "Не вдалося зберегти файл: " .. filename, t = reaper.time_precise() }
+    end
+end
+
+function UTILS.trigger_subtitle_download(item, source, mode)
+    local script = script_path .. "../stats/subass_download.py"
+    
+    local cmd = string.format('python3 "%s" --get-subtitle --source "%s"', script, source)
+    
+    if item.file_id then
+        cmd = cmd .. string.format(' --id "%s"', item.file_id)
+    elseif item.download_url then
+        cmd = cmd .. string.format(' --url "%s"', item.download_url)
+    elseif item.files_url then
+        cmd = cmd .. string.format(' --url "%s"', item.files_url)
+    end
+    
+    -- Show loading status WITHOUT clearing the results list
+    cfg_dwn.dl_status_msg = "Завантаження контенту..."
+    
+    UTILS.run_async_command(cmd, function(output)
+        cfg_dwn.dl_status_msg = nil
+        if output == "TIMEOUT" then
+            cfg_dwn.error_tooltip = { text = "Помилка: Час очікування вичерпано.", t = reaper.time_precise() }
+        else
+            local success, res = pcall(UTILS.json_decode, output)
+            if success and res and res.status == "success" then
+                if mode == "preview" then
+                    cfg_dwn.preview_data = {
+                        title = item.title or item.file_name or "Subtitle",
+                        content = res.content
+                    }
+                else
+                    UTILS.import_subtitle_to_project(res.content, item.title or item.file_name or "Subtitle")
+                end
+            else
+                cfg_dwn.error_tooltip = { text = "Помилка завантаження: " .. (res and (res.error or "невідома відповідь") or "невідома помилка"), t = reaper.time_precise() }
+            end
+        end
+    end)
+end
+
+local function draw_preview_popup()
+    if not cfg_dwn.preview_data then return end
+    
+    local center = {reaper.ImGui_Viewport_GetCenter(reaper.ImGui_GetMainViewport(ctx))}
+    reaper.ImGui_SetNextWindowPos(ctx, center[1], center[2], reaper.ImGui_Cond_Appearing(), 0.5, 0.5)
+    reaper.ImGui_SetNextWindowSize(ctx, 700, 500, reaper.ImGui_Cond_FirstUseEver())
+    
+    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 20, 20)
+    local visible, open = reaper.ImGui_Begin(ctx, "Subtitle Preview", true, reaper.ImGui_WindowFlags_NoCollapse())
+    reaper.ImGui_PopStyleVar(ctx)
+    
+    if not open then
+        cfg_dwn.preview_data = nil
+        reaper.ImGui_End(ctx)
+        return
+    end
+
+    if visible then
+        reaper.ImGui_PushFont(ctx, font_main, 20)
+        reaper.ImGui_Text(ctx, cfg_dwn.preview_data.title)
+        reaper.ImGui_PopFont(ctx)
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Dummy(ctx, 0, 10)
+        
+        if reaper.ImGui_BeginChild(ctx, "preview_text_child", 0, -50, 1) then
+            reaper.ImGui_TextWrapped(ctx, cfg_dwn.preview_data.content)
+            reaper.ImGui_EndChild(ctx)
+        end
+        
+        reaper.ImGui_Dummy(ctx, 0, 10)
+        if reaper.ImGui_Button(ctx, "Import to Project", 150) then
+            UTILS.import_subtitle_to_project(cfg_dwn.preview_data.content, cfg_dwn.preview_data.title)
+            cfg_dwn.preview_data = nil
+        end
+        
+        reaper.ImGui_SameLine(ctx)
+        if reaper.ImGui_Button(ctx, "Close", 100) then
+            cfg_dwn.preview_data = nil
+        end
+        
+        reaper.ImGui_End(ctx)
+    end
+end
 
 local function draw_inline_entry(ctx, title, meaning, title_size, meaning_size)
     local tokens = {}
@@ -764,27 +950,27 @@ local function draw_inline_entry(ctx, title, meaning, title_size, meaning_size)
 end
 
 local function draw_mini_player(ctx)
-    if not layout_has_player or not current_preview_source then return end
+    if not cfg_glos.layout_has_player or not cfg_glos.current_preview_source then return end
 
-    local ok_p, pos = reaper.CF_Preview_GetValue(current_preview_source, "D_POSITION")
-    local ok_l, len = reaper.CF_Preview_GetValue(current_preview_source, "D_LENGTH")
-    local ok_pause, is_paused = reaper.CF_Preview_GetValue(current_preview_source, "B_PAUSE")
+    local ok_p, pos = reaper.CF_Preview_GetValue(cfg_glos.current_preview_source, "D_POSITION")
+    local ok_l, len = reaper.CF_Preview_GetValue(cfg_glos.current_preview_source, "D_LENGTH")
+    local ok_pause, is_paused = reaper.CF_Preview_GetValue(cfg_glos.current_preview_source, "B_PAUSE")
     
     -- Check if playback has finished
-    if not current_preview_paused and ok_p and ok_l and pos >= len - 0.1 then
+    if not cfg_glos.current_preview_paused and ok_p and ok_l and pos >= len - 0.1 then
         -- Playback finished, auto-pause at the end
-        current_preview_pause_pos = 0  -- Reset to beginning for replay
-        current_preview_length = len
+        cfg_glos.current_preview_pause_pos = 0  -- Reset to beginning for replay
+        cfg_glos.current_preview_length = len
         if reaper.CF_Preview_Stop then
-            reaper.CF_Preview_Stop(current_preview_source)
+            reaper.CF_Preview_Stop(cfg_glos.current_preview_source)
         end
-        current_preview_paused = true
+        cfg_glos.current_preview_paused = true
     end
     
     -- Use saved values when paused
-    if current_preview_paused then
-        pos = current_preview_pause_pos
-        len = current_preview_length
+    if cfg_glos.current_preview_paused then
+        pos = cfg_glos.current_preview_pause_pos
+        len = cfg_glos.current_preview_length
     end
 
     reaper.ImGui_Separator(ctx)
@@ -793,31 +979,31 @@ local function draw_mini_player(ctx)
     -- Height 70
     if reaper.ImGui_BeginChild(ctx, "mini_player_ui", 0, 70, 1, reaper.ImGui_WindowFlags_NoScrollbar()) then
         -- Left column: Play/Pause button
-        local play_icon = current_preview_paused and "▶" or "Ⅱ"
+        local play_icon = cfg_glos.current_preview_paused and "▶" or "Ⅱ"
         reaper.ImGui_PushFont(ctx, font_main, 22)
         reaper.ImGui_SetCursorPosY(ctx, 15) -- Center 40px button in 70px height child
         if reaper.ImGui_Button(ctx, play_icon .. "##playpause", 40, 40) then
-            if current_preview_paused then
+            if cfg_glos.current_preview_paused then
                 -- Resume: recreate preview from file and seek to saved position
                 if reaper.PCM_Source_CreateFromFile and reaper.CF_CreatePreview then
-                    local source = reaper.PCM_Source_CreateFromFile(current_preview_file)
-                    current_preview_source = reaper.CF_CreatePreview(source)
-                    if current_preview_pause_pos > 0 then
-                        reaper.CF_Preview_SetValue(current_preview_source, "D_POSITION", current_preview_pause_pos)
+                    local source = reaper.PCM_Source_CreateFromFile(cfg_glos.current_preview_file)
+                    cfg_glos.current_preview_source = reaper.CF_CreatePreview(source)
+                    if cfg_glos.current_preview_pause_pos > 0 then
+                        reaper.CF_Preview_SetValue(cfg_glos.current_preview_source, "D_POSITION", cfg_glos.current_preview_pause_pos)
                     end
                     if reaper.CF_Preview_Play then
-                        reaper.CF_Preview_Play(current_preview_source)
+                        reaper.CF_Preview_Play(cfg_glos.current_preview_source)
                     end
                 end
-                current_preview_paused = false
+                cfg_glos.current_preview_paused = false
             else
                 -- Pause: save position, length and stop preview
-                current_preview_pause_pos = pos or 0
-                current_preview_length = len or 0
+                cfg_glos.current_preview_pause_pos = pos or 0
+                cfg_glos.current_preview_length = len or 0
                 if reaper.CF_Preview_Stop then
-                    reaper.CF_Preview_Stop(current_preview_source)
+                    reaper.CF_Preview_Stop(cfg_glos.current_preview_source)
                 end
-                current_preview_paused = true
+                cfg_glos.current_preview_paused = true
             end
         end
         reaper.ImGui_PopFont(ctx)
@@ -831,21 +1017,21 @@ local function draw_mini_player(ctx)
             
         -- Name row with timing at the end
         reaper.ImGui_PushFont(ctx, font_main, 13)
-        local time_str = string.format("%s / %s", format_time(pos), format_time(len))
+        local time_str = string.format("%s / %s", UTILS.format_time(pos), UTILS.format_time(len))
         local time_w = reaper.ImGui_CalcTextSize(ctx, time_str)
         local avail_row_w = reaper.ImGui_GetContentRegionAvail(ctx) - 32 -- Space for 23px button + margin
         local max_name_width = avail_row_w - time_w - 15 -- Gap between name and time
-        local name_width = reaper.ImGui_CalcTextSize(ctx, current_preview_name)
+        local name_width = reaper.ImGui_CalcTextSize(ctx, cfg_glos.current_preview_name)
         
         if name_width > max_name_width then
             -- Truncate and add ellipsis
-            local truncated = current_preview_name
+            local truncated = cfg_glos.current_preview_name
             while reaper.ImGui_CalcTextSize(ctx, truncated .. "...") > max_name_width and #truncated > 0 do
                 truncated = truncated:sub(1, -2)
             end
             reaper.ImGui_Text(ctx, truncated .. "...")
         else
-            reaper.ImGui_Text(ctx, current_preview_name)
+            reaper.ImGui_Text(ctx, cfg_glos.current_preview_name)
         end
         
         reaper.ImGui_SameLine(ctx, avail_row_w - time_w)
@@ -868,13 +1054,13 @@ local function draw_mini_player(ctx)
             click_pos = math.max(0, math.min(1, click_pos))
             local new_time = click_pos * len
             
-            if current_preview_paused then
+            if cfg_glos.current_preview_paused then
                 -- When paused, just update the saved position
-                current_preview_pause_pos = new_time
+                cfg_glos.current_preview_pause_pos = new_time
             else
                 -- When playing, seek the preview
-                if current_preview_source then
-                    reaper.CF_Preview_SetValue(current_preview_source, "D_POSITION", new_time)
+                if cfg_glos.current_preview_source then
+                    reaper.CF_Preview_SetValue(cfg_glos.current_preview_source, "D_POSITION", new_time)
                 end
             end
         end
@@ -887,13 +1073,1302 @@ local function draw_mini_player(ctx)
         reaper.ImGui_SetCursorPosY(ctx, start_right_y - 3)
         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_CLOSE)
         if reaper.ImGui_Button(ctx, "✕", 23, 23) then
-            stop_preview()
+            UTILS.stop_preview()
         end
         reaper.ImGui_PopStyleColor(ctx)
 
         reaper.ImGui_EndChild(ctx)
     end
     reaper.ImGui_PopStyleColor(ctx)
+end
+
+local function RenderTab_Reference()
+    local ref_flags = (cfg.restore_tab and cfg.last_tab == 0) and reaper.ImGui_TabItemFlags_SetSelected() or 0
+    if reaper.ImGui_BeginTabItem(ctx, "Довідник", nil, ref_flags) then
+        if not cfg.restore_tab and cfg.last_tab ~= 0 then
+            cfg.last_tab = 0
+            reaper.SetExtState("Subass_Dictionary", "last_tab", "0", true)
+            UTILS.stop_preview()
+        end
+        reaper.ImGui_PopFont(ctx)
+        reaper.ImGui_PopStyleVar(ctx)
+
+        -- Search inside Tab
+        reaper.ImGui_SetNextItemWidth(ctx, -5)
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
+        local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search_ref', "Пошук у довіднику...", cfg_ref.ref_filter)
+        if changed then cfg_ref.ref_filter = new_filter end
+        if cfg_ref.ref_filter ~= cfg_ref.last_filter then UTILS.update_search_cache(cfg_ref.ref_filter) end
+        reaper.ImGui_PopStyleVar(ctx) -- Pop FramePadding for search bar
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Dummy(ctx, 0, 5)
+        -- Content
+        local child_h = cfg_glos.layout_has_player and -82 or -5
+        if reaper.ImGui_BeginChild(ctx, "content_reference", 0, child_h) then
+            for _, cat in ipairs(cfg_ref.cached_results) do
+                local header_flags = 0
+                local header_name = string.format("%s (%d)###%s", cat.name, #cat.entries, cat.name)
+                
+                reaper.ImGui_PushFont(ctx, font_main, 16)
+                local header_open = reaper.ImGui_CollapsingHeader( ctx, header_name, header_flags )
+                reaper.ImGui_PopFont(ctx)
+                
+                if header_open then
+                    reaper.ImGui_Indent(ctx, 29)
+                    reaper.ImGui_Dummy(ctx, 0, 5)
+                    for _, entry in ipairs(cat.entries) do
+                        if cat.name == "Асиміляція" or cat.name == "Відмінки" then
+                            draw_inline_entry(ctx, entry.word, entry.meaning, 18, 18)
+                        else
+                            draw_inline_entry(ctx, entry.word, entry.meaning, 30, 16)
+                        end
+                    end
+                    reaper.ImGui_Dummy(ctx, 0, 10)
+                    reaper.ImGui_Unindent(ctx, 29)
+                end
+            end
+            reaper.ImGui_EndChild(ctx)
+        end
+        reaper.ImGui_EndTabItem(ctx)
+        reaper.ImGui_PushFont(ctx, font_tabs, 17)
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
+    end
+end
+
+local function RenderTab_Glossary()
+    local glos_flags = (cfg.restore_tab and cfg.last_tab == 1) and reaper.ImGui_TabItemFlags_SetSelected() or 0
+    if reaper.ImGui_BeginTabItem(ctx, "Звуковий Глосарій", nil, glos_flags) then
+        if not cfg.restore_tab and cfg.last_tab ~= 1 then
+            cfg.last_tab = 1
+            reaper.SetExtState("Subass_Dictionary", "last_tab", "1", true)
+            UTILS.stop_preview()
+        end
+        reaper.ImGui_PopFont(ctx)
+        reaper.ImGui_PopStyleVar(ctx)
+
+        -- Search and Add on one line (Increased height)
+        reaper.ImGui_SetNextItemWidth(ctx, -145)
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
+        local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search_glos', "Пошук у глосарії...", cfg_glos.glos_filter)
+        if changed then cfg_glos.glos_filter = new_filter end
+        
+        reaper.ImGui_SameLine(ctx)
+        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
+        if reaper.ImGui_Button(ctx, "Додати з REAPER", 135) then
+            local new_entry = UTILS.add_from_reaper()
+            if new_entry then
+                cfg_glos.add_entry_pending = new_entry
+                reaper.ImGui_OpenPopup(ctx, "GlossaryMetadata")
+            end
+        end
+        reaper.ImGui_PopStyleColor(ctx)
+        reaper.ImGui_PopStyleVar(ctx) -- Pop FramePadding for search/add bar
+        -- Quick Tags
+        local all_tags = {}
+        local tag_map = {}
+        for _, entry in ipairs(cfg_glos.glossary_data.entries) do
+            for tag in entry.tags:gmatch("([^,]+)") do
+                tag = tag:gsub("^%s+", ""):gsub("%s+$", "")
+                if tag ~= "" and not tag_map[tag] then
+                    tag_map[tag] = true
+                    table.insert(all_tags, tag)
+                end
+            end
+        end
+        table.sort(all_tags)
+
+        if #all_tags > 0 then
+            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_ItemSpacing(), 5, 5)
+            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 6, 4) -- Slightly larger tag buttons
+            
+            for i, tag in ipairs(all_tags) do
+                local is_active = cfg_glos.active_tags[tag]
+                
+                -- Style: Transparent bg with border if inactive, Filled if active
+                if is_active then
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
+                    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 0)
+                else
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x00000000) -- Transparent
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Border(), C_BTN_MEDIUM)
+                    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 1)
+                end
+                
+                -- Calculate button width to check for wrap
+                local button_w = reaper.ImGui_CalcTextSize(ctx, tag) + 12 + 10 -- + padding + spacing safety
+                local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
+                
+                if i > 1 and button_w > avail_w then
+                    reaper.ImGui_NewLine(ctx)
+                end
+
+                if reaper.ImGui_Button(ctx, tag .. "##tag") then
+                    if is_active then
+                        cfg_glos.active_tags[tag] = nil -- Toggle off
+                    else
+                        cfg_glos.active_tags[tag] = true -- Toggle on
+                    end
+                end
+                
+                if is_active then
+                    reaper.ImGui_PopStyleColor(ctx, 1) -- Button
+                    reaper.ImGui_PopStyleVar(ctx, 1)   -- BorderSize
+                else
+                    reaper.ImGui_PopStyleColor(ctx, 2) -- Button, Border
+                    reaper.ImGui_PopStyleVar(ctx, 1)   -- BorderSize
+                end
+                
+                reaper.ImGui_SameLine(ctx)
+            end
+            reaper.ImGui_NewLine(ctx)
+            reaper.ImGui_PopStyleVar(ctx, 2) -- ItemSpacing, FramePadding
+        end
+
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Dummy(ctx, 0, 5)
+
+        local child_h = cfg_glos.layout_has_player and -82 or -5
+        if reaper.ImGui_BeginChild(ctx, "content_glossary", 0, child_h) then
+            -- Glossary List
+            for i, entry in ipairs(cfg_glos.glossary_data.entries) do
+                local match = true
+                
+                -- 1. Check text filter
+                if cfg_glos.glos_filter ~= "" then
+                    local s = utf8_lower(cfg_glos.glos_filter)
+                    if not (utf8_lower(entry.name):find(s, 1, true) or utf8_lower(entry.tags):find(s, 1, true) or utf8_lower(entry.desc):find(s, 1, true)) then
+                        match = false
+                    end
+                end
+                        
+                -- 2. Check tag filter (ALL selected tags must be present)
+                if match then
+                    for needed_tag, _ in pairs(cfg_glos.active_tags) do
+                        local has_tag = false
+                        for entry_tag in entry.tags:gmatch("([^,]+)") do
+                            entry_tag = entry_tag:gsub("^%s+", ""):gsub("%s+$", "")
+                            if entry_tag == needed_tag then
+                                has_tag = true
+                                break
+                            end
+                        end
+                        if not has_tag then
+                            match = false
+                            break
+                        end
+                    end
+                end
+
+                if match then
+                    -- Main Interaction Group
+                    reaper.ImGui_BeginGroup(ctx)
+                        
+                    -- 1. Name & Playback (Top)
+                    local play_icon = (cfg_glos.current_preview_name == entry.name and not cfg_glos.current_preview_paused) and "Ⅱ" or "▶"
+                            
+                    -- Play/Pause Logic (Extraction)
+                    local function toggle_playback()
+                        local full_path = data_path .. entry.filename
+                        
+                        -- If same file is playing: toggle pause
+                        if cfg_glos.current_preview_name == entry.name and cfg_glos.current_preview_source then
+                            if cfg_glos.current_preview_paused then
+                                -- Resume
+                                if reaper.PCM_Source_CreateFromFile and reaper.CF_CreatePreview then
+                                    local source = reaper.PCM_Source_CreateFromFile(cfg_glos.current_preview_file)
+                                    cfg_glos.current_preview_source = reaper.CF_CreatePreview(source)
+                                    if cfg_glos.current_preview_pause_pos > 0 then
+                                        reaper.CF_Preview_SetValue(cfg_glos.current_preview_source, "D_POSITION", cfg_glos.current_preview_pause_pos)
+                                    end
+                                    if reaper.CF_Preview_Play then reaper.CF_Preview_Play(cfg_glos.current_preview_source) end
+                                end
+                                cfg_glos.current_preview_paused = false
+                            else
+                                -- Pause
+                                local ok_p, pos = reaper.CF_Preview_GetValue(cfg_glos.current_preview_source, "D_POSITION")
+                                local ok_l, len = reaper.CF_Preview_GetValue(cfg_glos.current_preview_source, "D_LENGTH")
+                                
+                                cfg_glos.current_preview_pause_pos = pos or 0
+                                cfg_glos.current_preview_length = len or 0
+                                if reaper.CF_Preview_Stop then reaper.CF_Preview_Stop(cfg_glos.current_preview_source) end
+                                cfg_glos.current_preview_paused = true
+                            end
+                        else
+                            -- Play new file
+                            cfg_glos.current_preview_name = entry.name
+                            cfg_glos.current_preview_file = full_path
+                            cfg_glos.current_preview_paused = false
+                            cfg_glos.current_preview_pause_pos = 0
+                            if cfg_glos.current_preview_source then
+                                if reaper.CF_Preview_Stop then reaper.CF_Preview_Stop(cfg_glos.current_preview_source) end
+                            end
+                            if reaper.PCM_Source_CreateFromFile and reaper.CF_CreatePreview then
+                                local source = reaper.PCM_Source_CreateFromFile(full_path)
+                                cfg_glos.current_preview_source = reaper.CF_CreatePreview(source)
+                                if reaper.CF_Preview_Play then reaper.CF_Preview_Play(cfg_glos.current_preview_source) end
+                            end
+                        end
+                    end
+
+                    -- 0. Layout Requirements & Widths
+                    local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
+                    local raw_tags = entry.tags or ""
+                    local tag_str = raw_tags:gsub(",", ", ")
+                    local is_ultra = (tag_str == "") and (not entry.desc or entry.desc == "")
+                    
+                    reaper.ImGui_PushFont(ctx, font_main, 15)
+                    local insert_btn_w = reaper.ImGui_CalcTextSize(ctx, "Вставити в проєкт")
+                    reaper.ImGui_PopFont(ctx)
+                    local actions_btn_w = 30
+                    local total_btns_w = insert_btn_w + actions_btn_w + 8
+
+                    reaper.ImGui_PushFont(ctx, font_main, 13)
+                    local tag_w = (tag_str ~= "") and reaper.ImGui_CalcTextSize(ctx, tag_str) or 0
+                    reaper.ImGui_PopFont(ctx)
+                    
+                    local right_margin_w = 0
+                    if is_ultra then
+                        right_margin_w = total_btns_w
+                    else
+                        if tag_w > 0 then right_margin_w = right_margin_w + tag_w end
+                    end
+
+                    -- Fixed width Play Button
+                    local entry_start_y = reaper.ImGui_GetCursorPosY(ctx)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x4B824B50)
+                    if reaper.ImGui_Button(ctx, play_icon .. "##playbtn"..i, 30, 30) then
+                        toggle_playback()
+                    end
+                    reaper.ImGui_PopStyleColor(ctx)
+                    
+                    -- Clickable Name with Truncation
+                    reaper.ImGui_SameLine(ctx)
+                    reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 3) -- Adjusted for 30px button height
+                    local name_avail_w = math.max(50, avail_w - 30 - 8 - (right_margin_w > 0 and (right_margin_w + 15) or 0))
+                    
+                    -- 1.1 Calculate/Lazy-load Duration
+                    if not entry.duration then
+                        local full_path = data_path .. (entry.filename or "")
+                        if entry.filename and entry.filename ~= "" then
+                            local src = reaper.PCM_Source_CreateFromFile(full_path)
+                            if src then
+                                entry.duration = reaper.GetMediaSourceLength(src)
+                                reaper.PCM_Source_Destroy(src)
+                                UTILS.save_glossary()
+                            end
+                        end
+                    end
+                    
+                    local base_name = (entry.name or "Unnamed"):gsub("%s+$", "")
+                    local display_name = base_name
+                    reaper.ImGui_PushFont(ctx, font_main, 18)
+                    local name_w = reaper.ImGui_CalcTextSize(ctx, display_name)
+                    
+                    if name_w > name_avail_w then
+                        local truncated = ""
+                        -- Safe UTF-8 iteration
+                        local ok, f, s, i = pcall(utf8.codes, base_name)
+                        if ok then
+                            for _, code in f, s, i do
+                                local char = utf8.char(code)
+                                if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > name_avail_w then
+                                    display_name = truncated .. "..."
+                                    break
+                                end
+                                truncated = truncated .. char
+                            end
+                        else
+                            display_name = base_name:sub(1, 10) .. "..."
+                        end
+                    end
+                    
+                    -- 1.2 Rendering Title Row
+                    reaper.ImGui_TextColored(ctx, C_BTN_OK, display_name)
+                    if reaper.ImGui_IsItemClicked(ctx, 0) then toggle_playback() end
+                    reaper.ImGui_PopFont(ctx)
+
+                    if is_ultra then
+                        -- ULTRA-COMPACT: Name, Buttons all on ONE line
+                        reaper.ImGui_SameLine(ctx, avail_w - right_margin_w)
+                        reaper.ImGui_BeginGroup(ctx)
+                            -- Action Buttons - Centered vertically
+                            reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 6) -- Match title offset
+                            if reaper.ImGui_Button(ctx, "Вставити в проєкт##"..i, insert_btn_w) then
+                                local full_path = data_path .. entry.filename
+                                local track = reaper.GetSelectedTrack(0, 0)
+                                if track then
+                                    local cursor_pos = reaper.GetCursorPosition()
+                                    reaper.InsertMedia(full_path, 0)
+                                    local new_item = reaper.GetSelectedMediaItem(0, 0)
+                                    if new_item then
+                                        reaper.MoveMediaItemToTrack(new_item, track)
+                                        reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor_pos)
+                                        reaper.UpdateArrange()
+                                    end
+                                else
+                                    reaper.MB("Будь ласка, виберіть трек для вставки.", "Помилка", 0)
+                                end
+                            end
+                            reaper.ImGui_SameLine(ctx)
+                            reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 6)
+                            if reaper.ImGui_Button(ctx, "⋮##btn"..i, actions_btn_w) then
+                                reaper.ImGui_OpenPopup(ctx, "glossary_actions_popup"..i)
+                            end
+                        reaper.ImGui_EndGroup(ctx)
+                    else
+                        -- STANDARD: Multi-line layout
+                        -- Tags Row (Right Aligned on title row) - Centered vertically
+                        if right_margin_w > 0 then
+                            reaper.ImGui_SameLine(ctx)
+                            reaper.ImGui_SetCursorPosX(ctx, avail_w - right_margin_w)
+                            reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 7) -- Center font 13 in 30px height
+                            reaper.ImGui_PushFont(ctx, font_main, 13)
+                            
+                            if tag_w > 0 then
+                                reaper.ImGui_TextColored(ctx, 0xAAAAAAFF, tag_str)
+                            end
+                            
+                            reaper.ImGui_PopFont(ctx)
+                        end
+                        
+                        reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 32) -- Bottom of the 30px button + gap
+                        reaper.ImGui_Dummy(ctx, 0, 4)
+                        
+                        -- Description & Actions Row
+                        if entry.desc ~= "" then
+                            reaper.ImGui_PushTextWrapPos(ctx, avail_w - total_btns_w - 15)
+                            reaper.ImGui_Text(ctx, entry.desc)
+                            reaper.ImGui_PopTextWrapPos(ctx)
+                            reaper.ImGui_SameLine(ctx, avail_w - total_btns_w)
+                        else
+                            reaper.ImGui_SetCursorPosX(ctx, reaper.ImGui_GetCursorPosX(ctx) + avail_w - total_btns_w)
+                        end
+                        
+                        reaper.ImGui_BeginGroup(ctx)
+                            local insert_label = "Вставити в проєкт##"..i
+                            if reaper.ImGui_Button(ctx, insert_label, insert_btn_w) then
+                                local full_path = data_path .. entry.filename
+                                local track = reaper.GetSelectedTrack(0, 0)
+                                if track then
+                                    local cursor_pos = reaper.GetCursorPosition()
+                                    reaper.InsertMedia(full_path, 0)
+                                    local new_item = reaper.GetSelectedMediaItem(0, 0)
+                                    if new_item then
+                                        reaper.MoveMediaItemToTrack(new_item, track)
+                                        reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor_pos)
+                                        reaper.UpdateArrange()
+                                    end
+                                else
+                                    reaper.MB("Будь ласка, виберіть трек для вставки.", "Помилка", 0)
+                                end
+                            end
+                            
+                            reaper.ImGui_SameLine(ctx)
+                            if reaper.ImGui_Button(ctx, "⋮##btn"..i, actions_btn_w) then
+                                reaper.ImGui_OpenPopup(ctx, "glossary_actions_popup"..i)
+                            end
+                        reaper.ImGui_EndGroup(ctx)
+                    end
+
+                    -- Common Actions Popup
+                    if reaper.ImGui_BeginPopup(ctx, "glossary_actions_popup"..i) then
+                        if reaper.ImGui_Selectable(ctx, "✎ Редагувати") then
+                            cfg_glos.edit_entry_idx = i
+                            cfg_glos.edit_entry_data = {
+                                name = entry.name,
+                                tags = entry.tags,
+                                desc = entry.desc
+                            }
+                            cfg_glos.open_edit_popup = true
+                        end
+                        
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
+                        if reaper.ImGui_Selectable(ctx, "× Видалити") then
+                            if reaper.MB("Видалити цей звук?", "Підтвердження", 1) == 1 then
+                                os.remove(data_path .. entry.filename)
+                                table.remove(cfg_glos.glossary_data.entries, i)
+                                UTILS.save_glossary()
+                            end
+                        end
+                        reaper.ImGui_PopStyleColor(ctx)
+                        reaper.ImGui_EndPopup(ctx)
+                    end
+                        
+                        reaper.ImGui_EndGroup(ctx)
+                        
+                        reaper.ImGui_Dummy(ctx, 0, 3)
+                        reaper.ImGui_Separator(ctx)
+                        reaper.ImGui_Dummy(ctx, 0, 2)
+                    end
+                end
+
+                reaper.ImGui_EndChild(ctx) -- Close glossary list child
+
+                -- Modals (Moved outside child)
+                if cfg_glos.open_edit_popup then
+                    reaper.ImGui_OpenPopup(ctx, "EditGlossary")
+                    cfg_glos.open_edit_popup = false
+                end
+            if reaper.ImGui_BeginPopupModal(ctx, "GlossaryMetadata", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
+                reaper.ImGui_Text(ctx, "Налаштування нового звуку:")
+                reaper.ImGui_Dummy(ctx, 0, 5)
+                
+                _, cfg_glos.add_entry_pending.name = reaper.ImGui_InputText(ctx, "Назва", cfg_glos.add_entry_pending.name)
+                _, cfg_glos.add_entry_pending.tags = reaper.ImGui_InputText(ctx, "Теги (через кому)", cfg_glos.add_entry_pending.tags)
+                _, cfg_glos.add_entry_pending.desc = reaper.ImGui_InputTextMultiline(ctx, "Опис", cfg_glos.add_entry_pending.desc, 300, 100)
+                
+                reaper.ImGui_Dummy(ctx, 0, 10)
+                if reaper.ImGui_Button(ctx, "Зберегти", 120) then
+                    table.insert(cfg_glos.glossary_data.entries, cfg_glos.add_entry_pending)
+                    UTILS.save_glossary()
+                    cfg_glos.add_entry_pending = nil
+                    reaper.ImGui_CloseCurrentPopup(ctx)
+                end
+                reaper.ImGui_SameLine(ctx)
+                if reaper.ImGui_Button(ctx, "Скасувати", 120) then
+                    os.remove(data_path .. cfg_glos.add_entry_pending.filename)
+                    cfg_glos.add_entry_pending = nil
+                    reaper.ImGui_CloseCurrentPopup(ctx)
+                end
+                reaper.ImGui_EndPopup(ctx)
+            end
+
+            if reaper.ImGui_BeginPopupModal(ctx, "EditGlossary", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
+                reaper.ImGui_Text(ctx, "Редагування:")
+                reaper.ImGui_Dummy(ctx, 0, 5)
+                
+                _, cfg_glos.edit_entry_data.name = reaper.ImGui_InputText(ctx, "Назва", cfg_glos.edit_entry_data.name)
+                _, cfg_glos.edit_entry_data.tags = reaper.ImGui_InputText(ctx, "Теги", cfg_glos.edit_entry_data.tags)
+                _, cfg_glos.edit_entry_data.desc = reaper.ImGui_InputTextMultiline(ctx, "Опис", cfg_glos.edit_entry_data.desc, 300, 100)
+                
+                reaper.ImGui_Dummy(ctx, 0, 10)
+                if reaper.ImGui_Button(ctx, "Зберегти", 120) then
+                    cfg_glos.glossary_data.entries[cfg_glos.edit_entry_idx].name = cfg_glos.edit_entry_data.name
+                    cfg_glos.glossary_data.entries[cfg_glos.edit_entry_idx].tags = cfg_glos.edit_entry_data.tags
+                    cfg_glos.glossary_data.entries[cfg_glos.edit_entry_idx].desc = cfg_glos.edit_entry_data.desc
+                    UTILS.save_glossary()
+                    reaper.ImGui_CloseCurrentPopup(ctx)
+                end
+                reaper.ImGui_SameLine(ctx)
+                if reaper.ImGui_Button(ctx, "Скасувати", 120) then
+                    reaper.ImGui_CloseCurrentPopup(ctx)
+                end
+                reaper.ImGui_EndPopup(ctx)
+            end
+        end
+        reaper.ImGui_EndTabItem(ctx)
+        reaper.ImGui_PushFont(ctx, font_tabs, 17)
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
+    end
+end
+
+local function RenderTab_Dictionaries()
+    local dict_flags = (cfg.restore_tab and cfg.last_tab == 2) and reaper.ImGui_TabItemFlags_SetSelected() or 0
+    if reaper.ImGui_BeginTabItem(ctx, "Словники", nil, dict_flags) then
+        if not cfg.restore_tab and cfg.last_tab ~= 2 then
+            cfg.last_tab = 2
+            reaper.SetExtState("Subass_Dictionary", "last_tab", "2", true)
+            UTILS.stop_preview()
+        end
+        reaper.ImGui_PopFont(ctx)
+        reaper.ImGui_PopStyleVar(ctx)
+
+        local avail_h = cfg_glos.layout_has_player and -82 or -5
+                
+        -- Split view Left: Dictionary List
+        if reaper.ImGui_BeginChild(ctx, "dict_split_left", 200, avail_h, 1) then
+            reaper.ImGui_Text(ctx, "Користувацькі словники")
+            reaper.ImGui_Separator(ctx)
+            reaper.ImGui_Dummy(ctx, 0, 5)
+            
+            if reaper.ImGui_Button(ctx, "Створити новий", -1) then
+                reaper.ImGui_OpenPopup(ctx, "new_dict_popup")
+            end
+            if reaper.ImGui_Button(ctx, "Імпорт з .csv", -1) then
+                UTILS.import_dict_csv()
+            end
+            reaper.ImGui_Dummy(ctx, 0, 5)
+            
+            if reaper.ImGui_BeginPopup(ctx, "new_dict_popup") then
+                reaper.ImGui_Text(ctx, "Назва нового словника:")
+                _, cfg_dict.new_dict_name = reaper.ImGui_InputText(ctx, "##new_dict_name", cfg_dict.new_dict_name)
+                if reaper.ImGui_Button(ctx, "Створити", 130) then
+                    local trimmed_name = (cfg_dict.new_dict_name or ""):match("^%s*(.-)%s*$")
+                    if trimmed_name and trimmed_name ~= "" then
+                        if UTILS.check_dict_name_exists(trimmed_name) then
+                            reaper.MB("Словник з такою назвою вже існує!", "Помилка", 0)
+                        else
+                            table.insert(cfg_dict.udd.dictionaries, 1, {
+                                id = "dict_" .. os.time(),
+                                name = trimmed_name,
+                                entries = {}
+                            })
+                            UTILS.save_user_dicts()
+                            UTILS.update_last_selected_dict(1)
+                            cfg_dict.new_dict_name = ""
+                            reaper.ImGui_CloseCurrentPopup(ctx)
+                        end
+                    end
+                end
+                reaper.ImGui_EndPopup(ctx)
+            end
+
+            if cfg_dict.rename_dict_idx then
+                reaper.ImGui_OpenPopup(ctx, "rename_dict_popup")
+            end
+
+            if reaper.ImGui_BeginPopup(ctx, "rename_dict_popup") then
+                reaper.ImGui_Text(ctx, "Перейменувати словник:")
+                _, cfg_dict.rename_dict_name = reaper.ImGui_InputText(ctx, "##rename_dict_name", cfg_dict.rename_dict_name)
+                if reaper.ImGui_Button(ctx, "Зберегти", 100) then
+                    local trimmed_name = (cfg_dict.rename_dict_name or ""):match("^%s*(.-)%s*$")
+                    if cfg_dict.rename_dict_idx and trimmed_name and trimmed_name ~= "" and cfg_dict.udd.dictionaries[cfg_dict.rename_dict_idx] then
+                        if UTILS.check_dict_name_exists(trimmed_name, cfg_dict.rename_dict_idx) then
+                            reaper.MB("Словник з такою назвою вже існує!", "Помилка", 0)
+                        else
+                            cfg_dict.udd.dictionaries[cfg_dict.rename_dict_idx].name = trimmed_name
+                            UTILS.save_user_dicts()
+                            UTILS.move_dict_to_top(cfg_dict.rename_dict_idx)
+                            cfg_dict.rename_dict_idx = nil
+                            cfg_dict.rename_dict_name = ""
+                            reaper.ImGui_CloseCurrentPopup(ctx)
+                        end
+                    end
+                end
+                reaper.ImGui_SameLine(ctx)
+                if reaper.ImGui_Button(ctx, "Скасувати", 100) then
+                    cfg_dict.rename_dict_idx = nil
+                    cfg_dict.rename_dict_name = ""
+                    reaper.ImGui_CloseCurrentPopup(ctx)
+                end
+                reaper.ImGui_EndPopup(ctx)
+            end
+                    
+            reaper.ImGui_Dummy(ctx, 0, 2)
+            reaper.ImGui_Separator(ctx)
+
+            -- Pre-calculate list width for truncation
+            local list_w = reaper.ImGui_GetContentRegionAvail(ctx) - 5
+            
+            for i, dict in ipairs(cfg_dict.udd.dictionaries) do
+                local is_selected = (cfg_dict.sd_inx == i)
+                
+                -- Truncate name if it's too long
+                local display_name = dict.name or "Unnamed"
+                local name_w = reaper.ImGui_CalcTextSize(ctx, display_name)
+                
+                if name_w > list_w then
+                    local truncated = ""
+                    local ok, f, s, idx = pcall(function() return utf8.codes(display_name) end)
+                    if ok and f then
+                        for _, code in f, s, idx do
+                            local char = utf8.char(code)
+                            if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > list_w then
+                                display_name = truncated .. "..."
+                                break
+                            end
+                            truncated = truncated .. char
+                        end
+                    else
+                        display_name = display_name:sub(1, 15) .. "..."
+                    end
+                end
+                
+                if reaper.ImGui_Selectable(ctx, display_name .. "##dict" .. i, is_selected) then
+                    if cfg_dict.sd_inx ~= i then cfg_dict.dict_filter = "" end -- Clear filter on dict switch
+                    UTILS.update_last_selected_dict(i)
+                end
+                if reaper.ImGui_IsItemHovered(ctx) and display_name ~= dict.name then
+                    reaper.ImGui_SetTooltip(ctx, dict.name) -- Show full name on hover if truncated
+                end
+                if reaper.ImGui_IsItemClicked(ctx, 1) then -- Right click
+                    reaper.ImGui_OpenPopup(ctx, "dict_context_" .. i)
+                end
+                reaper.ImGui_Separator(ctx)
+                
+                if reaper.ImGui_BeginPopup(ctx, "dict_context_" .. i) then
+                    if reaper.ImGui_Selectable(ctx, "Перейменувати") then
+                        cfg_dict.rename_dict_idx = i
+                        cfg_dict.rename_dict_name = dict.name
+                    end
+                    if reaper.ImGui_Selectable(ctx, "Експорт у .csv") then
+                        UTILS.export_dict_csv(dict)
+                    end
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
+                    if reaper.ImGui_Selectable(ctx, "Видалити") then
+                        local confirm = true
+                        if #dict.entries > 0 then
+                            local resp = reaper.MB("Словник '" .. dict.name .. "' містить записів: " .. #dict.entries .. ".\nВи впевнені, що хочете видалити його?", "Підтвердження видалення", 4) -- 4 = Yes/No
+                            if resp ~= 6 then confirm = false end -- 6 = Yes
+                        end
+                        
+                        if confirm then
+                            table.remove(cfg_dict.udd.dictionaries, i)
+                            UTILS.save_user_dicts()
+                            if cfg_dict.sd_inx == i then
+                                UTILS.update_last_selected_dict(cfg_dict.udd.dictionaries[1] and 1 or nil)
+                            elseif cfg_dict.sd_inx and cfg_dict.sd_inx > i then
+                                UTILS.update_last_selected_dict(cfg_dict.sd_inx - 1)
+                            end
+                        end
+                    end
+                    reaper.ImGui_PopStyleColor(ctx)
+                    reaper.ImGui_EndPopup(ctx)
+                end
+            end
+                    
+            reaper.ImGui_EndChild(ctx)
+        end
+                
+        reaper.ImGui_SameLine(ctx)
+        
+        -- Split view Right: Editor
+        if reaper.ImGui_BeginChild(ctx, "dict_split_right", 0, avail_h, 1) then
+            if cfg_dict.sd_inx and cfg_dict.udd.dictionaries[cfg_dict.sd_inx] then
+                local active_dict = cfg_dict.udd.dictionaries[cfg_dict.sd_inx]
+                
+                -- Truncate header dictionary name
+                local header_prefix = "Словник: "
+                local header_prefix_w = reaper.ImGui_CalcTextSize(ctx, header_prefix)
+                -- Available width minus the button space (110 button + 10 padding roughly)
+                local header_avail_w = reaper.ImGui_GetContentRegionAvail(ctx) - 120 - header_prefix_w
+                
+                local header_dict_name = active_dict.name or "Unnamed"
+                local header_dict_w = reaper.ImGui_CalcTextSize(ctx, header_dict_name)
+                
+                if header_dict_w > header_avail_w and header_avail_w > 0 then
+                    local truncated = ""
+                    local ok, f, s, idx = pcall(function() return utf8.codes(header_dict_name) end)
+                    if ok and f then
+                        for _, code in f, s, idx do
+                            local char = utf8.char(code)
+                            if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > header_avail_w then
+                                header_dict_name = truncated .. "..."
+                                break
+                            end
+                            truncated = truncated .. char
+                        end
+                    else
+                        header_dict_name = header_dict_name:sub(1, 15) .. "..."
+                    end
+                end
+                
+                reaper.ImGui_Text(ctx, header_prefix .. header_dict_name)
+                if header_dict_name ~= active_dict.name and reaper.ImGui_IsItemHovered(ctx) then
+                    reaper.ImGui_SetTooltip(ctx, active_dict.name)
+                end
+                
+                reaper.ImGui_SameLine(ctx, reaper.ImGui_GetContentRegionAvail(ctx) - 100)
+                if reaper.ImGui_Button(ctx, "+ Додати запис", 110) then
+                    local nid = active_dict.next_id or (#active_dict.entries + 1)
+                    table.insert(active_dict.entries, 1, {uid = nid, word = "", replacement = "", comment = ""})
+                    active_dict.next_id = nid + 1
+                    cfg_dict.dict_filter = "" -- Clear filter on add
+                    UTILS.save_user_dicts()
+                    UTILS.move_dict_to_top(cfg_dict.sd_inx)
+                end
+                reaper.ImGui_Separator(ctx)
+                
+                -- Search Filter
+                reaper.ImGui_SetNextItemWidth(ctx, -5)
+                local filter_changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, "##dict_filter_input", "Пошук у словнику...", cfg_dict.dict_filter)
+                if filter_changed then 
+                    cfg_dict.dict_filter = new_filter 
+                    cfg_dict.entry_selection = {} -- Clear selection on filter change
+                end
+                
+                reaper.ImGui_Dummy(ctx, 0, 5)
+                
+                local table_flags = reaper.ImGui_TableFlags_Borders() | reaper.ImGui_TableFlags_RowBg() | reaper.ImGui_TableFlags_Resizable() | reaper.ImGui_TableFlags_ScrollY() | reaper.ImGui_TableFlags_Sortable()
+                if reaper.ImGui_BeginTable(ctx, 'dict_entries_table', 5, table_flags) then
+                    reaper.ImGui_TableSetupScrollFreeze(ctx, 0, 1)
+                    reaper.ImGui_TableSetupColumn(ctx, "#", reaper.ImGui_TableColumnFlags_WidthFixed() | reaper.ImGui_TableColumnFlags_DefaultSort(), 30)
+                    reaper.ImGui_TableSetupColumn(ctx, "Слово", reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
+                    reaper.ImGui_TableSetupColumn(ctx, "Заміна (в суфлер)", reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
+                    reaper.ImGui_TableSetupColumn(ctx, "Коментар", reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
+                    reaper.ImGui_TableSetupColumn(ctx, "Дія", reaper.ImGui_TableColumnFlags_WidthFixed() | reaper.ImGui_TableColumnFlags_NoSort(), 30)
+                    reaper.ImGui_TableHeadersRow(ctx)
+
+                    -- Handle Sorting
+                    if reaper.ImGui_TableNeedSort(ctx) then
+                        local ok, col_idx, user_id, sort_dir = reaper.ImGui_TableGetColumnSortSpecs(ctx, 0)
+                        
+                        if ok then
+                            table.sort(active_dict.entries, function(a, b)
+                                local val_a, val_b
+                                if col_idx == 0 then
+                                    val_a = a.uid or 0
+                                    val_b = b.uid or 0
+                                elseif col_idx == 1 then
+                                    val_a = (a.word or ""):lower()
+                                    val_b = (b.word or ""):lower()
+                                elseif col_idx == 2 then
+                                    val_a = (a.replacement or ""):lower()
+                                    val_b = (b.replacement or ""):lower()
+                                elseif col_idx == 3 then
+                                    val_a = (a.comment or ""):lower()
+                                    val_b = (b.comment or ""):lower()
+                                end
+                                
+                                if val_a == nil or val_b == nil then return false end
+                                
+                                if sort_dir == 1 then -- Ascending
+                                    return val_a < val_b
+                                else -- Descending
+                                    return val_a > val_b
+                                end
+                            end)
+                            UTILS.save_user_dicts() -- Save the new sorted order
+                        end
+                    end
+
+                    local to_remove = nil
+                    local filter_lower = utf8_lower(cfg_dict.dict_filter)
+                    local open_entry_popup = false
+                    
+                    for e_i, entry in ipairs(active_dict.entries) do
+                        -- 0. Safety Guard: Ensure UID exists (Fix for "table index is nil" crash)
+                        if not entry.uid then
+                            entry.uid = active_dict.next_id or (#active_dict.entries + 100)
+                            active_dict.next_id = entry.uid + 1
+                            UTILS.save_user_dicts()
+                        end
+
+                        -- Filtering logic
+                        if filter_lower ~= "" then
+                            local match = false
+                            local w_lower = utf8_lower(entry.word or "")
+                            local r_lower = utf8_lower(entry.replacement or "")
+                            local c_lower = utf8_lower(entry.comment or "")
+                            
+                            if w_lower:find(filter_lower, 1, true) or 
+                               r_lower:find(filter_lower, 1, true) or 
+                               c_lower:find(filter_lower, 1, true) then
+                                match = true
+                            end
+                            
+                            if not match then goto next_entry end
+                        end
+
+                        reaper.ImGui_TableNextRow(ctx)
+                        reaper.ImGui_PushID(ctx, "entry_" .. e_i)
+
+                        local row_selected = cfg_dict.entry_selection[entry.uid] == true
+                        
+                        -- 1. Highlighting Row (Visual)
+                        if row_selected then
+                            reaper.ImGui_TableSetBgColor(ctx, reaper.ImGui_TableBgTarget_RowBg0(), 0x22AA2244, -1)
+                        end
+
+                        -- 2. Selection Hit Area (Logical)
+                        reaper.ImGui_TableSetColumnIndex(ctx, 0)
+                        local row_y = reaper.ImGui_GetCursorPosY(ctx)
+                        local frame_h = reaper.ImGui_GetFrameHeight(ctx)
+                        local row_padding = 4
+                        local row_h = frame_h + row_padding
+                        local content_y = row_y + (row_padding / 2)
+                        
+                        -- Fix: Push transparent selection colors to avoid "grey over green" visual glitch on Mac
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Header(), 0)
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0x22AA2222) -- Subtle hover
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderActive(), 0x22AA2233)
+                        
+                        -- Selectable spanning all columns
+                        if reaper.ImGui_Selectable(ctx, "##row_sel" .. e_i, row_selected, reaper.ImGui_SelectableFlags_SpanAllColumns() | reaper.ImGui_SelectableFlags_AllowOverlap(), 0, row_h) then
+                            local is_shift = reaper.ImGui_GetKeyMods(ctx) == reaper.ImGui_Mod_Shift()
+                            local is_ctrl = (reaper.ImGui_GetKeyMods(ctx) == reaper.ImGui_Mod_Ctrl()) or (reaper.ImGui_GetKeyMods(ctx) == reaper.ImGui_Mod_Super())
+                            
+                            if is_shift and cfg_dict.last_selected_idx then
+                                -- For Shift, we still need to know the VISUAL range [cfg_dict.last_selected_idx, e_i]
+                                local start_idx = math.min(cfg_dict.last_selected_idx, e_i)
+                                local end_idx = math.max(cfg_dict.last_selected_idx, e_i)
+                                if not is_ctrl then cfg_dict.entry_selection = {} end
+                                for i = start_idx, end_idx do 
+                                    local ent = active_dict.entries[i]
+                                    if ent and ent.uid then cfg_dict.entry_selection[ent.uid] = true end
+                                end
+                            elseif is_ctrl then
+                                cfg_dict.entry_selection[entry.uid] = not row_selected
+                                if cfg_dict.entry_selection[entry.uid] then cfg_dict.last_selected_idx = e_i end
+                            else
+                                cfg_dict.entry_selection = { [entry.uid] = true }
+                                cfg_dict.last_selected_idx = e_i
+                            end
+                        end
+                        reaper.ImGui_PopStyleColor(ctx, 3)
+
+                        if reaper.ImGui_IsItemClicked(ctx, 1) then
+                            if not row_selected then
+                                cfg_dict.entry_selection = { [entry.uid] = true }
+                                cfg_dict.last_selected_idx = e_i
+                            end
+                            open_entry_popup = true
+                        end
+
+                        -- 3. Draw Columns (RESET CURSOR Y with calculated balance)
+                        local content_y = row_y + (row_padding / 2)
+                        reaper.ImGui_SetCursorPosY(ctx, content_y)
+
+                        -- Column 0: Index
+                        reaper.ImGui_TableSetColumnIndex(ctx, 0)
+                        local col0_x, col0_y = reaper.ImGui_GetCursorScreenPos(ctx)
+                        reaper.ImGui_SetCursorScreenPos(ctx, col0_x, col0_y)
+                        reaper.ImGui_TextDisabled(ctx, "#" .. (entry.uid or e_i))
+                        
+                        -- Column 1: Word
+                        reaper.ImGui_TableSetColumnIndex(ctx, 1)
+                        reaper.ImGui_SetCursorPosY(ctx, content_y)
+                        reaper.ImGui_SetNextItemWidth(ctx, -1)
+                        local changed_w, new_w = reaper.ImGui_InputText(ctx, "##w", entry.word)
+                        if reaper.ImGui_IsItemFocused(ctx) and not row_selected then
+                            cfg_dict.entry_selection = { [entry.uid] = true }
+                            cfg_dict.last_selected_idx = e_i
+                        end
+                        if changed_w then entry.word = new_w; UTILS.save_user_dicts(); UTILS.move_dict_to_top(cfg_dict.sd_inx) end
+
+                        -- Column 2: Replacement
+                        reaper.ImGui_TableSetColumnIndex(ctx, 2)
+                        reaper.ImGui_SetCursorPosY(ctx, content_y)
+                        reaper.ImGui_SetNextItemWidth(ctx, -1)
+                        local changed_r, new_r = reaper.ImGui_InputText(ctx, "##r", entry.replacement)
+                        if reaper.ImGui_IsItemFocused(ctx) and not row_selected then
+                            cfg_dict.entry_selection = { [entry.uid] = true }
+                            cfg_dict.last_selected_idx = e_i
+                        end
+                        if changed_r then entry.replacement = new_r; UTILS.save_user_dicts(); UTILS.move_dict_to_top(cfg_dict.sd_inx) end
+
+                        -- Column 3: Comment
+                        reaper.ImGui_TableSetColumnIndex(ctx, 3)
+                        reaper.ImGui_SetCursorPosY(ctx, content_y)
+                        reaper.ImGui_SetNextItemWidth(ctx, -1)
+                        local changed_c, new_c = reaper.ImGui_InputText(ctx, "##c", entry.comment)
+                        if reaper.ImGui_IsItemFocused(ctx) and not row_selected then
+                            cfg_dict.entry_selection = { [entry.uid] = true }
+                            cfg_dict.last_selected_idx = e_i
+                        end
+                        if changed_c then entry.comment = new_c; UTILS.save_user_dicts(); UTILS.move_dict_to_top(cfg_dict.sd_inx) end
+
+                        -- Column 4: Delete Button
+                        reaper.ImGui_TableSetColumnIndex(ctx, 4)
+                        reaper.ImGui_SetCursorPosY(ctx, content_y)
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_CLOSE)
+                        if reaper.ImGui_Button(ctx, "×##del", 25, 0) then
+                            to_remove = e_i
+                        end
+                        reaper.ImGui_PopStyleColor(ctx)
+                        
+                        reaper.ImGui_PopID(ctx)
+                        
+                        ::next_entry::
+                    end
+                    
+                    reaper.ImGui_EndTable(ctx)
+                    
+                    -- Table Context Menu (for empty space) 
+                    if reaper.ImGui_IsWindowHovered(ctx, reaper.ImGui_HoveredFlags_ChildWindows()) and reaper.ImGui_IsMouseClicked(ctx, 1) and not reaper.ImGui_IsAnyItemHovered(ctx) then
+                        reaper.ImGui_OpenPopup(ctx, "table_bg_popup")
+                    end
+                            
+                    if reaper.ImGui_BeginPopup(ctx, "table_bg_popup") then
+                        if reaper.ImGui_Selectable(ctx, "Вставити") then
+                            local text = reaper.ImGui_GetClipboardText(ctx)
+                            if text and text ~= "" and active_dict then
+                                local added = 0
+                                local nid = active_dict.next_id or (#active_dict.entries + 1)
+                                for line in text:gmatch("[^\r\n]+") do
+                                    local skip = false
+                                    local l_lower = utf8_lower(line)
+                                    if l_lower:find("слово") and l_lower:find("заміна") then skip = true end
+                                    
+                                    if not skip then
+                                        local parts = {}
+                                        local current_line = line .. ","
+                                        local i = 1
+                                        while i <= #current_line do
+                                            local s, e, cap = current_line:find('^%s*"([^"]*)"%s*[, \t]', i)
+                                            if not s then
+                                                s, e, cap = current_line:find('^([^,\t]*)%s*[, \t]', i)
+                                            end
+                                            if s then
+                                                table.insert(parts, cap or "")
+                                                i = e + 1
+                                            else
+                                                break
+                                            end
+                                        end
+                                        
+                                        local w, r, c = parts[1], parts[2], parts[3]
+                                        if w and w:gsub("%s+", "") ~= "" then
+                                            w = w:gsub('""', '"')
+                                            r = (r or ""):gsub('""', '"')
+                                            c = (c or ""):gsub('""', '"')
+                                            if not UTILS.entry_exists(active_dict.entries, w, r, c) then
+                                                table.insert(active_dict.entries, 1, {uid = nid, word = w, replacement = r, comment = c})
+                                                nid = nid + 1
+                                                added = added + 1
+                                            end
+                                        end
+                                    end
+                                end
+                                if added > 0 then
+                                    active_dict.next_id = nid
+                                    UTILS.save_user_dicts()
+                                    UTILS.move_dict_to_top(cfg_dict.sd_inx)
+                                end
+                            end
+                        end
+                        reaper.ImGui_EndPopup(ctx)
+                    end
+
+                    if open_entry_popup then
+                        reaper.ImGui_OpenPopup(ctx, "entry_context_menu")
+                    end
+
+                    -- Entry Context Menu
+                    if reaper.ImGui_BeginPopup(ctx, "entry_context_menu") then
+                        local selected_count = 0
+                        for _ in pairs(cfg_dict.entry_selection) do selected_count = selected_count + 1 end
+                        
+                        if reaper.ImGui_Selectable(ctx, "Копіювати (" .. selected_count .. ")") then
+                            local lines = {}
+                            -- We need to find entries by UIDs now
+                            for _, e in ipairs(active_dict.entries) do
+                                if cfg_dict.entry_selection[e.uid] then
+                                    local w = (e.word or ""):gsub('"', '""')
+                                    local r = (e.replacement or ""):gsub('"', '""')
+                                    local c = (e.comment or ""):gsub('"', '""')
+                                    table.insert(lines, string.format('"%s","%s","%s"', w, r, c))
+                                end
+                            end
+                            reaper.ImGui_SetClipboardText(ctx, table.concat(lines, "\n"))
+                        end
+                        
+                        if reaper.ImGui_Selectable(ctx, "Вирізати (" .. selected_count .. ")") then
+                            local lines = {}
+                            local to_del_uids = {}
+                            for uid, sel in pairs(cfg_dict.entry_selection) do if sel then to_del_uids[uid] = true end end
+                            
+                            for _, e in ipairs(active_dict.entries) do
+                                if to_del_uids[e.uid] then
+                                    local w = (e.word or ""):gsub('"', '""')
+                                    local r = (e.replacement or ""):gsub('"', '""')
+                                    local c = (e.comment or ""):gsub('"', '""')
+                                    table.insert(lines, string.format('"%s","%s","%s"', w, r, c))
+                                end
+                            end
+                            reaper.ImGui_SetClipboardText(ctx, table.concat(lines, "\n"))
+                            
+                            -- Actual remove logic (backwards)
+                            for i = #active_dict.entries, 1, -1 do
+                                if to_del_uids[active_dict.entries[i].uid] then
+                                    table.remove(active_dict.entries, i)
+                                end
+                            end
+                            cfg_dict.entry_selection = {}
+                            UTILS.save_user_dicts()
+                            UTILS.move_dict_to_top(cfg_dict.sd_inx)
+                        end
+
+                        if reaper.ImGui_Selectable(ctx, "Вставити") then
+                            local text = reaper.ImGui_GetClipboardText(ctx)
+                            if text and text ~= "" then
+                                local added = 0
+                                local nid = active_dict.next_id or (#active_dict.entries + 1)
+                                for line in text:gmatch("[^\r\n]+") do
+                                    local skip = false
+                                    local l_lower = utf8_lower(line)
+                                    if l_lower:find("слово") and l_lower:find("заміна") then skip = true end
+                                    
+                                    if not skip then
+                                        local parts = {}
+                                        -- Robust CSV/TSV parser for clipboard
+                                        -- Matches: "field",field, or field followed by , or tab
+                                        local pattern = '[ \t]*"([^"]*)"[ \t]*' -- Quoted
+                                        local alt_pattern = '([^,\t]+)' -- Unquoted
+                                        
+                                        local current_line = line .. ","
+                                        local i = 1
+                                        while i <= #current_line do
+                                            local s, e, cap = current_line:find('^%s*"([^"]*)"%s*[, \t]', i)
+                                            if not s then
+                                                s, e, cap = current_line:find('^([^,\t]*)%s*[, \t]', i)
+                                            end
+                                            if s then
+                                                table.insert(parts, cap or "")
+                                                i = e + 1
+                                            else
+                                                break
+                                            end
+                                        end
+                                        
+                                        local w, r, c = parts[1], parts[2], parts[3]
+                                        if w and w:gsub("%s+", "") ~= "" then
+                                            w = w:gsub('""', '"')
+                                            r = (r or ""):gsub('""', '"')
+                                            c = (c or ""):gsub('""', '"')
+                                            if not UTILS.entry_exists(active_dict.entries, w, r, c) then
+                                                table.insert(active_dict.entries, 1, {uid = nid, word = w, replacement = r, comment = c})
+                                                nid = nid + 1
+                                                added = added + 1
+                                            end
+                                        end
+                                    end
+                                end
+                                if added > 0 then
+                                    active_dict.next_id = nid
+                                    UTILS.save_user_dicts()
+                                    UTILS.move_dict_to_top(cfg_dict.sd_inx)
+                                end
+                            end
+                        end
+
+                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
+                        if reaper.ImGui_Selectable(ctx, "Видалити (" .. selected_count .. ")") then
+                            local confirm = true
+                            if selected_count > 1 then
+                                local resp = reaper.MB("Видалити " .. selected_count .. " виділених записів?", "Підтвердження", 4)
+                                if resp ~= 6 then confirm = false end
+                            end
+                            
+                            if confirm then
+                                local to_del_uids = {}
+                                for uid, sel in pairs(cfg_dict.entry_selection) do if sel then to_del_uids[uid] = true end end
+                                
+                                for i = #active_dict.entries, 1, -1 do
+                                    if to_del_uids[active_dict.entries[i].uid] then
+                                        table.remove(active_dict.entries, i)
+                                    end
+                                end
+                                cfg_dict.entry_selection = {}
+                                UTILS.save_user_dicts()
+                                UTILS.move_dict_to_top(cfg_dict.sd_inx)
+                            end
+                        end
+                        reaper.ImGui_PopStyleColor(ctx)
+                        
+                        reaper.ImGui_EndPopup(ctx)
+                    end
+
+                    if to_remove then
+                        local entry = active_dict.entries[to_remove]
+                        local is_empty = true
+                        if entry then
+                            if (entry.word and entry.word:gsub("%s+", "") ~= "") or
+                               (entry.replacement and entry.replacement:gsub("%s+", "") ~= "") or
+                               (entry.comment and entry.comment:gsub("%s+", "") ~= "") then
+                                is_empty = false
+                            end
+                        end
+
+                        if is_empty or reaper.MB("Видалити цей запис?", "Підтвердження", 1) == 1 then
+                            if entry and entry.uid then
+                                cfg_dict.entry_selection[entry.uid] = nil
+                            end
+                            table.remove(active_dict.entries, to_remove)
+                            UTILS.save_user_dicts()
+                            UTILS.move_dict_to_top(cfg_dict.sd_inx)
+                        end
+                    end
+                 end
+            else
+                reaper.ImGui_TextWrapped(ctx, "Виберіть словник зліва або створіть новий для редагування записів.")
+            end
+            reaper.ImGui_EndChild(ctx)
+        end
+                
+        reaper.ImGui_EndTabItem(ctx)
+        reaper.ImGui_PushFont(ctx, font_tabs, 17)
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
+    end
+end
+
+local function RenderTab_DownloadCenter()
+    -- Download Center Tab
+    local dl_flags = (cfg.restore_tab and cfg.last_tab == 3) and reaper.ImGui_TabItemFlags_SetSelected() or 0
+    if reaper.ImGui_BeginTabItem(ctx, "Центр Завантажень", nil, dl_flags) then
+        if not cfg.restore_tab and cfg.last_tab ~= 3 then
+            cfg.last_tab = 3
+            reaper.SetExtState("Subass_Dictionary", "last_tab", "3", true)
+            UTILS.stop_preview()
+        end
+        reaper.ImGui_PopFont(ctx)
+        reaper.ImGui_PopStyleVar(ctx)
+
+        if not cfg_dwn.dwn_search then cfg_dwn.dwn_search = "" end
+        reaper.ImGui_SetNextItemWidth(ctx, -120)
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
+        local changed, new_query = reaper.ImGui_InputTextWithHint(ctx, "##dl_search", "Введіть назву (напр. Inception) або посилання...", cfg_dwn.dwn_search)
+        if changed then cfg_dwn.dwn_search = new_query end
+
+        reaper.ImGui_SameLine(ctx)
+        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
+        if reaper.ImGui_Button(ctx, "Шукати", 110) then
+            if cfg_dwn.dwn_search ~= "" then
+                cfg_dwn.search_data = nil
+                dl_search_results = "Шукаємо: " .. cfg_dwn.dwn_search .. "..."
+                
+                local script = script_path .. "../stats/subass_download.py"
+                local query = cfg_dwn.dwn_search:gsub('"', '\\"')
+                
+                local cmd = string.format('python3 "%s" --info --target "%s"', script, query)
+                if reaper.GetOS():match("Win") then 
+                    cmd = string.format('py -3 "%s" --info --target "%s" || python "%s" --info --target "%s"', 
+                        script, query, script, query) 
+                end
+
+                UTILS.run_async_command(cmd, function(output)
+                    if output == "TIMEOUT" then
+                        dl_search_results = "Помилка: Час очікування вичерпано."
+                    elseif output and output:match("}%s*$") then
+                        local success, data = pcall(UTILS.json_decode, output)
+                        if success and type(data) == "table" then
+                            cfg_dwn.search_data = data
+                            dl_search_results = nil
+                        else
+                            dl_search_results = "Помилка обробки результатів JSON.\n" .. tostring(output)
+                        end
+                    else
+                        dl_search_results = "Помилка: невірний формат відповіді або скрипт повернув помилку.\nВивід:\n" .. tostring(output)
+                    end
+                end)
+            end
+        end
+        reaper.ImGui_PopStyleColor(ctx)
+        reaper.ImGui_PopStyleVar(ctx) -- Pop FramePadding for search/add bar
+
+        reaper.ImGui_Dummy(ctx, 0, 10)
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_Dummy(ctx, 0, 10)
+
+        -- Status / error overlay (shown without clearing results)
+        if cfg_dwn.dl_status_msg then
+            reaper.ImGui_TextDisabled(ctx, cfg_dwn.dl_status_msg)
+            reaper.ImGui_Dummy(ctx, 0, 4)
+        end
+
+        -- Error banner: fixed at bottom-center of the current window, auto-dismiss after 4s
+        if cfg_dwn.error_tooltip then
+            local elapsed = reaper.time_precise() - cfg_dwn.error_tooltip.t
+            if elapsed < 4.0 then
+                local wx, wy = reaper.ImGui_GetWindowPos(ctx)
+                local ww, wh = reaper.ImGui_GetWindowSize(ctx)
+                local msg = "⚠  " .. cfg_dwn.error_tooltip.text
+                local msg_w = reaper.ImGui_CalcTextSize(ctx, msg) + 32
+                local banner_h = 32
+                local bx = wx + (ww - msg_w) * 0.5
+                local by = wy + wh - banner_h - 10
+                reaper.ImGui_SetNextWindowPos(ctx, bx, by)
+                reaper.ImGui_SetNextWindowSize(ctx, msg_w, banner_h)
+                reaper.ImGui_SetNextWindowBgAlpha(ctx, 0.93)
+                local wflags = reaper.ImGui_WindowFlags_NoDecoration()
+                             | reaper.ImGui_WindowFlags_NoInputs()
+                             | reaper.ImGui_WindowFlags_NoNav()
+                             | reaper.ImGui_WindowFlags_NoMove()
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), 0x882222EE)
+                reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowRounding(), 6)
+                if reaper.ImGui_Begin(ctx, "##err_banner", nil, wflags) then
+                    reaper.ImGui_SetCursorPosY(ctx, (banner_h - reaper.ImGui_GetTextLineHeight(ctx)) * 0.5)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFFCCCCFF)
+                    reaper.ImGui_Text(ctx, msg)
+                    reaper.ImGui_PopStyleColor(ctx)
+                    reaper.ImGui_End(ctx)
+                end
+                reaper.ImGui_PopStyleVar(ctx)
+                reaper.ImGui_PopStyleColor(ctx)
+            else
+                cfg_dwn.error_tooltip = nil
+            end
+        end
+
+        local avail_h = cfg_glos.layout_has_player and -82 or -5
+        if reaper.ImGui_BeginChild(ctx, "dl_center_child", 0, avail_h) then
+            if dl_search_results then
+                reaper.ImGui_TextWrapped(ctx, dl_search_results)
+            elseif cfg_dwn.search_data then
+                local has_results = false
+                for _, source_group in ipairs(cfg_dwn.search_data.sources or {}) do
+                    local items = source_group.items or {}
+                    if #items > 0 then
+                        has_results = true
+                        reaper.ImGui_PushFont(ctx, font_main, 18)
+                        reaper.ImGui_Text(ctx, string.upper(source_group.source))
+                        reaper.ImGui_PopFont(ctx)
+                        reaper.ImGui_Separator(ctx)
+                        reaper.ImGui_Dummy(ctx, 0, 5)
+                        
+                        for i, item in ipairs(items) do
+                            -- Compact single-row card
+                            local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
+                            local btn_w = 56
+                            local btn_gap = 4
+                            local text_w = avail_w - (btn_w * 2) - btn_gap * 3 - 8
+
+                            -- Title (truncated to fit)
+                            local title = item.title or item.file_name or "Unknown"
+                            local info_parts = {}
+                            if item.lang then table.insert(info_parts, item.lang:upper()) end
+                            if item.format then table.insert(info_parts, item.format:upper()) end
+                            if item.year and item.year ~= "" then table.insert(info_parts, item.year) end
+                            if item.downloads then table.insert(info_parts, "DL:"..item.downloads) end
+                            local meta = table.concat(info_parts, "  ")
+
+                            -- Truncate title dynamically
+                            local meta_w = meta ~= "" and (reaper.ImGui_CalcTextSize(ctx, "  " .. meta) + 10) or 0
+                            local title_avail = text_w - meta_w
+                            while #title > 4 and reaper.ImGui_CalcTextSize(ctx, title) > title_avail do
+                                title = title:sub(1, -2)
+                            end
+                            if title ~= (item.title or item.file_name or "Unknown") then title = title:sub(1,-2) .. "…" end
+
+                            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 3)
+
+                            -- Row background on hover
+                            local row_y = reaper.ImGui_GetCursorPosY(ctx)
+
+                            -- Title text
+                            reaper.ImGui_Text(ctx, title)
+                            reaper.ImGui_SameLine(ctx, nil, 6)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x777777FF)
+                            reaper.ImGui_Text(ctx, meta)
+                            reaper.ImGui_PopStyleColor(ctx)
+
+                            -- Buttons pinned to right
+                            reaper.ImGui_SameLine(ctx, avail_w - btn_w * 2 - btn_gap - 4)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
+                            if reaper.ImGui_Button(ctx, "▶##prev" .. i .. source_group.source, btn_w) then
+                                UTILS.trigger_subtitle_download(item, source_group.source, "preview")
+                            end
+                            if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Preview") end
+                            reaper.ImGui_PopStyleColor(ctx)
+
+                            reaper.ImGui_SameLine(ctx, nil, btn_gap)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
+                            if reaper.ImGui_Button(ctx, "+##add" .. i .. source_group.source, btn_w) then
+                                UTILS.trigger_subtitle_download(item, source_group.source, "import")
+                            end
+                            if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Add to project") end
+                            reaper.ImGui_PopStyleColor(ctx)
+
+                            reaper.ImGui_PopStyleVar(ctx)
+                            reaper.ImGui_Separator(ctx)
+                        end
+                        reaper.ImGui_Dummy(ctx, 0, 10)
+                    end
+                end
+                if not has_results then
+                    reaper.ImGui_TextDisabled(ctx, "Нічого не знайдено.")
+                end
+            else
+                reaper.ImGui_TextDisabled(ctx, "Введіть пошуковий запит для початку.")
+            end
+
+            reaper.ImGui_EndChild(ctx)
+        end
+        
+        reaper.ImGui_EndTabItem(ctx)
+        reaper.ImGui_PushFont(ctx, font_tabs, 17)
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
+    end
 end
 
 local function loop()
@@ -915,7 +2390,7 @@ local function loop()
     if not open then dict_open = false end
 
     if visible then
-        layout_has_player = (current_preview_source ~= nil)
+        cfg_glos.layout_has_player = (cfg_glos.current_preview_source ~= nil)
 
         -- TABS
         reaper.ImGui_PushFont(ctx, font_tabs, 17)
@@ -923,1114 +2398,26 @@ local function loop()
         local tabs_visible = reaper.ImGui_BeginTabBar(ctx, "DictionaryTabs")
 
         if tabs_visible then
-            -- Reference Tab
-            local ref_flags = (restore_tab and last_tab == 0) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-            if reaper.ImGui_BeginTabItem(ctx, "Довідник", nil, ref_flags) then
-                if not restore_tab and last_tab ~= 0 then
-                    last_tab = 0
-                    reaper.SetExtState("Subass_Dictionary", "last_tab", "0", true)
-                    stop_preview()
-                end
-                reaper.ImGui_PopFont(ctx)
-                reaper.ImGui_PopStyleVar(ctx)
-
-                -- Search inside Tab
-                reaper.ImGui_SetNextItemWidth(ctx, -5)
-                local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search_ref', "Пошук у довіднику...", filter)
-                if changed then filter = new_filter end
-                if filter ~= last_filter then update_search_cache(filter) end
-                reaper.ImGui_Separator(ctx)
-                reaper.ImGui_Dummy(ctx, 0, 5)
-                -- Content
-                local child_h = layout_has_player and -82 or -5
-                if reaper.ImGui_BeginChild(ctx, "content_reference", 0, child_h) then
-                    for _, cat in ipairs(cached_results) do
-                        local header_flags = 0
-                        local header_name = string.format("%s (%d)###%s", cat.name, #cat.entries, cat.name)
-                        
-                        reaper.ImGui_PushFont(ctx, font_main, 16)
-                        local header_open = reaper.ImGui_CollapsingHeader( ctx, header_name, header_flags )
-                        reaper.ImGui_PopFont(ctx)
-                        
-                        if header_open then
-                            reaper.ImGui_Indent(ctx, 29)
-                            reaper.ImGui_Dummy(ctx, 0, 5)
-                            for _, entry in ipairs(cat.entries) do
-                                if cat.name == "Асиміляція" or cat.name == "Відмінки" then
-                                    draw_inline_entry(ctx, entry.word, entry.meaning, 18, 18)
-                                else
-                                    draw_inline_entry(ctx, entry.word, entry.meaning, 30, 16)
-                                end
-                            end
-                            reaper.ImGui_Dummy(ctx, 0, 10)
-                            reaper.ImGui_Unindent(ctx, 29)
-                        end
-                    end
-                    reaper.ImGui_EndChild(ctx)
-                end
-                reaper.ImGui_EndTabItem(ctx)
-                reaper.ImGui_PushFont(ctx, font_tabs, 17)
-                reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
-            end
-
-            -- Glossary Tab
-            local glos_flags = (restore_tab and last_tab == 1) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-            if reaper.ImGui_BeginTabItem(ctx, "Звуковий Глосарій", nil, glos_flags) then
-                if not restore_tab and last_tab ~= 1 then
-                    last_tab = 1
-                    reaper.SetExtState("Subass_Dictionary", "last_tab", "1", true)
-                    stop_preview()
-                end
-                reaper.ImGui_PopFont(ctx)
-                reaper.ImGui_PopStyleVar(ctx)
-
-                -- Search and Add on one line (Increased height)
-                reaper.ImGui_SetNextItemWidth(ctx, -145)
-                reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
-                local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search_glos', "Пошук у глосарії...", filter)
-                if changed then filter = new_filter end
-                
-                reaper.ImGui_SameLine(ctx)
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
-                if reaper.ImGui_Button(ctx, "Додати з REAPER", 135) then
-                    local new_entry = add_from_reaper()
-                    if new_entry then
-                        add_entry_pending = new_entry
-                        reaper.ImGui_OpenPopup(ctx, "GlossaryMetadata")
-                    end
-                end
-                reaper.ImGui_PopStyleColor(ctx)
-                reaper.ImGui_PopStyleVar(ctx) -- Pop FramePadding for search/add bar
-                -- Quick Tags
-                local all_tags = {}
-                local tag_map = {}
-                for _, entry in ipairs(glossary_data.entries) do
-                    for tag in entry.tags:gmatch("([^,]+)") do
-                        tag = tag:gsub("^%s+", ""):gsub("%s+$", "")
-                        if tag ~= "" and not tag_map[tag] then
-                            tag_map[tag] = true
-                            table.insert(all_tags, tag)
-                        end
-                    end
-                end
-                table.sort(all_tags)
-
-                if #all_tags > 0 then
-                    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_ItemSpacing(), 5, 5)
-                    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 6, 4) -- Slightly larger tag buttons
-                    
-                    for i, tag in ipairs(all_tags) do
-                        local is_active = active_tags[tag]
-                        
-                        -- Style: Transparent bg with border if inactive, Filled if active
-                        if is_active then
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
-                            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 0)
-                        else
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x00000000) -- Transparent
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Border(), C_BTN_MEDIUM)
-                            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 1)
-                        end
-                        
-                        -- Calculate button width to check for wrap
-                        local button_w = reaper.ImGui_CalcTextSize(ctx, tag) + 12 + 10 -- + padding + spacing safety
-                        local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
-                        
-                        if i > 1 and button_w > avail_w then
-                            reaper.ImGui_NewLine(ctx)
-                        end
-
-                        if reaper.ImGui_Button(ctx, tag .. "##tag") then
-                            if is_active then
-                                active_tags[tag] = nil -- Toggle off
-                            else
-                                active_tags[tag] = true -- Toggle on
-                            end
-                        end
-                        
-                        if is_active then
-                            reaper.ImGui_PopStyleColor(ctx, 1) -- Button
-                            reaper.ImGui_PopStyleVar(ctx, 1)   -- BorderSize
-                        else
-                            reaper.ImGui_PopStyleColor(ctx, 2) -- Button, Border
-                            reaper.ImGui_PopStyleVar(ctx, 1)   -- BorderSize
-                        end
-                        
-                        reaper.ImGui_SameLine(ctx)
-                    end
-                    reaper.ImGui_NewLine(ctx)
-                    reaper.ImGui_PopStyleVar(ctx, 2) -- ItemSpacing, FramePadding
-                end
-
-                reaper.ImGui_Separator(ctx)
-                reaper.ImGui_Dummy(ctx, 0, 5)
-
-                local child_h = layout_has_player and -82 or -5
-                if reaper.ImGui_BeginChild(ctx, "content_glossary", 0, child_h) then
-
-                    -- Glossary List
-                    for i, entry in ipairs(glossary_data.entries) do
-                        local match = true
-                        
-                        -- 1. Check text filter
-                        if filter ~= "" then
-                            local s = utf8_lower(filter)
-                            if not (utf8_lower(entry.name):find(s, 1, true) or utf8_lower(entry.tags):find(s, 1, true) or utf8_lower(entry.desc):find(s, 1, true)) then
-                                match = false
-                            end
-                        end
-                        
-                        -- 2. Check tag filter (ALL selected tags must be present)
-                        if match then
-                            for needed_tag, _ in pairs(active_tags) do
-                                local has_tag = false
-                                for entry_tag in entry.tags:gmatch("([^,]+)") do
-                                    entry_tag = entry_tag:gsub("^%s+", ""):gsub("%s+$", "")
-                                    if entry_tag == needed_tag then
-                                        has_tag = true
-                                        break
-                                    end
-                                end
-                                if not has_tag then
-                                    match = false
-                                    break
-                                end
-                            end
-                        end
-
-                        if match then
-                            -- Main Interaction Group
-                            reaper.ImGui_BeginGroup(ctx)
-                                
-                                -- 1. Name & Playback (Top)
-                                local play_icon = (current_preview_name == entry.name and not current_preview_paused) and "Ⅱ" or "▶"
-                                
-                                -- Play/Pause Logic (Extraction)
-                                local function toggle_playback()
-                                    local full_path = data_path .. entry.filename
-                                    
-                                    -- If same file is playing: toggle pause
-                                    if current_preview_name == entry.name and current_preview_source then
-                                        if current_preview_paused then
-                                            -- Resume
-                                            if reaper.PCM_Source_CreateFromFile and reaper.CF_CreatePreview then
-                                                local source = reaper.PCM_Source_CreateFromFile(current_preview_file)
-                                                current_preview_source = reaper.CF_CreatePreview(source)
-                                                if current_preview_pause_pos > 0 then
-                                                    reaper.CF_Preview_SetValue(current_preview_source, "D_POSITION", current_preview_pause_pos)
-                                                end
-                                                if reaper.CF_Preview_Play then reaper.CF_Preview_Play(current_preview_source) end
-                                            end
-                                            current_preview_paused = false
-                                        else
-                                            -- Pause
-                                            local ok_p, pos = reaper.CF_Preview_GetValue(current_preview_source, "D_POSITION")
-                                            local ok_l, len = reaper.CF_Preview_GetValue(current_preview_source, "D_LENGTH")
-                                            
-                                            current_preview_pause_pos = pos or 0
-                                            current_preview_length = len or 0
-                                            if reaper.CF_Preview_Stop then reaper.CF_Preview_Stop(current_preview_source) end
-                                            current_preview_paused = true
-                                        end
-                                    else
-                                        -- Play new file
-                                        current_preview_name = entry.name
-                                        current_preview_file = full_path
-                                        current_preview_paused = false
-                                        current_preview_pause_pos = 0
-                                        if current_preview_source then
-                                            if reaper.CF_Preview_Stop then reaper.CF_Preview_Stop(current_preview_source) end
-                                        end
-                                        if reaper.PCM_Source_CreateFromFile and reaper.CF_CreatePreview then
-                                            local source = reaper.PCM_Source_CreateFromFile(full_path)
-                                            current_preview_source = reaper.CF_CreatePreview(source)
-                                            if reaper.CF_Preview_Play then reaper.CF_Preview_Play(current_preview_source) end
-                                        end
-                                    end
-                                end
-
-                                -- 0. Layout Requirements & Widths
-                                local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
-                                local raw_tags = entry.tags or ""
-                                local tag_str = raw_tags:gsub(",", ", ")
-                                local is_ultra = (tag_str == "") and (not entry.desc or entry.desc == "")
-                                
-                                reaper.ImGui_PushFont(ctx, font_main, 15)
-                                local insert_btn_w = reaper.ImGui_CalcTextSize(ctx, "Вставити в проєкт")
-                                reaper.ImGui_PopFont(ctx)
-                                local actions_btn_w = 30
-                                local total_btns_w = insert_btn_w + actions_btn_w + 8
-
-                                reaper.ImGui_PushFont(ctx, font_main, 13)
-                                local tag_w = (tag_str ~= "") and reaper.ImGui_CalcTextSize(ctx, tag_str) or 0
-                                reaper.ImGui_PopFont(ctx)
-                                
-                                local right_margin_w = 0
-                                if is_ultra then
-                                    right_margin_w = total_btns_w
-                                else
-                                    if tag_w > 0 then right_margin_w = right_margin_w + tag_w end
-                                end
-
-                                -- Fixed width Play Button
-                                local entry_start_y = reaper.ImGui_GetCursorPosY(ctx)
-                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x4B824B50)
-                                if reaper.ImGui_Button(ctx, play_icon .. "##playbtn"..i, 30, 30) then
-                                    toggle_playback()
-                                end
-                                reaper.ImGui_PopStyleColor(ctx)
-                                
-                                -- Clickable Name with Truncation
-                                reaper.ImGui_SameLine(ctx)
-                                reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 3) -- Adjusted for 30px button height
-                                local name_avail_w = math.max(50, avail_w - 30 - 8 - (right_margin_w > 0 and (right_margin_w + 15) or 0))
-                                
-                                -- 1.1 Calculate/Lazy-load Duration
-                                if not entry.duration then
-                                    local full_path = data_path .. (entry.filename or "")
-                                    if entry.filename and entry.filename ~= "" then
-                                        local src = reaper.PCM_Source_CreateFromFile(full_path)
-                                        if src then
-                                            entry.duration = reaper.GetMediaSourceLength(src)
-                                            reaper.PCM_Source_Destroy(src)
-                                            save_glossary()
-                                        end
-                                    end
-                                end
-                                
-                                local base_name = (entry.name or "Unnamed"):gsub("%s+$", "")
-                                local display_name = base_name
-                                reaper.ImGui_PushFont(ctx, font_main, 18)
-                                local name_w = reaper.ImGui_CalcTextSize(ctx, display_name)
-                                
-                                if name_w > name_avail_w then
-                                    local truncated = ""
-                                    -- Safe UTF-8 iteration
-                                    local ok, f, s, i = pcall(utf8.codes, base_name)
-                                    if ok then
-                                        for _, code in f, s, i do
-                                            local char = utf8.char(code)
-                                            if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > name_avail_w then
-                                                display_name = truncated .. "..."
-                                                break
-                                            end
-                                            truncated = truncated .. char
-                                        end
-                                    else
-                                        display_name = base_name:sub(1, 10) .. "..."
-                                    end
-                                end
-                                
-                                -- 1.2 Rendering Title Row
-                                reaper.ImGui_TextColored(ctx, C_BTN_OK, display_name)
-                                if reaper.ImGui_IsItemClicked(ctx, 0) then toggle_playback() end
-                                reaper.ImGui_PopFont(ctx)
-
-                                if is_ultra then
-                                    -- ULTRA-COMPACT: Name, Buttons all on ONE line
-                                    reaper.ImGui_SameLine(ctx, avail_w - right_margin_w)
-                                    reaper.ImGui_BeginGroup(ctx)
-                                        -- Action Buttons - Centered vertically
-                                        reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 6) -- Match title offset
-                                        if reaper.ImGui_Button(ctx, "Вставити в проєкт##"..i, insert_btn_w) then
-                                            local full_path = data_path .. entry.filename
-                                            local track = reaper.GetSelectedTrack(0, 0)
-                                            if track then
-                                                local cursor_pos = reaper.GetCursorPosition()
-                                                reaper.InsertMedia(full_path, 0)
-                                                local new_item = reaper.GetSelectedMediaItem(0, 0)
-                                                if new_item then
-                                                    reaper.MoveMediaItemToTrack(new_item, track)
-                                                    reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor_pos)
-                                                    reaper.UpdateArrange()
-                                                end
-                                            else
-                                                reaper.MB("Будь ласка, виберіть трек для вставки.", "Помилка", 0)
-                                            end
-                                        end
-                                        reaper.ImGui_SameLine(ctx)
-                                        reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 6)
-                                        if reaper.ImGui_Button(ctx, "⋮##btn"..i, actions_btn_w) then
-                                            reaper.ImGui_OpenPopup(ctx, "glossary_actions_popup"..i)
-                                        end
-                                    reaper.ImGui_EndGroup(ctx)
-                                else
-                                    -- STANDARD: Multi-line layout
-                                    -- Tags Row (Right Aligned on title row) - Centered vertically
-                                    if right_margin_w > 0 then
-                                        reaper.ImGui_SameLine(ctx)
-                                        reaper.ImGui_SetCursorPosX(ctx, avail_w - right_margin_w)
-                                        reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 7) -- Center font 13 in 30px height
-                                        reaper.ImGui_PushFont(ctx, font_main, 13)
-                                        
-                                        if tag_w > 0 then
-                                            reaper.ImGui_TextColored(ctx, 0xAAAAAAFF, tag_str)
-                                        end
-                                        
-                                        reaper.ImGui_PopFont(ctx)
-                                    end
-                                    
-                                    reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 32) -- Bottom of the 30px button + gap
-                                    reaper.ImGui_Dummy(ctx, 0, 4)
-                                    
-                                    -- Description & Actions Row
-                                    if entry.desc ~= "" then
-                                        reaper.ImGui_PushTextWrapPos(ctx, avail_w - total_btns_w - 15)
-                                        reaper.ImGui_Text(ctx, entry.desc)
-                                        reaper.ImGui_PopTextWrapPos(ctx)
-                                        reaper.ImGui_SameLine(ctx, avail_w - total_btns_w)
-                                    else
-                                        reaper.ImGui_SetCursorPosX(ctx, reaper.ImGui_GetCursorPosX(ctx) + avail_w - total_btns_w)
-                                    end
-                                    
-                                    reaper.ImGui_BeginGroup(ctx)
-                                        local insert_label = "Вставити в проєкт##"..i
-                                        if reaper.ImGui_Button(ctx, insert_label, insert_btn_w) then
-                                            local full_path = data_path .. entry.filename
-                                            local track = reaper.GetSelectedTrack(0, 0)
-                                            if track then
-                                                local cursor_pos = reaper.GetCursorPosition()
-                                                reaper.InsertMedia(full_path, 0)
-                                                local new_item = reaper.GetSelectedMediaItem(0, 0)
-                                                if new_item then
-                                                    reaper.MoveMediaItemToTrack(new_item, track)
-                                                    reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor_pos)
-                                                    reaper.UpdateArrange()
-                                                end
-                                            else
-                                                reaper.MB("Будь ласка, виберіть трек для вставки.", "Помилка", 0)
-                                            end
-                                        end
-                                        
-                                        reaper.ImGui_SameLine(ctx)
-                                        if reaper.ImGui_Button(ctx, "⋮##btn"..i, actions_btn_w) then
-                                            reaper.ImGui_OpenPopup(ctx, "glossary_actions_popup"..i)
-                                        end
-                                    reaper.ImGui_EndGroup(ctx)
-                                end
-
-                                -- Common Actions Popup
-                                if reaper.ImGui_BeginPopup(ctx, "glossary_actions_popup"..i) then
-                                    if reaper.ImGui_Selectable(ctx, "✎ Редагувати") then
-                                        edit_entry_idx = i
-                                        edit_entry_data = {
-                                            name = entry.name,
-                                            tags = entry.tags,
-                                            desc = entry.desc
-                                        }
-                                        open_edit_popup = true
-                                    end
-                                    
-                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
-                                    if reaper.ImGui_Selectable(ctx, "× Видалити") then
-                                        if reaper.MB("Видалити цей звук?", "Підтвердження", 1) == 1 then
-                                            os.remove(data_path .. entry.filename)
-                                            table.remove(glossary_data.entries, i)
-                                            save_glossary()
-                                        end
-                                    end
-                                    reaper.ImGui_PopStyleColor(ctx)
-                                    reaper.ImGui_EndPopup(ctx)
-                                end
-                            
-                            reaper.ImGui_EndGroup(ctx)
-                            
-                            reaper.ImGui_Dummy(ctx, 0, 3)
-                            reaper.ImGui_Separator(ctx)
-                            reaper.ImGui_Dummy(ctx, 0, 2)
-                        end
-                    end
-
-                    reaper.ImGui_EndChild(ctx) -- Close glossary list child
-
-                    -- Modals (Moved outside child)
-                    if open_edit_popup then
-                        reaper.ImGui_OpenPopup(ctx, "EditGlossary")
-                        open_edit_popup = false
-                    end
-                    if reaper.ImGui_BeginPopupModal(ctx, "GlossaryMetadata", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
-                        reaper.ImGui_Text(ctx, "Налаштування нового звуку:")
-                        reaper.ImGui_Dummy(ctx, 0, 5)
-                        
-                        _, add_entry_pending.name = reaper.ImGui_InputText(ctx, "Назва", add_entry_pending.name)
-                        _, add_entry_pending.tags = reaper.ImGui_InputText(ctx, "Теги (через кому)", add_entry_pending.tags)
-                        _, add_entry_pending.desc = reaper.ImGui_InputTextMultiline(ctx, "Опис", add_entry_pending.desc, 300, 100)
-                        
-                        reaper.ImGui_Dummy(ctx, 0, 10)
-                        if reaper.ImGui_Button(ctx, "Зберегти", 120) then
-                            table.insert(glossary_data.entries, add_entry_pending)
-                            save_glossary()
-                            add_entry_pending = nil
-                            reaper.ImGui_CloseCurrentPopup(ctx)
-                        end
-                        reaper.ImGui_SameLine(ctx)
-                        if reaper.ImGui_Button(ctx, "Скасувати", 120) then
-                            os.remove(data_path .. add_entry_pending.filename)
-                            add_entry_pending = nil
-                            reaper.ImGui_CloseCurrentPopup(ctx)
-                        end
-                        reaper.ImGui_EndPopup(ctx)
-                    end
-
-                    if reaper.ImGui_BeginPopupModal(ctx, "EditGlossary", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
-                        reaper.ImGui_Text(ctx, "Редагування:")
-                        reaper.ImGui_Dummy(ctx, 0, 5)
-                        
-                        _, edit_entry_data.name = reaper.ImGui_InputText(ctx, "Назва", edit_entry_data.name)
-                        _, edit_entry_data.tags = reaper.ImGui_InputText(ctx, "Теги", edit_entry_data.tags)
-                        _, edit_entry_data.desc = reaper.ImGui_InputTextMultiline(ctx, "Опис", edit_entry_data.desc, 300, 100)
-                        
-                        reaper.ImGui_Dummy(ctx, 0, 10)
-                        if reaper.ImGui_Button(ctx, "Зберегти", 120) then
-                            glossary_data.entries[edit_entry_idx].name = edit_entry_data.name
-                            glossary_data.entries[edit_entry_idx].tags = edit_entry_data.tags
-                            glossary_data.entries[edit_entry_idx].desc = edit_entry_data.desc
-                            save_glossary()
-                            reaper.ImGui_CloseCurrentPopup(ctx)
-                        end
-                        reaper.ImGui_SameLine(ctx)
-                        if reaper.ImGui_Button(ctx, "Скасувати", 120) then
-                            reaper.ImGui_CloseCurrentPopup(ctx)
-                        end
-                        reaper.ImGui_EndPopup(ctx)
-                    end
-                end
-                reaper.ImGui_EndTabItem(ctx)
-                reaper.ImGui_PushFont(ctx, font_tabs, 17)
-                reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
-            end
-
-            -- Dict Tab
-            local dict_flags = (restore_tab and last_tab == 2) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-            if reaper.ImGui_BeginTabItem(ctx, "Словники", nil, dict_flags) then
-                if not restore_tab and last_tab ~= 2 then
-                    last_tab = 2
-                    reaper.SetExtState("Subass_Dictionary", "last_tab", "2", true)
-                    stop_preview()
-                end
-                reaper.ImGui_PopFont(ctx)
-                reaper.ImGui_PopStyleVar(ctx)
-
-                local avail_h = layout_has_player and -82 or -5
-                
-                -- Split view Left: Dictionary List
-                if reaper.ImGui_BeginChild(ctx, "dict_split_left", 200, avail_h, 1) then
-                    reaper.ImGui_Text(ctx, "Користувацькі словники")
-                    reaper.ImGui_Separator(ctx)
-                    reaper.ImGui_Dummy(ctx, 0, 5)
-                    
-                    if reaper.ImGui_Button(ctx, "Створити новий", -1) then
-                        reaper.ImGui_OpenPopup(ctx, "new_dict_popup")
-                    end
-                    if reaper.ImGui_Button(ctx, "Імпорт з .csv", -1) then
-                        import_dict_csv()
-                    end
-                    reaper.ImGui_Dummy(ctx, 0, 5)
-                    
-                    if reaper.ImGui_BeginPopup(ctx, "new_dict_popup") then
-                        reaper.ImGui_Text(ctx, "Назва нового словника:")
-                        _, new_dict_name = reaper.ImGui_InputText(ctx, "##new_dict_name", new_dict_name)
-                        if reaper.ImGui_Button(ctx, "Створити", 130) then
-                            local trimmed_name = (new_dict_name or ""):match("^%s*(.-)%s*$")
-                            if trimmed_name and trimmed_name ~= "" then
-                                if check_dict_name_exists(trimmed_name) then
-                                    reaper.MB("Словник з такою назвою вже існує!", "Помилка", 0)
-                                else
-                                    table.insert(user_dicts_data.dictionaries, 1, {
-                                        id = "dict_" .. os.time(),
-                                        name = trimmed_name,
-                                        entries = {}
-                                    })
-                                    save_user_dicts()
-                                    update_last_selected_dict(1)
-                                    new_dict_name = ""
-                                    reaper.ImGui_CloseCurrentPopup(ctx)
-                                end
-                            end
-                        end
-                        reaper.ImGui_EndPopup(ctx)
-                    end
-
-                    if rename_dict_idx then
-                        reaper.ImGui_OpenPopup(ctx, "rename_dict_popup")
-                    end
-
-                    if reaper.ImGui_BeginPopup(ctx, "rename_dict_popup") then
-                        reaper.ImGui_Text(ctx, "Перейменувати словник:")
-                        _, rename_dict_name = reaper.ImGui_InputText(ctx, "##rename_dict_name", rename_dict_name)
-                        if reaper.ImGui_Button(ctx, "Зберегти", 100) then
-                            local trimmed_name = (rename_dict_name or ""):match("^%s*(.-)%s*$")
-                            if rename_dict_idx and trimmed_name and trimmed_name ~= "" and user_dicts_data.dictionaries[rename_dict_idx] then
-                                if check_dict_name_exists(trimmed_name, rename_dict_idx) then
-                                    reaper.MB("Словник з такою назвою вже існує!", "Помилка", 0)
-                                else
-                                    user_dicts_data.dictionaries[rename_dict_idx].name = trimmed_name
-                                    save_user_dicts()
-                                    move_dict_to_top(rename_dict_idx)
-                                    rename_dict_idx = nil
-                                    rename_dict_name = ""
-                                    reaper.ImGui_CloseCurrentPopup(ctx)
-                                end
-                            end
-                        end
-                        reaper.ImGui_SameLine(ctx)
-                        if reaper.ImGui_Button(ctx, "Скасувати", 100) then
-                            rename_dict_idx = nil
-                            rename_dict_name = ""
-                            reaper.ImGui_CloseCurrentPopup(ctx)
-                        end
-                        reaper.ImGui_EndPopup(ctx)
-                    end
-                    
-                    reaper.ImGui_Dummy(ctx, 0, 2)
-                    reaper.ImGui_Separator(ctx)
-
-                    -- Pre-calculate list width for truncation
-                    local list_w = reaper.ImGui_GetContentRegionAvail(ctx) - 5
-                    
-                    for i, dict in ipairs(user_dicts_data.dictionaries) do
-                        local is_selected = (selected_dict_idx == i)
-                        
-                        -- Truncate name if it's too long
-                        local display_name = dict.name or "Unnamed"
-                        local name_w = reaper.ImGui_CalcTextSize(ctx, display_name)
-                        
-                        if name_w > list_w then
-                            local truncated = ""
-                            local ok, f, s, idx = pcall(function() return utf8.codes(display_name) end)
-                            if ok and f then
-                                for _, code in f, s, idx do
-                                    local char = utf8.char(code)
-                                    if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > list_w then
-                                        display_name = truncated .. "..."
-                                        break
-                                    end
-                                    truncated = truncated .. char
-                                end
-                            else
-                                display_name = display_name:sub(1, 15) .. "..."
-                            end
-                        end
-                        
-                        if reaper.ImGui_Selectable(ctx, display_name .. "##dict" .. i, is_selected) then
-                            if selected_dict_idx ~= i then dict_filter = "" end -- Clear filter on dict switch
-                            update_last_selected_dict(i)
-                        end
-                        if reaper.ImGui_IsItemHovered(ctx) and display_name ~= dict.name then
-                            reaper.ImGui_SetTooltip(ctx, dict.name) -- Show full name on hover if truncated
-                        end
-                        if reaper.ImGui_IsItemClicked(ctx, 1) then -- Right click
-                            reaper.ImGui_OpenPopup(ctx, "dict_context_" .. i)
-                        end
-                        reaper.ImGui_Separator(ctx)
-                        
-                        if reaper.ImGui_BeginPopup(ctx, "dict_context_" .. i) then
-                            if reaper.ImGui_Selectable(ctx, "Перейменувати") then
-                                rename_dict_idx = i
-                                rename_dict_name = dict.name
-                            end
-                            if reaper.ImGui_Selectable(ctx, "Експорт у .csv") then
-                                export_dict_csv(dict)
-                            end
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
-                            if reaper.ImGui_Selectable(ctx, "Видалити") then
-                                local confirm = true
-                                if #dict.entries > 0 then
-                                    local resp = reaper.MB("Словник '" .. dict.name .. "' містить записів: " .. #dict.entries .. ".\nВи впевнені, що хочете видалити його?", "Підтвердження видалення", 4) -- 4 = Yes/No
-                                    if resp ~= 6 then confirm = false end -- 6 = Yes
-                                end
-                                
-                                if confirm then
-                                    table.remove(user_dicts_data.dictionaries, i)
-                                    save_user_dicts()
-                                    if selected_dict_idx == i then
-                                        update_last_selected_dict(user_dicts_data.dictionaries[1] and 1 or nil)
-                                    elseif selected_dict_idx and selected_dict_idx > i then
-                                        update_last_selected_dict(selected_dict_idx - 1)
-                                    end
-                                end
-                            end
-                            reaper.ImGui_PopStyleColor(ctx)
-                            reaper.ImGui_EndPopup(ctx)
-                        end
-                    end
-                    
-                    reaper.ImGui_EndChild(ctx)
-                end
-                
-                reaper.ImGui_SameLine(ctx)
-                
-                -- Split view Right: Editor
-                if reaper.ImGui_BeginChild(ctx, "dict_split_right", 0, avail_h, 1) then
-                    if selected_dict_idx and user_dicts_data.dictionaries[selected_dict_idx] then
-                        local active_dict = user_dicts_data.dictionaries[selected_dict_idx]
-                        
-                        -- Truncate header dictionary name
-                        local header_prefix = "Словник: "
-                        local header_prefix_w = reaper.ImGui_CalcTextSize(ctx, header_prefix)
-                        -- Available width minus the button space (110 button + 10 padding roughly)
-                        local header_avail_w = reaper.ImGui_GetContentRegionAvail(ctx) - 120 - header_prefix_w
-                        
-                        local header_dict_name = active_dict.name or "Unnamed"
-                        local header_dict_w = reaper.ImGui_CalcTextSize(ctx, header_dict_name)
-                        
-                        if header_dict_w > header_avail_w and header_avail_w > 0 then
-                            local truncated = ""
-                            local ok, f, s, idx = pcall(function() return utf8.codes(header_dict_name) end)
-                            if ok and f then
-                                for _, code in f, s, idx do
-                                    local char = utf8.char(code)
-                                    if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > header_avail_w then
-                                        header_dict_name = truncated .. "..."
-                                        break
-                                    end
-                                    truncated = truncated .. char
-                                end
-                            else
-                                header_dict_name = header_dict_name:sub(1, 15) .. "..."
-                            end
-                        end
-                        
-                        reaper.ImGui_Text(ctx, header_prefix .. header_dict_name)
-                        if header_dict_name ~= active_dict.name and reaper.ImGui_IsItemHovered(ctx) then
-                            reaper.ImGui_SetTooltip(ctx, active_dict.name)
-                        end
-                        
-                        reaper.ImGui_SameLine(ctx, reaper.ImGui_GetContentRegionAvail(ctx) - 100)
-                        if reaper.ImGui_Button(ctx, "+ Додати запис", 110) then
-                            local nid = active_dict.next_id or (#active_dict.entries + 1)
-                            table.insert(active_dict.entries, 1, {uid = nid, word = "", replacement = "", comment = ""})
-                            active_dict.next_id = nid + 1
-                            dict_filter = "" -- Clear filter on add
-                            save_user_dicts()
-                            move_dict_to_top(selected_dict_idx)
-                        end
-                        reaper.ImGui_Separator(ctx)
-                        
-                        -- Search Filter
-                        reaper.ImGui_SetNextItemWidth(ctx, -5)
-                        local filter_changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, "##dict_filter_input", "Пошук у словнику...", dict_filter)
-                        if filter_changed then 
-                            dict_filter = new_filter 
-                            entry_selection = {} -- Clear selection on filter change
-                        end
-                        
-                        reaper.ImGui_Dummy(ctx, 0, 5)
-                        
-                        local table_flags = reaper.ImGui_TableFlags_Borders() | reaper.ImGui_TableFlags_RowBg() | reaper.ImGui_TableFlags_Resizable() | reaper.ImGui_TableFlags_ScrollY() | reaper.ImGui_TableFlags_Sortable()
-                        if reaper.ImGui_BeginTable(ctx, 'dict_entries_table', 5, table_flags) then
-                            reaper.ImGui_TableSetupScrollFreeze(ctx, 0, 1)
-                            reaper.ImGui_TableSetupColumn(ctx, "#", reaper.ImGui_TableColumnFlags_WidthFixed() | reaper.ImGui_TableColumnFlags_DefaultSort(), 30)
-                            reaper.ImGui_TableSetupColumn(ctx, "Слово", reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
-                            reaper.ImGui_TableSetupColumn(ctx, "Заміна (в суфлер)", reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
-                            reaper.ImGui_TableSetupColumn(ctx, "Коментар", reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
-                            reaper.ImGui_TableSetupColumn(ctx, "Дія", reaper.ImGui_TableColumnFlags_WidthFixed() | reaper.ImGui_TableColumnFlags_NoSort(), 30)
-                            reaper.ImGui_TableHeadersRow(ctx)
-
-                            -- Handle Sorting
-                            if reaper.ImGui_TableNeedSort(ctx) then
-                                local ok, col_idx, user_id, sort_dir = reaper.ImGui_TableGetColumnSortSpecs(ctx, 0)
-                                
-                                if ok then
-                                    table.sort(active_dict.entries, function(a, b)
-                                        local val_a, val_b
-                                        if col_idx == 0 then
-                                            val_a = a.uid or 0
-                                            val_b = b.uid or 0
-                                        elseif col_idx == 1 then
-                                            val_a = (a.word or ""):lower()
-                                            val_b = (b.word or ""):lower()
-                                        elseif col_idx == 2 then
-                                            val_a = (a.replacement or ""):lower()
-                                            val_b = (b.replacement or ""):lower()
-                                        elseif col_idx == 3 then
-                                            val_a = (a.comment or ""):lower()
-                                            val_b = (b.comment or ""):lower()
-                                        end
-                                        
-                                        if val_a == nil or val_b == nil then return false end
-                                        
-                                        if sort_dir == 1 then -- Ascending
-                                            return val_a < val_b
-                                        else -- Descending
-                                            return val_a > val_b
-                                        end
-                                    end)
-                                    save_user_dicts() -- Save the new sorted order
-                                end
-                            end
-
-                            local to_remove = nil
-                            local filter_lower = utf8_lower(dict_filter)
-                            local open_entry_popup = false
-                            
-                            for e_i, entry in ipairs(active_dict.entries) do
-                                -- 0. Safety Guard: Ensure UID exists (Fix for "table index is nil" crash)
-                                if not entry.uid then
-                                    entry.uid = active_dict.next_id or (#active_dict.entries + 100)
-                                    active_dict.next_id = entry.uid + 1
-                                    save_user_dicts()
-                                end
-
-                                -- Filtering logic
-                                if filter_lower ~= "" then
-                                    local match = false
-                                    local w_lower = utf8_lower(entry.word or "")
-                                    local r_lower = utf8_lower(entry.replacement or "")
-                                    local c_lower = utf8_lower(entry.comment or "")
-                                    
-                                    if w_lower:find(filter_lower, 1, true) or 
-                                       r_lower:find(filter_lower, 1, true) or 
-                                       c_lower:find(filter_lower, 1, true) then
-                                        match = true
-                                    end
-                                    
-                                    if not match then goto next_entry end
-                                end
-
-                                reaper.ImGui_TableNextRow(ctx)
-                                reaper.ImGui_PushID(ctx, "entry_" .. e_i)
-
-                                local row_selected = entry_selection[entry.uid] == true
-                                
-                                -- 1. Highlighting Row (Visual)
-                                if row_selected then
-                                    reaper.ImGui_TableSetBgColor(ctx, reaper.ImGui_TableBgTarget_RowBg0(), 0x22AA2244, -1)
-                                end
-
-                                -- 2. Selection Hit Area (Logical)
-                                reaper.ImGui_TableSetColumnIndex(ctx, 0)
-                                local row_y = reaper.ImGui_GetCursorPosY(ctx)
-                                local frame_h = reaper.ImGui_GetFrameHeight(ctx)
-                                local row_padding = 4
-                                local row_h = frame_h + row_padding
-                                local content_y = row_y + (row_padding / 2)
-                                
-                                -- Fix: Push transparent selection colors to avoid "grey over green" visual glitch on Mac
-                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Header(), 0)
-                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0x22AA2222) -- Subtle hover
-                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderActive(), 0x22AA2233)
-                                
-                                -- Selectable spanning all columns
-                                if reaper.ImGui_Selectable(ctx, "##row_sel" .. e_i, row_selected, reaper.ImGui_SelectableFlags_SpanAllColumns() | reaper.ImGui_SelectableFlags_AllowOverlap(), 0, row_h) then
-                                    local is_shift = reaper.ImGui_GetKeyMods(ctx) == reaper.ImGui_Mod_Shift()
-                                    local is_ctrl = (reaper.ImGui_GetKeyMods(ctx) == reaper.ImGui_Mod_Ctrl()) or (reaper.ImGui_GetKeyMods(ctx) == reaper.ImGui_Mod_Super())
-                                    
-                                    if is_shift and last_selected_idx then
-                                        -- For Shift, we still need to know the VISUAL range [last_selected_idx, e_i]
-                                        local start_idx = math.min(last_selected_idx, e_i)
-                                        local end_idx = math.max(last_selected_idx, e_i)
-                                        if not is_ctrl then entry_selection = {} end
-                                        for i = start_idx, end_idx do 
-                                            local ent = active_dict.entries[i]
-                                            if ent and ent.uid then entry_selection[ent.uid] = true end
-                                        end
-                                    elseif is_ctrl then
-                                        entry_selection[entry.uid] = not row_selected
-                                        if entry_selection[entry.uid] then last_selected_idx = e_i end
-                                    else
-                                        entry_selection = { [entry.uid] = true }
-                                        last_selected_idx = e_i
-                                    end
-                                end
-                                reaper.ImGui_PopStyleColor(ctx, 3)
-
-                                if reaper.ImGui_IsItemClicked(ctx, 1) then
-                                    if not row_selected then
-                                        entry_selection = { [entry.uid] = true }
-                                        last_selected_idx = e_i
-                                    end
-                                    open_entry_popup = true
-                                end
-
-                                -- 3. Draw Columns (RESET CURSOR Y with calculated balance)
-                                local content_y = row_y + (row_padding / 2)
-                                reaper.ImGui_SetCursorPosY(ctx, content_y)
-
-                                -- Column 0: Index
-                                reaper.ImGui_TableSetColumnIndex(ctx, 0)
-                                local col0_x, col0_y = reaper.ImGui_GetCursorScreenPos(ctx)
-                                reaper.ImGui_SetCursorScreenPos(ctx, col0_x, col0_y)
-                                reaper.ImGui_TextDisabled(ctx, "#" .. (entry.uid or e_i))
-                                
-                                -- Column 1: Word
-                                reaper.ImGui_TableSetColumnIndex(ctx, 1)
-                                reaper.ImGui_SetCursorPosY(ctx, content_y)
-                                reaper.ImGui_SetNextItemWidth(ctx, -1)
-                                local changed_w, new_w = reaper.ImGui_InputText(ctx, "##w", entry.word)
-                                if reaper.ImGui_IsItemFocused(ctx) and not row_selected then
-                                    entry_selection = { [entry.uid] = true }
-                                    last_selected_idx = e_i
-                                end
-                                if changed_w then entry.word = new_w; save_user_dicts(); move_dict_to_top(selected_dict_idx) end
-
-                                -- Column 2: Replacement
-                                reaper.ImGui_TableSetColumnIndex(ctx, 2)
-                                reaper.ImGui_SetCursorPosY(ctx, content_y)
-                                reaper.ImGui_SetNextItemWidth(ctx, -1)
-                                local changed_r, new_r = reaper.ImGui_InputText(ctx, "##r", entry.replacement)
-                                if reaper.ImGui_IsItemFocused(ctx) and not row_selected then
-                                    entry_selection = { [entry.uid] = true }
-                                    last_selected_idx = e_i
-                                end
-                                if changed_r then entry.replacement = new_r; save_user_dicts(); move_dict_to_top(selected_dict_idx) end
-
-                                -- Column 3: Comment
-                                reaper.ImGui_TableSetColumnIndex(ctx, 3)
-                                reaper.ImGui_SetCursorPosY(ctx, content_y)
-                                reaper.ImGui_SetNextItemWidth(ctx, -1)
-                                local changed_c, new_c = reaper.ImGui_InputText(ctx, "##c", entry.comment)
-                                if reaper.ImGui_IsItemFocused(ctx) and not row_selected then
-                                    entry_selection = { [entry.uid] = true }
-                                    last_selected_idx = e_i
-                                end
-                                if changed_c then entry.comment = new_c; save_user_dicts(); move_dict_to_top(selected_dict_idx) end
-
-                                -- Column 4: Delete Button
-                                reaper.ImGui_TableSetColumnIndex(ctx, 4)
-                                reaper.ImGui_SetCursorPosY(ctx, content_y)
-                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_CLOSE)
-                                if reaper.ImGui_Button(ctx, "×##del", 25, 0) then
-                                    to_remove = e_i
-                                end
-                                reaper.ImGui_PopStyleColor(ctx)
-                                
-                                reaper.ImGui_PopID(ctx)
-                                
-                                ::next_entry::
-                            end
-                            
-                            reaper.ImGui_EndTable(ctx)
-                            
-                            -- Table Context Menu (for empty space) 
-                            if reaper.ImGui_IsWindowHovered(ctx, reaper.ImGui_HoveredFlags_ChildWindows()) and reaper.ImGui_IsMouseClicked(ctx, 1) and not reaper.ImGui_IsAnyItemHovered(ctx) then
-                                reaper.ImGui_OpenPopup(ctx, "table_bg_popup")
-                            end
-                            
-                            if reaper.ImGui_BeginPopup(ctx, "table_bg_popup") then
-                                if reaper.ImGui_Selectable(ctx, "Вставити") then
-                                    local text = reaper.ImGui_GetClipboardText(ctx)
-                                    if text and text ~= "" and active_dict then
-                                        local added = 0
-                                        local nid = active_dict.next_id or (#active_dict.entries + 1)
-                                        for line in text:gmatch("[^\r\n]+") do
-                                            local skip = false
-                                            local l_lower = utf8_lower(line)
-                                            if l_lower:find("слово") and l_lower:find("заміна") then skip = true end
-                                            
-                                            if not skip then
-                                                local parts = {}
-                                                local current_line = line .. ","
-                                                local i = 1
-                                                while i <= #current_line do
-                                                    local s, e, cap = current_line:find('^%s*"([^"]*)"%s*[, \t]', i)
-                                                    if not s then
-                                                        s, e, cap = current_line:find('^([^,\t]*)%s*[, \t]', i)
-                                                    end
-                                                    if s then
-                                                        table.insert(parts, cap or "")
-                                                        i = e + 1
-                                                    else
-                                                        break
-                                                    end
-                                                end
-                                                
-                                                local w, r, c = parts[1], parts[2], parts[3]
-                                                if w and w:gsub("%s+", "") ~= "" then
-                                                    w = w:gsub('""', '"')
-                                                    r = (r or ""):gsub('""', '"')
-                                                    c = (c or ""):gsub('""', '"')
-                                                    if not entry_exists(active_dict.entries, w, r, c) then
-                                                        table.insert(active_dict.entries, 1, {uid = nid, word = w, replacement = r, comment = c})
-                                                        nid = nid + 1
-                                                        added = added + 1
-                                                    end
-                                                end
-                                            end
-                                        end
-                                        if added > 0 then
-                                            active_dict.next_id = nid
-                                            save_user_dicts()
-                                            move_dict_to_top(selected_dict_idx)
-                                        end
-                                    end
-                                end
-                                reaper.ImGui_EndPopup(ctx)
-                            end
-
-                            if open_entry_popup then
-                                reaper.ImGui_OpenPopup(ctx, "entry_context_menu")
-                            end
-
-                            -- Entry Context Menu
-                            if reaper.ImGui_BeginPopup(ctx, "entry_context_menu") then
-                                local selected_count = 0
-                                for _ in pairs(entry_selection) do selected_count = selected_count + 1 end
-                                
-                                if reaper.ImGui_Selectable(ctx, "Копіювати (" .. selected_count .. ")") then
-                                    local lines = {}
-                                    -- We need to find entries by UIDs now
-                                    for _, e in ipairs(active_dict.entries) do
-                                        if entry_selection[e.uid] then
-                                            local w = (e.word or ""):gsub('"', '""')
-                                            local r = (e.replacement or ""):gsub('"', '""')
-                                            local c = (e.comment or ""):gsub('"', '""')
-                                            table.insert(lines, string.format('"%s","%s","%s"', w, r, c))
-                                        end
-                                    end
-                                    reaper.ImGui_SetClipboardText(ctx, table.concat(lines, "\n"))
-                                end
-                                
-                                if reaper.ImGui_Selectable(ctx, "Вирізати (" .. selected_count .. ")") then
-                                    local lines = {}
-                                    local to_del_uids = {}
-                                    for uid, sel in pairs(entry_selection) do if sel then to_del_uids[uid] = true end end
-                                    
-                                    for _, e in ipairs(active_dict.entries) do
-                                        if to_del_uids[e.uid] then
-                                            local w = (e.word or ""):gsub('"', '""')
-                                            local r = (e.replacement or ""):gsub('"', '""')
-                                            local c = (e.comment or ""):gsub('"', '""')
-                                            table.insert(lines, string.format('"%s","%s","%s"', w, r, c))
-                                        end
-                                    end
-                                    reaper.ImGui_SetClipboardText(ctx, table.concat(lines, "\n"))
-                                    
-                                    -- Actual remove logic (backwards)
-                                    for i = #active_dict.entries, 1, -1 do
-                                        if to_del_uids[active_dict.entries[i].uid] then
-                                            table.remove(active_dict.entries, i)
-                                        end
-                                    end
-                                    entry_selection = {}
-                                    save_user_dicts()
-                                    move_dict_to_top(selected_dict_idx)
-                                end
-
-                                if reaper.ImGui_Selectable(ctx, "Вставити") then
-                                    local text = reaper.ImGui_GetClipboardText(ctx)
-                                    if text and text ~= "" then
-                                        local added = 0
-                                        local nid = active_dict.next_id or (#active_dict.entries + 1)
-                                        for line in text:gmatch("[^\r\n]+") do
-                                            local skip = false
-                                            local l_lower = utf8_lower(line)
-                                            if l_lower:find("слово") and l_lower:find("заміна") then skip = true end
-                                            
-                                            if not skip then
-                                                local parts = {}
-                                                -- Robust CSV/TSV parser for clipboard
-                                                -- Matches: "field",field, or field followed by , or tab
-                                                local pattern = '[ \t]*"([^"]*)"[ \t]*' -- Quoted
-                                                local alt_pattern = '([^,\t]+)' -- Unquoted
-                                                
-                                                local current_line = line .. ","
-                                                local i = 1
-                                                while i <= #current_line do
-                                                    local s, e, cap = current_line:find('^%s*"([^"]*)"%s*[, \t]', i)
-                                                    if not s then
-                                                        s, e, cap = current_line:find('^([^,\t]*)%s*[, \t]', i)
-                                                    end
-                                                    if s then
-                                                        table.insert(parts, cap or "")
-                                                        i = e + 1
-                                                    else
-                                                        break
-                                                    end
-                                                end
-                                                
-                                                local w, r, c = parts[1], parts[2], parts[3]
-                                                if w and w:gsub("%s+", "") ~= "" then
-                                                    w = w:gsub('""', '"')
-                                                    r = (r or ""):gsub('""', '"')
-                                                    c = (c or ""):gsub('""', '"')
-                                                    if not entry_exists(active_dict.entries, w, r, c) then
-                                                        table.insert(active_dict.entries, 1, {uid = nid, word = w, replacement = r, comment = c})
-                                                        nid = nid + 1
-                                                        added = added + 1
-                                                    end
-                                                end
-                                            end
-                                        end
-                                        if added > 0 then
-                                            active_dict.next_id = nid
-                                            save_user_dicts()
-                                            move_dict_to_top(selected_dict_idx)
-                                        end
-                                    end
-                                end
-
-                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
-                                if reaper.ImGui_Selectable(ctx, "Видалити (" .. selected_count .. ")") then
-                                    local confirm = true
-                                    if selected_count > 1 then
-                                        local resp = reaper.MB("Видалити " .. selected_count .. " виділених записів?", "Підтвердження", 4)
-                                        if resp ~= 6 then confirm = false end
-                                    end
-                                    
-                                    if confirm then
-                                        local to_del_uids = {}
-                                        for uid, sel in pairs(entry_selection) do if sel then to_del_uids[uid] = true end end
-                                        
-                                        for i = #active_dict.entries, 1, -1 do
-                                            if to_del_uids[active_dict.entries[i].uid] then
-                                                table.remove(active_dict.entries, i)
-                                            end
-                                        end
-                                        entry_selection = {}
-                                        save_user_dicts()
-                                        move_dict_to_top(selected_dict_idx)
-                                    end
-                                end
-                                reaper.ImGui_PopStyleColor(ctx)
-                                
-                                reaper.ImGui_EndPopup(ctx)
-                            end
-
-                            if to_remove then
-                                local entry = active_dict.entries[to_remove]
-                                local is_empty = true
-                                if entry then
-                                    if (entry.word and entry.word:gsub("%s+", "") ~= "") or
-                                       (entry.replacement and entry.replacement:gsub("%s+", "") ~= "") or
-                                       (entry.comment and entry.comment:gsub("%s+", "") ~= "") then
-                                        is_empty = false
-                                    end
-                                end
-
-                                if is_empty or reaper.MB("Видалити цей запис?", "Підтвердження", 1) == 1 then
-                                    if entry and entry.uid then
-                                        entry_selection[entry.uid] = nil
-                                    end
-                                    table.remove(active_dict.entries, to_remove)
-                                    save_user_dicts()
-                                    move_dict_to_top(selected_dict_idx)
-                                end
-                            end
-                         end
-                    else
-                        reaper.ImGui_TextWrapped(ctx, "Виберіть словник зліва або створіть новий для редагування записів.")
-                    end
-                    reaper.ImGui_EndChild(ctx)
-                end
-                
-                reaper.ImGui_EndTabItem(ctx)
-                reaper.ImGui_PushFont(ctx, font_tabs, 17)
-                reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
-            end
+            RenderTab_Reference()
+            RenderTab_Glossary()
+            RenderTab_Dictionaries()
+            RenderTab_DownloadCenter()
 
             reaper.ImGui_EndTabBar(ctx)
-            restore_tab = false
+            cfg.restore_tab = false
         end
         reaper.ImGui_PopStyleVar(ctx)
         reaper.ImGui_PopFont(ctx)
 
         draw_mini_player(ctx)
+        draw_preview_popup()
         reaper.ImGui_End(ctx)
     end
 
     -- POP GLOBAL STYLE
     Style.pop(ctx)
+    
+    UTILS.check_async_tasks()
 
     if dict_open then
         reaper.defer(loop)
