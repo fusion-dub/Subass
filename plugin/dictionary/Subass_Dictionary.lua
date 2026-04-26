@@ -2667,36 +2667,19 @@ local function RenderTab_DownloadCenter()
                                 if prev_loading then
                                     reaper.ImGui_BeginDisabled(ctx)
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x444444FF)
-                                    reaper.ImGui_Button(ctx, spin .. "##prev" .. i .. source_group.source, btn_w)
+                                    reaper.ImGui_Button(ctx, spin .. "##prev" .. i .. source_group.source, btn_w * 2 + btn_gap)
                                     reaper.ImGui_PopStyleColor(ctx)
                                     reaper.ImGui_EndDisabled(ctx)
                                 else
                                     if any_loading then reaper.ImGui_BeginDisabled(ctx) end
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
-                                    if reaper.ImGui_Button(ctx, ">##prev" .. i .. source_group.source, btn_w) then
+                                    if reaper.ImGui_Button(ctx, ">>##prev" .. i .. source_group.source, btn_w * 2 + btn_gap) then
                                         UTILS.trigger_subtitle_download(item, source_group.source, "preview", prev_key)
                                     end
                                     reaper.ImGui_PopStyleColor(ctx)
                                     if any_loading then reaper.ImGui_EndDisabled(ctx) end
                                 end
-                                if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Preview") end
-
-                                -- Standard Add button
-                                reaper.ImGui_SameLine(ctx, nil, btn_gap)
-                                if add_loading then
-                                    reaper.ImGui_BeginDisabled(ctx)
-                                    reaper.ImGui_Button(ctx, spin .. "##add" .. i .. source_group.source, btn_w)
-                                    reaper.ImGui_EndDisabled(ctx)
-                                else
-                                    if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x2A4A2AFF)
-                                    if reaper.ImGui_Button(ctx, "++##add" .. i .. source_group.source, btn_w) then
-                                        UTILS.trigger_subtitle_download(item, source_group.source, "import", add_key)
-                                    end
-                                    reaper.ImGui_PopStyleColor(ctx)
-                                    if any_loading then reaper.ImGui_EndDisabled(ctx) end
-                                end
-                                if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Add to project") end
+                                if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Preview subtitle content before adding") end
                             end
 
                             reaper.ImGui_PopStyleVar(ctx)
@@ -2707,7 +2690,8 @@ local function RenderTab_DownloadCenter()
                                 reaper.ImGui_Indent(ctx, 20)
                                 for f_idx, f in ipairs(files) do
                                     local f_key = i .. "_" .. (depth or 0) .. "_" .. f_idx
-                                    local f_name = f.file_name or f.title or "Unknown"
+                                    local f_name = (f.file_name or f.title or "Unknown")
+                                    if depth and depth > 0 then f_name = " ↳ " .. f_name end
                                     local f_meta = ""
                                     if f.lang then f_meta = f_meta .. "[" .. f.lang:upper() .. "] " end
                                     if f.hi then f_meta = f_meta .. "[HI] " end
@@ -2749,17 +2733,11 @@ local function RenderTab_DownloadCenter()
                                         -- Standard buttons for files
                                         if cfg_dwn.loading_item == f_key then
                                             reaper.ImGui_BeginDisabled(ctx)
-                                            reaper.ImGui_Button(ctx, spin .. "##p" .. f_key, btn_w)
-                                            reaper.ImGui_SameLine(ctx, nil, btn_gap)
-                                            reaper.ImGui_Button(ctx, spin .. "##a" .. f_key, btn_w)
+                                            reaper.ImGui_Button(ctx, spin .. "##p" .. f_key, btn_w * 2 + btn_gap)
                                             reaper.ImGui_EndDisabled(ctx)
                                         else
-                                            if reaper.ImGui_Button(ctx, ">##p" .. f_key, btn_w) then
+                                            if reaper.ImGui_Button(ctx, ">>##p" .. f_key, btn_w * 2 + btn_gap) then
                                                 UTILS.trigger_subtitle_download(f, source_group.source, "preview", f_key)
-                                            end
-                                            reaper.ImGui_SameLine(ctx, nil, btn_gap)
-                                            if reaper.ImGui_Button(ctx, "++##a" .. f_key, btn_w) then
-                                                UTILS.trigger_subtitle_download(f, source_group.source, "import", f_key)
                                             end
                                         end
                                     end
