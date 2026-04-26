@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.0
+-- @version 7.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.0",
+    script_title = "Subass Notes v7.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -24863,7 +24863,7 @@ local function draw_table(input_queue)
                 local editor_label = (cfg.editor_mode and "• " or "") .. "Режим Редактора"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам|" .. editor_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)||<|>Переклад з ШІ|Згенерувати промпт для виділених реплік (дубляж)|Згенерувати промпт для виділених реплік (озвучка)|Вставити результат від ШІ|<"
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам|" .. editor_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)||<|>Переклад з ШІ|Згенерувати промпт для виділених реплік (дубляж)|Згенерувати промпт для виділених реплік (озвучка)||Вставити результат від ШІ|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     OTHER.find_replace_state.show = true
