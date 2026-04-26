@@ -862,7 +862,8 @@ local editor_state = {
     scroll_y = 0,
     target_scroll_y = 0,
     cached_max_scroll = 0,
-    sort_cache = { valid = false, list = {}, method = "" }
+    sort_cache = { valid = false, list = {}, method = "" },
+    needs_sync = false
 }
 
 -- ASS/Subtitle Data
@@ -8163,9 +8164,9 @@ local function update_regions_cache()
         end
         
         if changed then
+            UI_STATE._markers_is_dirty = true
             cleanup_actors()
             save_project_data()
-            UI_STATE._markers_is_dirty = true
         end
 
         -- Sync markers (non-regions)
@@ -22468,6 +22469,7 @@ function UTILS.rebuild_actors_index()
             actor = line.actor, 
             text = line.text, 
             enabled = (line.enabled ~= false),
+            rgn_idx = line.rgn_idx,
             _i = i 
         }
     end
@@ -23778,35 +23780,57 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     local start_ts, end_ts = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
     local has_selection = (end_ts > start_ts)
     
-    -- Find region at cur_time
-    local _, marker_idx = reaper.GetLastMarkerAndCurRegion(0, cur_time)
+    -- Find all regions at cur_time using existing utility
+    local overlapping_lines = UTILS.get_ass_lines_at_time(cur_time, 0.001)
     local current_region = nil
-    if marker_idx ~= -1 then
-        local retval, isr, r_start, r_end, r_name, r_id, r_col = reaper.EnumProjectMarkers3(0, marker_idx)
-        if isr and cur_time >= r_start and cur_time <= r_end then
-            -- Find actor in ass_lines instead of parsing text
-            local actor = ""
-            for _, line in ipairs(ass_lines) do
-                -- Match by markindex or by start time (fallback)
-                if line.markindex == r_id or (line.t1 and math.abs(line.t1 - r_start) < 0.001) then
-                    actor = line.actor or ""
+    
+    if #overlapping_lines > 0 then
+        -- Pick the best matching line
+        local best_line = nil
+        
+        -- Priority 1: The one manually selected by user
+        if editor_state.last_region_id ~= nil then
+            for _, line in ipairs(overlapping_lines) do
+                if line.rgn_idx == editor_state.last_region_id then
+                    best_line = line
                     break
                 end
             end
+        end
+        
+        -- Priority 2: Fallback to the one that started latest (closest to current time)
+        if not best_line then
+            best_line = overlapping_lines[#overlapping_lines]
+        end
+        
+        if best_line then
+            -- Note: markindex is returned by EnumProjectMarkers3, which is rgn_idx in ass_lines
+            current_region = {
+                idx = -1, -- We'll find real index if needed, but ID is enough for sync
+                start_pos = best_line.t1, 
+                end_pos = best_line.t2, 
+                name = best_line.text, 
+                id = best_line.rgn_idx, 
+                col = 0, -- Not used for logic
+                actor = best_line.actor or ""
+            }
             
-            current_region = {idx = marker_idx, start_pos = r_start, end_pos = r_end, name = r_name, id = r_id, col = r_col, actor = actor}
+            -- SYNC Logic: Check if we need to update the editor content
+            local needs_sync = (editor_state.last_region_id ~= current_region.id) or 
+                               (editor_state.input.text == "" and current_region.name ~= "") or
+                               editor_state.needs_sync
             
-            -- Sync text if entering a new region
-            if editor_state.last_region_id ~= r_id then
-                editor_state.last_region_id = r_id
-                editor_state.input.text = r_name
-                editor_state.original_text = r_name
-                editor_state.current_actor = actor
-                editor_state.input.cursor = #r_name
-                editor_state.input.anchor = #r_name
+            if needs_sync then
+                editor_state.needs_sync = false -- Reset flag
+                editor_state.last_region_id = current_region.id
+                editor_state.input.text = current_region.name
+                editor_state.original_text = current_region.name
+                editor_state.current_actor = current_region.actor
+                editor_state.input.cursor = #current_region.name
+                editor_state.input.anchor = #current_region.name
                 ai_modal.show = false
                 if cfg.editor_auto_scroll then
-                    editor_state.scroll_to_actor = actor
+                    editor_state.scroll_to_actor = current_region.actor
                 end
             end
         end
@@ -23941,6 +23965,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 editor_state.last_region_id = -1
 
                 if count > 0 then
+                    UI_STATE._markers_is_dirty = true
                     cleanup_actors()
                     rebuild_regions()
                     show_snackbar("Видалено коментарі у " .. count .. " репліках", "success")
@@ -24103,6 +24128,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                                 end
                             end
 
+                            UI_STATE._markers_is_dirty = true
                             reaper.MarkProjectDirty(0)
                         end
                     end
@@ -24176,6 +24202,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                                 
                                 cleanup_actors()
                                 editor_state.sort_cache.valid = false
+                                UI_STATE._markers_is_dirty = true
                                 rebuild_regions()
                                 save_project_data()
                                 reaper.MarkProjectDirty(0)
@@ -24199,6 +24226,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                             
                             cleanup_actors()
                             editor_state.sort_cache.valid = false
+                            UI_STATE._markers_is_dirty = true
                             rebuild_regions()
                             save_project_data()
                             reaper.MarkProjectDirty(0)
@@ -24252,6 +24280,8 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                                     end
                                 end
                             end
+
+                            UI_STATE._markers_is_dirty = true
                         end
                     end
                 end
@@ -24354,6 +24384,8 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                         editor_state.input.focus = true
                     end
                 end
+
+                UI_STATE._markers_is_dirty = true
             end
         end
 
@@ -24649,6 +24681,8 @@ function OTHER.AI_insert_result()
     end
 
     if update_count > 0 then
+        UI_STATE._markers_is_dirty = true
+
         -- Sync changes
         cleanup_actors()
         rebuild_regions()
@@ -25981,6 +26015,8 @@ local function draw_table(input_queue)
                             last_selected_row = i 
                             UI_STATE.last_tracked_pos = line.t1 -- Always sync position on click
                             last_auto_scroll_idx = i -- Sync to prevent auto-centering immediately after click
+                            editor_state.last_region_id = line.rgn_idx
+                            editor_state.needs_sync = true
                             
                             -- Clear input focus on row click
                             director_state.input.focus = false
