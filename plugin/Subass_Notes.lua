@@ -299,7 +299,13 @@ local OTHER = {
         [81] = 1049, [87] = 1062, [69] = 1059, [82] = 1050, [84] = 1045, [89] = 1053, [85] = 1043, [73] = 1064, [79] = 1065, [80] = 1047, [123] = 1061, [125] = 1031,
         [65] = 1060, [83] = 1030, [68] = 1042, [70] = 1040, [71] = 1055, [72] = 1056, [74] = 1054, [75] = 1051, [76] = 1044, [58] = 1046, [34] = 1028,
         [90] = 1071, [88] = 1063, [67] = 1057, [86] = 1052, [66] = 1048, [78] = 1058, [77] = 1068, [60] = 1041, [62] = 1070, [63] = 44, [92] = 1169, [124] = 1168,
-        [96] = 39, [126] = 1168
+        [96] = 39, [126] = 1168,
+        -- Symbols mapping
+        [64] = 34,   -- @ -> "
+        [35] = 8470, -- # -> №
+        [36] = 59,   -- $ -> ;
+        [94] = 58,   -- ^ -> :
+        [38] = 63    -- & -> ?
     },
     FONT_SIZES = {
         normal = {tr_S=14, tr_M=16, tr_L=18, tr_XL=20, tr_XXL=24, tr_XXXL=28},
@@ -13216,8 +13222,18 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
                 end
 
                 -- UA Input Mapping (QWERTY -> UA ЙЦУКЕН)
-                if state.ua_mode and OTHER.QWERTY_TO_UA[cp] then
-                    cp = OTHER.QWERTY_TO_UA[cp]
+                if state.ua_mode then
+                    -- Detect OS layout: if we see UA letters, OS is in UA mode. 
+                    -- If we see EN letters, OS is in EN mode.
+                    if cp > 127 and cp < 2000 then 
+                        state.os_is_ua = true
+                    elseif (cp >= 97 and cp <= 122) or (cp >= 65 and cp <= 90) then
+                        state.os_is_ua = false
+                    end
+                    
+                    if not state.os_is_ua and OTHER.QWERTY_TO_UA[cp] then
+                        cp = OTHER.QWERTY_TO_UA[cp]
+                    end
                 end
 
                 -- Full UTF-8 Encode
