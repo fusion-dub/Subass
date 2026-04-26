@@ -22,37 +22,62 @@ SUBDL_DEFAULT_KEY = "uJMHXZhLG1_rpAVOLQJI1kUj0jkF54sB"
 # --- End API Keys ---
 
 # --- Dependency Check ---
-try:
-    import yt_dlp
-except ImportError:
+def ensure_dependencies():
+    """Check for yt-dlp and other needed tools. Install if missing."""
+    # 1. yt-dlp (Core)
     try:
-        # Check if we're in a terminal that supports input
-        if not sys.stdin.isatty():
-            print(json.dumps({"error": "yt-dlp not found. Run this script in Terminal to install."}, ensure_ascii=False))
-            sys.exit(1)
-            
-        choice = input("\n> ").strip().lower()
-        if choice == "install":
-            print("\n[DOWNLOAD] Встановлення yt-dlp... (Це може зайняти деякий час)")
+        import yt_dlp
+    except ImportError:
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp", "--break-system-packages"],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            import yt_dlp
+        except:
             try:
-                # Try installing with --break-system-packages for Homebrew/system Python environments
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp", "--break-system-packages"])
-                print("[DOWNLOAD] yt-dlp успішно встановлено!")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp"],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 import yt_dlp
-            except subprocess.CalledProcessError:
-                try:
-                    subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp"])
-                    print("[DOWNLOAD] yt-dlp успішно встановлено!")
-                    import yt_dlp
-                except:
-                    print("[DOWNLOAD] Помилка встановлення. Спробуйте вручну: 'pip install yt-dlp --break-system-packages'")
-                    sys.exit(1)
-        else:
-            print("[DOWNLOAD] Встановлення скасовано.")
-            sys.exit(0)
-    except EOFError:
-        print("[DOWNLOAD] Помилка: yt-dlp не встановлено і не вдалося отримати ввід користувача.")
-    sys.exit(1)
+            except:
+                pass
+
+    # 2. py7zr (7z support)
+    try:
+        import py7zr
+    except ImportError:
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "py7zr", "--break-system-packages"],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except:
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "py7zr"],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except:
+                pass
+
+    # 3. sevenzip (System tool for RAR/7z)
+    import shutil
+    if not (shutil.which("7zz") or shutil.which("7z")):
+        if sys.platform == "darwin" and shutil.which("brew"):
+            try:
+                subprocess.check_call(["brew", "install", "sevenzip"],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except:
+                pass
+        elif sys.platform == "win32" and shutil.which("winget"):
+            try:
+                subprocess.check_call(["winget", "install", "7zip.7zip"],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except:
+                pass
+
+ensure_dependencies()
+
+import zipfile
+import io
+try:
+    import py7zr
+except ImportError:
+    py7zr = None
 
 def get_info(url):
     """Fetch info about the URL and return a simplified JSON structure."""
@@ -297,38 +322,79 @@ def download_opensubtitles(file_id, api_key):
     except Exception as e:
         return {"error": str(e)}
 
-def extract_subtitle_from_zip(zip_data, target_name=None):
-    """Extract a specific file or the first .srt/.ass file from a ZIP archive."""
-    import zipfile
-    import io
+def extract_subtitle_from_archive(data, target_name=None, format="zip"):
+    """Extract a specific file from ZIP, 7z, or RAR. Returns (extracted_data, file_name, error_msg)."""
     try:
-        with zipfile.ZipFile(io.BytesIO(zip_data)) as z:
-            names = z.namelist()
-            target = None
-            
-            if target_name and target_name in names:
-                target = target_name
-            else:
-                # Find best file (prefer .ass, then .srt)
-                for n in names:
-                    if n.lower().endswith(".ass"):
-                        target = n
-                        break
+        if format == "zip":
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                names = z.namelist()
+                target = target_name if target_name in names else None
                 if not target:
                     for n in names:
-                        if n.lower().endswith(".srt"):
-                            target = n
-                            break
+                        if n.lower().endswith((".ass", ".srt")):
+                            target = n; break
+                if target: return z.read(target), target, None
+                return data, None, "No subtitles (.ass/.srt) found in ZIP"
+        
+        elif format == "7z" and py7zr:
+            try:
+                with py7zr.SevenZipFile(io.BytesIO(data), mode='r') as z:
+                    files = z.getnames()
+                    target = target_name if target_name in files else None
+                    if not target:
+                        for n in files:
+                            if n.lower().endswith((".ass", ".srt")):
+                                target = n; break
+                    if target:
+                        extracted = z.read(targets=[target])
+                        return extracted[target].read(), target, None
+                    return data, None, "No subtitles found in 7z"
+            except Exception as e:
+                # Fallback to 7zz if py7zr fails (e.g. unsupported compression)
+                pass
+
+        if format in ["rar", "7z"]:
+            import shutil, tempfile
+            bin_7z = None
+            for b in ["7zz", "7z", "7za"]:
+                bin_7z = shutil.which(b) or next((os.path.join(p, b) for p in ["/opt/homebrew/bin", "/usr/local/bin"] if os.path.isfile(os.path.join(p, b))), None)
+                if bin_7z: break
             
-            if not target and names:
-                target = names[0] # Fallback to first file
+            if not bin_7z:
+                return data, None, "Extraction tool (7zz/7z) not found"
+            
+            with tempfile.TemporaryDirectory() as tmp:
+                archive_path = os.path.join(tmp, "archive." + format)
+                with open(archive_path, "wb") as f: f.write(data)
                 
-            if target:
-                with z.open(target) as f:
-                    return f.read(), target
-    except Exception:
-        pass
-    return zip_data, "subtitle.srt"
+                # # DEBUG: Save archive near script for user inspection
+                # try:
+                #     debug_path = os.path.join(os.path.dirname(__file__), "debug_last_archive." + format)
+                #     with open(debug_path, "wb") as df: df.write(data)
+                # except: pass
+                
+                try:
+                    out = subprocess.check_output([bin_7z, "l", archive_path], stderr=subprocess.STDOUT).decode(errors="replace")
+                    found_file = target_name
+                    if not found_file:
+                        import re
+                        for line in out.splitlines():
+                            # Match anything ending in .ass or .srt at the end of the line
+                            m = re.search(r"(\S.*\.(ass|srt))$", line, re.I)
+                            if m:
+                                found_file = m.group(1).strip()
+                                break
+                    
+                    if found_file:
+                        raw_ext = subprocess.check_output([bin_7z, "e", archive_path, found_file, "-so"], stderr=subprocess.STDOUT)
+                        return raw_ext, found_file, None
+                    return data, None, "No subtitles found in " + format.upper()
+                except subprocess.CalledProcessError as e:
+                    return data, None, "7z Error: " + (e.output.decode(errors="replace") if e.output else str(e))
+
+    except Exception as e:
+        return data, None, str(e)
+    return data, None, "Unsupported format or extraction failed"
 
 def download_url_content(url, headers=None, zip_internal_name=None):
     """Simple helper to download content from a direct URL with optional headers."""
@@ -342,15 +408,43 @@ def download_url_content(url, headers=None, zip_internal_name=None):
             if not raw:
                 return {"error": "Отримано порожню відповідь від сервера."}
             
-            # Check if it's a ZIP (starts with PK)
+            is_binary = False
+            fmt = None
+            error = None
             if raw.startswith(b"PK\x03\x04"):
-                raw, file_name = extract_subtitle_from_zip(raw, target_name=zip_internal_name)
-                
-            content = raw.decode("utf-8-sig", errors="replace")
-            return {
+                fmt = "zip"
+                raw, file_name, error = extract_subtitle_from_archive(raw, target_name=zip_internal_name, format="zip")
+            elif raw.startswith(b"Rar!"):
+                fmt = "rar"
+                raw, file_name, error = extract_subtitle_from_archive(raw, target_name=zip_internal_name, format="rar")
+            elif raw.startswith(b"7z\xbc\xaf\x27\x1c"):
+                fmt = "7z"
+                raw, file_name, error = extract_subtitle_from_archive(raw, target_name=zip_internal_name, format="7z")
+            
+            # If after extraction it still looks like an archive, it's binary
+            if raw.startswith((b"PK\x03\x04", b"Rar!", b"7z\xbc\xaf\x27\x1c")):
+                is_binary = True
+
+            result = {
                 "status": "success",
-                "content": content
+                "is_binary": is_binary,
+                "format": fmt,
+                "size": len(raw),
+                "extraction_error": error
             }
+
+            if is_binary:
+                # We cannot send raw bytes via JSON. 
+                # If it's an archive, we don't send content at all.
+                pass
+            else:
+                try:
+                    content = raw.decode("utf-8-sig", errors="replace")
+                    result["content"] = content
+                except:
+                    result["content"] = str(raw) # Fallback to string representation
+
+            return result
     except Exception as e:
         return {"error": str(e)}
 
@@ -369,19 +463,44 @@ def download_jimaku(entry_id_or_url, api_key):
         if "error" in res:
             return res
         
-        content = res["content"].strip()
+        content = res.get("content")
+        is_binary = res.get("is_binary", False) or isinstance(content, (bytes, bytearray))
+        
+        if is_binary and not content:
+            ext_err = res.get("extraction_error")
+            if ext_err:
+                return {"error": "Помилка розпакування: " + ext_err}
+            pkg = "7-Zip (7zip.org)" if sys.platform == "win32" else "Homebrew and 'sevenzip'"
+            return {"error": "Jimaku returned an archive ({}) that could not be automatically extracted. Please install {}.".format(res.get("format", "unknown"), pkg)}
         
         # Check if it's actually a subtitle file instead of a JSON list
-        if content.startswith("[Script Info]") or " --> " in content:
-            return {"status": "success", "content": content, "format": "ass" if "[Script Info]" in content else "srt"}
+        is_subtitle = False
+        if not is_binary:
+            trimmed = content.strip()
+            if trimmed.startswith("[Script Info]") or " --> " in trimmed:
+                is_subtitle = True
+        elif isinstance(content, (bytes, bytearray)):
+            if content.startswith(b"[Script Info]") or b" --> " in content:
+                is_subtitle = True
+        
+        if is_subtitle:
+            fmt = "ass" if (isinstance(content, str) and "[Script Info]" in content) or (isinstance(content, bytes) and b"[Script Info]" in content) else "srt"
+            return {"status": "success", "content": content, "format": fmt}
 
-        if not (content.startswith("[") or content.startswith("{")):
-            return {"error": "Jimaku повернув некоректні дані: " + content[:50] + "..."}
+        # If it's binary but not a known subtitle, it might be an archive
+        if is_binary:
+            if res.get("format") in ["rar", "7z"]:
+                return res # Return as is
+            return res
+ 
+        trimmed = content.strip()
+        if not (trimmed.startswith("[") or trimmed.startswith("{")):
+            return {"error": "Jimaku повернув некоректні дані: " + trimmed[:50] + "..."}
             
         try:
-            files = json.loads(content)
+            files = json.loads(trimmed)
         except Exception as je:
-            return {"error": "Jimaku JSON parse error: " + str(je) + " | Content: " + content[:100]}
+            return {"error": "Jimaku JSON parse error: " + str(je) + " | Content: " + trimmed[:100]}
         if not files:
             return {"error": "Jimaku entry has no files"}
         
@@ -405,34 +524,50 @@ def download_jimaku(entry_id_or_url, api_key):
     except Exception as e:
         return {"error": "Jimaku error: " + str(e)}
 
-def list_zip_contents(url):
-    """Download a ZIP and list its subtitle files."""
+def list_archive_contents(url):
+    """Download a ZIP, 7z or RAR and list its subtitle files."""
     try:
-        res = download_url_content(url)
-        if "error" in res: return res
-        
-        # We need the raw bytes for zipfile
         req = urllib.request.Request(url, headers=COMMON_HEADERS)
         with urllib.request.urlopen(req, timeout=10) as resp:
             raw = resp.read()
-            
-        import zipfile
-        import io
-        with zipfile.ZipFile(io.BytesIO(raw)) as z:
-            files = []
-            for n in z.namelist():
-                if n.lower().endswith((".ass", ".srt")):
-                    # We store the zip URL as the files_url for the nested items, 
-                    # but we'll need a way to tell the downloader WHICH file to pick.
-                    # For now, we'll just return the name.
-                    files.append({
-                        "file_name": n,
-                        "download_url": url, # The whole ZIP
-                        "zip_internal_file": n # Marker for extraction
-                    })
+        
+        format = "zip"
+        if raw.startswith(b"Rar!"): format = "rar"
+        elif raw.startswith(b"7z\xbc\xaf\x27\x1c"): format = "7z"
+        
+        files = []
+        if format == "zip":
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                for n in z.namelist():
+                    if n.lower().endswith((".ass", ".srt")):
+                        files.append({"file_name": n, "download_url": url, "zip_internal_file": n, "size": z.getinfo(n).file_size})
+        
+        elif format == "7z" and py7zr:
+            with py7zr.SevenZipFile(io.BytesIO(raw), mode='r') as z:
+                for n in z.getnames():
+                    if n.lower().endswith((".ass", ".srt")):
+                        files.append({"file_name": n, "download_url": url, "zip_internal_file": n, "size": 0})
+        
+        else: # Use 7zz fallback
+            import shutil
+            import tempfile
+            bin_7z = shutil.which("7zz") or shutil.which("7z")
+            if bin_7z:
+                with tempfile.TemporaryDirectory() as tmp:
+                    archive_path = os.path.join(tmp, "archive")
+                    with open(archive_path, "wb") as f: f.write(raw)
+                    out = subprocess.check_output([bin_7z, "l", archive_path], stderr=subprocess.DEVNULL).decode(errors="replace")
+                    import re
+                    for line in out.splitlines():
+                        m = re.search(r"\s+([^\s]+\.(ass|srt))$", line, re.I)
+                        if m:
+                            files.append({"file_name": m.group(1), "download_url": url, "zip_internal_file": m.group(1), "size": 0})
+        
+        if files:
             return {"status": "success", "files": files}
+        return {"error": "No subtitles found in archive"}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": "Archive Error: " + str(e)}
 
 def search_subsplease(query):
     """Search anime on SubsPlease.org (no key needed). Returns unique shows."""
@@ -746,12 +881,12 @@ def main():
     args = parser.parse_args()
     target = args.target if args.target else ""
 
-    # --- List ZIP Contents ---
+    # --- List Archive Contents (ZIP, 7z, RAR) ---
     if getattr(args, 'list_zip', False):
         if not target:
             print(json.dumps({"error": "URL is required for --list-zip"}, ensure_ascii=False))
             sys.exit(1)
-        res = list_zip_contents(target)
+        res = list_archive_contents(target)
         print(json.dumps(res, ensure_ascii=False))
         return
 
@@ -766,20 +901,44 @@ def main():
         res = download_url_content(url, headers=headers)
         if "content" in res:
             try:
-                content = res["content"].strip()
+                content = res["content"]
+                is_rar = res.get("format") == "rar"
+                is_7z = res.get("format") == "7z"
+                is_binary = res.get("is_binary", False) or isinstance(content, (bytes, bytearray))
                 
-                # If it's already a subtitle, wrap it into a single-file list
-                if content.startswith("[Script Info]") or " --> " in content:
+                # If it's already a subtitle or an archive (RAR/7z), wrap it into a single-file list
+                is_subtitle = False
+                if not is_binary:
+                    trimmed = content.strip()
+                    if trimmed.startswith("[Script Info]") or " --> " in trimmed:
+                        is_subtitle = True
+                elif isinstance(content, (bytes, bytearray)):
+                    if content.startswith(b"[Script Info]") or b" --> " in content:
+                        is_subtitle = True
+                
+                if is_subtitle or is_rar or is_7z:
+                    is_archive = is_rar or is_7z
                     simplified = [{
-                        "file_name": "Direct Download (Subtitle File)",
+                        "file_name": "Direct Download (Archive)" if is_archive else "Direct Download (Subtitle File)",
                         "download_url": url,
-                        "size": len(content)
+                        "is_folder": is_archive, # Treat as folder so it can be expanded
+                        "size": len(content) if not is_binary else 0
                     }]
                     print(json.dumps({"status": "success", "files": simplified}, ensure_ascii=False))
                     return
 
-                if not (content.startswith("[") or content.startswith("{")):
-                    print(json.dumps({"error": "Jimaku повернув некоректні дані: " + content[:50] + "..."}, ensure_ascii=False))
+                # If it's binary or doesn't look like JSON, show as error
+                if is_binary:
+                    prev_text = str(content[:50])
+                else:
+                    trimmed = content.strip()
+                    if not (trimmed.startswith("[") or trimmed.startswith("{")):
+                        prev_text = trimmed[:50]
+                    else:
+                        prev_text = None # It's JSON
+                
+                if prev_text:
+                    print(json.dumps({"error": "Jimaku повернув некоректні дані: " + prev_text + "..."}, ensure_ascii=False))
                     return
                 try:
                     files = json.loads(content)
