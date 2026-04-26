@@ -11,7 +11,8 @@ import urllib.error
 # --- Default API Keys ---
 OSUB_DEFAULT_KEY = "5J3F15q8wOSyoydqLoM7R9ghLDnEESmu"
 JIMAKU_DEFAULT_KEY = "AAAAAAAAH4guAS7UD3DseWJ4LmRHg6tnZeRzYlmD1KS0NnhY9MtHNMam1A"
-SUBDL_DEFAULT_KEY = "uJMHXZhLG1_rpAVOLQJI1kUj0jkF54sB"  # Register free at https://subdl.com to get a key
+SUBDL_DEFAULT_KEY = "uJMHXZhLG1_rpAVOLQJI1kUj0jkF54sB"
+# --- End API Keys ---
 
 # --- Dependency Check ---
 try:
@@ -228,6 +229,89 @@ def search_opensubtitles(query, api_key):
     except Exception as e:
         return {"error": str(e)}
 
+def download_opensubtitles(file_id, api_key):
+    """Download subtitle content from OpenSubtitles.com."""
+    url = "https://api.opensubtitles.com/api/v1/download"
+    payload = json.dumps({"file_id": int(file_id)})
+    req = urllib.request.Request(url, data=payload.encode("utf-8"), headers={
+        "Api-Key": api_key,
+        "Content-Type": "application/json",
+        "User-Agent": "Subass/1.0"
+    }, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            link = data.get("link")
+            if not link:
+                return {"error": "OpenSubtitles did not return a download link. (Maybe limit reached?)"}
+            
+            # Follow the link to get raw content
+            with urllib.request.urlopen(link, timeout=10) as final_resp:
+                content = final_resp.read()
+                # Try to decode, handle zip if necessary (OSub usually returns raw srt if requested via /download)
+                return {
+                    "status": "success",
+                    "content": content.decode("utf-8", errors="replace"),
+                    "file_name": data.get("file_name", "subtitle.srt")
+                }
+    except Exception as e:
+        return {"error": str(e)}
+
+def download_url_content(url, headers=None):
+    """Simple helper to download content from a direct URL with optional headers."""
+    try:
+        req_headers = {"User-Agent": "Subass/1.0"}
+        if headers:
+            req_headers.update(headers)
+        req = urllib.request.Request(url, headers=req_headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            content = resp.read()
+            return {
+                "status": "success",
+                "content": content.decode("utf-8", errors="replace")
+            }
+    except Exception as e:
+        return {"error": str(e)}
+
+def download_jimaku(entry_id_or_url, api_key):
+    """Download subtitle content from Jimaku.cc."""
+    # If we got a full URL (api/entries/ID/files), extract ID or use URL
+    url = entry_id_or_url
+    if not url.startswith("http"):
+        url = "https://jimaku.cc/api/entries/{}/files".format(entry_id_or_url)
+    
+    headers = {"Authorization": api_key}
+    
+    try:
+        # 1. Get file list
+        res = download_url_content(url, headers=headers)
+        if "error" in res:
+            return res
+        
+        files = json.loads(res["content"])
+        if not files:
+            return {"error": "Jimaku entry has no files"}
+        
+        # 2. Pick the best file (prefer .ass or .srt)
+        target = None
+        for f in files:
+            name = f.get("name", "").lower()
+            if name.endswith(".ass") or name.endswith(".srt"):
+                target = f
+                break
+        if not target:
+            target = files[0]
+            
+        file_url = target.get("url")
+        if not file_url:
+            return {"error": "Could not find download URL in Jimaku file data"}
+            
+        # 3. Download the actual file content
+        return download_url_content(file_url, headers=headers)
+        
+    except Exception as e:
+        return {"error": "Jimaku error: " + str(e)}
+
 def search_subsplease(query):
     """Search anime on SubsPlease.org (no key needed). Returns unique shows."""
     encoded = urllib.parse.quote(query)
@@ -379,12 +463,6 @@ def search_subtitles(query, osub_key=None, jimaku_key=None, subdl_key=None):
     if subdl_key:
         _append_source(result, "subdl", search_subdl(query, subdl_key))
 
-    # SubsPlease (anime, no key needed)
-    _append_source(result, "subsplease", search_subsplease(query))
-
-    # Animetosho (anime torrents with subtitles, no key needed)
-    _append_source(result, "animetosho", search_animetosho(query))
-
     # Jimaku.cc (Japanese subtitles, optional key)
     if jimaku_key:
         _append_source(result, "jimaku", search_jimaku(query, jimaku_key))
@@ -393,7 +471,7 @@ def search_subtitles(query, osub_key=None, jimaku_key=None, subdl_key=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Subass Download Tool (yt-dlp wrapper)")
-    parser.add_argument("--target", required=True, help="URL or search query for the resource")
+    parser.add_argument("--target", help="URL or search query for the resource")
     parser.add_argument("--info", action="store_true", help="Get info in JSON format")
     parser.add_argument("--download", action="store_true", help="Download the resource")
     parser.add_argument("--format", help="Format ID to download")
@@ -402,11 +480,39 @@ def main():
     parser.add_argument("--osub-key", help="OpenSubtitles.com API key (free at opensubtitles.com)")
     parser.add_argument("--jimaku-key", help="Jimaku.cc API key for Japanese subtitles (free account required)")
     
+    # Subtitle download specific
+    parser.add_argument("--get-subtitle", action="store_true", help="Download subtitle content to stdout")
+    parser.add_argument("--source", help="Source name (opensubtitles, subdl, etc.)")
+    parser.add_argument("--id", help="File ID or unique identifier for the subtitle")
+    parser.add_argument("--url", help="Direct URL for the subtitle file")
+    
     args = parser.parse_args()
-    target = args.target
+    target = args.target if args.target else ""
+
+    # --- Subtitle Content Download ---
+    if args.get_subtitle:
+        osub_key = getattr(args, 'osub_key', None) or OSUB_DEFAULT_KEY
+        jimaku_key = getattr(args, 'jimaku_key', None) or JIMAKU_DEFAULT_KEY
+        
+        if args.source == "jimaku" and (args.url or args.id):
+            target_id = args.id or args.url
+            res = download_jimaku(target_id, jimaku_key)
+            print(json.dumps(res, ensure_ascii=False))
+            return
+        elif args.url:
+            res = download_url_content(args.url)
+            print(json.dumps(res, ensure_ascii=False))
+            return
+        elif args.source == "opensubtitles" and args.id:
+            res = download_opensubtitles(args.id, osub_key)
+            print(json.dumps(res, ensure_ascii=False))
+            return
+        else:
+            print(json.dumps({"error": "Missing source/id or url for subtitle download"}, ensure_ascii=False))
+            return
 
     # --- Determine target type ---
-    if is_url(target):
+    if target and is_url(target):
         if not is_supported_url(target):
             print(json.dumps({"error": "Це посилання не підтримується. Спробуйте посилання на YouTube, SoundCloud тощо."}, ensure_ascii=False))
             sys.exit(1)
