@@ -24112,8 +24112,23 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         end
         
         if editor_state.scroll_to_actor == actor then
-            editor_state.target_scroll_y = y - (is_right_layout and S(2) or padding)
-            if editor_state.target_scroll_y < 0 then editor_state.target_scroll_y = 0 end
+            local cur_scroll = editor_state.scroll_y or 0
+            local is_visible = (y >= cur_scroll) and (y + btn_h <= cur_scroll + actor_area_h)
+            
+            if not is_visible then
+                if y < cur_scroll then
+                    -- Actor is above the visible area, scroll to its top
+                    editor_state.target_scroll_y = y - (is_right_layout and S(2) or padding)
+                else
+                    -- Actor is below the visible area, scroll to its bottom
+                    editor_state.target_scroll_y = y + btn_h - actor_area_h + S(5)
+                end
+                
+                -- Clamp target scroll
+                if editor_state.target_scroll_y < 0 then editor_state.target_scroll_y = 0 end
+                local cached_max = editor_state.cached_max_scroll or 0
+                if editor_state.target_scroll_y > cached_max then editor_state.target_scroll_y = cached_max end
+            end
             editor_state.scroll_to_actor = nil
         end
         
