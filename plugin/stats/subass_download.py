@@ -8,6 +8,7 @@ import urllib.request
 import urllib.parse
 import urllib.error
 import time
+import shutil
 
 # --- Default API Keys ---
 OSUB_DEFAULT_KEY = "5J3F15q8wOSyoydqLoM7R9ghLDnEESmu"
@@ -22,6 +23,34 @@ SUBDL_DEFAULT_KEY = "uJMHXZhLG1_rpAVOLQJI1kUj0jkF54sB"
 # --- End API Keys ---
 
 # --- Dependency Check ---
+def log_message(msg):
+    try:
+        log_path = os.path.join(os.path.dirname(__file__), "subass_debug.log")
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+        lines = []
+        if os.path.exists(log_path):
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+        lines.append(f"[{timestamp}] {msg}\n")
+        if len(lines) > 1000: lines = lines[-1000:]
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    except:
+        pass
+
+def find_extraction_tool():
+    """Find unar, 7zz, 7z, or unrar in common paths."""
+    import shutil
+    # Try unar first as it's very robust on Mac
+    bin_tool = shutil.which("unar") or next((os.path.join(p, "unar") for p in ["/opt/homebrew/bin", "/usr/local/bin"] if os.path.isfile(os.path.join(p, "unar"))), None)
+    if bin_tool: return bin_tool
+    
+    # Try 7z variants
+    for b in ["7zz", "7z", "7za", "unrar"]:
+        bin_tool = shutil.which(b) or next((os.path.join(p, b) for p in ["/opt/homebrew/bin", "/usr/local/bin"] if os.path.isfile(os.path.join(p, b))), None)
+        if bin_tool: return bin_tool
+    return None
+
 def ensure_dependencies():
     """Check for yt-dlp and other needed tools. Install if missing."""
 
@@ -356,45 +385,23 @@ def extract_subtitle_from_archive(data, target_name=None, format="zip"):
             except: pass
 
         if format in ["rar", "7z"]:
-            import shutil, tempfile
-            bin_tool = None
-            is_unar = False
-            is_unrar = False
-            
-            # Try unar first for RAR/7z as it's very robust on Mac
-            bin_tool = shutil.which("unar") or next((os.path.join(p, "unar") for p in ["/opt/homebrew/bin", "/usr/local/bin"] if os.path.isfile(os.path.join(p, "unar"))), None)
-            if bin_tool:
-                is_unar = True
-            else:
-                if format == "rar":
-                    bin_tool = shutil.which("unrar") or next((os.path.join(p, "unrar") for p in ["/opt/homebrew/bin", "/usr/local/bin"] if os.path.isfile(os.path.join(p, "unrar"))), None)
-                    if bin_tool: is_unrar = True
+            import tempfile
+            bin_tool = find_extraction_tool()
 
-                if not bin_tool:
-                    for b in ["7zz", "7z", "7za"]:
-                        bin_tool = shutil.which(b) or next((os.path.join(p, b) for p in ["/opt/homebrew/bin", "/usr/local/bin"] if os.path.isfile(os.path.join(p, b))), None)
-                        if bin_tool: break
-            
             if not bin_tool: return None, None, "Extraction tool (unar/7zz/unrar) not found"
             
             with tempfile.TemporaryDirectory() as tmp:
                 archive_path = os.path.join(tmp, "archive." + format)
                 with open(archive_path, "wb") as f: f.write(data)
                 
-                # DEBUG LOG size
-                try:
-                    from datetime import datetime
-                    log_path = os.path.join(os.path.dirname(__file__), "subass_debug.log")
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(f"[{datetime.now().isoformat()}] DOWNLOAD SIZE: {len(data)} bytes | TOOL: {bin_tool}\n")
-                except: pass
+                log_message(f"DOWNLOAD SIZE: {len(data)} bytes | TOOL: {bin_tool}")
 
                 try:
                     # For RAR5 compatibility, it's often better to extract the WHOLE archive to a tmp folder
-                    if is_unar:
+                    if "unar" in bin_tool.lower():
                         # unar -o tmp -f archive.rar
                         cmd = [bin_tool, "-o", tmp, "-f", archive_path]
-                    elif is_unrar:
+                    elif "unrar" in bin_tool.lower():
                         # unrar x -y -p- archive.rar tmp/
                         cmd = [bin_tool, "x", "-y", "-p-", archive_path, tmp + os.sep]
                     else:
@@ -438,13 +445,7 @@ def extract_subtitle_from_archive(data, target_name=None, format="zip"):
                     return None, None, f"File '{target_name}' not found in {format.upper()} after extraction"
                 except subprocess.CalledProcessError as e:
                     err_msg = e.output.decode(errors="replace") if e.output else str(e)
-                    # DEBUG LOG error
-                    try:
-                        from datetime import datetime
-                        log_path = os.path.join(os.path.dirname(__file__), "subass_debug.log")
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(f"[{datetime.now().isoformat()}] EXTRACTION ERROR: {err_msg}\n")
-                    except: pass
+                    log_message(f"EXTRACTION ERROR: {err_msg}")
                     return None, None, f"Extraction Error: {err_msg}"
 
     except Exception as e:
@@ -525,25 +526,82 @@ def download_url_content(url, headers=None, zip_internal_name=None, output_path=
                 is_archive, fmt = True, "7z"
             
             if is_archive:
-                # If we have an internal name, extract it
-                # Otherwise return file list
                 if zip_internal_name:
                     extracted_raw, extracted_name, error = extract_subtitle_from_archive(raw, target_name=zip_internal_name, format=fmt)
                     if extracted_raw is not None:
                         raw = extracted_raw
-                        # Re-check binary for extracted file
                         if zip_internal_name.lower().endswith((".sup", ".idx", ".sub", ".bin")):
                             is_binary = True
                     else:
                         return {"error": error or "Failed to extract file from archive"}
+                elif output_path:
+                    # Auto-extract the whole archive into a folder
+                    if not os.path.exists(output_path):
+                        os.makedirs(output_path, exist_ok=True)
+                    
+                    # Save temporary archive to extract it
+                    temp_archive = output_path + "." + fmt
+                    try:
+                        with open(temp_archive, "wb") as f:
+                            f.write(raw)
+                        
+                        tool = find_extraction_tool()
+                        if tool:
+                            log_message(f"Розпакування архіву {temp_archive} в {output_path} за допомогою {tool}")
+                            if "unar" in tool:
+                                cmd = [tool, "-o", output_path, "-f", temp_archive]
+                            else:
+                                cmd = [tool, "x", "-o" + output_path, "-y", temp_archive]
+                            
+                            proc = subprocess.run(cmd, capture_output=True, text=True)
+                            if proc.returncode == 0:
+                                os.remove(temp_archive)
+                                # Cleanup: if unar created a nested folder with the same name inside, flatten it
+                                inner_dirs = [d for d in os.listdir(output_path) if os.path.isdir(os.path.join(output_path, d))]
+                                if len(inner_dirs) == 1 and len(os.listdir(output_path)) == 1:
+                                    # Move content up
+                                    inner_path = os.path.join(output_path, inner_dirs[0])
+                                    for item in os.listdir(inner_path):
+                                        shutil.move(os.path.join(inner_path, item), os.path.join(output_path, item))
+                                    os.rmdir(inner_path)
+                                
+                                return {"status": "success", "saved_to": output_path, "message": "Розпаковано успішно"}
+                            else:
+                                log_message(f"ПОМИЛКА РОЗПАКУВАННЯ: {proc.stderr}")
+                                return {"error": f"Інструмент розпакування повернув помилку: {proc.stderr}"}
+                        else:
+                            # Fallback: rename ZIP to its proper name if no extraction tool
+                            final_zip = output_path + ".zip"
+                            os.rename(temp_archive, final_zip)
+                            return {"status": "success", "saved_to": final_zip, "message": "Збережено як архів (немає інструментів для розпакування)"}
+                    except Exception as e:
+                        log_message(f"КРИТИЧНА ПОМИЛКА: {str(e)}")
+                        return {"error": f"Помилка розпакування: {str(e)}"}
                 else:
                     return list_archive_contents_from_bytes(raw, url, fmt)
+
+            # Check if it's a JSON response (like a file list from Jimaku)
+            try:
+                if len(raw) < 100000: # Only try to parse as JSON if it's reasonably small
+                    decoded_json = json.loads(raw.decode("utf-8-sig", errors="replace"))
+                    if isinstance(decoded_json, list):
+                        # Special case: Jimaku file list response should NEVER be saved directly if we want to extract
+                        if output_path and not zip_internal_name:
+                            log_message(f"Виявлено список файлів JSON ({len(decoded_json)} елементів). Пропускаємо збереження файлу.")
+                            return {"status": "success", "files": decoded_json}
+                        elif not output_path:
+                            return {"status": "success", "files": decoded_json}
+                    elif isinstance(decoded_json, dict) and not output_path:
+                        return decoded_json
+            except Exception as je:
+                pass
 
             # If output_path is provided, save raw bytes directly
             if output_path:
                 try:
                     with open(output_path, "wb") as f:
                         f.write(raw)
+                    log_message(f"Збережено файл: {output_path} ({len(raw)} байт)")
                     return {"status": "success", "saved_to": output_path, "size": len(raw)}
                 except Exception as e:
                     return {"error": f"Failed to save file to {output_path}: {str(e)}"}
@@ -588,7 +646,23 @@ def download_jimaku(entry_id_or_url, api_key, zip_internal_name=None, output_pat
         if (zip_internal_name or output_path) and ("content" in res or "saved_to" in res):
             return res
 
-        # If it returned a list of files instead of content, return that
+        # If it returned a list of files and we have an output path but NO zip_internal_name,
+        # it means we want to download the entire "folder"
+        if "files" in res and output_path and not zip_internal_name:
+            if not os.path.exists(output_path):
+                os.makedirs(output_path, exist_ok=True)
+            
+            dl_results = []
+            for f in res["files"]:
+                f_url = f.get("download_url") or f.get("url")
+                if f_url:
+                    f_name = f.get("file_name") or f.get("title") or "file"
+                    f_out = os.path.join(output_path, f_name)
+                    # Download each file
+                    f_res = download_url_content(f_url, headers=headers, output_path=f_out)
+                    dl_results.append(f_res)
+            return {"status": "success", "saved_to": output_path, "count": len(dl_results)}
+
         if "files" in res:
             return res
 
@@ -976,19 +1050,7 @@ def search_subtitles(query, osub_key=None, jimaku_key=None, subdl_key=None, excl
     return result
 
 def main():
-    # DEBUG LOG (Max 1000 lines)
-    try:
-        from datetime import datetime
-        log_path = os.path.join(os.path.dirname(__file__), "subass_debug.log")
-        lines = []
-        if os.path.exists(log_path):
-            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
-        lines.append(f"[{datetime.now().isoformat()}] ARGS: {' '.join(sys.argv[1:])}\n")
-        if len(lines) > 1000: lines = lines[-1000:]
-        with open(log_path, "w", encoding="utf-8") as f:
-            f.writelines(lines)
-    except: pass
+    log_message(f"ARGS: {' '.join(sys.argv[1:])}")
 
     parser = argparse.ArgumentParser(description="Інструмент завантаження Subass (обгортка над yt-dlp)")
     parser.add_argument("--target", help="URL або пошуковий запит")
@@ -1133,17 +1195,34 @@ def main():
             # This is for fetching subtitles for a specific Movie/TV ID (used in folders)
             raw_results = search_subdl(id_, subdl_key, is_id=True)
             if isinstance(raw_results, list):
-                files = []
-                for r in raw_results:
-                    files.append({
-                        "file_name": r.get("title") or r.get("release_name", "Subtitle"),
-                        "download_url": r.get("download_url"),
-                        "lang": r.get("lang"),
-                        "hi": r.get("hi", False),
-                        "is_folder": r.get("is_folder", False),
-                        "zip_internal_file": r.get("zip_internal_file")
-                    })
-                res = {"status": "success", "files": files}
+                if output_path:
+                    # Recursive download all files in the collection
+                    if not os.path.exists(output_path):
+                        os.makedirs(output_path, exist_ok=True)
+                    
+                    results = []
+                    for r in raw_results:
+                        f_url = r.get("download_url")
+                        if f_url:
+                            f_name = r.get("title") or r.get("release_name") or "subtitle"
+                            # Clean filename
+                            f_name = f_name.replace("/", "_").replace("\\", "_")
+                            f_out = os.path.join(output_path, f_name)
+                            res = download_url_content(f_url, output_path=f_out)
+                            results.append(res)
+                    res = {"status": "success", "saved_to": output_path, "count": len(results)}
+                else:
+                    files = []
+                    for r in raw_results:
+                        files.append({
+                            "file_name": r.get("title") or r.get("release_name", "Subtitle"),
+                            "download_url": r.get("download_url"),
+                            "lang": r.get("lang"),
+                            "hi": r.get("hi", False),
+                            "is_folder": r.get("is_folder", False),
+                            "zip_internal_file": r.get("zip_internal_file")
+                        })
+                    res = {"status": "success", "files": files}
             else:
                 res = raw_results
         elif (source == "opensubtitles" or not source) and id_:
