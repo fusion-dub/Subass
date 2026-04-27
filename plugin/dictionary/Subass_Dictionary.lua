@@ -85,6 +85,11 @@ local cfg_dwn = {
     error_tooltip = nil,
     thumbnail_tex = nil,
     thumbnail_path = nil,
+    opensubtitles_key = reaper.GetExtState(section_name, "key_opensubtitles"),
+    subdl_key = reaper.GetExtState(section_name, "key_subdl"),
+    jimaku_key = reaper.GetExtState(section_name, "key_jimaku"),
+    pending_key_src = nil, -- { id = "id", label = "label" }
+    temp_key_val = "",
     source_filters = {
         opensubtitles = reaper.GetExtState(section_name, "src_osub") ~= "0",
         subdl = reaper.GetExtState(section_name, "src_subdl") ~= "0",
@@ -105,6 +110,21 @@ end
 -- Async Command Execution
 UTILS.async_pool = {}
 
+function UTILS.draw_meta_tag(ctx, text, color)
+    local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
+    local x, y = reaper.ImGui_GetCursorScreenPos(ctx)
+    local th = reaper.ImGui_GetTextLineHeight(ctx)
+    local padding_x, padding_y = 5, 1
+    
+    local tw, _ = reaper.ImGui_CalcTextSize(ctx, text)
+    local rect_w = tw + padding_x * 2
+    local rect_h = th + padding_y * 2
+    
+    reaper.ImGui_DrawList_AddRectFilled(draw_list, x, y, x + rect_w, y + rect_h, color, 4)
+    reaper.ImGui_SetCursorPosX(ctx, reaper.ImGui_GetCursorPosX(ctx) + padding_x)
+    reaper.ImGui_Text(ctx, text)
+end
+
 function UTILS.sanitize_filename(name)
     if not name then return "subtitle" end
     -- Decode common HTML entities
@@ -116,7 +136,7 @@ end
 
 function UTILS.get_api_keys_args()
     local args = ""
-    if cfg_dwn.osub_key and cfg_dwn.osub_key ~= "" then args = args .. ' --osub-key "' .. cfg_dwn.osub_key .. '"' end
+    if cfg_dwn.opensubtitles_key and cfg_dwn.opensubtitles_key ~= "" then args = args .. ' --osub-key "' .. cfg_dwn.opensubtitles_key .. '"' end
     if cfg_dwn.jimaku_key and cfg_dwn.jimaku_key ~= "" then args = args .. ' --jimaku-key "' .. cfg_dwn.jimaku_key .. '"' end
     if cfg_dwn.subdl_key and cfg_dwn.subdl_key ~= "" then args = args .. ' --subdl-key "' .. cfg_dwn.subdl_key .. '"' end
     return args
@@ -847,19 +867,19 @@ function UTILS.get_folder_files(item, source, item_key)
     if source == "jimaku" then
         local id = item.files_url and item.files_url:match("/entries/([^/]+)/files")
         if not id then return end
-        cmd_args = string.format('--get-jimaku-files --id "%s"', id)
+        cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-jimaku-files --id "%s"', id)
     elseif source == "subdl" then
         if item.sd_id then
-            cmd_args = string.format('--get-subtitle --source subdl --id "%s"', item.sd_id)
+            cmd_args = UTILS.get_api_keys_args() .. string.format('--get-subtitle --source subdl --id "%s"', item.sd_id)
         else
             local target_url = item.download_url or item.url
             if not target_url then return end
-            cmd_args = string.format('--list-zip --target "%s"', target_url)
+            cmd_args = UTILS.get_api_keys_args() .. string.format('--list-zip --target "%s"', target_url)
         end
     elseif source == "opensubtitles" then
         local target_url = item.download_url or item.url
         if not target_url then return end
-        cmd_args = string.format('--list-zip --target "%s"', target_url)
+        cmd_args = UTILS.get_api_keys_args() .. string.format('--list-zip --target "%s"', target_url)
     else
         return
     end
@@ -2517,7 +2537,7 @@ local function RenderTab_DownloadCenter()
                     if not v then table.insert(excluded, k) end
                 end
                 
-                local cmd_args = string.format('--info --target "%s"', query)
+                local cmd_args = UTILS.get_api_keys_args() .. string.format(' --info --target "%s"', query)
                 if #excluded > 0 then
                     cmd_args = cmd_args .. ' --exclude "' .. table.concat(excluded, ",") .. '"'
                 end
@@ -2560,19 +2580,34 @@ local function RenderTab_DownloadCenter()
         
         for i, src in ipairs(sources) do
             local is_active = cfg_dwn.source_filters[src.id]
+            local has_key = (cfg_dwn[src.id .. "_key"] ~= "")
+            
             if is_active then
                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
                 reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 0)
             else
                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x00000000)
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Border(), C_BTN_MEDIUM)
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Border(), has_key and C_BTN_MEDIUM or 0x88888844)
                 reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 1)
             end
 
             if reaper.ImGui_Button(ctx, src.label .. "##filter") then
-                cfg_dwn.source_filters[src.id] = not is_active
-                local save_key = src.id == "opensubtitles" and "src_osub" or ("src_" .. src.id)
-                reaper.SetExtState(section_name, save_key, cfg_dwn.source_filters[src.id] and "1" or "0", true)
+                if src.id == "opensubtitles" and not has_key then
+                    cfg_dwn.pending_key_src = src
+                    cfg_dwn.temp_key_val = cfg_dwn[src.id .. "_key"] or ""
+                else
+                    cfg_dwn.source_filters[src.id] = not is_active
+                    local save_key = src.id == "opensubtitles" and "src_osub" or ("src_" .. src.id)
+                    reaper.SetExtState(section_name, save_key, cfg_dwn.source_filters[src.id] and "1" or "0", true)
+                end
+            end
+            
+            if reaper.ImGui_BeginPopupContextItem(ctx, "src_ctx_" .. src.id) then
+                if reaper.ImGui_MenuItem(ctx, "Змінити API ключ##" .. src.id) then
+                    cfg_dwn.pending_key_src = src
+                    cfg_dwn.temp_key_val = cfg_dwn[src.id .. "_key"] or ""
+                end
+                reaper.ImGui_EndPopup(ctx)
             end
             
             reaper.ImGui_PopStyleVar(ctx)
@@ -2621,6 +2656,49 @@ local function RenderTab_DownloadCenter()
         end
 
         local avail_h = cfg_glos.layout_has_player and -82 or -5
+        
+        -- API Key Input Modal
+        if cfg_dwn.pending_key_src then
+            reaper.ImGui_OpenPopup(ctx, "Введіть API Ключ")
+        end
+        
+        local wx_m, wy_m = reaper.ImGui_GetWindowPos(ctx)
+        local ww_m, wh_m = reaper.ImGui_GetWindowSize(ctx)
+        reaper.ImGui_SetNextWindowPos(ctx, wx_m + ww_m * 0.5, wy_m + wh_m * 0.5, reaper.ImGui_Cond_Appearing(), 0.5, 0.5)
+        reaper.ImGui_SetNextWindowSize(ctx, 400, 0)
+        
+        if reaper.ImGui_BeginPopupModal(ctx, "Введіть API Ключ", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
+            local src = cfg_dwn.pending_key_src
+            reaper.ImGui_Text(ctx, "Введіть ваш API ключ для " .. src.label .. ":")
+            reaper.ImGui_Dummy(ctx, 0, 5)
+            
+            reaper.ImGui_SetNextItemWidth(ctx, -1)
+            local changed, new_val = reaper.ImGui_InputText(ctx, "##key_input", cfg_dwn.temp_key_val)
+            if changed then cfg_dwn.temp_key_val = new_val end
+            
+            reaper.ImGui_Dummy(ctx, 0, 10)
+            
+            if reaper.ImGui_Button(ctx, "Зберегти", 120) or reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Enter()) then
+                cfg_dwn[src.id .. "_key"] = cfg_dwn.temp_key_val
+                reaper.SetExtState(section_name, "key_" .. src.id, cfg_dwn.temp_key_val, true)
+                -- Auto-enable source if key is set
+                if cfg_dwn.temp_key_val ~= "" then
+                    cfg_dwn.source_filters[src.id] = true
+                    local save_key = src.id == "opensubtitles" and "src_osub" or ("src_" .. src.id)
+                    reaper.SetExtState(section_name, save_key, "1", true)
+                end
+                cfg_dwn.pending_key_src = nil
+                reaper.ImGui_CloseCurrentPopup(ctx)
+            end
+            reaper.ImGui_SameLine(ctx)
+            if reaper.ImGui_Button(ctx, "Скасувати", 120) or reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Escape()) then
+                cfg_dwn.pending_key_src = nil
+                reaper.ImGui_CloseCurrentPopup(ctx)
+            end
+            
+            reaper.ImGui_EndPopup(ctx)
+        end
+
         if reaper.ImGui_BeginChild(ctx, "dl_center_child", 0, avail_h) then
             if dl_search_results then
                 reaper.ImGui_TextWrapped(ctx, dl_search_results)
@@ -2795,7 +2873,7 @@ local function RenderTab_DownloadCenter()
                             if item.lang then table.insert(info_parts, item.lang:upper()) end
                             if item.format then table.insert(info_parts, item.format:upper()) end
                             if item.year and item.year ~= "" then table.insert(info_parts, item.year) end
-                            if item.downloads and item.downloads > 0 then table.insert(info_parts, "Зав:"..item.downloads) end
+                            if item.downloads and item.downloads > 0 then table.insert(info_parts, "↓ " .. item.downloads) end
                             local meta = table.concat(info_parts, "  ")
 
                             reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 3)
@@ -2842,6 +2920,15 @@ local function RenderTab_DownloadCenter()
                             -- Metadata
                             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xAAAAAAFF)
                             reaper.ImGui_PushTextWrapPos(ctx, avail_w - btn_w * 2 - btn_gap - 15)
+                            
+                            if item.season and item.episode then
+                                UTILS.draw_meta_tag(ctx, string.format("S%02d E%02d", item.season, item.episode), 0x4CA6FF44)
+                                reaper.ImGui_SameLine(ctx, nil, 12)
+                            elseif item.episode then
+                                UTILS.draw_meta_tag(ctx, string.format("E%02d", item.episode), 0x4CA6FF44)
+                                reaper.ImGui_SameLine(ctx, nil, 12)
+                            end
+                            
                             reaper.ImGui_Text(ctx, meta)
                             reaper.ImGui_PopTextWrapPos(ctx)
                             reaper.ImGui_PopStyleColor(ctx)
@@ -2959,6 +3046,15 @@ local function RenderTab_DownloadCenter()
                                     reaper.ImGui_SetCursorPos(ctx, f_x, f_y)
 
                                     reaper.ImGui_PushTextWrapPos(ctx, avail_w - btn_w * 2 - btn_gap - 35)
+                                    
+                                    if f.season and f.episode then
+                                        UTILS.draw_meta_tag(ctx, string.format("S%02d E%02d", f.season, f.episode), 0x4CA6FF44)
+                                        reaper.ImGui_SameLine(ctx, nil, 12)
+                                    elseif f.episode then
+                                        UTILS.draw_meta_tag(ctx, string.format("E%02d", f.episode), 0x4CA6FF44)
+                                        reaper.ImGui_SameLine(ctx, nil, 12)
+                                    end
+                                    
                                     reaper.ImGui_Text(ctx, f_name)
                                     
                                     if f_meta ~= "" then
