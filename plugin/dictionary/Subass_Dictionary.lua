@@ -91,7 +91,7 @@ local cfg_dwn = {
     pending_key_src = nil, -- { id = "id", label = "label" }
     temp_key_val = "",
     source_filters = {
-        opensubtitles = reaper.GetExtState(section_name, "src_osub") ~= "0",
+        opensubtitles = reaper.GetExtState(section_name, "src_osub") == "1",
         subdl = reaper.GetExtState(section_name, "src_subdl") ~= "0",
         jimaku = reaper.GetExtState(section_name, "src_jimaku") ~= "0"
     }
@@ -139,7 +139,7 @@ function UTILS.get_api_keys_args()
     if cfg_dwn.opensubtitles_key and cfg_dwn.opensubtitles_key ~= "" then args = args .. ' --osub-key "' .. cfg_dwn.opensubtitles_key .. '"' end
     if cfg_dwn.jimaku_key and cfg_dwn.jimaku_key ~= "" then args = args .. ' --jimaku-key "' .. cfg_dwn.jimaku_key .. '"' end
     if cfg_dwn.subdl_key and cfg_dwn.subdl_key ~= "" then args = args .. ' --subdl-key "' .. cfg_dwn.subdl_key .. '"' end
-    return args
+    return args .. " "
 end
 
 function UTILS.get_python_cmd(args)
@@ -863,7 +863,7 @@ function UTILS.trigger_subtitle_download(item, source, mode, item_key)
 end
 
 function UTILS.get_folder_files(item, source, item_key)
-    local cmd_args = UTILS.get_api_keys_args() .. " "
+    local cmd_args = ""
     if source == "jimaku" then
         local id = item.files_url and item.files_url:match("/entries/([^/]+)/files")
         if not id then return end
@@ -2500,7 +2500,7 @@ local function RenderTab_DownloadCenter()
         end
 
         reaper.ImGui_SameLine(ctx)
-        local is_searching = (dl_search_results ~= nil and dl_search_results:find("Шукаєм"))
+        local is_searching = (dl_search_results ~= nil and dl_search_results:find("Пошук... Зачекайте, будь ласка..."))
         local spinner_chars = { "|" , "/", "-", "\\" }
         local spin_label = is_searching
             and (spinner_chars[math.floor(reaper.time_precise() * 6) % 4 + 1] .. " ...")
@@ -2527,7 +2527,7 @@ local function RenderTab_DownloadCenter()
                 end
 
                 cfg_dwn.search_data = nil
-                dl_search_results = "Шукаєм"
+                dl_search_results = "Пошук... Зачекайте, будь ласка..."
                 
                 local query = cfg_dwn.dwn_search:gsub('"', '\\"')
                 
@@ -2595,6 +2595,9 @@ local function RenderTab_DownloadCenter()
                 if src.id == "opensubtitles" and not has_key then
                     cfg_dwn.pending_key_src = src
                     cfg_dwn.temp_key_val = cfg_dwn[src.id .. "_key"] or ""
+                    -- Ensure it stays disabled if key is missing
+                    cfg_dwn.source_filters[src.id] = false
+                    reaper.SetExtState(section_name, "src_osub", "0", true)
                 else
                     cfg_dwn.source_filters[src.id] = not is_active
                     local save_key = src.id == "opensubtitles" and "src_osub" or ("src_" .. src.id)
@@ -2874,6 +2877,7 @@ local function RenderTab_DownloadCenter()
                             if item.format then table.insert(info_parts, item.format:upper()) end
                             if item.year and item.year ~= "" then table.insert(info_parts, item.year) end
                             if item.downloads and item.downloads > 0 then table.insert(info_parts, "↓ " .. item.downloads) end
+                            if item.rating and item.rating > 0 then table.insert(info_parts, "★ " .. item.rating) end
                             local meta = table.concat(info_parts, "  ")
 
                             reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 3)
@@ -2885,11 +2889,23 @@ local function RenderTab_DownloadCenter()
                             local loading_key_save = "save_as_" .. add_key
                             local is_loading_save = (cfg_dwn.loading_item == loading_key_save)
                             
+                            -- Dynamic Height Calculation
+                            local wrap_w = avail_w - btn_w * 2 - btn_gap - 15
+                            reaper.ImGui_PushFont(ctx, font_main, 14)
+                            local title_txt = item.title or item.file_name or "Невідомо"
+                            local t_w, t_lh = reaper.ImGui_CalcTextSize(ctx, title_txt)
+                            local title_h = math.ceil(t_w / (wrap_w - 5)) * t_lh
+                            reaper.ImGui_PopFont(ctx)
+                            local m_w, m_lh = reaper.ImGui_CalcTextSize(ctx, meta)
+                            local meta_h = math.ceil(m_w / (wrap_w - 5)) * m_lh
+                            local row_h = title_h + meta_h + 11
+                            if row_h < 43 then row_h = 43 end
+                            
                             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
                             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderActive(), 0xFFFFFF22)
                             
                             local label = "##row_hitbox" .. i
-                            if reaper.ImGui_Selectable(ctx, label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, 43) then
+                            if reaper.ImGui_Selectable(ctx, label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, row_h) then
                                 -- Left click action: Open folder or Preview file
                                 if not any_loading then
                                     if item.is_folder or source_group.source == "jimaku" then
@@ -3012,6 +3028,7 @@ local function RenderTab_DownloadCenter()
                                     local f_meta = ""
                                     if f.lang then f_meta = f_meta .. "[" .. f.lang:upper() .. "] " end
                                     if f.hi then f_meta = f_meta .. "[HI] " end
+                                    if f.rating and f.rating > 0 then f_meta = f_meta .. "★ " .. f.rating .. " " end
                                     
                                     -- Hitbox for nested file
                                     local f_x, f_y = reaper.ImGui_GetCursorPos(ctx)
@@ -3021,10 +3038,19 @@ local function RenderTab_DownloadCenter()
                                     local f_loading_key = "save_as_" .. f_key
                                     local f_is_loading_save = (cfg_dwn.loading_item == f_loading_key)
                                     
+                                    -- Dynamic Height for Nested Item
+                                    local f_wrap_w = avail_w - btn_w * 2 - btn_gap - 35
+                                    local fn_w, fn_lh = reaper.ImGui_CalcTextSize(ctx, f_name)
+                                    local f_name_h = math.ceil(fn_w / (f_wrap_w * 0.85)) * fn_lh
+                                    local fm_w, fm_lh = reaper.ImGui_CalcTextSize(ctx, f_meta)
+                                    local f_meta_h = math.ceil(fm_w / (f_wrap_w * 0.85)) * fm_lh
+                                    local f_row_h = f_name_h + f_meta_h + 3
+                                    if f_row_h < 20 then f_row_h = 20 end
+                                    
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
                                     
                                     local f_label = "##f_hitbox" .. f_key
-                                    if reaper.ImGui_Selectable(ctx, f_label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, 20) then
+                                    if reaper.ImGui_Selectable(ctx, f_label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, f_row_h) then
                                         -- Left click action: Open nested folder or Preview nested file
                                         if not any_loading then
                                             if f.is_folder then
