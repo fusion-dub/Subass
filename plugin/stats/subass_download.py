@@ -819,8 +819,17 @@ def search_subsplease(query):
 def search_subdl(query, api_key, is_id=False):
     """Search subtitles on SubDL.com (official API, free key at subdl.com)."""
     encoded = urllib.parse.quote(str(query))
-    param = "sd_id" if is_id else "film_name"
-    url = "https://api.subdl.com/api/v1/subtitles?api_key={}&{}={}&languages=EN,UK&subs_per_page=30".format(api_key, param, encoded)
+    param = "film_name"
+    if is_id:
+        query_str = str(query)
+        if query_str.startswith("tt"):
+            param = "imdb_id"
+        elif query_str.startswith("tmdb_"):
+            param = "tmdb_id"
+            encoded = urllib.parse.quote(query_str[5:])
+        else:
+            param = "sd_id"
+    url = "https://api.subdl.com/api/v1/subtitles?api_key={}&{}={}&subs_per_page=30".format(api_key, param, encoded)
     req = urllib.request.Request(url, headers={"User-Agent": "Subass/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -831,26 +840,27 @@ def search_subdl(query, api_key, is_id=False):
             
             subtitles = data.get("subtitles", [])
             
-            # Fallback: if we searched by ID and got nothing, try without language filter
-            if is_id and not subtitles:
-                fallback_url = "https://api.subdl.com/api/v1/subtitles?api_key={}&{}={}&subs_per_page=30".format(api_key, param, encoded)
-                fallback_req = urllib.request.Request(fallback_url, headers={"User-Agent": "Subass/1.0"})
-                with urllib.request.urlopen(fallback_req, timeout=10) as f_resp:
-                    f_data = json.loads(f_resp.read().decode("utf-8-sig"))
-                    if f_data.get("status"):
-                        subtitles = f_data.get("subtitles", [])
-                        if f_data.get("results"): data["results"] = f_data["results"]
-            
             # If no subtitles but we have movie results, fetch for the first result
             if not subtitles and data.get("results"):
-                first_id = data["results"][0].get("sd_id")
+                first_res = data["results"][0]
+                first_id = first_res.get("imdb_id") or (f"tmdb_{first_res['tmdb_id']}" if first_res.get("tmdb_id") else first_res.get("sd_id"))
                 if first_id:
-                    new_url = "https://api.subdl.com/api/v1/subtitles?api_key={}&sd_id={}&languages=EN,UK".format(api_key, first_id)
+                    first_id_str = str(first_id)
+                    if first_id_str.startswith("tt"):
+                        new_param = "imdb_id"
+                    elif first_id_str.startswith("tmdb_"):
+                        new_param = "tmdb_id"
+                        first_id = first_id_str[5:]
+                    else:
+                        new_param = "sd_id"
+                    
+                    new_url = "https://api.subdl.com/api/v1/subtitles?api_key={}&{}={}".format(api_key, new_param, first_id)
                     new_req = urllib.request.Request(new_url, headers={"User-Agent": "Subass/1.0"})
                     with urllib.request.urlopen(new_req, timeout=10) as new_resp:
                         new_data = json.loads(new_resp.read().decode("utf-8-sig"))
                         if new_data.get("status"):
                             subtitles = new_data.get("subtitles", [])
+                            
                             # Update movie info for the merged result
                             if new_data.get("results"):
                                 data["results"] = new_data["results"]
@@ -871,7 +881,7 @@ def search_subdl(query, api_key, is_id=False):
                             "lang": "ALL",
                             "format": m.get("type", "movie").upper(),
                             "is_folder": True,
-                            "sd_id": m.get("sd_id"),
+                            "sd_id": m.get("imdb_id") or (f"tmdb_{m['tmdb_id']}" if m.get("tmdb_id") else m.get("sd_id")),
                             "type": m.get("type", "movie")
                         })
                     return results
@@ -1147,7 +1157,17 @@ def main():
         url = "https://jimaku.cc/api/entries/{}/files".format(args.id)
         headers = {"Authorization": jimaku_key}
         res = download_url_content(url, headers=headers)
-        if "content" in res:
+        if "files" in res:
+            simplified = []
+            for f in res["files"]:
+                simplified.append({
+                    "file_name": f.get("name") or f.get("file_name") or f.get("title") or "Невідомо",
+                    "download_url": f.get("url"),
+                    "size": f.get("size")
+                })
+            print(json.dumps({"status": "success", "files": simplified}, ensure_ascii=False))
+            return
+        elif "content" in res:
             try:
                 content = res["content"]
                 is_rar = res.get("format") == "rar"
@@ -1197,7 +1217,7 @@ def main():
                 simplified = []
                 for f in files:
                     simplified.append({
-                        "file_name": f.get("name"),
+                        "file_name": f.get("name") or f.get("file_name") or f.get("title") or "Невідомо",
                         "download_url": f.get("url"),
                         "size": f.get("size")
                     })
