@@ -870,16 +870,16 @@ function UTILS.get_folder_files(item, source, item_key)
         cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-jimaku-files --id "%s"', id)
     elseif source == "subdl" then
         if item.sd_id then
-            cmd_args = UTILS.get_api_keys_args() .. string.format('--get-subtitle --source subdl --id "%s"', item.sd_id)
+            cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-subtitle --source subdl --id "%s"', item.sd_id)
         else
             local target_url = item.download_url or item.url
             if not target_url then return end
-            cmd_args = UTILS.get_api_keys_args() .. string.format('--list-zip --target "%s"', target_url)
+            cmd_args = UTILS.get_api_keys_args() .. string.format(' --list-zip --target "%s"', target_url)
         end
     elseif source == "opensubtitles" then
         local target_url = item.download_url or item.url
         if not target_url then return end
-        cmd_args = UTILS.get_api_keys_args() .. string.format('--list-zip --target "%s"', target_url)
+        cmd_args = UTILS.get_api_keys_args() .. string.format(' --list-zip --target "%s"', target_url)
     else
         return
     end
