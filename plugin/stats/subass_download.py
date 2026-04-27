@@ -532,7 +532,7 @@ def list_archive_contents_from_bytes(raw, url, format):
     except Exception as e:
         return {"error": "Archive Error: " + str(e)}
 
-def download_url_content(url, headers=None, zip_internal_name=None, output_path=None):
+def download_url_content(url, headers=None, zip_internal_name=None, output_path=None, filename=None):
     """Simple helper to download content from a direct URL with optional headers."""
     try:
         req_headers = COMMON_HEADERS.copy()
@@ -546,7 +546,7 @@ def download_url_content(url, headers=None, zip_internal_name=None, output_path=
             
             is_binary = False
             # Check extension for common binary subtitle formats
-            target_for_ext = zip_internal_name or url
+            target_for_ext = filename or zip_internal_name or url
             if target_for_ext and target_for_ext.lower().split('?')[0].endswith((".sup", ".idx", ".sub", ".bin")):
                 is_binary = True
             fmt = None
@@ -688,15 +688,28 @@ def download_jimaku(entry_id_or_url, api_key, zip_internal_name=None, output_pat
             if not os.path.exists(output_path):
                 os.makedirs(output_path, exist_ok=True)
             
-            dl_results = []
-            for f in res["files"]:
-                f_url = f.get("download_url") or f.get("url")
-                if f_url:
-                    f_name = f.get("file_name") or f.get("title") or "file"
-                    f_out = os.path.join(output_path, f_name)
-                    # Download each file
-                    f_res = download_url_content(f_url, headers=headers, output_path=f_out)
-                    dl_results.append(f_res)
+            def download_recursive(file_list, target_path):
+                results = []
+                for f in file_list:
+                    f_url = f.get("download_url") or f.get("url")
+                    if f_url:
+                        # Jimaku often uses 'name' instead of 'file_name'
+                        f_name = f.get("name") or f.get("file_name") or f.get("title") or "file"
+                        f_out = os.path.join(target_path, f_name)
+                        
+                        f_res = download_url_content(f_url, headers=headers, output_path=f_out, filename=f_name)
+                        
+                        # If the "file" was actually a sub-list (nested folder)
+                        if "files" in f_res:
+                            sub_folder = f_out
+                            if not os.path.exists(sub_folder):
+                                os.makedirs(sub_folder, exist_ok=True)
+                            results.extend(download_recursive(f_res["files"], sub_folder))
+                        else:
+                            results.append(f_res)
+                return results
+
+            dl_results = download_recursive(res["files"], output_path)
             return {"status": "success", "saved_to": output_path, "count": len(dl_results)}
 
         if "files" in res:
@@ -1245,7 +1258,7 @@ def main():
                             # Clean filename
                             f_name = f_name.replace("/", "_").replace("\\", "_")
                             f_out = os.path.join(output_path, f_name)
-                            res = download_url_content(f_url, output_path=f_out)
+                            res = download_url_content(f_url, output_path=f_out, filename=f_name)
                             results.append(res)
                     res = {"status": "success", "saved_to": output_path, "count": len(results)}
                 else:
