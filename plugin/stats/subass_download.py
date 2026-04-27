@@ -24,7 +24,7 @@ except ImportError:
     py7zr = None
 
 # --- Default API Keys ---
-OSUB_DEFAULT_KEY = "5J3F15q8wOSyoydqLoM7R9ghLDnEESmu"
+OSUB_DEFAULT_KEY = ""
 JIMAKU_DEFAULT_KEY = "AAAAAAAAH4guAS7UD3DseWJ4LmRHg6tnZeRzYlmD1KS0NnhY9MtHNMam1A"
 
 COMMON_HEADERS = {
@@ -331,9 +331,8 @@ def search_opensubtitles(query, api_key):
     url = "https://api.opensubtitles.com/api/v1/subtitles?query={}&languages=uk,en".format(encoded)
     req_headers = {
         "Api-Key": api_key,
-        "Content-Type": "application/json",
-        "User-Agent": "VLSub 0.11.0",
-        "X-User-Agent": "VLSub 0.11.0"
+        "User-Agent": "Subass v1.0",
+        "X-User-Agent": "Subass v1.0"
     }
     req = urllib.request.Request(url, headers=req_headers)
     try:
@@ -343,7 +342,16 @@ def search_opensubtitles(query, api_key):
             for item in data.get("data", []):
                 attrs = item.get("attributes", {})
                 feature = attrs.get("feature_details", {})
-                title = feature.get("title") or attrs.get("release", "")
+                
+                # For episodes, 'title' might be just "Episode 20", so we check 'parent_title'
+                main_title = feature.get("parent_title") or ""
+                episode_title = feature.get("title") or attrs.get("release", "")
+                
+                if main_title != "" and main_title != episode_title:
+                    title = f"{main_title} - {episode_title}"
+                else:
+                    title = episode_title
+                    
                 year = feature.get("year", "")
                 for f in attrs.get("files", []):
                     results.append({
@@ -353,7 +361,10 @@ def search_opensubtitles(query, api_key):
                         "format": "srt",
                         "downloads": attrs.get("download_count", 0),
                         "file_id": f.get("file_id"),
-                        "file_name": f.get("file_name", "")
+                        "file_name": f.get("file_name", ""),
+                        "url": attrs.get("url", ""),
+                        "season": feature.get("season_number"),
+                        "episode": feature.get("episode_number")
                     })
             return results
     except urllib.error.HTTPError as e:
@@ -367,22 +378,39 @@ def download_opensubtitles(file_id, api_key, output_path=None):
     """Download subtitle content from OpenSubtitles.com."""
     url = "https://api.opensubtitles.com/api/v1/download"
     payload = json.dumps({"file_id": int(file_id)})
-    req_headers = COMMON_HEADERS.copy()
-    req_headers.update({
+    req_headers = {
         "Api-Key": api_key,
-        "Content-Type": "application/json"
-    })
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Accept": "application/json"
+    }
     req = urllib.request.Request(url, data=payload.encode("utf-8"), headers=req_headers, method="POST")
     try:
+        log_message(f"OpenSubtitles download request for file_id {file_id}")
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8-sig"))
+        
         link = data.get("link")
         if not link:
-            return {"error": "OpenSubtitles не надав посилання для завантаження."}
+            # Check if there is a message in the success response (sometimes quota info is here)
+            msg = data.get("message", "OpenSubtitles не надав посилання.")
+            log_message(f"OpenSubtitles info: {msg}")
+            return {"error": f"OpenSubtitles: {msg}"}
         
-        return download_url_content(link, output_path=output_path)
+        log_message(f"OpenSubtitles download link: {link}")
+        return download_url_content(link, headers={"Accept": "*/*"}, output_path=output_path)
+    except urllib.error.HTTPError as e:
+        try:
+            err_data = json.loads(e.read().decode("utf-8-sig"))
+            msg = err_data.get("message", f"HTTP {e.code}")
+            log_message(f"OpenSubtitles API Error: {msg}")
+            return {"error": f"OpenSubtitles: {msg}"}
+        except:
+            log_message(f"OpenSubtitles HTTP Error: {e.code} {e.reason}")
+            return {"error": f"OpenSubtitles помилка: HTTP {e.code} ({e.reason})"}
     except Exception as e:
-        return {"error": "OpenSubtitles download error: " + str(e)}
+        log_message(f"OpenSubtitles exception: {str(e)}")
+        return {"error": "OpenSubtitles помилка: " + str(e)}
 
 def extract_subtitle_from_archive(data, target_name=None, format="zip"):
     """Extract a specific file from ZIP, 7z, or RAR. Returns (extracted_data, file_name, error_msg)."""
