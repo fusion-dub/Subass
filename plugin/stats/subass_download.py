@@ -9,6 +9,19 @@ import urllib.parse
 import urllib.error
 import time
 import shutil
+import zipfile
+import io
+import re
+
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None
+
+try:
+    import py7zr
+except ImportError:
+    py7zr = None
 
 # --- Default API Keys ---
 OSUB_DEFAULT_KEY = "5J3F15q8wOSyoydqLoM7R9ghLDnEESmu"
@@ -53,34 +66,37 @@ def find_extraction_tool():
 
 def ensure_dependencies():
     """Check for yt-dlp and other needed tools. Install if missing."""
+    global yt_dlp, py7zr
 
     # 1. yt-dlp (Core)
-    try:
-        import yt_dlp
-    except ImportError:
+    if yt_dlp is None:
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp", "--break-system-packages"],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            import yt_dlp
+            import yt_dlp as imported_ydl
+            yt_dlp = imported_ydl
         except:
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", "yt-dlp"],
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                import yt_dlp
+                import yt_dlp as imported_ydl
+                yt_dlp = imported_ydl
             except:
                 pass
 
     # 2. py7zr (7z support)
-    try:
-        import py7zr
-    except ImportError:
+    if py7zr is None:
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "py7zr", "--break-system-packages"],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            import py7zr as imported_7z
+            py7zr = imported_7z
         except:
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", "py7zr"],
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                import py7zr as imported_7z
+                py7zr = imported_7z
             except:
                 pass
 
@@ -111,17 +127,11 @@ def ensure_dependencies():
                     subprocess.check_call(["winget", "install", "7zip.7zip"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except: pass
 
-ensure_dependencies()
-
-import zipfile
-import io
-try:
-    import py7zr
-except ImportError:
-    py7zr = None
-
 def get_info(url):
     """Fetch info about the URL and return a simplified JSON structure."""
+    if yt_dlp is None:
+        return {"error": "yt-dlp не встановлено. Спробуйте запустити скрипт ще раз або встановіть його вручну (pip install yt-dlp)."}
+    
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -231,7 +241,23 @@ def get_info(url):
         return {"error": str(e)}
 
 def download_resource(url, format_id, output_path, subtitle_lang=None, media_type=None):
-    """Download resource with specific format."""
+    """Download the specified format and optionally subtitles."""
+    if yt_dlp is None:
+        return {"error": "yt-dlp не встановлено."}
+
+    def progress_hook(d):
+        if d['status'] == 'downloading':
+            total = d.get('total_bytes') or d.get('total_bytes_estimate')
+            downloaded = d.get('downloaded_bytes', 0)
+            if total:
+                percent = int(downloaded / total * 100)
+                # Save progress to a sidecar file
+                try:
+                    with open(output_path + ".progress", "w") as f:
+                        f.write(str(percent))
+                except: pass
+
+    # 1. Base options
     # If it's a video, we always want the best audio to go with it
     if not format_id:
         final_format = 'best'
@@ -248,10 +274,10 @@ def download_resource(url, format_id, output_path, subtitle_lang=None, media_typ
         'outtmpl': output_path,
         'quiet': True,
         'no_warnings': True,
-        'noprogress': True,
         'noplaylist': True,
         'merge_output_format': 'mp4',
         'overwrites': True,
+        'progress_hooks': [progress_hook],
     }
     
     if sys.platform == "darwin":
@@ -268,8 +294,18 @@ def download_resource(url, format_id, output_path, subtitle_lang=None, media_typ
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-            return {"status": "success", "path": output_path}
+            info = ydl.extract_info(url, download=True)
+            actual_path = ydl.prepare_filename(info)
+            # If it merged formats, the extension might change
+            if not os.path.exists(actual_path) and media_type == "video":
+                # Try common extensions
+                base, _ = os.path.splitext(actual_path)
+                for ext in [".mp4", ".mkv", ".webm"]:
+                    if os.path.exists(base + ext):
+                        actual_path = base + ext
+                        break
+            
+            return {"status": "success", "path": actual_path}
     except Exception as e:
         return {"error": str(e)}
 
@@ -1051,6 +1087,7 @@ def search_subtitles(query, osub_key=None, jimaku_key=None, subdl_key=None, excl
 
 def main():
     log_message(f"ARGS: {' '.join(sys.argv[1:])}")
+    ensure_dependencies()
 
     parser = argparse.ArgumentParser(description="Інструмент завантаження Subass (обгортка над yt-dlp)")
     parser.add_argument("--target", help="URL або пошуковий запит")
