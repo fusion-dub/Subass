@@ -2802,6 +2802,7 @@ local function RenderTab_DownloadCenter()
                             
                             -- Create a hitbox for the entire row
                             local cur_x, cur_y = reaper.ImGui_GetCursorPos(ctx)
+                            local start_x, start_y = reaper.ImGui_GetCursorScreenPos(ctx)
                             local url = item.download_url or item.url or item.files_url
                             local loading_key_save = "save_as_" .. add_key
                             local is_loading_save = (cfg_dwn.loading_item == loading_key_save)
@@ -2810,7 +2811,7 @@ local function RenderTab_DownloadCenter()
                             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderActive(), 0xFFFFFF22)
                             
                             local label = "##row_hitbox" .. i
-                            if reaper.ImGui_Selectable(ctx, label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, 36) then
+                            if reaper.ImGui_Selectable(ctx, label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, 43) then
                                 -- Left click action: Open folder or Preview file
                                 if not any_loading then
                                     if item.is_folder or source_group.source == "jimaku" then
@@ -2847,68 +2848,88 @@ local function RenderTab_DownloadCenter()
  
                             -- Folder / Pack handling (Generic)
                             if item.is_folder or source_group.source == "jimaku" then
-                                reaper.ImGui_SameLine(ctx, avail_w - btn_w * 2 - btn_gap - 4)
+                                reaper.ImGui_SameLine(ctx, avail_w - 115 - 4)
                                 if item.expanded then
                                     if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                    if reaper.ImGui_Button(ctx, "ЗАКРИТИ##fld" .. i .. source_group.source, btn_w * 2 + btn_gap) then
+                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x6B423CFF)
+                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x82524AFF)
+                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x54342FFF)
+                                    if reaper.ImGui_Button(ctx, "▼ ЗАКРИТИ##fld" .. i .. source_group.source, 115) then
                                         item.expanded = false
                                     end
+                                    reaper.ImGui_PopStyleColor(ctx, 3)
                                     if any_loading then reaper.ImGui_EndDisabled(ctx) end
                                 else
                                     if add_loading or is_loading_save then
                                         reaper.ImGui_BeginDisabled(ctx)
-                                        reaper.ImGui_Button(ctx, spin .. "##fld" .. i .. source_group.source, btn_w * 2 + btn_gap)
+                                        reaper.ImGui_Button(ctx, spin .. "##fld" .. i .. source_group.source, 115)
                                         reaper.ImGui_EndDisabled(ctx)
                                     else
                                         if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                        if reaper.ImGui_Button(ctx, "ФАЙЛИ##fld" .. i .. source_group.source, btn_w * 2 + btn_gap) then
+                                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3C5A78FF)
+                                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4B6D8FFF)
+                                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2D455CFF)
+                                        if reaper.ImGui_Button(ctx, "► ФАЙЛИ##fld" .. i .. source_group.source, 115) then
                                             if item.files then
                                                 item.expanded = true
                                             else
                                                 UTILS.get_folder_files(item, source_group.source, add_key) 
                                             end
                                         end
+                                        reaper.ImGui_PopStyleColor(ctx, 3)
                                         if any_loading then reaper.ImGui_EndDisabled(ctx) end
                                     end
                                 end
                             else
                                 -- Standard Preview button
-                                reaper.ImGui_SameLine(ctx, avail_w - btn_w * 2 - btn_gap - 4)
+                                reaper.ImGui_SameLine(ctx, avail_w - 105 - 4)
                                 if prev_loading or is_loading_save then
                                     reaper.ImGui_BeginDisabled(ctx)
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x444444FF)
-                                    reaper.ImGui_Button(ctx, spin .. "##prev" .. i .. source_group.source, btn_w * 2 + btn_gap)
+                                    reaper.ImGui_Button(ctx, spin .. "##prev" .. i .. source_group.source, 105)
                                     reaper.ImGui_PopStyleColor(ctx)
                                     reaper.ImGui_EndDisabled(ctx)
                                 else
                                     if any_loading then reaper.ImGui_BeginDisabled(ctx) end
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
-                                    if reaper.ImGui_Button(ctx, "ПЕРЕГЛЯД##prev" .. i .. source_group.source, btn_w * 2 + btn_gap) then
+                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4A4A4AFF)
+                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2A2A2AFF)
+                                    if reaper.ImGui_Button(ctx, "ПЕРЕГЛЯД##prev" .. i .. source_group.source, 105) then
                                         UTILS.trigger_subtitle_download(item, source_group.source, "preview", prev_key)
                                     end
-                                    reaper.ImGui_PopStyleColor(ctx)
+                                    reaper.ImGui_PopStyleColor(ctx, 3)
                                     if any_loading then reaper.ImGui_EndDisabled(ctx) end
                                 end
                             end
 
                             reaper.ImGui_PopStyleVar(ctx)
                             reaper.ImGui_Separator(ctx)
+                            local _, end_y = reaper.ImGui_GetCursorScreenPos(ctx)
+                            if item.expanded then
+                                local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
+                                if draw_list then
+                                    reaper.ImGui_DrawList_AddRectFilled(draw_list, start_x, start_y - 5, start_x + avail_w, end_y - 5, 0x0000001A)
+                                end
+                            end
 
                             local function render_item_list(files, depth, parent_id)
                                 if not files then return end
-                                reaper.ImGui_Indent(ctx, 20)
+                                reaper.ImGui_Indent(ctx, 24)
+                                local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
                                 for f_idx, f in ipairs(files) do
                                     reaper.ImGui_PushID(ctx, f_idx)
                                     local current_id = (parent_id or (source_group.source .. "_" .. i)) .. "_" .. f_idx
                                     local f_key = current_id .. "_" .. (depth or 0)
                                     local f_name = (f.file_name or f.title or "Невідомо")
-                                    if depth and depth > 0 then f_name = " ↳ " .. f_name end
+                                    
                                     local f_meta = ""
                                     if f.lang then f_meta = f_meta .. "[" .. f.lang:upper() .. "] " end
                                     if f.hi then f_meta = f_meta .. "[HI] " end
                                     
                                     -- Hitbox for nested file
                                     local f_x, f_y = reaper.ImGui_GetCursorPos(ctx)
+                                    local start_x, start_y = reaper.ImGui_GetCursorScreenPos(ctx)
+                                    local row_w = reaper.ImGui_GetContentRegionAvail(ctx)
                                     local f_url = f.download_url or f.url or f.files_url
                                     local f_loading_key = "save_as_" .. f_key
                                     local f_is_loading_save = (cfg_dwn.loading_item == f_loading_key)
@@ -2948,51 +2969,77 @@ local function RenderTab_DownloadCenter()
                                     end
                                     reaper.ImGui_PopTextWrapPos(ctx)
                                     
-                                    reaper.ImGui_SameLine(ctx, avail_w - btn_w * 2 - btn_gap - 4)
                                     
                                     if f.is_folder then
+                                        reaper.ImGui_SameLine(ctx, avail_w - 115 - 4)
                                         if f.expanded then
                                             if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                            if reaper.ImGui_Button(ctx, "ЗАКРИТИ##f" .. f_key, btn_w * 2 + btn_gap) then
+                                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x6B423CFF)
+                                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x82524AFF)
+                                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x54342FFF)
+                                            if reaper.ImGui_Button(ctx, "▼ ЗАКРИТИ##f" .. f_key, 115) then
                                                 f.expanded = false
                                             end
+                                            reaper.ImGui_PopStyleColor(ctx, 3)
                                             if any_loading then reaper.ImGui_EndDisabled(ctx) end
                                             render_item_list(f.files, (depth or 0) + 1, current_id)
                                         else
                                             if cfg_dwn.loading_item == f_key or f_is_loading_save then
                                                 reaper.ImGui_BeginDisabled(ctx)
-                                                reaper.ImGui_Button(ctx, spin .. "##f" .. f_key, btn_w * 2 + btn_gap)
+                                                reaper.ImGui_Button(ctx, spin .. "##f" .. f_key, 115)
                                                 reaper.ImGui_EndDisabled(ctx)
                                             else
                                                 if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                                if reaper.ImGui_Button(ctx, "ФАЙЛИ##f" .. f_key, btn_w * 2 + btn_gap) then
+                                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3C5A78FF)
+                                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4B6D8FFF)
+                                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2D455CFF)
+                                                if reaper.ImGui_Button(ctx, "► ФАЙЛИ##f" .. f_key, 115) then
                                                     if f.files then
                                                         f.expanded = true
                                                     else
                                                         UTILS.get_folder_files(f, source_group.source, f_key)
                                                     end
                                                 end
+                                                reaper.ImGui_PopStyleColor(ctx, 3)
                                                 if any_loading then reaper.ImGui_EndDisabled(ctx) end
                                             end
                                         end
                                     else
                                         -- Standard buttons for files
+                                        reaper.ImGui_SameLine(ctx, avail_w - 105 - 4)
                                         if cfg_dwn.loading_item == f_key or f_is_loading_save then
                                             reaper.ImGui_BeginDisabled(ctx)
-                                            reaper.ImGui_Button(ctx, spin .. "##p" .. f_key, btn_w * 2 + btn_gap)
+                                            reaper.ImGui_Button(ctx, spin .. "##p" .. f_key, 105)
                                             reaper.ImGui_EndDisabled(ctx)
                                         else
                                             if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                            if reaper.ImGui_Button(ctx, "ПЕРЕГЛЯД##p" .. f_key, btn_w * 2 + btn_gap) then
+                                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
+                                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4A4A4AFF)
+                                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2A2A2AFF)
+                                            if reaper.ImGui_Button(ctx, "ПЕРЕГЛЯД##p" .. f_key, 105) then
                                                 UTILS.trigger_subtitle_download(f, source_group.source, "preview", f_key)
                                             end
+                                            reaper.ImGui_PopStyleColor(ctx, 3)
                                             if any_loading then reaper.ImGui_EndDisabled(ctx) end
                                         end
                                     end
                                     reaper.ImGui_Separator(ctx)
+                                    local _, end_y = reaper.ImGui_GetCursorScreenPos(ctx)
+                                    if draw_list then
+                                        -- Expanded folder highlight
+                                        if f.is_folder and f.expanded then
+                                            reaper.ImGui_DrawList_AddRectFilled(draw_list, start_x - 24, start_y - 5, start_x + row_w, end_y - 5, 0x0000001A)
+                                        end
+                                        -- Zebra background
+                                        if f_idx % 2 == 0 then
+                                            reaper.ImGui_DrawList_AddRectFilled(draw_list, start_x - 24, start_y - 5, start_x + row_w, end_y - 5, 0xFFFFFF07)
+                                        end
+                                        -- Vertical tree line
+                                        reaper.ImGui_DrawList_AddRectFilled(draw_list, start_x - 14, start_y - 5, start_x - 12, end_y - 5, 0x4CA6FF66)
+                                    end
                                     reaper.ImGui_PopID(ctx)
                                 end
-                                reaper.ImGui_Unindent(ctx, 20)
+                                reaper.ImGui_Unindent(ctx, 24)
                             end
 
                             if item.expanded and item.files then
