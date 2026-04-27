@@ -360,12 +360,24 @@ def search_opensubtitles(query, api_key):
                         "lang": attrs.get("language", ""),
                         "format": "srt",
                         "downloads": attrs.get("download_count", 0),
+                        "rating": attrs.get("ratings", 0),
                         "file_id": f.get("file_id"),
                         "file_name": f.get("file_name", ""),
                         "url": attrs.get("url", ""),
                         "season": feature.get("season_number"),
                         "episode": feature.get("episode_number")
                     })
+            
+            # Special sorting: Group by title while preserving original order of first appearance,
+            # then sort by downloads (descending) within those groups.
+            first_appearance = {}
+            for i, item in enumerate(results):
+                t = item.get('title', '').lower()
+                if t not in first_appearance:
+                    first_appearance[t] = i
+            
+            results.sort(key=lambda x: (first_appearance.get(x.get('title', '').lower(), 999), -(x.get('downloads', 0) or 0)))
+            
             return results
     except urllib.error.HTTPError as e:
         if e.code == 401:
