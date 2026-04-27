@@ -2809,7 +2809,7 @@ local function RenderTab_DownloadCenter()
                             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
                             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderActive(), 0xFFFFFF22)
                             
-                            local label = is_loading_save and (spin .. " ##row_hitbox" .. i) or ("##row_hitbox" .. i)
+                            local label = "##row_hitbox" .. i
                             if reaper.ImGui_Selectable(ctx, label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, 36) then
                                 -- Left click action: Open folder or Preview file
                                 if not any_loading then
@@ -2853,7 +2853,7 @@ local function RenderTab_DownloadCenter()
                                         item.expanded = false
                                     end
                                 else
-                                    if add_loading then
+                                    if add_loading or is_loading_save then
                                         reaper.ImGui_BeginDisabled(ctx)
                                         reaper.ImGui_Button(ctx, spin .. "##fld" .. i .. source_group.source, btn_w * 2 + btn_gap)
                                         reaper.ImGui_EndDisabled(ctx)
@@ -2872,7 +2872,7 @@ local function RenderTab_DownloadCenter()
                             else
                                 -- Standard Preview button
                                 reaper.ImGui_SameLine(ctx, avail_w - btn_w * 2 - btn_gap - 4)
-                                if prev_loading then
+                                if prev_loading or is_loading_save then
                                     reaper.ImGui_BeginDisabled(ctx)
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x444444FF)
                                     reaper.ImGui_Button(ctx, spin .. "##prev" .. i .. source_group.source, btn_w * 2 + btn_gap)
@@ -2913,7 +2913,7 @@ local function RenderTab_DownloadCenter()
                                     
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
                                     
-                                    local f_label = f_is_loading_save and (spin .. " ##f_hitbox" .. f_key) or ("##f_hitbox" .. f_key)
+                                    local f_label = "##f_hitbox" .. f_key
                                     if reaper.ImGui_Selectable(ctx, f_label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, 20) then
                                         -- Left click action: Open nested folder or Preview nested file
                                         if not any_loading then
@@ -2955,7 +2955,7 @@ local function RenderTab_DownloadCenter()
                                             end
                                             render_item_list(f.files, (depth or 0) + 1, current_id)
                                         else
-                                            if cfg_dwn.loading_item == f_key then
+                                            if cfg_dwn.loading_item == f_key or f_is_loading_save then
                                                 reaper.ImGui_BeginDisabled(ctx)
                                                 reaper.ImGui_Button(ctx, spin .. "##f" .. f_key, btn_w * 2 + btn_gap)
                                                 reaper.ImGui_EndDisabled(ctx)
@@ -2973,7 +2973,7 @@ local function RenderTab_DownloadCenter()
                                         end
                                     else
                                         -- Standard buttons for files
-                                        if cfg_dwn.loading_item == f_key then
+                                        if cfg_dwn.loading_item == f_key or f_is_loading_save then
                                             reaper.ImGui_BeginDisabled(ctx)
                                             reaper.ImGui_Button(ctx, spin .. "##p" .. f_key, btn_w * 2 + btn_gap)
                                             reaper.ImGui_EndDisabled(ctx)
