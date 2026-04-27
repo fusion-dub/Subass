@@ -13,6 +13,7 @@ reaper.ImGui_Attach(ctx, font_tabs)
 -- Initial window size
 local WIN_W, WIN_H = 600, 500
 local dict_open = true
+local section_name = "Subass_Dictionary"
 
 -- Color Constants (Hex)
 local C_BTN_OK = 0x50C850FF
@@ -36,7 +37,7 @@ local UTILS = {}
 
 local cfg = {
     -- Tab Persistence
-    last_tab = tonumber(reaper.GetExtState("Subass_Dictionary", "last_tab")) or 0,
+    last_tab = tonumber(reaper.GetExtState(section_name, "last_tab")) or 0,
     restore_tab = true,
 }
 
@@ -76,7 +77,7 @@ local cfg_dict = {
 }
 
 local cfg_dwn = {
-    dwn_search = "",
+    dwn_search = reaper.GetExtState(section_name, "dwn_search"),
     search_data = nil,
     is_searching = false,
     preview_data = nil,
@@ -85,16 +86,16 @@ local cfg_dwn = {
     thumbnail_tex = nil,
     thumbnail_path = nil,
     source_filters = {
-        opensubtitles = true,
-        subdl = true,
-        jimaku = true
+        opensubtitles = reaper.GetExtState(section_name, "src_osub") ~= "0",
+        subdl = reaper.GetExtState(section_name, "src_subdl") ~= "0",
+        jimaku = reaper.GetExtState(section_name, "src_jimaku") ~= "0"
     }
 }
 local temp_path = script_path .. "temp/"
 reaper.RecursiveCreateDirectory(temp_path, 0)
 
 -- Read last selected dict from ExtState
-local last_dict = tonumber(reaper.GetExtState("Subass_Dictionary", "last_dict_idx"))
+local last_dict = tonumber(reaper.GetExtState(section_name, "last_dict_idx"))
 if last_dict and last_dict > 0 and last_dict <= #cfg_dict.udd.dictionaries then
     cfg_dict.sd_inx = last_dict
 elseif #cfg_dict.udd.dictionaries > 0 then
@@ -103,6 +104,23 @@ end
 
 -- Async Command Execution
 UTILS.async_pool = {}
+
+function UTILS.sanitize_filename(name)
+    if not name then return "subtitle" end
+    -- Decode common HTML entities
+    name = name:gsub("&amp;", "&"):gsub("&quot;", '"'):gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&#39;", "'")
+    -- Remove characters that are illegal in filenames or problematic in shell
+    name = name:gsub('[\\/:"*?<>|]', "_")
+    return name
+end
+
+function UTILS.get_api_keys_args()
+    local args = ""
+    if cfg_dwn.osub_key and cfg_dwn.osub_key ~= "" then args = args .. ' --osub-key "' .. cfg_dwn.osub_key .. '"' end
+    if cfg_dwn.jimaku_key and cfg_dwn.jimaku_key ~= "" then args = args .. ' --jimaku-key "' .. cfg_dwn.jimaku_key .. '"' end
+    if cfg_dwn.subdl_key and cfg_dwn.subdl_key ~= "" then args = args .. ' --subdl-key "' .. cfg_dwn.subdl_key .. '"' end
+    return args
+end
 
 function UTILS.get_python_cmd(args)
     local script = script_path .. "../stats/subass_download.py"
@@ -447,9 +465,9 @@ function UTILS.update_last_selected_dict(idx)
     cfg_dict.entry_selection = {}
     cfg_dict.last_selected_idx = nil
     if idx then
-        reaper.SetExtState("Subass_Dictionary", "last_dict_idx", tostring(idx), true)
+        reaper.SetExtState(section_name, "last_dict_idx", tostring(idx), true)
     else
-        reaper.SetExtState("Subass_Dictionary", "last_dict_idx", "", true) -- Clear if no dictionary is selected
+        reaper.SetExtState(section_name, "last_dict_idx", "", true) -- Clear if no dictionary is selected
     end
 end
 
@@ -771,7 +789,7 @@ function UTILS.import_subtitle_to_project(content, title, fmt)
 end
 
 function UTILS.trigger_subtitle_download(item, source, mode, item_key)
-    local cmd_args = string.format('--get-subtitle --source "%s"', source)
+    local cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-subtitle --source "%s"', source)
     
     if item.file_id then
         cmd_args = cmd_args .. string.format(' --id "%s"', item.file_id)
@@ -819,7 +837,7 @@ function UTILS.trigger_subtitle_download(item, source, mode, item_key)
 end
 
 function UTILS.get_folder_files(item, source, item_key)
-    local cmd_args = ""
+    local cmd_args = UTILS.get_api_keys_args() .. " "
     if source == "jimaku" then
         local id = item.files_url and item.files_url:match("/entries/([^/]+)/files")
         if not id then return end
@@ -958,7 +976,7 @@ local function draw_preview_popup()
         
         reaper.ImGui_SameLine(ctx)
         if reaper.ImGui_Button(ctx, "Зберегти як...", 120) then
-            local default_name = sanitize_filename(cfg_dwn.preview_data.title)
+            local default_name = UTILS.sanitize_filename(cfg_dwn.preview_data.title)
             local default_ext = default_name:match("%.(%w+)$") or "srt"
             local initial_dir = reaper.GetProjectPath("")
             local retval, filename = 0, ""
@@ -1004,14 +1022,6 @@ local function draw_preview_popup()
     end
 end
 
-local function sanitize_filename(name)
-    if not name then return "subtitle" end
-    -- Decode common HTML entities
-    name = name:gsub("&amp;", "&"):gsub("&quot;", '"'):gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&#39;", "'")
-    -- Remove characters that are illegal in filenames or problematic in shell
-    name = name:gsub('[\\/:"*?<>|]', "_")
-    return name
-end
 
 local function draw_menu_contents(item, source)
     local url = item.download_url or item.url or item.files_url
@@ -1023,30 +1033,44 @@ local function draw_menu_contents(item, source)
     end
     
     if reaper.ImGui_Selectable(ctx, "Зберегти як...") then
-        local default_name = sanitize_filename(item.file_name or item.title or "subtitle")
-        local default_ext = default_name:match("%.(%w+)$") or "srt"
+        local default_name = UTILS.sanitize_filename(item.file_name or item.title or "subtitle")
+        if item.is_folder then
+            -- Strip extensions for folders to avoid "name.srt" being a directory
+            default_name = default_name:gsub("%.[Aa][Ss][Ss]$", ""):gsub("%.[Ss][Rr][Tt]$", ""):gsub("%.[Vv][Tt][Tt]$", "")
+        end
+        local default_ext = item.is_folder and "" or (default_name:match("%.(%w+)$") or "srt")
         local initial_dir = reaper.GetProjectPath("")
         
         local retval, filename = 0, ""
         if reaper.JS_Dialog_BrowseForSaveFile then
-            retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти файл", initial_dir, default_name, default_ext:upper() .. " файли (*." .. default_ext .. ")\0*." .. default_ext .. "\0Всі файли (*.*)\0*.*\0")
+            local filter = item.is_folder and "Папки\0*.*\0" or (default_ext:upper() .. " файли (*." .. default_ext .. ")\0*." .. default_ext .. "\0Всі файли (*.*)\0*.*\0")
+            retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти " .. (item.is_folder and "папку" or "файл"), initial_dir, default_name, filter)
         else
             retval, filename = reaper.GetUserFileNameForRead(initial_dir .. "/" .. default_name, "Зберегти файл", default_ext)
         end
         
         if retval == 1 and filename ~= "" then
+            -- If it's a folder/collection, use the chosen name as a directory
+            if item.is_folder then
+                -- Remove common extensions if the user kept them by mistake
+                filename = filename:gsub("%.[Aa][Ss][Ss]$", ""):gsub("%.[Ss][Rr][Tt]$", ""):gsub("%.[Vv][Tt][Tt]$", "")
+            end
+
             -- Build download command with keys
-            local cmd_args = string.format('--get-subtitle --source "%s"', source)
-            if cfg_dwn.osub_key and cfg_dwn.osub_key ~= "" then cmd_args = cmd_args .. ' --osub-key "' .. cfg_dwn.osub_key .. '"' end
-            if cfg_dwn.jimaku_key and cfg_dwn.jimaku_key ~= "" then cmd_args = cmd_args .. ' --jimaku-key "' .. cfg_dwn.jimaku_key .. '"' end
-            if cfg_dwn.subdl_key and cfg_dwn.subdl_key ~= "" then cmd_args = cmd_args .. ' --subdl-key "' .. cfg_dwn.subdl_key .. '"' end
+            local cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-subtitle --source "%s"', source)
             
-            if item.file_id then
-                cmd_args = cmd_args .. string.format(' --id "%s"', item.file_id)
+            local download_id = item.file_id or item.sd_id
+            if download_id then
+                cmd_args = cmd_args .. string.format(' --id "%s"', download_id)
             elseif url then
                 cmd_args = cmd_args .. string.format(' --url "%s"', url)
             end
             
+            if not download_id and not url then
+                reaper.MB("Не вдалося знайти ID або посилання для цього елемента.", "Subass", 0)
+                return
+            end
+
             if item.zip_internal_file then
                 cmd_args = cmd_args .. string.format(' --zip-file "%s"', item.zip_internal_file)
             end
@@ -1325,7 +1349,7 @@ local function RenderTab_Reference()
     if reaper.ImGui_BeginTabItem(ctx, "Довідник", nil, ref_flags) then
         if not cfg.restore_tab and cfg.last_tab ~= 0 then
             cfg.last_tab = 0
-            reaper.SetExtState("Subass_Dictionary", "last_tab", "0", true)
+            reaper.SetExtState(section_name, "last_tab", "0", true)
             UTILS.stop_preview()
         end
         reaper.ImGui_PopFont(ctx)
@@ -1378,7 +1402,7 @@ local function RenderTab_Glossary()
     if reaper.ImGui_BeginTabItem(ctx, "Звуковий Глосарій", nil, glos_flags) then
         if not cfg.restore_tab and cfg.last_tab ~= 1 then
             cfg.last_tab = 1
-            reaper.SetExtState("Subass_Dictionary", "last_tab", "1", true)
+            reaper.SetExtState(section_name, "last_tab", "1", true)
             UTILS.stop_preview()
         end
         reaper.ImGui_PopFont(ctx)
@@ -1805,7 +1829,7 @@ local function RenderTab_Dictionaries()
     if reaper.ImGui_BeginTabItem(ctx, "Словники", nil, dict_flags) then
         if not cfg.restore_tab and cfg.last_tab ~= 2 then
             cfg.last_tab = 2
-            reaper.SetExtState("Subass_Dictionary", "last_tab", "2", true)
+            reaper.SetExtState(section_name, "last_tab", "2", true)
             UTILS.stop_preview()
         end
         reaper.ImGui_PopFont(ctx)
@@ -2426,7 +2450,7 @@ local function RenderTab_DownloadCenter()
     if reaper.ImGui_BeginTabItem(ctx, "Центр Завантажень", nil, dl_flags) then
         if not cfg.restore_tab and cfg.last_tab ~= 3 then
             cfg.last_tab = 3
-            reaper.SetExtState("Subass_Dictionary", "last_tab", "3", true)
+            reaper.SetExtState(section_name, "last_tab", "3", true)
             UTILS.stop_preview()
         end
         reaper.ImGui_PopFont(ctx)
@@ -2436,7 +2460,10 @@ local function RenderTab_DownloadCenter()
         reaper.ImGui_SetNextItemWidth(ctx, -120)
         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
         local changed, new_query = reaper.ImGui_InputTextWithHint(ctx, "##dl_search", "Введіть назву (напр. Inception) або посилання...", cfg_dwn.dwn_search)
-        if changed then cfg_dwn.dwn_search = new_query end
+        if changed then 
+            cfg_dwn.dwn_search = new_query 
+            reaper.SetExtState(section_name, "dwn_search", new_query, true)
+        end
 
         reaper.ImGui_SameLine(ctx)
         local is_searching = (dl_search_results ~= nil and dl_search_results:find("Шукаєм"))
@@ -2530,6 +2557,8 @@ local function RenderTab_DownloadCenter()
 
             if reaper.ImGui_Button(ctx, src.label .. "##filter") then
                 cfg_dwn.source_filters[src.id] = not is_active
+                local save_key = src.id == "opensubtitles" and "src_osub" or ("src_" .. src.id)
+                reaper.SetExtState(section_name, save_key, cfg_dwn.source_filters[src.id] and "1" or "0", true)
             end
             
             reaper.ImGui_PopStyleVar(ctx)
