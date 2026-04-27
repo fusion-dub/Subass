@@ -1037,7 +1037,7 @@ local function draw_preview_popup()
 end
 
 
-local function draw_menu_contents(item, source)
+local function draw_menu_contents(item, source, unique_key)
     local url = item.download_url or item.url or item.files_url
     
     if reaper.ImGui_Selectable(ctx, "Скопіювати посилання") then
@@ -1091,7 +1091,7 @@ local function draw_menu_contents(item, source)
             
             cmd_args = cmd_args .. string.format(' --output "%s"', filename)
             local cmd = UTILS.get_python_cmd(cmd_args)
-            local loading_key = "save_as_" .. (item.file_id or (url and url:sub(-20)) or "file")
+            local loading_key = "save_as_" .. unique_key
             cfg_dwn.loading_item = loading_key
             
             UTILS.run_async_command(cmd, function(output)
@@ -2803,7 +2803,7 @@ local function RenderTab_DownloadCenter()
                             -- Create a hitbox for the entire row
                             local cur_x, cur_y = reaper.ImGui_GetCursorPos(ctx)
                             local url = item.download_url or item.url or item.files_url
-                            local loading_key_save = "save_as_" .. (item.file_id or (url and url:sub(-20)) or "file")
+                            local loading_key_save = "save_as_" .. add_key
                             local is_loading_save = (cfg_dwn.loading_item == loading_key_save)
                             
                             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
@@ -2825,7 +2825,7 @@ local function RenderTab_DownloadCenter()
                             end
                             
                             if reaper.ImGui_BeginPopupContextItem(ctx, "item_context_menu" .. i) then
-                                draw_menu_contents(item, source_group.source)
+                                draw_menu_contents(item, source_group.source, add_key)
                                 reaper.ImGui_EndPopup(ctx)
                             end
                             reaper.ImGui_PopStyleColor(ctx, 2)
@@ -2849,9 +2849,11 @@ local function RenderTab_DownloadCenter()
                             if item.is_folder or source_group.source == "jimaku" then
                                 reaper.ImGui_SameLine(ctx, avail_w - btn_w * 2 - btn_gap - 4)
                                 if item.expanded then
+                                    if any_loading then reaper.ImGui_BeginDisabled(ctx) end
                                     if reaper.ImGui_Button(ctx, "ЗАКРИТИ##fld" .. i .. source_group.source, btn_w * 2 + btn_gap) then
                                         item.expanded = false
                                     end
+                                    if any_loading then reaper.ImGui_EndDisabled(ctx) end
                                 else
                                     if add_loading or is_loading_save then
                                         reaper.ImGui_BeginDisabled(ctx)
@@ -2908,7 +2910,7 @@ local function RenderTab_DownloadCenter()
                                     -- Hitbox for nested file
                                     local f_x, f_y = reaper.ImGui_GetCursorPos(ctx)
                                     local f_url = f.download_url or f.url or f.files_url
-                                    local f_loading_key = "save_as_" .. (f.file_id or (f_url and f_url:sub(-20)) or "file")
+                                    local f_loading_key = "save_as_" .. f_key
                                     local f_is_loading_save = (cfg_dwn.loading_item == f_loading_key)
                                     
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
@@ -2929,7 +2931,7 @@ local function RenderTab_DownloadCenter()
                                     end
                                     
                                     if reaper.ImGui_BeginPopupContextItem(ctx, "item_context_menu_f" .. f_key) then
-                                        draw_menu_contents(f, source_group.source)
+                                        draw_menu_contents(f, source_group.source, f_key)
                                         reaper.ImGui_EndPopup(ctx)
                                     end
                                     reaper.ImGui_PopStyleColor(ctx)
@@ -2950,9 +2952,11 @@ local function RenderTab_DownloadCenter()
                                     
                                     if f.is_folder then
                                         if f.expanded then
+                                            if any_loading then reaper.ImGui_BeginDisabled(ctx) end
                                             if reaper.ImGui_Button(ctx, "ЗАКРИТИ##f" .. f_key, btn_w * 2 + btn_gap) then
                                                 f.expanded = false
                                             end
+                                            if any_loading then reaper.ImGui_EndDisabled(ctx) end
                                             render_item_list(f.files, (depth or 0) + 1, current_id)
                                         else
                                             if cfg_dwn.loading_item == f_key or f_is_loading_save then
