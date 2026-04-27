@@ -2896,8 +2896,11 @@ local function RenderTab_DownloadCenter()
                             local t_w, t_lh = reaper.ImGui_CalcTextSize(ctx, title_txt)
                             local title_h = math.ceil(t_w / (wrap_w - 5)) * t_lh
                             reaper.ImGui_PopFont(ctx)
-                            local m_w, m_lh = reaper.ImGui_CalcTextSize(ctx, meta)
-                            local meta_h = math.ceil(m_w / (wrap_w - 5)) * m_lh
+                            local meta_h = 0
+                            if meta ~= "" then
+                                local m_w, m_lh = reaper.ImGui_CalcTextSize(ctx, meta)
+                                meta_h = math.ceil(m_w / (wrap_w - 5)) * m_lh
+                            end
                             local row_h = title_h + meta_h + 11
                             if row_h < 43 then row_h = 43 end
                             
@@ -3038,19 +3041,10 @@ local function RenderTab_DownloadCenter()
                                     local f_loading_key = "save_as_" .. f_key
                                     local f_is_loading_save = (cfg_dwn.loading_item == f_loading_key)
                                     
-                                    -- Dynamic Height for Nested Item
-                                    local f_wrap_w = avail_w - btn_w * 2 - btn_gap - 35
-                                    local fn_w, fn_lh = reaper.ImGui_CalcTextSize(ctx, f_name)
-                                    local f_name_h = math.ceil(fn_w / (f_wrap_w * 0.85)) * fn_lh
-                                    local fm_w, fm_lh = reaper.ImGui_CalcTextSize(ctx, f_meta)
-                                    local f_meta_h = math.ceil(fm_w / (f_wrap_w * 0.85)) * fm_lh
-                                    local f_row_h = f_name_h + f_meta_h + 3
-                                    if f_row_h < 20 then f_row_h = 20 end
-                                    
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
                                     
                                     local f_label = "##f_hitbox" .. f_key
-                                    if reaper.ImGui_Selectable(ctx, f_label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, f_row_h) then
+                                    if reaper.ImGui_Selectable(ctx, f_label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, 20) then
                                         -- Left click action: Open nested folder or Preview nested file
                                         if not any_loading then
                                             if f.is_folder then
