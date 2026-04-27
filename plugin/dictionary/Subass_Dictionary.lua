@@ -797,10 +797,16 @@ function UTILS.trigger_subtitle_download(item, source, mode, item_key)
         else
             local success, res = pcall(UTILS.json_decode, output)
             if success and res and res.status == "success" then
-                if mode == "preview" then
+                if res.files and #res.files > 0 then
+                    -- If it returned a list of files, transform the item into a folder
+                    item.is_folder = true
+                    item.files = res.files
+                    item.expanded = true
+                elseif mode == "preview" then
                     cfg_dwn.preview_data = {
                         title = item.title or item.file_name or "Subtitle",
-                        content = res.content
+                        content = res.content,
+                        cmd = cmd
                     }
                 else
                     UTILS.import_subtitle_to_project(res.content, item.title or item.file_name or "Subtitle", res.format or item.format)
@@ -923,7 +929,7 @@ local function draw_preview_popup()
     reaper.ImGui_SetNextWindowSize(ctx, 700, 500, reaper.ImGui_Cond_FirstUseEver())
     
     reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 20, 20)
-    local visible, open = reaper.ImGui_Begin(ctx, "Subtitle Preview", true, reaper.ImGui_WindowFlags_NoCollapse())
+    local visible, open = reaper.ImGui_Begin(ctx, "Перегляд субтитрів", true, reaper.ImGui_WindowFlags_NoCollapse())
     reaper.ImGui_PopStyleVar(ctx)
     
     if not open then
@@ -945,17 +951,120 @@ local function draw_preview_popup()
         end
         
         reaper.ImGui_Dummy(ctx, 0, 10)
-        if reaper.ImGui_Button(ctx, "Import to Project", 150) then
+        if reaper.ImGui_Button(ctx, "Імпортувати в проект", 170) then
             UTILS.import_subtitle_to_project(cfg_dwn.preview_data.content, cfg_dwn.preview_data.title)
             cfg_dwn.preview_data = nil
         end
         
         reaper.ImGui_SameLine(ctx)
-        if reaper.ImGui_Button(ctx, "Close", 100) then
+        if reaper.ImGui_Button(ctx, "Зберегти як...", 120) then
+            local default_name = sanitize_filename(cfg_dwn.preview_data.title)
+            local default_ext = default_name:match("%.(%w+)$") or "srt"
+            local initial_dir = reaper.GetProjectPath("")
+            local retval, filename = 0, ""
+            
+            if reaper.JS_Dialog_BrowseForSaveFile then
+                retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти субтитри", initial_dir, default_name, default_ext:upper() .. " файли (*." .. default_ext .. ")\0*." .. default_ext .. "\0Всі файли (*.*)\0*.*\0")
+            else
+                retval, filename = reaper.GetUserFileNameForRead(initial_dir .. "/" .. default_name, "Зберегти субтитри", default_ext)
+            end
+            
+            if retval == 1 and filename ~= "" then
+                local content = cfg_dwn.preview_data.content
+                local is_binary_placeholder = content:sub(1,1) == "[" and content:find("Бінарні дані")
+                
+                if is_binary_placeholder then
+                    -- This is a binary placeholder, MUST re-run Python to get actual data
+                    local save_cmd = cfg_dwn.preview_data.cmd .. string.format(' --output "%s"', filename)
+                    os.execute(save_cmd)
+                else
+                    -- This is actual text, save directly from Lua memory (instant)
+                    local f = io.open(filename, "w")
+                    if f then
+                        f:write(content)
+                        f:close()
+                    end
+                end
+                
+                if reaper.file_exists(filename) then
+                    reaper.MB("Файл успішно збережено за шляхом:\n" .. filename, "Subass", 0)
+                    cfg_dwn.preview_data = nil
+                else
+                    reaper.MB("Помилка: Файл не був збережений. Перевірте subass_debug.log", "Subass", 0)
+                end
+            end
+        end
+        
+        reaper.ImGui_SameLine(ctx)
+        if reaper.ImGui_Button(ctx, "Закрити", 100) then
             cfg_dwn.preview_data = nil
         end
         
         reaper.ImGui_End(ctx)
+    end
+end
+
+local function sanitize_filename(name)
+    if not name then return "subtitle" end
+    -- Decode common HTML entities
+    name = name:gsub("&amp;", "&"):gsub("&quot;", '"'):gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&#39;", "'")
+    -- Remove characters that are illegal in filenames or problematic in shell
+    name = name:gsub('[\\/:"*?<>|]', "_")
+    return name
+end
+
+local function draw_menu_contents(item, source)
+    local url = item.download_url or item.url or item.files_url
+    
+    if reaper.ImGui_Selectable(ctx, "Скопіювати посилання") then
+        if url then
+            reaper.ImGui_SetClipboardText(ctx, url)
+        end
+    end
+    
+    if reaper.ImGui_Selectable(ctx, "Зберегти як...") then
+        local default_name = sanitize_filename(item.file_name or item.title or "subtitle")
+        local default_ext = default_name:match("%.(%w+)$") or "srt"
+        local initial_dir = reaper.GetProjectPath("")
+        
+        local retval, filename = 0, ""
+        if reaper.JS_Dialog_BrowseForSaveFile then
+            retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти файл", initial_dir, default_name, default_ext:upper() .. " файли (*." .. default_ext .. ")\0*." .. default_ext .. "\0Всі файли (*.*)\0*.*\0")
+        else
+            retval, filename = reaper.GetUserFileNameForRead(initial_dir .. "/" .. default_name, "Зберегти файл", default_ext)
+        end
+        
+        if retval == 1 and filename ~= "" then
+            -- Build download command with keys
+            local cmd_args = string.format('--get-subtitle --source "%s"', source)
+            if cfg_dwn.osub_key and cfg_dwn.osub_key ~= "" then cmd_args = cmd_args .. ' --osub-key "' .. cfg_dwn.osub_key .. '"' end
+            if cfg_dwn.jimaku_key and cfg_dwn.jimaku_key ~= "" then cmd_args = cmd_args .. ' --jimaku-key "' .. cfg_dwn.jimaku_key .. '"' end
+            if cfg_dwn.subdl_key and cfg_dwn.subdl_key ~= "" then cmd_args = cmd_args .. ' --subdl-key "' .. cfg_dwn.subdl_key .. '"' end
+            
+            if item.file_id then
+                cmd_args = cmd_args .. string.format(' --id "%s"', item.file_id)
+            elseif url then
+                cmd_args = cmd_args .. string.format(' --url "%s"', url)
+            end
+            
+            if item.zip_internal_file then
+                cmd_args = cmd_args .. string.format(' --zip-file "%s"', item.zip_internal_file)
+            end
+            
+            cmd_args = cmd_args .. string.format(' --output "%s"', filename)
+            local cmd = UTILS.get_python_cmd(cmd_args)
+            local loading_key = "save_as_" .. (item.file_id or (url and url:sub(-20)) or "file")
+            cfg_dwn.loading_item = loading_key
+            
+            UTILS.run_async_command(cmd, function(output)
+                cfg_dwn.loading_item = nil
+                if reaper.file_exists(filename) then
+                    reaper.MB("Успішно збережено за шляхом:\n" .. filename, "Subass", 0)
+                else
+                    reaper.MB("Помилка при завантаженні. Перевірте subass_debug.log\n\n" .. (output or ""), "Subass", 0)
+                end
+            end)
+        end
     end
 end
 
@@ -2512,7 +2621,7 @@ local function RenderTab_DownloadCenter()
                     
                     reaper.ImGui_BeginGroup(ctx)
                     reaper.ImGui_PushFont(ctx, font_main, 19)
-                    reaper.ImGui_TextWrapped(ctx, data.title or "Unknown Video")
+                    reaper.ImGui_TextWrapped(ctx, data.title or "Невідоме відео")
                     reaper.ImGui_PopFont(ctx)
                     if data.duration then
                         local m = math.floor(data.duration / 60)
@@ -2536,7 +2645,7 @@ local function RenderTab_DownloadCenter()
                         local spin = spin_chars[math.floor(reaper.time_precise() * 6) % 4 + 1]
                         
                         for i, s in ipairs(data.subtitles) do
-                            local label = s.lang:upper() .. (s.is_auto and " (Auto)" or "")
+                            local label = s.lang:upper() .. (s.is_auto and " (Авто)" or "")
                             local btn_key = "url_sub_" .. s.lang
                             local is_loading = (cfg_dwn.loading_item == btn_key)
                             
@@ -2549,7 +2658,7 @@ local function RenderTab_DownloadCenter()
                                 reaper.ImGui_Button(ctx, spin .. "##" .. btn_key, 56)
                                 reaper.ImGui_EndDisabled(ctx)
                             else
-                                if reaper.ImGui_Button(ctx, "DL##" .. btn_key, 56) then
+                                if reaper.ImGui_Button(ctx, "Зав.##" .. btn_key, 56) then
                                     UTILS.trigger_subtitle_from_url(cfg_dwn.dwn_search, s.lang, btn_key)
                                 end
                             end
@@ -2582,8 +2691,8 @@ local function RenderTab_DownloadCenter()
                                 reaper.ImGui_Button(ctx, spin .. "##" .. btn_key, 56)
                                 reaper.ImGui_EndDisabled(ctx)
                             else
-                                if reaper.ImGui_Button(ctx, "DL##" .. btn_key, 56) then
-                                    UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or "Video", f.ext, f.type, btn_key)
+                                if reaper.ImGui_Button(ctx, "Зав.##" .. btn_key, 56) then
+                                    UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or "Відео", f.ext, f.type, btn_key)
                                 end
                             end
                             reaper.ImGui_Separator(ctx)
@@ -2605,6 +2714,7 @@ local function RenderTab_DownloadCenter()
                         reaper.ImGui_Dummy(ctx, 0, 10)
                         
                         for i, item in ipairs(items) do
+                            reaper.ImGui_PushID(ctx, source_group.source .. "_" .. i)
                             local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
                             local btn_w = 56
                             local btn_gap = 4
@@ -2620,15 +2730,46 @@ local function RenderTab_DownloadCenter()
                             if item.lang then table.insert(info_parts, item.lang:upper()) end
                             if item.format then table.insert(info_parts, item.format:upper()) end
                             if item.year and item.year ~= "" then table.insert(info_parts, item.year) end
-                            if item.downloads and item.downloads > 0 then table.insert(info_parts, "DL:"..item.downloads) end
+                            if item.downloads and item.downloads > 0 then table.insert(info_parts, "Зав:"..item.downloads) end
                             local meta = table.concat(info_parts, "  ")
 
                             reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 3)
                             
+                            -- Create a hitbox for the entire row
+                            local cur_x, cur_y = reaper.ImGui_GetCursorPos(ctx)
+                            local url = item.download_url or item.url or item.files_url
+                            local loading_key_save = "save_as_" .. (item.file_id or (url and url:sub(-20)) or "file")
+                            local is_loading_save = (cfg_dwn.loading_item == loading_key_save)
+                            
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
+                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderActive(), 0xFFFFFF22)
+                            
+                            local label = is_loading_save and (spin .. " ##row_hitbox" .. i) or ("##row_hitbox" .. i)
+                            if reaper.ImGui_Selectable(ctx, label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, 36) then
+                                -- Left click action: Open folder or Preview file
+                                if not is_loading_save then
+                                    if item.is_folder or source_group.source == "jimaku" then
+                                        if not item.expanded then
+                                            if item.files then item.expanded = true
+                                            else UTILS.get_folder_files(item, source_group.source, add_key) end
+                                        else item.expanded = false end
+                                    else
+                                        UTILS.trigger_subtitle_download(item, source_group.source, "preview", prev_key)
+                                    end
+                                end
+                            end
+                            
+                            if reaper.ImGui_BeginPopupContextItem(ctx, "item_context_menu") then
+                                draw_menu_contents(item, source_group.source)
+                                reaper.ImGui_EndPopup(ctx)
+                            end
+                            reaper.ImGui_PopStyleColor(ctx, 2)
+                            reaper.ImGui_SetCursorPos(ctx, cur_x, cur_y)
+
                             -- Main Title
                             reaper.ImGui_PushFont(ctx, font_main, 14)
                             reaper.ImGui_PushTextWrapPos(ctx, avail_w - btn_w * 2 - btn_gap - 15)
-                            reaper.ImGui_Text(ctx, item.title or item.file_name or "Unknown")
+                            reaper.ImGui_Text(ctx, item.title or item.file_name or "Невідомо")
                             reaper.ImGui_PopTextWrapPos(ctx)
                             reaper.ImGui_PopFont(ctx)
                             
@@ -2643,7 +2784,7 @@ local function RenderTab_DownloadCenter()
                             if item.is_folder or source_group.source == "jimaku" then
                                 reaper.ImGui_SameLine(ctx, avail_w - btn_w * 2 - btn_gap - 4)
                                 if item.expanded then
-                                    if reaper.ImGui_Button(ctx, "CLOSE##fld" .. i .. source_group.source, btn_w * 2 + btn_gap) then
+                                    if reaper.ImGui_Button(ctx, "ЗАКРИТИ##fld" .. i .. source_group.source, btn_w * 2 + btn_gap) then
                                         item.expanded = false
                                     end
                                 else
@@ -2652,7 +2793,7 @@ local function RenderTab_DownloadCenter()
                                         reaper.ImGui_Button(ctx, spin .. "##fld" .. i .. source_group.source, btn_w * 2 + btn_gap)
                                         reaper.ImGui_EndDisabled(ctx)
                                     else
-                                        if reaper.ImGui_Button(ctx, "FILES##fld" .. i .. source_group.source, btn_w * 2 + btn_gap) then
+                                        if reaper.ImGui_Button(ctx, "ФАЙЛИ##fld" .. i .. source_group.source, btn_w * 2 + btn_gap) then
                                             if item.files then
                                                 item.expanded = true
                                             else
@@ -2673,31 +2814,63 @@ local function RenderTab_DownloadCenter()
                                 else
                                     if any_loading then reaper.ImGui_BeginDisabled(ctx) end
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
-                                    if reaper.ImGui_Button(ctx, ">>##prev" .. i .. source_group.source, btn_w * 2 + btn_gap) then
+                                    if reaper.ImGui_Button(ctx, "ПЕРЕГЛЯД##prev" .. i .. source_group.source, btn_w * 2 + btn_gap) then
                                         UTILS.trigger_subtitle_download(item, source_group.source, "preview", prev_key)
                                     end
                                     reaper.ImGui_PopStyleColor(ctx)
                                     if any_loading then reaper.ImGui_EndDisabled(ctx) end
                                 end
-                                if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Preview subtitle content before adding") end
                             end
 
                             reaper.ImGui_PopStyleVar(ctx)
                             reaper.ImGui_Separator(ctx)
 
-                            local function render_item_list(files, depth)
+                            local function render_item_list(files, depth, parent_id)
                                 if not files then return end
                                 reaper.ImGui_Indent(ctx, 20)
                                 for f_idx, f in ipairs(files) do
-                                    local f_key = i .. "_" .. (depth or 0) .. "_" .. f_idx
-                                    local f_name = (f.file_name or f.title or "Unknown")
+                                    reaper.ImGui_PushID(ctx, f_idx)
+                                    local current_id = (parent_id or (source_group.source .. "_" .. i)) .. "_" .. f_idx
+                                    local f_key = current_id .. "_" .. (depth or 0)
+                                    local f_name = (f.file_name or f.title or "Невідомо")
                                     if depth and depth > 0 then f_name = " ↳ " .. f_name end
                                     local f_meta = ""
                                     if f.lang then f_meta = f_meta .. "[" .. f.lang:upper() .. "] " end
                                     if f.hi then f_meta = f_meta .. "[HI] " end
                                     
+                                    -- Hitbox for nested file
+                                    local f_x, f_y = reaper.ImGui_GetCursorPos(ctx)
+                                    local f_url = f.download_url or f.url or f.files_url
+                                    local f_loading_key = "save_as_" .. (f.file_id or (f_url and f_url:sub(-20)) or "file")
+                                    local f_is_loading_save = (cfg_dwn.loading_item == f_loading_key)
+                                    
+                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
+                                    
+                                    local f_label = f_is_loading_save and (spin .. " ##f_hitbox" .. f_key) or ("##f_hitbox" .. f_key)
+                                    if reaper.ImGui_Selectable(ctx, f_label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, 20) then
+                                        -- Left click action: Open nested folder or Preview nested file
+                                        if not f_is_loading_save then
+                                            if f.is_folder then
+                                                if not f.expanded then
+                                                    if f.files then f.expanded = true
+                                                    else UTILS.get_folder_files(f, source_group.source, f_key) end
+                                                else f.expanded = false end
+                                            else
+                                                UTILS.trigger_subtitle_download(f, source_group.source, "preview", f_key)
+                                            end
+                                        end
+                                    end
+                                    
+                                    if reaper.ImGui_BeginPopupContextItem(ctx, "item_context_menu_f") then
+                                        draw_menu_contents(f, source_group.source)
+                                        reaper.ImGui_EndPopup(ctx)
+                                    end
+                                    reaper.ImGui_PopStyleColor(ctx)
+                                    reaper.ImGui_SetCursorPos(ctx, f_x, f_y)
+
                                     reaper.ImGui_PushTextWrapPos(ctx, avail_w - btn_w * 2 - btn_gap - 35)
                                     reaper.ImGui_Text(ctx, f_name)
+                                    
                                     if f_meta ~= "" then
                                         reaper.ImGui_SameLine(ctx)
                                         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xAAAAAAFF)
@@ -2710,17 +2883,17 @@ local function RenderTab_DownloadCenter()
                                     
                                     if f.is_folder then
                                         if f.expanded then
-                                            if reaper.ImGui_Button(ctx, "CLOSE##f" .. f_key, btn_w * 2 + btn_gap) then
+                                            if reaper.ImGui_Button(ctx, "ЗАКРИТИ##f" .. f_key, btn_w * 2 + btn_gap) then
                                                 f.expanded = false
                                             end
-                                            render_item_list(f.files, (depth or 0) + 1)
+                                            render_item_list(f.files, (depth or 0) + 1, current_id)
                                         else
                                             if cfg_dwn.loading_item == f_key then
                                                 reaper.ImGui_BeginDisabled(ctx)
                                                 reaper.ImGui_Button(ctx, spin .. "##f" .. f_key, btn_w * 2 + btn_gap)
                                                 reaper.ImGui_EndDisabled(ctx)
                                             else
-                                                if reaper.ImGui_Button(ctx, "FILES##f" .. f_key, btn_w * 2 + btn_gap) then
+                                                if reaper.ImGui_Button(ctx, "ФАЙЛИ##f" .. f_key, btn_w * 2 + btn_gap) then
                                                     if f.files then
                                                         f.expanded = true
                                                     else
@@ -2736,19 +2909,21 @@ local function RenderTab_DownloadCenter()
                                             reaper.ImGui_Button(ctx, spin .. "##p" .. f_key, btn_w * 2 + btn_gap)
                                             reaper.ImGui_EndDisabled(ctx)
                                         else
-                                            if reaper.ImGui_Button(ctx, ">>##p" .. f_key, btn_w * 2 + btn_gap) then
+                                            if reaper.ImGui_Button(ctx, "ПЕРЕГЛЯД##p" .. f_key, btn_w * 2 + btn_gap) then
                                                 UTILS.trigger_subtitle_download(f, source_group.source, "preview", f_key)
                                             end
                                         end
                                     end
                                     reaper.ImGui_Separator(ctx)
+                                    reaper.ImGui_PopID(ctx)
                                 end
                                 reaper.ImGui_Unindent(ctx, 20)
                             end
 
                             if item.expanded and item.files then
-                                render_item_list(item.files, 1)
+                                render_item_list(item.files, 1, source_group.source .. "_" .. i)
                             end
+                            reaper.ImGui_PopID(ctx)
                         end
                         reaper.ImGui_Dummy(ctx, 0, 10)
                     end
