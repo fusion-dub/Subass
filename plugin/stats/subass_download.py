@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+import threading
 import subprocess
 import json
 import argparse
@@ -12,6 +13,37 @@ import shutil
 import zipfile
 import io
 import re
+import http.cookiejar
+
+# Enable persistent cookie handling to support sites like TVSubtitles.net
+import tempfile
+COOKIE_FILE = os.path.join(tempfile.gettempdir(), "subass_cookies.txt")
+cookie_jar = http.cookiejar.LWPCookieJar(COOKIE_FILE)
+if os.path.exists(COOKIE_FILE):
+    try: cookie_jar.load(ignore_discard=True, ignore_expires=True)
+    except: pass
+
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
+urllib.request.install_opener(opener)
+
+def save_cookies():
+    try: cookie_jar.save(ignore_discard=True, ignore_expires=True)
+    except: pass
+
+def ensure_tvsub_session():
+    """Ensure we have basic cookies for tvsubtitles.net."""
+    if not any(c.name == 'visited' for c in cookie_jar if 'tvsubtitles' in c.domain):
+        log_message("Refreshing TVSubtitles session...")
+        try:
+            req = urllib.request.Request("https://www.tvsubtitles.net/", headers=COMMON_HEADERS)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resp.read()
+            save_cookies()
+        except Exception as e:
+            log_message(f"Session refresh failed: {e}")
+
+import atexit
+atexit.register(save_cookies)
 
 try:
     import yt_dlp
@@ -29,7 +61,8 @@ JIMAKU_DEFAULT_KEY = "AAAAAAAAH4guAS7UD3DseWJ4LmRHg6tnZeRzYlmD1KS0NnhY9MtHNMam1A
 
 COMMON_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,uk;q=0.8",
     "Accept-Encoding": "identity"
 }
 SUBDL_DEFAULT_KEY = "uJMHXZhLG1_rpAVOLQJI1kUj0jkF54sB"
@@ -64,9 +97,12 @@ def find_extraction_tool():
         if bin_tool: return bin_tool
     return None
 
+_deps_checked = False
 def ensure_dependencies():
     """Check for yt-dlp and other needed tools. Install if missing."""
-    global yt_dlp, py7zr
+    global yt_dlp, py7zr, _deps_checked
+    if _deps_checked: return
+    _deps_checked = True
 
     # 1. yt-dlp (Core)
     if yt_dlp is None:
@@ -84,7 +120,6 @@ def ensure_dependencies():
             except:
                 pass
 
-    # 2. py7zr (7z support)
     if py7zr is None:
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", "py7zr", "--break-system-packages"],
@@ -578,13 +613,55 @@ def download_url_content(url, headers=None, zip_internal_name=None, output_path=
         req_headers = COMMON_HEADERS.copy()
         if headers:
             req_headers.update(headers)
+        if "tvsubtitles.net" in url:
+            ensure_tvsub_session()
+            if "Referer" not in req_headers and "download-" in url:
+                # To download from TVSubtitles, we MUST visit the subtitle details page first
+                # download-ID.html -> subtitle-ID.html
+                sub_page_url = url.replace("download-", "subtitle-")
+                if sub_page_url != url:
+                    try:
+                        # Fetch the subtitle details page to "prime" the session/cookies
+                        req_prime = urllib.request.Request(sub_page_url, headers=req_headers)
+                        with urllib.request.urlopen(req_prime, timeout=10) as resp:
+                            resp.read()
+                    except: pass
+                    req_headers["Referer"] = sub_page_url
+                else:
+                    req_headers["Referer"] = "https://www.tvsubtitles.net/"
+
+            # Manually inject cookies from jar into headers for maximum reliability
+            tvsub_cookies = [f"{c.name}={c.value}" for c in cookie_jar if "tvsubtitles" in c.domain]
+            if tvsub_cookies:
+                req_headers["Cookie"] = "; ".join(tvsub_cookies)
+
         req = urllib.request.Request(url, headers=req_headers)
         with urllib.request.urlopen(req, timeout=30) as resp:
             raw = resp.read()
             if not raw:
                 return {"error": "Отримано порожню відповідь від сервера."}
             
+            # --- TVSubtitles.net JS Redirect Handling ---
+            if b"var s1=" in raw and b"document.location = s1" in raw:
+                import re
+                html_str = raw.decode("utf-8", errors="replace")
+                s_parts = re.findall(r"var s\d+=\s*'([^']*)';", html_str)
+                if s_parts:
+                    # Construct the real ZIP URL
+                    base_url = "https://www.tvsubtitles.net/"
+                    # If it's a relative path starting with files/, join it
+                    zip_path = "".join(s_parts)
+                    # Quote the path to handle spaces and other special characters
+                    quoted_path = urllib.parse.quote(zip_path, safe='/')
+                    zip_url = urllib.parse.urljoin(base_url, quoted_path)
+                    log_message(f"TVSubtitles redirect found: {zip_url}")
+                    # Recursively call with the real URL
+                    return download_url_content(zip_url, headers=headers, zip_internal_name=zip_internal_name, output_path=output_path, filename=filename)
+
             is_binary = False
+            if (b"<html" in raw.lower() or b"<!doctype" in raw.lower()) and "tvsubtitles.net" in url:
+                 log_message(f"TVSubtitles Debug: Received HTML instead of ZIP/Redirect. URL: {url} | Content: {raw[:300].decode('utf-8', errors='replace')}")
+
             # Check extension for common binary subtitle formats
             target_for_ext = filename or zip_internal_name or url
             if target_for_ext and target_for_ext.lower().split('?')[0].endswith((".sup", ".idx", ".sub", ".bin")):
@@ -1051,6 +1128,182 @@ def search_jimaku(query, api_key):
     except Exception as e:
         return {"error": str(e)}
 
+def search_gestdown(query):
+    """Search subtitles using Gestdown API (aggregator for Addic7ed, Podnapisi, etc)."""
+    import re
+    import urllib.request
+    import json
+    
+    log_message(f"Gestdown: Search started for query: {query}")
+    match = re.search(r'(.*?)\s+S(\d+)E(\d+)', query, re.I)
+    if not match:
+        log_message("Gestdown: Query format invalid (missing SxxExx). Returning hint.")
+        return [{
+            "title": "⚠️ Gestdown: Вкажіть сезон/серію (напр. Teen Wolf S01E01)",
+            "lang": "ERR",
+            "source": "gestdown",
+            "download_url": ""
+        }]
+
+    show_name = match.group(1).strip()
+    season = int(match.group(2))
+    episode = int(match.group(3))
+    
+    # 1. Find show ID
+    search_url = f"https://api.gestdown.info/shows/search/{urllib.parse.quote(show_name)}"
+    req = urllib.request.Request(search_url, headers=COMMON_HEADERS)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+    except Exception as e:
+        log_message(f"Gestdown API show search failed: {e}")
+        return {"error": f"Gestdown: Помилка пошуку серіалу - {e}"}
+
+    shows = data.get("shows", [])
+    if not shows:
+        return []
+    
+    # Get best match show ID
+    show_id = shows[0].get("id")
+    
+    results = []
+    # 2. Get subtitles for English, Ukrainian
+    for lang in ['eng', 'ukr']:
+        subs_url = f"https://api.gestdown.info/subtitles/get/{show_id}/{season}/{episode}/{lang}"
+        req = urllib.request.Request(subs_url, headers=COMMON_HEADERS)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                sub_data = json.loads(resp.read().decode('utf-8'))
+                matching = sub_data.get("matchingSubtitles", [])
+                for sub in matching:
+                    sub_id = sub.get("subtitleId")
+                    lang_name = sub.get("language", lang)
+                    version = sub.get("version", "Unknown")
+                    author_src = sub.get("source", "Gestdown")
+                    results.append({
+                        "title": f"({author_src}): {show_name} S{season:02d}E{episode:02d} ({version})",
+                        "lang": lang_name[:3].lower(),
+                        "download_url": sub_id,
+                        "source": "gestdown"
+                    })
+        except urllib.error.HTTPError as e:
+            # 404 or others just mean no subs for this language
+            continue
+        except Exception as e:
+            log_message(f"Gestdown API subs fetch failed for {lang}: {e}")
+            
+    log_message(f"Gestdown: Found {len(results)} subtitles for {show_name} S{season:02d}E{episode:02d}")
+    return results
+
+def search_tvsubtitles(query):
+    """Search TV shows on tvsubtitles.net (scraping)."""
+    try:
+        ensure_tvsub_session()
+        url = "https://www.tvsubtitles.net/search.php"
+        data = urllib.parse.urlencode({'qs': query}).encode('utf-8')
+        headers = COMMON_HEADERS.copy()
+        # Manually inject cookies for reliability
+        tvsub_cookies = [f"{c.name}={c.value}" for c in cookie_jar if "tvsubtitles" in c.domain]
+        if tvsub_cookies:
+            headers["Cookie"] = "; ".join(tvsub_cookies)
+            
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+            import re
+            results = []
+            # Updated regex: handle optional leading slash and no <b> tags in search list
+            show_matches = re.findall(r'<a href="/?tvshow-(\d+)\.html">(.*?)</a>', html)
+            for sid, name in show_matches:
+                results.append({
+                    "title": name,
+                    "id": sid,
+                    "is_folder": True,
+                    "lang": "ALL",
+                    "format": "TV SHOW"
+                })
+            
+            # Check for direct subtitles (movies)
+            sub_matches = re.findall(r'<a href="/?subtitle-(\d+)\.html"><b>(.*?)</b></a>.*?(\d{4})', html)
+            for sid, name, year in sub_matches:
+                results.append({
+                    "title": name,
+                    "year": year,
+                    "lang": "ALL",
+                    "format": "SRT",
+                    "download_url": f"https://www.tvsubtitles.net/download-{sid}.html"
+                })
+            
+            return results
+    except Exception as e:
+        return {"error": str(e)}
+
+def get_tvsub_files(sid):
+    """List subtitles for a TV show on tvsubtitles.net (scraping)."""
+    try:
+        ensure_tvsub_session()
+        url = f"https://www.tvsubtitles.net/tvshow-{sid}.html"
+        headers = COMMON_HEADERS.copy()
+        # Manually inject cookies for reliability
+        tvsub_cookies = [f"{c.name}={c.value}" for c in cookie_jar if "tvsubtitles" in c.domain]
+        if tvsub_cookies:
+            headers["Cookie"] = "; ".join(tvsub_cookies)
+            
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+            import re
+            files = []
+            # Only show season folders if we are at the top-level show page (sid has no dash)
+            if "-" not in str(sid):
+                # Detect other seasons and add them as folders
+                # Pattern: <a href="tvshow-1039-4.html"><b>Season 4</b></a>
+                season_matches = re.findall(r'<a href="tvshow-(\d+-\d+)\.html"><b>Season (\d+)</b></a>', html)
+                for sid_season, s_num in season_matches:
+                    files.append({
+                        "file_name": f"📁 SEASON {s_num}",
+                        "id": sid_season,
+                        "is_folder": True,
+                        "lang": "ALL"
+                    })
+
+            # Parse episode rows to get real names
+            # Each row is <tr align="middle" bgcolor="#ffffff">...</tr>
+            rows = re.findall(r'<tr align="middle" bgcolor="#ffffff">(.*?)</tr>', html, re.DOTALL)
+            seen_ids = set()
+            for row in rows:
+                # Get episode number (e.g. 6x16)
+                ep_num = ""
+                m_num = re.search(r'<td>(\d+x\d+)</td>', row)
+                if m_num: ep_num = m_num.group(1)
+                
+                # Get episode title (e.g. Triggers)
+                ep_title = ""
+                m_title = re.search(r'episode-.*?>(.*?)</a>', row)
+                if m_title:
+                    ep_title = re.sub(r'<[^>]+>', '', m_title.group(1)).strip()
+                
+                if not ep_title and "All episodes" in row:
+                    ep_title = "All Episodes (Pack)"
+
+                # Find all subtitle links in this row
+                sub_matches = re.findall(r'subtitle-([a-zA-Z0-9\-_]+)\.html.*?flags/(\w+)\.gif', row)
+                for sub_id, lang_code in sub_matches:
+                    if sub_id in seen_ids: continue
+                    seen_ids.add(sub_id)
+                    
+                    display_name = f"{ep_num} - {ep_title}" if ep_num else ep_title
+                    if not display_name: display_name = f"Subtitle {sub_id}"
+                    
+                    files.append({
+                        "file_name": f"{display_name} [{lang_code.upper()}]",
+                        "download_url": f"https://www.tvsubtitles.net/download-{sub_id}.html",
+                        "lang": lang_code
+                    })
+            return {"status": "success", "files": files}
+    except Exception as e:
+        return {"error": str(e)}
+
 def _append_source(result, source_name, data):
     """Helper to append a source entry to result['sources']."""
     entry = {"source": source_name}
@@ -1125,6 +1378,15 @@ def download_thumbnail(url, output_path):
     except Exception as e:
         return {"error": str(e)}
 
+def _safe_thread_search(result, source_name, search_func, query, **kwargs):
+    """Safely execute search in a thread and catch any crashes."""
+    try:
+        data = search_func(query, **kwargs)
+        _append_source(result, source_name, data)
+    except BaseException as e:
+        import traceback
+        log_message(f"THREAD CRASH ({source_name}): {e}\n{traceback.format_exc()}")
+
 def search_subtitles(query, osub_key=None, jimaku_key=None, subdl_key=None, exclude_list=None):
     """Search for subtitles from multiple sources by title name."""
     if exclude_list is None: exclude_list = []
@@ -1133,248 +1395,288 @@ def search_subtitles(query, osub_key=None, jimaku_key=None, subdl_key=None, excl
         "query": query,
         "sources": []
     }
+    threads = []
 
     # OpenSubtitles.com
     if osub_key and "opensubtitles" not in exclude_list:
-        _append_source(result, "opensubtitles", search_opensubtitles(query, osub_key))
+        threads.append(threading.Thread(target=lambda: _append_source(result, "opensubtitles", search_opensubtitles(query, osub_key))))
 
     # SubDL.com
     if subdl_key and "subdl" not in exclude_list:
-        _append_source(result, "subdl", search_subdl(query, subdl_key))
+        threads.append(threading.Thread(target=lambda: _append_source(result, "subdl", search_subdl(query, subdl_key))))
 
     # Jimaku.cc
     if jimaku_key and "jimaku" not in exclude_list:
-        _append_source(result, "jimaku", search_jimaku(query, jimaku_key))
+        threads.append(threading.Thread(target=lambda: _append_source(result, "jimaku", search_jimaku(query, jimaku_key))))
+
+    # TVSubtitles (Scraping)
+    if "tvsubtitles" not in exclude_list:
+        threads.append(threading.Thread(target=_safe_thread_search, args=(result, "tvsubtitles", search_tvsubtitles, query)))
+
+    # Gestdown (Aggregator)
+    if "gestdown" not in exclude_list:
+        threads.append(threading.Thread(target=_safe_thread_search, args=(result, "gestdown", search_gestdown, query)))
+
+    # Start all threads
+    for t in threads: t.start()
+    # Wait for all threads to finish
+    for t in threads: t.join()
 
     return result
 
 def main():
-    log_message(f"ARGS: {' '.join(sys.argv[1:])}")
-    ensure_dependencies()
+    try:
+        log_message(f"ARGS: {' '.join(sys.argv[1:])}")
+        ensure_dependencies()
 
-    parser = argparse.ArgumentParser(description="Інструмент завантаження Subass (обгортка над yt-dlp)")
-    parser.add_argument("--target", help="URL або пошуковий запит")
-    parser.add_argument("--info", action="store_true", help="Отримати інформацію в форматі JSON")
-    parser.add_argument("--download", action="store_true", help="Завантажити ресурс")
-    parser.add_argument("--format", help="ID формату для завантаження")
-    parser.add_argument("--type", help="Тип медіа (video/audio)")
-    parser.add_argument("--output", help="Шлях для збереження файлу")
-    parser.add_argument("--sub-lang", help="Мова субтитрів для завантаження")
-    parser.add_argument("--osub-key", help="API ключ OpenSubtitles.com")
-    parser.add_argument("--jimaku-key", help="API ключ Jimaku.cc")
-    parser.add_argument("--subdl-key", help="API ключ SubDL.com")
-    
-    # Subtitle download specific
-    parser.add_argument("--get-subtitle", action="store_true", help="Завантажити вміст субтитрів у stdout")
-    parser.add_argument("--get-sub-from-url", action="store_true", help="Витягти вбудовані субтитри з відео по URL")
-    parser.add_argument("--download-thumb", action="store_true", help="Завантажити мініатюру за шляхом --output")
-    parser.add_argument("--get-jimaku-files", action="store_true", help="Отримати список файлів для запису Jimaku")
-    parser.add_argument("--list-zip", action="store_true", help="Показати вміст ZIP/RAR/7z архіву")
-    parser.add_argument("--source", help="Назва джерела (opensubtitles, subdl, jimaku)")
-    parser.add_argument("--id", help="ID файлу або унікальний ідентифікатор")
-    parser.add_argument("--url", help="Пряме посилання на файл субтитрів")
-    parser.add_argument("--zip-file", help="Конкретне ім'я файлу для вилучення з архіву")
-    parser.add_argument("--exclude", help="Список джерел для виключення через кому")
-    
-    args = parser.parse_args()
-    target = args.target if args.target else ""
+        parser = argparse.ArgumentParser(description="Інструмент завантаження Subass (обгортка над yt-dlp)")
+        parser.add_argument("--target", help="URL або пошуковий запит")
+        parser.add_argument("--info", action="store_true", help="Отримати інформацію в форматі JSON")
+        parser.add_argument("--download", action="store_true", help="Завантажити ресурс")
+        parser.add_argument("--format", help="ID формату для завантаження")
+        parser.add_argument("--type", help="Тип медіа (video/audio)")
+        parser.add_argument("--output", help="Шлях для збереження файлу")
+        parser.add_argument("--sub-lang", help="Мова субтитрів для завантаження")
+        parser.add_argument("--osub-key", help="API ключ OpenSubtitles.com")
+        parser.add_argument("--jimaku-key", help="API ключ Jimaku.cc")
+        parser.add_argument("--subdl-key", help="API ключ SubDL.com")
+        
+        # Subtitle download specific
+        parser.add_argument("--get-subtitle", action="store_true", help="Завантажити вміст субтитрів у stdout")
+        parser.add_argument("--get-sub-from-url", action="store_true", help="Витягти вбудовані субтитри з відео по URL")
+        parser.add_argument("--download-thumb", action="store_true", help="Завантажити мініатюру за шляхом --output")
+        parser.add_argument("--get-jimaku-files", action="store_true", help="Отримати список файлів для запису Jimaku")
+        parser.add_argument("--get-tvsub-files", action="store_true", help="Отримати список файлів для TVSubtitles")
+        parser.add_argument("--list-zip", action="store_true", help="Показати вміст ZIP/RAR/7z архіву")
+        parser.add_argument("--source", help="Назва джерела (opensubtitles, subdl, jimaku)")
+        parser.add_argument("--id", help="ID файлу або унікальний ідентифікатор")
+        parser.add_argument("--url", help="Пряме посилання на файл субтитрів")
+        parser.add_argument("--zip-file", help="Конкретне ім'я файлу для вилучення з архіву")
+        parser.add_argument("--exclude", help="Список джерел для виключення через кому")
+        
+        args = parser.parse_args()
+        target = args.target if args.target else ""
 
-    # --- List Archive Contents (ZIP, 7z, RAR) ---
-    if getattr(args, 'list_zip', False):
-        if not target:
-            print(json.dumps({"error": "URL is required for --list-zip"}, ensure_ascii=False))
-            sys.exit(1)
-        res = list_archive_contents(target)
-        print(json.dumps(res, ensure_ascii=False))
-        return
-
-    # --- Jimaku File List ---
-    if getattr(args, 'get_jimaku_files', False):
-        if not args.id:
-            print(json.dumps({"error": "Need --id for Jimaku files"}, ensure_ascii=False))
+        # --- List Archive Contents (ZIP, 7z, RAR) ---
+        if getattr(args, 'list_zip', False):
+            if not target:
+                print(json.dumps({"error": "URL is required for --list-zip"}, ensure_ascii=False))
+                sys.exit(1)
+            res = list_archive_contents(target)
+            print(json.dumps(res, ensure_ascii=False))
             return
-        jimaku_key = getattr(args, 'jimaku_key', None) or JIMAKU_DEFAULT_KEY
-        url = "https://jimaku.cc/api/entries/{}/files".format(args.id)
-        headers = {"Authorization": jimaku_key}
-        res = download_url_content(url, headers=headers)
-        if "files" in res:
-            simplified = []
-            for f in res["files"]:
-                simplified.append({
-                    "file_name": f.get("name") or f.get("file_name") or f.get("title") or "Невідомо",
-                    "download_url": f.get("url"),
-                    "size": f.get("size")
-                })
-            print(json.dumps({"status": "success", "files": simplified}, ensure_ascii=False))
-            return
-        elif "content" in res:
-            try:
-                content = res["content"]
-                is_rar = res.get("format") == "rar"
-                is_7z = res.get("format") == "7z"
-                is_binary = res.get("is_binary", False) or isinstance(content, (bytes, bytearray))
-                
-                # If it's already a subtitle or an archive (RAR/7z), wrap it into a single-file list
-                is_subtitle = False
-                if not is_binary:
-                    trimmed = content.strip()
-                    if trimmed.startswith("[Script Info]") or " --> " in trimmed:
-                        is_subtitle = True
-                elif isinstance(content, (bytes, bytearray)):
-                    if content.startswith(b"[Script Info]") or b" --> " in content:
-                        is_subtitle = True
-                
-                if is_subtitle or is_rar or is_7z:
-                    is_archive = is_rar or is_7z
-                    simplified = [{
-                        "file_name": "Пряме завантаження (Архів)" if is_archive else "Пряме завантаження (Файл субтитрів)",
-                        "download_url": url,
-                        "is_folder": is_archive, # Treat as folder so it can be expanded
-                        "size": len(content) if not is_binary else 0
-                    }]
-                    print(json.dumps({"status": "success", "files": simplified}, ensure_ascii=False))
-                    return
 
-                # If it's binary or doesn't look like JSON, show as error
-                if is_binary:
-                    prev_text = str(content[:50])
-                else:
-                    trimmed = content.strip()
-                    if not (trimmed.startswith("[") or trimmed.startswith("{")):
-                        prev_text = trimmed[:50]
-                    else:
-                        prev_text = None # It's JSON
-                
-                if prev_text:
-                    print(json.dumps({"error": "Jimaku повернув некоректні дані: " + prev_text + "..."}, ensure_ascii=False))
-                    return
-                try:
-                    files = json.loads(content)
-                except Exception as je:
-                    print(json.dumps({"error": "Jimaku JSON parse error: " + str(je) + " | Content: " + content[:100]}, ensure_ascii=False))
-                    return
-                # Simplify for the UI
+        # --- Jimaku File List ---
+        if getattr(args, 'get_jimaku_files', False):
+            if not args.id:
+                print(json.dumps({"error": "Need --id for Jimaku files"}, ensure_ascii=False))
+                return
+            jimaku_key = getattr(args, 'jimaku_key', None) or JIMAKU_DEFAULT_KEY
+            url = "https://jimaku.cc/api/entries/{}/files".format(args.id)
+            headers = {"Authorization": jimaku_key}
+            res = download_url_content(url, headers=headers)
+            if "files" in res:
                 simplified = []
-                for f in files:
+                for f in res["files"]:
                     simplified.append({
                         "file_name": f.get("name") or f.get("file_name") or f.get("title") or "Невідомо",
                         "download_url": f.get("url"),
                         "size": f.get("size")
                     })
                 print(json.dumps({"status": "success", "files": simplified}, ensure_ascii=False))
-            except:
-                print(json.dumps({"error": "Не вдалося обробити список файлів Jimaku"}, ensure_ascii=False))
-        else:
-            print(json.dumps(res, ensure_ascii=False))
-        return
-
-    # --- Thumbnail Download ---
-    if getattr(args, 'download_thumb', False):
-        if not target or not args.output:
-            print(json.dumps({"error": "Need --target URL and --output PATH"}, ensure_ascii=False))
-            return
-        res = download_thumbnail(target, args.output)
-        print(json.dumps(res, ensure_ascii=False))
-        return
-
-    # --- Subtitle from URL (embedded tracks via yt-dlp) ---
-    if getattr(args, 'get_sub_from_url', False):
-        if not target:
-            print(json.dumps({"error": "Need --target URL"}, ensure_ascii=False))
-            return
-        lang = getattr(args, 'sub_lang', None) or 'en'
-        res = get_subtitle_from_url(target, lang)
-        print(json.dumps(res, ensure_ascii=False))
-        return
-
-    # --- Subtitle Content Download ---
-    if getattr(args, 'get_subtitle', False):
-        osub_key = getattr(args, 'osub_key', None) or OSUB_DEFAULT_KEY
-        jimaku_key = getattr(args, 'jimaku_key', None) or JIMAKU_DEFAULT_KEY
-        subdl_key = getattr(args, 'subdl_key', None) or SUBDL_DEFAULT_KEY
-        
-        source = getattr(args, 'source', None)
-        url = getattr(args, 'url', None)
-        id_ = getattr(args, 'id', None)
-        zip_file = getattr(args, 'zip_file', None)
-        output_path = getattr(args, 'output', None)
-
-        if source == "jimaku" and (url or id_):
-            res = download_jimaku(id_ or url, jimaku_key, zip_internal_name=zip_file, output_path=output_path)
-        elif source == "subdl" and id_:
-            # This is for fetching subtitles for a specific Movie/TV ID (used in folders)
-            raw_results = search_subdl(id_, subdl_key, is_id=True)
-            if isinstance(raw_results, list):
-                if output_path:
-                    # Recursive download all files in the collection
-                    if not os.path.exists(output_path):
-                        os.makedirs(output_path, exist_ok=True)
+                return
+            elif "content" in res:
+                try:
+                    content = res["content"]
+                    is_rar = res.get("format") == "rar"
+                    is_7z = res.get("format") == "7z"
+                    is_binary = res.get("is_binary", False) or isinstance(content, (bytes, bytearray))
                     
-                    results = []
-                    for r in raw_results:
-                        f_url = r.get("download_url")
-                        if f_url:
-                            f_name = r.get("title") or r.get("release_name") or "subtitle"
-                            # Clean filename
-                            f_name = f_name.replace("/", "_").replace("\\", "_")
-                            f_out = os.path.join(output_path, f_name)
-                            res = download_url_content(f_url, output_path=f_out, filename=f_name)
-                            results.append(res)
-                    res = {"status": "success", "saved_to": output_path, "count": len(results)}
-                else:
-                    files = []
-                    for r in raw_results:
-                        files.append({
-                            "file_name": r.get("title") or r.get("release_name", "Subtitle"),
-                            "download_url": r.get("download_url"),
-                            "lang": r.get("lang"),
-                            "hi": r.get("hi", False),
-                            "is_folder": r.get("is_folder", False),
-                            "zip_internal_file": r.get("zip_internal_file")
-                        })
-                    res = {"status": "success", "files": files}
-            else:
-                res = raw_results
-        elif (source == "opensubtitles" or not source) and id_:
-            res = download_opensubtitles(id_, osub_key, output_path=output_path)
-        elif (source == "subdl" or not source) and url:
-            res = download_url_content(url, zip_internal_name=zip_file, output_path=output_path)
-        elif url:
-            res = download_url_content(url, zip_internal_name=zip_file, output_path=output_path)
-        else:
-            res = {"error": f"Missing data for {source or 'unknown'} download (ID:{id_}, URL:{url})"}
-            
-        print(json.dumps(res, ensure_ascii=False))
-        return
+                    # If it's already a subtitle or an archive (RAR/7z), wrap it into a single-file list
+                    is_subtitle = False
+                    if not is_binary:
+                        trimmed = content.strip()
+                        if trimmed.startswith("[Script Info]") or " --> " in trimmed:
+                            is_subtitle = True
+                    elif isinstance(content, (bytes, bytearray)):
+                        if content.startswith(b"[Script Info]") or b" --> " in content:
+                            is_subtitle = True
+                    
+                    if is_subtitle or is_rar or is_7z:
+                        is_archive = is_rar or is_7z
+                        simplified = [{
+                            "file_name": "Пряме завантаження (Архів)" if is_archive else "Пряме завантаження (Файл субтитрів)",
+                            "download_url": url,
+                            "is_folder": is_archive, # Treat as folder so it can be expanded
+                            "size": len(content) if not is_binary else 0
+                        }]
+                        print(json.dumps({"status": "success", "files": simplified}, ensure_ascii=False))
+                        return
 
-    # --- Determine target type ---
-    if target and is_url(target):
-        if not is_supported_url(target):
-            print(json.dumps({"error": "Це посилання не підтримується. Спробуйте посилання на YouTube, SoundCloud тощо."}, ensure_ascii=False))
-            sys.exit(1)
-        # Supported URL — proceed normally
-        if args.info:
-            info = get_info(target)
-            print(json.dumps(info, ensure_ascii=False, indent=2))
+                    # If it's binary or doesn't look like JSON, show as error
+                    if is_binary:
+                        prev_text = str(content[:50])
+                    else:
+                        trimmed = content.strip()
+                        if not (trimmed.startswith("[") or trimmed.startswith("{")):
+                            prev_text = trimmed[:50]
+                        else:
+                            prev_text = None # It's JSON
+                    
+                    if prev_text:
+                        print(json.dumps({"error": "Jimaku повернув некоректні дані: " + prev_text + "..."}, ensure_ascii=False))
+                        return
+                    try:
+                        files = json.loads(content)
+                    except Exception as je:
+                        print(json.dumps({"error": "Jimaku JSON parse error: " + str(je) + " | Content: " + content[:100]}, ensure_ascii=False))
+                        return
+                    # Simplify for the UI
+                    simplified = []
+                    for f in files:
+                        simplified.append({
+                            "file_name": f.get("name") or f.get("file_name") or f.get("title") or "Невідомо",
+                            "download_url": f.get("url"),
+                            "size": f.get("size")
+                        })
+                    print(json.dumps({"status": "success", "files": simplified}, ensure_ascii=False))
+                except:
+                    print(json.dumps({"error": "Не вдалося обробити список файлів Jimaku"}, ensure_ascii=False))
+            else:
+                print(json.dumps(res, ensure_ascii=False))
             return
 
-        if args.download:
-            if not args.output:
-                print(json.dumps({"error": "Output path is required for download"}, ensure_ascii=False))
-                sys.exit(1)
-            res = download_resource(target, args.format, args.output, args.sub_lang, args.type)
+        # --- TVSubtitles File List ---
+        if getattr(args, 'get_tvsub_files', False):
+            if not args.id:
+                print(json.dumps({"error": "Need --id for TVSubtitles"}, ensure_ascii=False))
+                return
+            res = get_tvsub_files(args.id)
+            save_cookies()
             print(json.dumps(res, ensure_ascii=False))
             return
-    else:
-        # Plain text — search subtitles by title
-        osub_key = getattr(args, 'osub_key', None) or OSUB_DEFAULT_KEY
-        jimaku_key = getattr(args, 'jimaku_key', None) or JIMAKU_DEFAULT_KEY
-        subdl_key = getattr(args, 'subdl_key', None) or SUBDL_DEFAULT_KEY
-        
-        exclude = args.exclude.split(",") if args.exclude else []
-        result = search_subtitles(target, osub_key=osub_key, jimaku_key=jimaku_key, subdl_key=subdl_key, exclude_list=exclude)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        return
+
+        # --- Thumbnail Download ---
+        if getattr(args, 'download_thumb', False):
+            if not target or not args.output:
+                print(json.dumps({"error": "Need --target URL and --output PATH"}, ensure_ascii=False))
+                return
+            res = download_thumbnail(target, args.output)
+            print(json.dumps(res, ensure_ascii=False))
+            return
+
+        # --- Subtitle from URL (embedded tracks via yt-dlp) ---
+        if getattr(args, 'get_sub_from_url', False):
+            if not target:
+                print(json.dumps({"error": "Need --target URL"}, ensure_ascii=False))
+                return
+            lang = getattr(args, 'sub_lang', None) or 'en'
+            res = get_subtitle_from_url(target, lang)
+            print(json.dumps(res, ensure_ascii=False))
+            return
+
+        # --- Subtitle Content Download ---
+        if getattr(args, 'get_subtitle', False):
+            osub_key = getattr(args, 'osub_key', None) or OSUB_DEFAULT_KEY
+            jimaku_key = getattr(args, 'jimaku_key', None) or JIMAKU_DEFAULT_KEY
+            subdl_key = getattr(args, 'subdl_key', None) or SUBDL_DEFAULT_KEY
+            
+            source = getattr(args, 'source', None)
+            url = getattr(args, 'url', None)
+            id_ = getattr(args, 'id', None)
+            zip_file = getattr(args, 'zip_file', None)
+            output_path = getattr(args, 'output', None)
+
+            if source == "jimaku" and (url or id_):
+                res = download_jimaku(id_ or url, jimaku_key, zip_internal_name=zip_file, output_path=output_path)
+            elif source == "subdl" and id_:
+                # This is for fetching subtitles for a specific Movie/TV ID (used in folders)
+                raw_results = search_subdl(id_, subdl_key, is_id=True)
+                if isinstance(raw_results, list):
+                    if output_path:
+                        # Recursive download all files in the collection
+                        if not os.path.exists(output_path):
+                            os.makedirs(output_path, exist_ok=True)
+                        
+                        results = []
+                        for r in raw_results:
+                            f_url = r.get("download_url")
+                            if f_url:
+                                f_name = r.get("title") or r.get("release_name") or "subtitle"
+                                # Clean filename
+                                f_name = f_name.replace("/", "_").replace("\\", "_")
+                                f_out = os.path.join(output_path, f_name)
+                                res = download_url_content(f_url, output_path=f_out, filename=f_name)
+                                results.append(res)
+                        res = {"status": "success", "saved_to": output_path, "count": len(results)}
+                    else:
+                        files = []
+                        for r in raw_results:
+                            files.append({
+                                "file_name": r.get("title") or r.get("release_name", "Subtitle"),
+                                "download_url": r.get("download_url"),
+                                "lang": r.get("lang"),
+                                "hi": r.get("hi", False),
+                                "is_folder": r.get("is_folder", False),
+                                "zip_internal_file": r.get("zip_internal_file")
+                            })
+                        res = {"status": "success", "files": files}
+                else:
+                    res = raw_results
+            elif (source == "opensubtitles" or not source) and id_:
+                res = download_opensubtitles(id_, osub_key, output_path=output_path)
+            elif source == "tvsubtitles":
+                # TVSubtitles uses recursive HTML parsing for JS redirect
+                res = download_url_content(url, zip_internal_name=zip_file)
+            elif source == "gestdown":
+                # Download directly from Gestdown API using the standard content helper
+                sub_id = url
+                download_url = f"https://api.gestdown.info/subtitles/download/{sub_id}"
+                log_message(f"Gestdown: Downloading from {download_url}")
+                res = download_url_content(download_url, zip_internal_name=zip_file, output_path=output_path)
+            elif (source == "subdl" or not source) and url:
+                res = download_url_content(url, zip_internal_name=zip_file, output_path=output_path)
+            elif url:
+                res = download_url_content(url, zip_internal_name=zip_file, output_path=output_path)
+            else:
+                res = {"error": f"Missing data for {source or 'unknown'} download (ID:{id_}, URL:{url})"}
+                
+            print(json.dumps(res, ensure_ascii=False))
+            return
+
+        # --- Determine target type ---
+        if target and is_url(target):
+            if not is_supported_url(target):
+                print(json.dumps({"error": "Це посилання не підтримується. Спробуйте посилання на YouTube, SoundCloud тощо."}, ensure_ascii=False))
+                sys.exit(1)
+            # Supported URL — proceed normally
+            if args.info:
+                info = get_info(target)
+                print(json.dumps(info, ensure_ascii=False, indent=2))
+                return
+
+            if args.download:
+                if not args.output:
+                    print(json.dumps({"error": "Output path is required for download"}, ensure_ascii=False))
+                    sys.exit(1)
+                res = download_resource(target, args.format, args.output, args.sub_lang, args.type)
+                print(json.dumps(res, ensure_ascii=False))
+                return
+        else:
+            # Plain text — search subtitles by title
+            osub_key = getattr(args, 'osub_key', None) or OSUB_DEFAULT_KEY
+            jimaku_key = getattr(args, 'jimaku_key', None) or JIMAKU_DEFAULT_KEY
+            subdl_key = getattr(args, 'subdl_key', None) or SUBDL_DEFAULT_KEY
+            
+            exclude = args.exclude.split(",") if args.exclude else []
+            result = search_subtitles(target, osub_key=osub_key, jimaku_key=jimaku_key, subdl_key=subdl_key, exclude_list=exclude)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
+    except Exception as e:
+        import traceback
+        err_msg = f"CRITICAL ERROR in main: {e}\n{traceback.format_exc()}"
+        log_message(err_msg)
+        print(json.dumps({"error": f"Internal Error: {str(e)}"}, ensure_ascii=False))
 
     parser.print_help()
 
