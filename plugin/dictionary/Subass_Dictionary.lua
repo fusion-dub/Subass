@@ -173,7 +173,8 @@ function UTILS.run_async_command(shell_cmd, callback)
             f_bat:write("@echo off\r\n")
             f_bat:write("chcp 65001 > NUL\r\n")
             local bat_cmd = shell_cmd:gsub("%%", "%%%%")
-            f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
+            -- Wrap in parentheses to capture output from both sides of the || operator
+            f_bat:write('(' .. bat_cmd .. ') > "' .. out_file .. '" 2>&1\r\n')
             f_bat:write('echo DONE > "' .. done_file .. '"\r\n')
             f_bat:write('del "%~f0"\r\n')
             f_bat:close()
@@ -2619,19 +2620,24 @@ local function RenderTab_DownloadCenter()
                     if output == "TIMEOUT" then
                         dl_search_results = nil
                         cfg_dwn.error_tooltip = { text = "Помилка: Час очікування вичерпано.", t = reaper.time_precise() }
-                    elseif output and output:match("}%s*$") then
+                    elseif output and output ~= "" then
                         local success, data = pcall(UTILS.json_decode_robust, output)
-                        if success and type(data) == "table" then
+                        if success and type(data) == "table" and not data.error then
                             cfg_dwn.search_data = data
                             dl_search_results = nil
                             UTILS.update_search_history(cfg_dwn.dwn_search)
+                        elseif data and data.error then
+                            dl_search_results = nil
+                            cfg_dwn.error_tooltip = { text = "Помилка: " .. tostring(data.error), t = reaper.time_precise() }
                         else
                             dl_search_results = nil
-                            cfg_dwn.error_tooltip = { text = "Помилка обробки JSON.", t = reaper.time_precise() }
+                            -- Show the actual output in the tooltip for debugging
+                            local short_out = output:sub(1, 100):gsub("\n", " ")
+                            cfg_dwn.error_tooltip = { text = "Помилка розбору JSON: " .. short_out, t = reaper.time_precise() }
                         end
                     else
                         dl_search_results = nil
-                        cfg_dwn.error_tooltip = { text = "Скрипт повернув помилку.", t = reaper.time_precise() }
+                        cfg_dwn.error_tooltip = { text = "Скрипт повернув порожню відповідь.", t = reaper.time_precise() }
                     end
                 end)
             end
