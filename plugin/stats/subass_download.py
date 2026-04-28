@@ -26,6 +26,10 @@ if os.path.exists(COOKIE_FILE):
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
 urllib.request.install_opener(opener)
 
+# Enforce UTF-8 encoding for stdout to prevent UnicodeEncodeError on Windows
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 def save_cookies():
     try: cookie_jar.save(ignore_discard=True, ignore_expires=True)
     except: pass
