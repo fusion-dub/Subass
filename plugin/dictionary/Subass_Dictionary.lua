@@ -94,8 +94,18 @@ local cfg_dwn = {
         opensubtitles = reaper.GetExtState(section_name, "src_osub") == "1",
         subdl = reaper.GetExtState(section_name, "src_subdl") ~= "0",
         jimaku = reaper.GetExtState(section_name, "src_jimaku") ~= "0"
-    }
+    },
+    search_history = {}
 }
+
+-- Load search history
+local history_raw = reaper.GetExtState(section_name, "dwn_history")
+if history_raw and history_raw ~= "" then
+    local success, history_data = pcall(UTILS.json_decode, history_raw)
+    if success and type(history_data) == "table" then
+        cfg_dwn.search_history = history_data
+    end
+end
 local temp_path = script_path .. "temp/"
 reaper.RecursiveCreateDirectory(temp_path, 0)
 
@@ -213,6 +223,28 @@ function UTILS.check_async_tasks()
             table.remove(UTILS.async_pool, i)
         end
     end
+end
+
+function UTILS.update_search_history(query)
+    if not query or query == "" then return end
+    
+    -- Remove if already exists (to move to top)
+    for i = #cfg_dwn.search_history, 1, -1 do
+        if cfg_dwn.search_history[i] == query then
+            table.remove(cfg_dwn.search_history, i)
+        end
+    end
+    
+    -- Add to front
+    table.insert(cfg_dwn.search_history, 1, query)
+    
+    -- Limit to 10
+    while #cfg_dwn.search_history > 10 do
+        table.remove(cfg_dwn.search_history, #cfg_dwn.search_history)
+    end
+    
+    -- Save to ExtState
+    reaper.SetExtState(section_name, "dwn_history", UTILS.json_encode(cfg_dwn.search_history), true)
 end
 
 -- Simple JSON Helpers
@@ -2491,12 +2523,33 @@ local function RenderTab_DownloadCenter()
         reaper.ImGui_PopStyleVar(ctx)
 
         if not cfg_dwn.dwn_search then cfg_dwn.dwn_search = "" end
-        reaper.ImGui_SetNextItemWidth(ctx, -120)
+        
+        local show_history = #cfg_dwn.search_history > 0
+        local hist_btn_w = show_history and 32 or 0
+        reaper.ImGui_SetNextItemWidth(ctx, -120 - hist_btn_w - (show_history and 4 or 0))
         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
         local changed, new_query = reaper.ImGui_InputTextWithHint(ctx, "##dl_search", "Введіть назву (напр. Inception) або посилання...", cfg_dwn.dwn_search)
         if changed then 
             cfg_dwn.dwn_search = new_query 
             reaper.SetExtState(section_name, "dwn_search", new_query, true)
+        end
+
+        if show_history then
+            reaper.ImGui_SameLine(ctx, nil, 4)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
+            if reaper.ImGui_Button(ctx, "▼##hist", hist_btn_w) then
+                reaper.ImGui_OpenPopup(ctx, "history_popup")
+            end
+            reaper.ImGui_PopStyleColor(ctx)
+            if reaper.ImGui_BeginPopup(ctx, "history_popup") then
+                for i, h_query in ipairs(cfg_dwn.search_history) do
+                    if reaper.ImGui_Selectable(ctx, h_query .. "##hist_" .. i) then
+                        cfg_dwn.dwn_search = h_query
+                        reaper.SetExtState(section_name, "dwn_search", h_query, true)
+                    end
+                end
+                reaper.ImGui_EndPopup(ctx)
+            end
         end
 
         reaper.ImGui_SameLine(ctx)
@@ -2508,7 +2561,7 @@ local function RenderTab_DownloadCenter()
 
         if is_searching then
             reaper.ImGui_BeginDisabled(ctx)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x444444FF)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x88888844)
         else
             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
         end
@@ -2553,6 +2606,7 @@ local function RenderTab_DownloadCenter()
                         if success and type(data) == "table" then
                             cfg_dwn.search_data = data
                             dl_search_results = nil
+                            UTILS.update_search_history(cfg_dwn.dwn_search)
                         else
                             dl_search_results = nil
                             cfg_dwn.error_tooltip = { text = "Помилка обробки JSON.", t = reaper.time_precise() }
