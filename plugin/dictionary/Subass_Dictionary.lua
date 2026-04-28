@@ -988,8 +988,15 @@ function UTILS.download_media(url, format_id, title, ext, m_type, item_key)
         return
     end
     
-    local filename = title:gsub('[\\/:*?"<>|]', "_") .. "." .. (ext or "mp4")
-    local full_path = prj_path .. "/" .. filename
+    local base_filename = title:gsub('[\\/:*?"<>|]', "_")
+    local ext_str = "." .. (ext or "mp4")
+    local full_path = prj_path .. "/" .. base_filename .. ext_str
+    
+    local counter = 1
+    while reaper.file_exists(full_path) do
+        full_path = prj_path .. "/" .. base_filename .. " (" .. counter .. ")" .. ext_str
+        counter = counter + 1
+    end
     
     local cmd_args = string.format('--download --target "%s" --format "%s" --type "%s" --output "%s"', 
         url, format_id, m_type or "", full_path)
