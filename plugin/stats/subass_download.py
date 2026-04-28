@@ -297,19 +297,9 @@ def download_resource(url, format_id, output_path, subtitle_lang=None, media_typ
                 except: pass
 
     # 1. Base options
-    # If it's a video, we always want the best audio to go with it
-    if not format_id:
-        final_format = 'best'
-    elif media_type == "video":
-        # Force merge chosen video with best audio track, but fallback to original format
-        # This fixes issues with platforms like TikTok where audio/video are already combined.
-        final_format = f"{format_id}+bestaudio/{format_id}"
-    else:
-        # Audio or specific combined format
-        final_format = format_id
-
+    has_ffmpeg = shutil.which('ffmpeg') is not None
+    
     ydl_opts = {
-        'format': final_format,
         'outtmpl': output_path,
         'quiet': True,
         'no_warnings': True,
@@ -318,12 +308,29 @@ def download_resource(url, format_id, output_path, subtitle_lang=None, media_typ
         'overwrites': True,
         'progress_hooks': [progress_hook],
     }
-    
+
     if sys.platform == "darwin":
-        ydl_opts['ffmpeg_location'] = '/opt/homebrew/bin/ffmpeg'
-        # Also check if it's in /usr/local/bin
-        if not os.path.exists(ydl_opts['ffmpeg_location']):
+        if os.path.exists('/opt/homebrew/bin/ffmpeg'):
+            ydl_opts['ffmpeg_location'] = '/opt/homebrew/bin/ffmpeg'
+            has_ffmpeg = True
+        elif os.path.exists('/usr/local/bin/ffmpeg'):
             ydl_opts['ffmpeg_location'] = '/usr/local/bin/ffmpeg'
+            has_ffmpeg = True
+
+    # If it's a video, we always want the best audio to go with it
+    if not format_id:
+        final_format = 'best'
+    elif media_type == "video":
+        if not has_ffmpeg:
+            return {"error": "Для об'єднання відео та аудіо в найвищій якості потрібен FFmpeg. Встановіть FFmpeg на Windows та додайте його в PATH."}
+        # Force merge chosen video with best M4A (AAC) audio track to ensure Windows REAPER compatibility.
+        # Fallback to any best audio if m4a is missing.
+        final_format = f"{format_id}+bestaudio[ext=m4a]/{format_id}+bestaudio"
+    else:
+        # Audio or specific combined format
+        final_format = format_id
+
+    ydl_opts['format'] = final_format
     
     if subtitle_lang:
         ydl_opts['writesubtitles'] = True
