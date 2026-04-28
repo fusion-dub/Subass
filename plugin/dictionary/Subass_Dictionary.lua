@@ -100,14 +100,7 @@ local cfg_dwn = {
     search_history = {}
 }
 
--- Load search history
-local history_raw = reaper.GetExtState(section_name, "dwn_history")
-if history_raw and history_raw ~= "" then
-    local success, history_data = pcall(UTILS.json_decode, history_raw)
-    if success and type(history_data) == "table" then
-        cfg_dwn.search_history = history_data
-    end
-end
+
 local temp_path = script_path .. "temp/"
 reaper.RecursiveCreateDirectory(temp_path, 0)
 
@@ -825,6 +818,15 @@ function UTILS.update_search_cache(filter)
 end
 
 UTILS.load_data()
+
+-- Load search history AFTER JSON functions are defined
+local history_raw = reaper.GetExtState(section_name, "dwn_history")
+if history_raw and history_raw ~= "" then
+    local success, history_data = pcall(UTILS.json_decode, history_raw)
+    if success and type(history_data) == "table" then
+        cfg_dwn.search_history = history_data
+    end
+end
 
 function UTILS.import_subtitle_to_project(content, title, fmt)
     local prj_path = reaper.GetProjectPath("")
