@@ -93,7 +93,9 @@ local cfg_dwn = {
     source_filters = {
         opensubtitles = reaper.GetExtState(section_name, "src_osub") == "1",
         subdl = reaper.GetExtState(section_name, "src_subdl") ~= "0",
-        jimaku = reaper.GetExtState(section_name, "src_jimaku") ~= "0"
+        jimaku = reaper.GetExtState(section_name, "src_jimaku") ~= "0",
+        tvsubtitles = reaper.GetExtState(section_name, "src_tvsubtitles") ~= "0",
+        gestdown = reaper.GetExtState(section_name, "src_gestdown") ~= "0",
     },
     search_history = {}
 }
@@ -908,6 +910,16 @@ function UTILS.get_folder_files(item, source, item_key)
             if not target_url then return end
             cmd_args = UTILS.get_api_keys_args() .. string.format(' --list-zip --target "%s"', target_url)
         end
+    elseif source == "tvsubtitles" then
+        if item.id then
+            cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-tvsub-files --id "%s"', item.id)
+        else
+            return
+        end
+    elseif source == "gestdown" then
+        local target_url = item.download_url
+        if not target_url then return end
+        cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-subtitle --source gestdown --url "%s"', target_url)
     elseif source == "opensubtitles" then
         local target_url = item.download_url or item.url
         if not target_url then return end
@@ -1094,7 +1106,11 @@ local function draw_menu_contents(item, source, unique_key)
     
     if reaper.ImGui_Selectable(ctx, "Скопіювати посилання") then
         if url then
-            reaper.ImGui_SetClipboardText(ctx, url)
+            local final_url = url
+            if source == "gestdown" then
+                final_url = "https://api.gestdown.info/subtitles/download/" .. url
+            end
+            reaper.ImGui_SetClipboardText(ctx, final_url)
         end
     end
     
@@ -2624,8 +2640,10 @@ local function RenderTab_DownloadCenter()
 
         -- Source Filters (matching Glossary style)
         local sources = {
-            { id = "opensubtitles", label = "OpenSubtitles" },
+            { id = "opensubtitles", label = "OpenSubtitles.com" },
             { id = "subdl", label = "SubDL" },
+            { id = "tvsubtitles", label = "TVSubtitles" },
+            { id = "gestdown", label = "Gestdown" },
             { id = "jimaku", label = "Jimaku" },
         }
 
@@ -2634,7 +2652,12 @@ local function RenderTab_DownloadCenter()
         
         for i, src in ipairs(sources) do
             local is_active = cfg_dwn.source_filters[src.id]
-            local has_key = (cfg_dwn[src.id .. "_key"] ~= "")
+            -- TVSubtitles, Gestdown use scraping/open APIs; SubDL and Jimaku have built-in default keys
+            local has_key = (cfg_dwn[src.id .. "_key"] ~= "") or 
+                            (src.id == "tvsubtitles") or 
+                            (src.id == "gestdown") or
+                            (src.id == "subdl") or 
+                            (src.id == "jimaku")
             
             if is_active then
                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
@@ -2659,7 +2682,7 @@ local function RenderTab_DownloadCenter()
                 end
             end
             
-            if reaper.ImGui_BeginPopupContextItem(ctx, "src_ctx_" .. src.id) then
+            if src.id ~= "tvsubtitles" and src.id ~= "gestdown" and reaper.ImGui_BeginPopupContextItem(ctx, "src_ctx_" .. src.id) then
                 if reaper.ImGui_MenuItem(ctx, "Змінити API ключ##" .. src.id) then
                     cfg_dwn.pending_key_src = src
                     cfg_dwn.temp_key_val = cfg_dwn[src.id .. "_key"] or ""
