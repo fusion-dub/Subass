@@ -486,7 +486,7 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
         } elseif ($line -match "Subass[/\\]+imnotbad[/\\]+imnotbad_MP4_MKV_Extract.lua") {
             if (-not $foundMkvExtract) {
                 if ($line -match "SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)") { $mkvExtractActionId = $matches[1] }
-                $newKb.Add("SCR 4 0 $mkvExtractActionId ""Custom: Imnotbad MP4 MKV Extract"" ""$mkvExtractRelativePath""")
+                $newKb.Add("SCR 4 0 $mkvExtractActionId ""Custom: Imnotbad MKV/MP4 Extract"" ""$mkvExtractRelativePath""")
                 $foundMkvExtract = $true
             }
         }
@@ -498,7 +498,7 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
     if (-not $foundPdf) { $newKb.Add("SCR 4 0 $pdfActionId ""Custom: Subass PDF Reader"" ""$pdfRelativePath""") }
     if (-not $foundNotepad) { $newKb.Add("SCR 4 0 $notepadActionId ""Custom: Imnotbad Notepad"" ""$notepadRelativePath""") }
     if (-not $foundPomodoro) { $newKb.Add("SCR 4 0 $pomodoroActionId ""Custom: Imnotbad Pomodoro"" ""$pomodoroRelativePath""") }
-    if (-not $foundMkvExtract) { $newKb.Add("SCR 4 0 $mkvExtractActionId ""Custom: Imnotbad MP4 MKV Extract"" ""$mkvExtractRelativePath""") }
+    if (-not $foundMkvExtract) { $newKb.Add("SCR 4 0 $mkvExtractActionId ""Custom: Imnotbad MKV/MP4 Extract"" ""$mkvExtractRelativePath""") }
     
     # Use UTF-8 WITHOUT BOM for REAPER configs
     $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
@@ -547,7 +547,7 @@ if (Test-Path $menuFile) {
         $contentBefore += "[Main Extensions]"
     }
 
-    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "_$dictActionId Subass: Dictionary", "_$pdfActionId Subass: PDF Reader", "_$notepadActionId Imnotbad: Notepad", "_$pomodoroActionId Imnotbad: Pomodoro", "_$mkvExtractActionId Imnotbad: MP4 MKV Extract", "0")
+    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "_$dictActionId Subass: Dictionary", "_$pdfActionId Subass: PDF Reader", "_$notepadActionId Imnotbad: Notepad", "_$pomodoroActionId Imnotbad: Pomodoro", "_$mkvExtractActionId Imnotbad: MKV/MP4 Extract", "0")
     
     $newMenu = New-Object System.Collections.Generic.List[string]
     foreach ($l in $contentBefore) { $newMenu.Add($l) }
