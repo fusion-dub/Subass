@@ -248,6 +248,7 @@ fi
 echo "\033[1;34m>> Registering Action and Menu Item...\033[0m"
 KB_FILE="$REAPER_PATH/reaper-kb.ini"
 MENU_FILE="$REAPER_PATH/reaper-menu.ini"
+MKV_EXTRACT_ID="RS3333333333333333333333333333333333333333"
 NOTEPAD_ID="RS5555555555555555555555555555555555555555"
 POMODORO_ID="RS4444444444444444444444444444444444444444"
 PDF_ID="RS6666666666666666666666666666666666666666"
@@ -269,12 +270,14 @@ def update_ini():
         pdf_id_target = "$PDF_ID"
         notepad_id_target = "$NOTEPAD_ID"
         pomodoro_id_target = "$POMODORO_ID"
+        mkv_extract_id_target = "$MKV_EXTRACT_ID"
         rel_path = "Subass/Subass_Notes.lua"
         overlay_rel = "Subass/overlay/Lionzz_SubOverlay_Subass.lua"
         dict_rel = "Subass/dictionary/Subass_Dictionary.lua"
         pdf_rel = "Subass/overlay/Subass_PDF.lua"
         notepad_rel = "Subass/imnotbad/imnotbad_Notepad.lua"
         pomodoro_rel = "Subass/imnotbad/imnotbad_Pomodoro.lua"
+        mkv_extract_rel = "Subass/imnotbad/imnotbad_MP4_MKV_Extract.lua"
 
         # 1. Update reaper-kb.ini
         print(f"Updating/Creating {os.path.basename(kb_file)}...")
@@ -284,11 +287,11 @@ def update_ini():
                 kb_lines = f.readlines()
         
         new_kb_lines = []
-        found_main = found_overlay = found_dict = found_pdf = found_notepad = found_pomodoro = False
+        found_main = found_overlay = found_dict = found_pdf = found_notepad = found_pomodoro = found_mkv_extract = False
         
         for line in kb_lines:
             # Keep unrelated lines
-            if "Subass_Notes.lua" not in line and "Lionzz_SubOverlay_Subass.lua" not in line and "Subass_Dictionary.lua" not in line and "Subass_PDF.lua" not in line and "imnotbad_Notepad.lua" not in line and "imnotbad_Pomodoro.lua" not in line:
+            if "Subass_Notes.lua" not in line and "Lionzz_SubOverlay_Subass.lua" not in line and "Subass_Dictionary.lua" not in line and "Subass_PDF.lua" not in line and "imnotbad_Notepad.lua" not in line and "imnotbad_Pomodoro.lua" not in line and "imnotbad_MP4_MKV_Extract.lua" not in line:
                 new_kb_lines.append(line)
                 continue
             
@@ -322,6 +325,11 @@ def update_ini():
                 if m: pomodoro_id_target = m.group(1)
                 new_kb_lines.append(f'SCR 4 0 {pomodoro_id_target} "Custom: Imnotbad Pomodoro" "{pomodoro_rel}"\n')
                 found_pomodoro = True
+            elif "imnotbad_MP4_MKV_Extract.lua" in line and mkv_extract_rel in line:
+                m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
+                if m: mkv_extract_id_target = m.group(1)
+                new_kb_lines.append(f'SCR 4 0 {mkv_extract_id_target} "Custom: Imnotbad MP4 MKV Extract" "{mkv_extract_rel}"\n')
+                found_mkv_extract = True
 
         if not found_main: new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
         if not found_overlay: new_kb_lines.append(f'SCR 4 0 {overlay_id_target} "Custom: Subass SubOverlay (Lionzz)" "{overlay_rel}"\n')
@@ -329,6 +337,7 @@ def update_ini():
         if not found_pdf: new_kb_lines.append(f'SCR 4 0 {pdf_id_target} "Custom: Subass PDF Reader" "{pdf_rel}"\n')
         if not found_notepad: new_kb_lines.append(f'SCR 4 0 {notepad_id_target} "Custom: Imnotbad Notepad" "{notepad_rel}"\n')
         if not found_pomodoro: new_kb_lines.append(f'SCR 4 0 {pomodoro_id_target} "Custom: Imnotbad Pomodoro" "{pomodoro_rel}"\n')
+        if not found_mkv_extract: new_kb_lines.append(f'SCR 4 0 {mkv_extract_id_target} "Custom: Imnotbad MP4 MKV Extract" "{mkv_extract_rel}"\n')
         
         # Use standard UTF-8 WITHOUT BOM (Python default, but being explicit)
         with open(kb_file, 'w', encoding='utf-8', newline='\n') as f:
@@ -375,7 +384,7 @@ def update_ini():
                 content_before.append("\n")
             content_before.append("[Main Extensions]\n")
 
-        final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", f"_{dict_id_target} Subass: Dictionary", f"_{pdf_id_target} Subass: PDF Reader", f"_{notepad_id_target} Imnotbad: Notepad", f"_{pomodoro_id_target} Imnotbad: Pomodoro", "0"]
+        final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", f"_{dict_id_target} Subass: Dictionary", f"_{pdf_id_target} Subass: PDF Reader", f"_{notepad_id_target} Imnotbad: Notepad", f"_{pomodoro_id_target} Imnotbad: Pomodoro", f"_{mkv_extract_id_target} Imnotbad: MP4 MKV Extract", "0"]
         
         new_lines = content_before
         for i, item_val in enumerate(final_items):
