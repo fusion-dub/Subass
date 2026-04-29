@@ -328,7 +328,7 @@ def update_ini():
             elif "imnotbad_MP4_MKV_Extract.lua" in line and mkv_extract_rel in line:
                 m = re.search(r'SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)', line)
                 if m: mkv_extract_id_target = m.group(1)
-                new_kb_lines.append(f'SCR 4 0 {mkv_extract_id_target} "Custom: Imnotbad MP4 MKV Extract" "{mkv_extract_rel}"\n')
+                new_kb_lines.append(f'SCR 4 0 {mkv_extract_id_target} "Custom: Imnotbad MKV/MP4 Extract" "{mkv_extract_rel}"\n')
                 found_mkv_extract = True
 
         if not found_main: new_kb_lines.append(f'SCR 4 0 {action_id_target} "Custom: Subass Notes" "{rel_path}"\n')
@@ -337,7 +337,7 @@ def update_ini():
         if not found_pdf: new_kb_lines.append(f'SCR 4 0 {pdf_id_target} "Custom: Subass PDF Reader" "{pdf_rel}"\n')
         if not found_notepad: new_kb_lines.append(f'SCR 4 0 {notepad_id_target} "Custom: Imnotbad Notepad" "{notepad_rel}"\n')
         if not found_pomodoro: new_kb_lines.append(f'SCR 4 0 {pomodoro_id_target} "Custom: Imnotbad Pomodoro" "{pomodoro_rel}"\n')
-        if not found_mkv_extract: new_kb_lines.append(f'SCR 4 0 {mkv_extract_id_target} "Custom: Imnotbad MP4 MKV Extract" "{mkv_extract_rel}"\n')
+        if not found_mkv_extract: new_kb_lines.append(f'SCR 4 0 {mkv_extract_id_target} "Custom: Imnotbad MKV/MP4 Extract" "{mkv_extract_rel}"\n')
         
         # Use standard UTF-8 WITHOUT BOM (Python default, but being explicit)
         with open(kb_file, 'w', encoding='utf-8', newline='\n') as f:
@@ -384,7 +384,7 @@ def update_ini():
                 content_before.append("\n")
             content_before.append("[Main Extensions]\n")
 
-        final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", f"_{dict_id_target} Subass: Dictionary", f"_{pdf_id_target} Subass: PDF Reader", f"_{notepad_id_target} Imnotbad: Notepad", f"_{pomodoro_id_target} Imnotbad: Pomodoro", f"_{mkv_extract_id_target} Imnotbad: MP4 MKV Extract", "0"]
+        final_items = other_items + ["0", f"_{action_id_target} Subass: Notes", f"_{overlay_id_target} Subass: SubOverlay (Lionzz)", f"_{dict_id_target} Subass: Dictionary", f"_{pdf_id_target} Subass: PDF Reader", f"_{notepad_id_target} Imnotbad: Notepad", f"_{pomodoro_id_target} Imnotbad: Pomodoro", f"_{mkv_extract_id_target} Imnotbad: MKV/MP4 Extract", "0"]
         
         new_lines = content_before
         for i, item_val in enumerate(final_items):
