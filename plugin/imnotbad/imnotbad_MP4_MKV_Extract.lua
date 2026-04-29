@@ -726,10 +726,11 @@ end
 
 local function do_import(src, streams_list)
   local mdir = get_media_dir()
-  local ok, err, regs = 0, 0, 0
+  local ok, err = 0, 0
   local error_details = {}
   local first_track = true
   local common_cursor_pos = nil
+  local subtitle_path = nil 
   r.Undo_BeginBlock()
   r.PreventUIRefresh(1)
   for _, s in ipairs(streams_list) do
@@ -744,9 +745,7 @@ local function do_import(src, streams_list)
         local out = extract_stream(src, s, mdir)
         if out then
           if s.type == "subtitle" then
-            local n = import_subtitle_regions(out)
-            regs = regs + n
-            S.status = string.format("SRT: %d регіонів додано", n)
+            subtitle_path = out
           else
             if first_track then
               common_cursor_pos = r.GetCursorPosition()
@@ -763,11 +762,15 @@ local function do_import(src, streams_list)
       end
     end
   end
+  if subtitle_path then
+    r.SetExtState("Subass_Notes", "import_request", subtitle_path, false)
+    S.status = string.format("✓ Субтитри збережено: %s", subtitle_path:match("[^/\\]+$"))
+  end 
   r.PreventUIRefresh(-1)
   r.UpdateArrange()
-  r.Undo_EndBlock("MKV/MP4 Extract", -1)
+  r.Undo_EndBlock("MKV/MP4 Extract", -1) 
   if err == 0 then
-    S.status = string.format("✓ Готово: %d потік(и) імпортовано, %d SRT регіон(и)", ok, regs)
+    S.status = string.format("✓ Готово: %d потік(и) імпортовано", ok)
   else
     local diag_msg = string.format("Завершено: %d OK / %d помилок\n", ok, err)
     for _, detail in ipairs(error_details) do
