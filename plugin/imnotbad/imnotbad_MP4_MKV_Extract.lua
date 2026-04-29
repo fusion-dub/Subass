@@ -62,7 +62,10 @@ local function is_supported_stream(s)
       truehd = true,
       ["dts-hd"] = true,
       pcm_s16le = true,
-      pcm_s24le = true
+      pcm_s24le = true,
+      pcm_f32le = true,
+      pcm_s16be = true,
+      pcm_s24be = true
     }
     if supported_audio[s.codec] then
       return true, "audio"
@@ -445,13 +448,19 @@ local function stream_ext(s)
       ac3 = "ac3",
       eac3 = "eac3",
       flac = "flac",
+      wav = "wav",
       opus = "opus",
       vorbis = "ogg",
       dts = "dts",
       truehd = "thd",
       ["dts-hd"] = "dts",
+      pcm_s16le = "wav",
+      pcm_s24le = "wav",
+      pcm_f32le = "wav",
+      pcm_s16be = "wav",
+      pcm_s24be = "wav"
     }
-    return m[s.codec] or "m4a"
+    return m[s.codec] or "wav"
   end
   local codec_to_ext = {
     ttf = "ttf",
@@ -859,7 +868,6 @@ local function draw_ui()
       r.ImGui_EndChild(ctx)
     end
     r.ImGui_PopStyleColor(ctx)
-
     r.ImGui_Spacing(ctx)
     local hw = math.floor((inner_w - 4) / 2.01)
     if r.ImGui_Button(ctx, "Обрати mp4/mkv файл…", hw, 30) then
@@ -880,9 +888,46 @@ local function draw_ui()
       local f = get_selected_item_media()
       if f then load_file(f) else S.status = "Немає виділеного MP4/MKV" end
     end
-
     r.ImGui_Spacing(ctx)
     r.ImGui_TextColored(ctx, C.text_dim, "Доріжки (потоки) файлу:")
+    r.ImGui_SameLine(ctx)
+    if #S.streams > 0 then
+      r.ImGui_SetCursorPosX(ctx, inner_w - 290)
+      if r.ImGui_Button(ctx, "Виділити всі...##select_all", 145, 0) then
+        for _, s in ipairs(S.streams) do
+          local supported, _ = is_supported_stream(s)
+          s.selected = supported
+        end
+      end
+      if r.ImGui_IsItemHovered(ctx) then
+        r.ImGui_BeginTooltip(ctx)
+        r.ImGui_Text(ctx, "Виділити всі потоки, які підтримуються для імпорту")
+        r.ImGui_EndTooltip(ctx)
+      end
+      r.ImGui_SameLine(ctx) 
+      local any_selected = false
+      for _, s in ipairs(S.streams) do 
+        if s.selected then
+          any_selected = true
+          break
+        end 
+      end 
+      if not any_selected then 
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim) 
+      end
+      if r.ImGui_Button(ctx, "Зняти все##clear_all", 145, 0) then
+        if any_selected then
+          for _, s in ipairs(S.streams) do 
+            s.selected = false 
+          end
+        end
+      end
+      if not any_selected then 
+        r.ImGui_PopStyleColor(ctx) 
+      end
+    end
+    
+    r.ImGui_Spacing(ctx)
     r.ImGui_Spacing(ctx)
 
     -- ── СЕРЕДНЯ ЗОНА ──────────
@@ -920,29 +965,6 @@ local function draw_ui()
     end
 
     -- ── НИЖНЯ ЗОНА ───────────────
-    r.ImGui_SetCursorPosY(ctx, WIN_H - bottom_reserved + 5)
-    if #S.streams > 0 then
-      if r.ImGui_Button(ctx, "Виділити все, що підтримується", hw, 25) then
-        for _, s in ipairs(S.streams) do
-          local supported, _ = is_supported_stream(s)
-          s.selected = supported
-        end
-      end
-      r.ImGui_SameLine(ctx)
-      local any_selected = false
-      for _, s in ipairs(S.streams) do if s.selected then
-          any_selected = true; break
-        end end
-      if not any_selected then r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim) end
-      if r.ImGui_Button(ctx, "Зняти все", hw, 25) then
-        if any_selected then
-          for _, s in ipairs(S.streams) do s.selected = false end
-        end
-      end
-      if not any_selected then r.ImGui_PopStyleColor(ctx) end
-    end
-    r.ImGui_Spacing(ctx)
-    r.ImGui_Separator(ctx)
     r.ImGui_Spacing(ctx)
     if S.file ~= "" and #S.streams > 0 then
       local any = false
