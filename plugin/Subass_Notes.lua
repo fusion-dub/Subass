@@ -83,6 +83,7 @@ local cfg = {
     dubber_conflict_threshold = tonumber(get_set("dubber_conflict_threshold", 5.0)) or 5.0,
     p_info = (get_set("p_info", "1") == "1" or get_set("p_info", 1) == 1),
     p_progress = (get_set("p_progress", "1") == "1" or get_set("p_progress", 1) == 1),
+    p_always_show_left = (get_set("p_always_show_left", "1") == "1" or get_set("p_always_show_left", 1) == 1),
     auto_srt_split = get_set("auto_srt_split", "():"),
     prmt_theme = get_set("prmt_theme", "Бетон"),
     ui_theme = get_set("ui_theme", "Titanium"),
@@ -2526,6 +2527,8 @@ local function save_settings()
 
     reaper.SetExtState(section_name, "p_font", cfg.p_font, true)
     reaper.SetExtState(section_name, "p_info", cfg.p_info and "1" or "0", true)
+    reaper.SetExtState(section_name, "p_progress", cfg.p_progress and "1" or "0", true)
+    reaper.SetExtState(section_name, "p_always_show_left", cfg.p_always_show_left and "1" or "0", true)
     
     reaper.SetExtState(section_name, "n_fsize", tostring(cfg.n_fsize), true)
     reaper.SetExtState(section_name, "n_cr", tostring(cfg.n_cr), true)
@@ -19547,7 +19550,12 @@ local function draw_info_overlay_graphics(content_offset_left, content_offset_ri
         end
         
         local display_idx = current_seq_idx and current_seq_idx or r.idx
+        local remaining = #regions - (current_seq_idx or 1)
         local normal_str = tostring(display_idx) .. "/" .. tostring(#regions)
+        
+        if cfg.p_always_show_left and remaining > 0 then
+            normal_str = normal_str .. " ⁞ " .. tostring(remaining)
+        end
         
         -- Hover detection: determine bounds of the region counter
         local tw, th = gfx.measurestr(normal_str)
@@ -19557,9 +19565,7 @@ local function draw_info_overlay_graphics(content_offset_left, content_offset_ri
         if gfx.mouse_x >= rx - S(5) and gfx.mouse_x <= gfx.w - content_offset_right and
            gfx.mouse_y >= ry - S(5) and gfx.mouse_y <= ry + th + S(5) then
             -- Show remaining count on hover
-            local remaining = #regions - (current_seq_idx or 1)
             right_str = "-" .. tostring(remaining)
-
             if remaining == 0 then right_str = "Це останній регіон!" end
         else
             right_str = normal_str
@@ -20806,7 +20812,7 @@ local function draw_prompter(input_queue)
         local total_gap = next_rgn.pos - prev_rgn_end
 
         -- --- JUMP TO NEXT BUTTON ---
-        if gap_to_next > 10 then
+        if gap_to_next > 3 then
             local btn_w, btn_h = 60, 100
             local btn_x = gfx.w - content_offset_right - btn_w - 20
             local btn_y = (gfx.h - btn_h) / 2
@@ -21437,6 +21443,12 @@ local function draw_settings()
     if cfg.p_info then
         if checkbox(x_start + S(30), y_cursor, "Відображати % скільки записано", cfg.p_progress, "Показувати загальний прогрес запису по вибраним трекам (коли немає активної репліки).") then
             cfg.p_progress = not cfg.p_progress
+            save_settings()
+        end
+        y_cursor = y_cursor + S(35)
+
+        if checkbox(x_start + S(30), y_cursor, "Завжди відображати скільки лишилось реплік", cfg.p_always_show_left, "Постійне відображення кількості реплік, що залишилися.") then
+            cfg.p_always_show_left = not cfg.p_always_show_left
             save_settings()
         end
         y_cursor = y_cursor + S(35)
