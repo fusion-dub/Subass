@@ -20724,9 +20724,8 @@ local function draw_prompter(input_queue)
             is_show_final_stats = STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
         end
     else
-        -- Not in any region, but show next upcoming region if enabled
-        -- Minimal Fix: Allow entering this block if markers exist, even if regions are empty
-        if (cfg.p_next and cfg.always_next and #regions > 0) or (#prompter_drawer.marker_cache.markers > 0) then
+        -- Not in any region. We might have upcoming regions or upcoming markers.
+        if #regions > 0 or #prompter_drawer.marker_cache.markers > 0 then
             -- Find the next region after current position
             local next_rgn = nil
             local next_rgn2 = nil
@@ -20737,7 +20736,7 @@ local function draw_prompter(input_queue)
                 end
             end
             
-            if next_rgn then
+            if next_rgn and (cfg.p_next and cfg.always_next) then
                 -- Estimate height for wait mode
                 gfx.setfont(F.nxt, cfg.p_font, cfg.n_fsize)
                 local n_lines = parse_prompter_to_lines(next_rgn.name)
@@ -20765,14 +20764,12 @@ local function draw_prompter(input_queue)
                 end
 
                 local n_h, n_y = 0, gfx.h - 10
-                if cfg.p_next and cfg.always_next then
-                    if cfg.show_next_two and next_rgn2 then
-                        local h2, y2 = render_next_replica(next_rgn2, "bottom", wait_draw_n_fsize)
-                        n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize, h2 + S(15))
-                        n_h = n_h + h2 + S(15) -- Total group height for corrections positioning
-                    else
-                        n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize)
-                    end
+                if cfg.show_next_two and next_rgn2 then
+                    local h2, y2 = render_next_replica(next_rgn2, "bottom", wait_draw_n_fsize)
+                    n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize, h2 + S(15))
+                    n_h = n_h + h2 + S(15) -- Total group height for corrections positioning
+                else
+                    n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize)
                 end
                 
                 if ch > 0 then
@@ -20780,7 +20777,7 @@ local function draw_prompter(input_queue)
                     render_corrections(cms, n_y - ch - 15, wait_draw_c_fsize, center_x, available_w, content_offset_left, content_offset_right)
                 end
             else
-                -- Just corrections? (if playhead after all subtitles but markers are ahead, or no regions at all)
+                -- Just corrections? (if playhead after all subtitles but markers are ahead, or no regions at all, OR always_next is off)
                 local cms, ch = get_corrections_to_draw(cur_pos, nil)
                 prompter_drawer.active_markindex = (ch > 0) and cms[1].markindex or nil
 
@@ -20793,7 +20790,9 @@ local function draw_prompter(input_queue)
                     elseif cfg.p_valign == "bottom" then cor_y = gfx.h - ch - S(50) end
                     render_corrections(cms, cor_y, cor_fsize, center_x, available_w, content_offset_left, content_offset_right)
                 else
-                    is_show_final_stats = STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
+                    if not next_rgn then
+                        is_show_final_stats = STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
+                    end
                 end
             end
         else
