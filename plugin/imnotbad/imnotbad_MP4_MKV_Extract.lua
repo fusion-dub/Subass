@@ -1153,7 +1153,17 @@ do
 end
 
 local function loop()
+  if not S.ctx or not reaper.ImGui_ValidatePtr(S.ctx, 'ImGui_Context*') then return end
+  local force_close = reaper.GetExtState("Subass_Global", "ForceCloseComplementary")
+  if force_close == "1" or force_close == "imnotbad_MP4_MKV_Extract.lua" then 
+      if force_close == "imnotbad_MP4_MKV_Extract.lua" then
+          reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
+      end
+      S.open = false
+  end
+
   if not S.open then return end
+
   draw_ui()
   r.defer(loop)
 end
