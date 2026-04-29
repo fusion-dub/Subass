@@ -72,6 +72,7 @@ local cfg = {
     wave_bg_progress = (get_set("wave_bg_progress", "0") == "1" or get_set("wave_bg_progress", 0) == 1),
     count_timer = (get_set("count_timer", "1") == "1" or get_set("count_timer", 1) == 1),
     count_timer_bottom = (get_set("count_timer_bottom", "0") == "1" or get_set("count_timer_bottom", 0) == 1),
+    count_timer_show_numbers = (get_set("count_timer_show_numbers", "1") == "1" or get_set("count_timer_show_numbers", 1) == 1),
     cps_warning = (get_set("cps_warning", "1") == "1" or get_set("cps_warning", 1) == 1),
     bg_cr = get_set("bg_cr", 0.67),
     bg_cg = get_set("bg_cg", 0.69),
@@ -2574,6 +2575,7 @@ local function save_settings()
 
     reaper.SetExtState(section_name, "count_timer", cfg.count_timer and "1" or "0", true)
     reaper.SetExtState(section_name, "count_timer_bottom", cfg.count_timer_bottom and "1" or "0", true)
+    reaper.SetExtState(section_name, "count_timer_show_numbers", cfg.count_timer_show_numbers and "1" or "0", true)
 
     reaper.SetExtState(section_name, "cps_warning", cfg.cps_warning and "1" or "0", true)
     reaper.SetExtState(section_name, "prompter_slider_mode", cfg.prompter_slider_mode and "1" or "0", true)
@@ -20573,18 +20575,22 @@ local function draw_prompter(input_queue)
 
             -- Calculate starting Y position: 
             local start_y = (gfx.h - active_corr_h) / 2
+            local next_reserve = S(30)
+            if cfg.p_next and next_r then
+                next_reserve = next_h + S(30)
+                if cfg.next_attach then
+                    next_reserve = next_h + S(cfg.next_padding) + S(25)
+                end
+            end
+            
             if cfg.p_valign == "top" then
                 start_y = S(60)
             elseif cfg.p_valign == "bottom" then
-                local next_reserve = S(30)
-                if cfg.p_next and next_r then
-                    next_reserve = next_h + S(30)
-                end
                 start_y = gfx.h - active_corr_h - next_reserve
             end
 
             local top_limit = S(50) -- Account for info overlay and top margin
-            local bottom_limit = (next_h > 0) and (gfx.h - next_h - S(30)) or (gfx.h - S(50))
+            local bottom_limit = (next_h > 0) and (gfx.h - next_reserve) or (gfx.h - S(50))
             
             -- Resolve collisions: if we hit boundaries, shift text
             if start_y < top_limit then start_y = top_limit end
@@ -20770,12 +20776,24 @@ local function draw_prompter(input_queue)
                 end
 
                 local n_h, n_y = 0, gfx.h - 10
-                if cfg.show_next_two and next_rgn2 then
-                    local h2, y2 = render_next_replica(next_rgn2, "bottom", wait_draw_n_fsize)
-                    n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize, h2 + S(15))
-                    n_h = n_h + h2 + S(15) -- Total group height for corrections positioning
+                if cfg.next_attach then
+                    local position_mode = cfg.p_valign or "center"
+                    if cfg.show_next_two and next_rgn2 then
+                        local h1, y1 = render_next_replica(next_rgn, position_mode, wait_draw_n_fsize)
+                        local h2, y2 = render_next_replica(next_rgn2, y1 + h1 + S(15), wait_draw_n_fsize)
+                        n_h = h1 + h2 + S(15)
+                        n_y = y1
+                    else
+                        n_h, n_y = render_next_replica(next_rgn, position_mode, wait_draw_n_fsize)
+                    end
                 else
-                    n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize)
+                    if cfg.show_next_two and next_rgn2 then
+                        local h2, y2 = render_next_replica(next_rgn2, "bottom", wait_draw_n_fsize)
+                        n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize, h2 + S(15))
+                        n_h = n_h + h2 + S(15) -- Total group height for corrections positioning
+                    else
+                        n_h, n_y = render_next_replica(next_rgn, "bottom", wait_draw_n_fsize)
+                    end
                 end
                 
                 if ch > 0 then
@@ -20847,7 +20865,7 @@ local function draw_prompter(input_queue)
         -- Set color with determined alpha
         gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, alpha)
         
-        if gap_to_next > 0 and total_gap >= 3.0 then
+        if gap_to_next > 0 and total_gap >= 3.0 and cfg.count_timer_show_numbers then
             local countdown_str = ""
             if gap_to_next > 60 then
                 local m = math.floor(gap_to_next / 60)
@@ -21460,6 +21478,12 @@ local function draw_settings()
 
     y_cursor = y_cursor + S(35)
     if cfg.count_timer then
+        if checkbox(x_start + S(30), y_cursor, "Відображати цифри", cfg.count_timer_show_numbers, "Відображати цифри зворотнього відліку.") then
+            cfg.count_timer_show_numbers = not cfg.count_timer_show_numbers
+            save_settings()
+        end
+        y_cursor = y_cursor + S(35)
+
         if checkbox(x_start + S(30), y_cursor, "Відображати прогрес знизу", cfg.count_timer_bottom, "Відображати прогрес не по краям, а знизу.") then
             cfg.count_timer_bottom = not cfg.count_timer_bottom
             save_settings()
