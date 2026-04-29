@@ -408,6 +408,7 @@ if (Test-Path $stressTool) {
 # 6. Register Action and Menu Item
 $kbFile = Join-Path $reaperPath "reaper-kb.ini"
 $menuFile = Join-Path $reaperPath "reaper-menu.ini"
+$mkvExtractActionId = "RS3333333333333333333333333333333333333333"
 $pomodoroActionId = "RS4444444444444444444444444444444444444444"
 $notepadActionId = "RS5555555555555555555555555555555555555555"
 $pdfActionId = "RS6666666666666666666666666666666666666666"
@@ -424,6 +425,7 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
     $pdfRelativePath = "Subass/overlay/Subass_PDF.lua"
     $notepadRelativePath = "Subass/imnotbad/imnotbad_Notepad.lua"
     $pomodoroRelativePath = "Subass/imnotbad/imnotbad_Pomodoro.lua"
+    $mkvExtractRelativePath = "Subass/imnotbad/imnotbad_MP4_MKV_Extract.lua"
     
     $kbContent = @()
     if (Test-Path $kbFile) {
@@ -437,9 +439,10 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
     $foundPdf = $false
     $foundNotepad = $false
     $foundPomodoro = $false
+    $foundMkvExtract = $false
     
     foreach ($line in $kbContent) {
-        if ($line -notmatch "Subass_Notes.lua" -and $line -notmatch "Lionzz_SubOverlay_Subass.lua" -and $line -notmatch "Subass_Dictionary.lua" -and $line -notmatch "Subass_PDF.lua" -and $line -notmatch "imnotbad_Notepad.lua" -and $line -notmatch "imnotbad_Pomodoro.lua") {
+        if ($line -notmatch "Subass_Notes.lua" -and $line -notmatch "Lionzz_SubOverlay_Subass.lua" -and $line -notmatch "Subass_Dictionary.lua" -and $line -notmatch "Subass_PDF.lua" -and $line -notmatch "imnotbad_Notepad.lua" -and $line -notmatch "imnotbad_Pomodoro.lua" -and $line -notmatch "imnotbad_MP4_MKV_Extract.lua") {
             $newKb.Add($line)
             continue
         }
@@ -480,6 +483,12 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
                 $newKb.Add("SCR 4 0 $pomodoroActionId ""Custom: Imnotbad Pomodoro"" ""$pomodoroRelativePath""")
                 $foundPomodoro = $true
             }
+        } elseif ($line -match "Subass[/\\]+imnotbad[/\\]+imnotbad_MP4_MKV_Extract.lua") {
+            if (-not $foundMkvExtract) {
+                if ($line -match "SCR\s+\d+\s+\d+\s+(RS[0-9a-fA-F]+)") { $mkvExtractActionId = $matches[1] }
+                $newKb.Add("SCR 4 0 $mkvExtractActionId ""Custom: Imnotbad MP4 MKV Extract"" ""$mkvExtractRelativePath""")
+                $foundMkvExtract = $true
+            }
         }
     }
     
@@ -489,6 +498,7 @@ Write-Host-Color "Updating REAPER configuration..." "Cyan"
     if (-not $foundPdf) { $newKb.Add("SCR 4 0 $pdfActionId ""Custom: Subass PDF Reader"" ""$pdfRelativePath""") }
     if (-not $foundNotepad) { $newKb.Add("SCR 4 0 $notepadActionId ""Custom: Imnotbad Notepad"" ""$notepadRelativePath""") }
     if (-not $foundPomodoro) { $newKb.Add("SCR 4 0 $pomodoroActionId ""Custom: Imnotbad Pomodoro"" ""$pomodoroRelativePath""") }
+    if (-not $foundMkvExtract) { $newKb.Add("SCR 4 0 $mkvExtractActionId ""Custom: Imnotbad MP4 MKV Extract"" ""$mkvExtractRelativePath""") }
     
     # Use UTF-8 WITHOUT BOM for REAPER configs
     $utf8NoBOM = New-Object System.Text.UTF8Encoding($false)
@@ -537,7 +547,7 @@ if (Test-Path $menuFile) {
         $contentBefore += "[Main Extensions]"
     }
 
-    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "_$dictActionId Subass: Dictionary", "_$pdfActionId Subass: PDF Reader", "_$notepadActionId Imnotbad: Notepad", "_$pomodoroActionId Imnotbad: Pomodoro", "0")
+    $finalItems = $otherItems + @("0", "_$actionId Subass: Notes", "_$overlayActionId Subass: SubOverlay (Lionzz)", "_$dictActionId Subass: Dictionary", "_$pdfActionId Subass: PDF Reader", "_$notepadActionId Imnotbad: Notepad", "_$pomodoroActionId Imnotbad: Pomodoro", "_$mkvExtractActionId Imnotbad: MP4 MKV Extract", "0")
     
     $newMenu = New-Object System.Collections.Generic.List[string]
     foreach ($l in $contentBefore) { $newMenu.Add($l) }
