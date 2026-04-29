@@ -19805,16 +19805,15 @@ local function draw_prompter_slider(input_queue)
     handle_info_overlay_interaction(content_offset_left, content_offset_right, current_active_regions, UI_STATE.latched_overlay_time)
 
     local state_count = reaper.GetProjectStateChangeCount(0)
-    local marker_state = prompter_drawer.marker_cache.count
     local dict_ts = DICT.last_update_ts or ""
     
-    if (prompter_slider_cache.state_count ~= state_count and UTILS.is_markers_regions_changed()) or prompter_slider_cache.state_count == -1 or prompter_slider_cache.marker_state ~= marker_state or prompter_slider_cache.w ~= available_w or 
+    if (prompter_slider_cache.state_count ~= state_count and UTILS.is_markers_regions_changed()) or prompter_slider_cache.state_count == -1 or prompter_slider_cache.w ~= available_w or 
        prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
        prompter_slider_cache.p_corr ~= cfg.p_corr or prompter_slider_cache.dict_ts ~= dict_ts or
        prompter_slider_cache.p_lheight ~= cfg.p_lheight or prompter_slider_cache.c_lheight ~= cfg.c_lheight or
        prompter_slider_cache.text_assimilations ~= cfg.text_assimilations or prompter_slider_cache.text_euphonics ~= cfg.text_euphonics then
 
-        prompter_slider_cache.state_count, prompter_slider_cache.marker_state, prompter_slider_cache.w, prompter_slider_cache.fsize, prompter_slider_cache.font = state_count, marker_state, available_w, cfg.p_fsize, cfg.p_font
+        prompter_slider_cache.state_count, prompter_slider_cache.w, prompter_slider_cache.fsize, prompter_slider_cache.font = state_count, available_w, cfg.p_fsize, cfg.p_font
         prompter_slider_cache.project_id = reaper.GetProjectName(0, "")
         prompter_slider_cache.p_corr = cfg.p_corr
         prompter_slider_cache.dict_ts = dict_ts
