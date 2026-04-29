@@ -3098,7 +3098,7 @@ local function loop()
             end
             
             -- JUMP TO NEXT BUTTON
-            if gap_to_next > 10 then
+            if gap_to_next > 3 then
                 local btn_w, btn_h = 60, 100
                 local btn_x = win_w - btn_w - 20
                 local btn_y = (win_h - btn_h) / 2
