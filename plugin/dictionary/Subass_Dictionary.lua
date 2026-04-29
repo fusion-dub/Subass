@@ -2756,7 +2756,6 @@ local function RenderTab_DownloadCenter()
         reaper.ImGui_Separator(ctx)
         reaper.ImGui_Dummy(ctx, 0, 0)
 
-
         -- Error banner: fixed at bottom-center of the current window, auto-dismiss after 4s
         if cfg_dwn.error_tooltip then
             local elapsed = reaper.time_precise() - cfg_dwn.error_tooltip.t
@@ -2836,6 +2835,7 @@ local function RenderTab_DownloadCenter()
         end
 
         if reaper.ImGui_BeginChild(ctx, "dl_center_child", 0, avail_h) then
+            reaper.ImGui_Dummy(ctx, 0, 10)
             if dl_search_results then
                 reaper.ImGui_TextWrapped(ctx, dl_search_results)
             elseif cfg_dwn.search_data then
