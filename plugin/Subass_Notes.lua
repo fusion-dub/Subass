@@ -2704,7 +2704,8 @@ function UTILS.run_satellite_script(folder, filename, label)
         ["Lionzz_SubOverlay_Subass.lua"] = "SubOverlay",
         ["Subass_Dictionary.lua"] = "Subass Dictionary",
         ["imnotbad_Notepad.lua"] = "Notepad",
-        ["Subass_PDF.lua"] = "Subass PDF Reader"
+        ["Subass_PDF.lua"] = "Subass PDF Reader",
+        ["imnotbad_MP4_MKV_Extract.lua"] = "MKV/MP4 Extract"
     }
     
     local window_title = titles[filename]
@@ -21228,7 +21229,7 @@ local function draw_settings()
             cfg.prompter_slider_mode = not cfg.prompter_slider_mode 
             save_settings() 
         end},
-        {name = "Відкрити мої досягнення", tip = "Перегляд здобутих користувачем досягнень.", action = function() ACHIEVEMENTS.show = true end},
+        {name = "Відкрити MKV/MP4 Extract", tip = "Витягнення аудіо та інших потоків з відеофайлів", action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_MP4_MKV_Extract.lua", "MKV/MP4 Extract") end},
         {name = "Режим Редактора", tip = "Перемикає інтерфейс у режим перегляду для редактора: вкладка редагування регіонів з активним режимом назначення акторів.", color = cfg.editor_mode and UI.C_BTN_MEDIUM or nil, action = function() 
             UI_STATE.current_tab = 2 
             cfg.editor_mode = not cfg.editor_mode 
