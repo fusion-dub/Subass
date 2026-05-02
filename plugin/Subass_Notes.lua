@@ -24490,7 +24490,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                             current_region.col = new_col -- Update local state for immediate feedback
                             
                             for _, line in ipairs(ass_lines) do
-                                if line.markindex == current_region.id or (line.t1 and math.abs(line.t1 - current_region.start_pos) < 0.001) then
+                                if line.rgn_idx == current_region.id then
                                     line.actor = actor
                                     break
                                 end
@@ -24643,7 +24643,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                                 current_region.col = new_col
                                 
                                 for _, line in ipairs(ass_lines) do
-                                    if line.markindex == current_region.id or (line.t1 and math.abs(line.t1 - current_region.start_pos) < 0.001) then
+                                    if line.rgn_idx == current_region.id then
                                         line.actor = name
                                         break
                                     end
@@ -24701,7 +24701,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 
                 -- Sync with ass_lines
                 for _, line in ipairs(ass_lines) do
-                    if line.markindex == current_region.id or (line.t1 and math.abs(line.t1 - current_region.start_pos) < 0.001) then
+                    if line.rgn_idx == current_region.id then
                         line.actor = editor_state.current_actor
                         line.text = txt
                         break
