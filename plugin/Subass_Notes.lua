@@ -161,6 +161,7 @@ local cfg = {
 
     -- hotkeys for 12 actions (string, defaults: 1,2,3,4,5,6,7,8,9,0,-,=)
     hotkeys = get_set("hotkeys", "1,2,3,4,5,6,7,8,9,0,-,="),
+    fmt_presets = {}, -- Loaded below after STATS module
 }
 
 local OTHER = {
@@ -1384,6 +1385,14 @@ function STATS.json_decode(str)
         return {}
     end
     return res
+end
+
+-- Load presets now that STATS is ready
+local raw_presets = reaper.GetExtState(section_name, "fmt_presets")
+if raw_presets ~= "" then
+    cfg.fmt_presets = STATS.json_decode(raw_presets) or {}
+else
+    cfg.fmt_presets = {}
 end
 
 --- Perform a global audit of all projects in the registry to count unique deadline failures
@@ -2624,6 +2633,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "trim_end", tostring(cfg.trim_end), true)
     reaper.SetExtState(section_name, "check_clipping", cfg.check_clipping and "1" or "0", true)
     reaper.SetExtState(section_name, "hotkeys", cfg.hotkeys, true)
+    reaper.SetExtState(section_name, "fmt_presets", STATS.json_encode(cfg.fmt_presets or {}), true)
 
     update_prompter_fonts()
 end
@@ -24757,6 +24767,14 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         local fmt_gap = S(4)
         local fmt_btns = {"B", "I", "U", "S", "{/}", "{x}"}
         local fmt_tags = {"b", "i", "u", "s", "c", "x"}
+        local fmt_tips = {
+            "Жирний: {\\b1} ... {\\b0}",
+            "Курсив: {\\i1} ... {\\i0}",
+            "Підкреслення: {\\u1} ... {\\u0}",
+            "Закреслення: {\\s1} ... {\\s0}",
+            "Огорнути у фігурні дужки, коментар: { ... }",
+            "Видалити приховані коментарі {{ ... }}"
+        }
         
         local function apply_fmt(tag)
             if is_disabled then return end
@@ -24819,7 +24837,70 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             inp.focus = true
             inp.needs_focus_nudge = 3 -- Nudge focus for several frames
             inp.suppress_auto_scroll_until = 0 -- Force scroll to cursor if needed
+            record_field_history(inp)
             UI_STATE.mouse_handled = true
+        end
+
+        local function apply_custom_fmt(val)
+            if is_disabled then return end
+            local inp = editor_state.input
+            local s_idx = math.min(inp.cursor, inp.anchor)
+            local e_idx = math.max(inp.cursor, inp.anchor)
+            local txt = inp.text
+            
+            local p1, p2 = val:match("^(.-)%.%.%.(.-)$")
+            
+            if p1 and p2 then
+                local selected = txt:sub(s_idx + 1, e_idx)
+                local new_txt = txt:sub(1, s_idx) .. p1 .. selected .. p2 .. txt:sub(e_idx + 1)
+                inp.text = new_txt
+                if s_idx ~= e_idx then
+                    inp.cursor = s_idx + #p1 + #selected + #p2
+                else
+                    inp.cursor = s_idx + #p1
+                end
+                inp.anchor = inp.cursor
+            else
+                local new_txt = txt:sub(1, s_idx) .. val .. txt:sub(s_idx + 1)
+                inp.text = new_txt
+                inp.cursor = s_idx + #val
+                inp.anchor = inp.cursor
+            end
+            inp.focus = true
+            inp.needs_focus_nudge = 3
+            inp.suppress_auto_scroll_until = 0
+            record_field_history(inp)
+            UI_STATE.mouse_handled = true
+        end
+
+        local function show_preset_dialog(idx)
+            local is_new = (idx == nil)
+            local preset = not is_new and cfg.fmt_presets[idx] or {label="", val=""}
+            
+            local ok, ret = reaper.GetUserInputs(is_new and "Додати пресет" or "Редагувати пресет", 2, 
+                "Назва (2 симв),Вміст (викор. ... для виділення),extrawidth=200", 
+                preset.label .. "," .. preset.val)
+                
+            if ok then
+                local l, v = ret:match("^(.-),(.*)$")
+                if l and v then
+                    local off_l = utf8.offset(l, 3)
+                    if off_l then l = l:sub(1, off_l - 1) end
+                    if l == "" then 
+                        l = v
+                        local off_v = utf8.offset(l, 3)
+                        if off_v then l = l:sub(1, off_v - 1) end
+                    end
+                    
+                    local new_preset = {label = l, val = v}
+                    if is_new then
+                        table.insert(cfg.fmt_presets, new_preset)
+                    else
+                        cfg.fmt_presets[idx] = new_preset
+                    end
+                    save_settings()
+                end
+            end
         end
 
         local save_btn_w = is_right_layout and S(80) or S(110)
@@ -24848,6 +24929,18 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                     apply_fmt(fmt_tags[i])
                 end
                 
+                local is_hover = UI_STATE.window_focused and 
+                                 (gfx.mouse_x >= bx and gfx.mouse_x <= bx + fmt_btn_w and 
+                                  gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
+                if is_hover then 
+                    local tip_id = "fmt_" .. i
+                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                        UI_STATE.tooltip_state.hover_id = tip_id
+                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    end
+                    UI_STATE.tooltip_state.text = fmt_tips[i]
+                end
+
                 -- Draw extra lines for U and S
                 local str_w, str_h = gfx.measurestr(label)
                 local tx = bx + (fmt_btn_w - str_w) / 2
@@ -24864,6 +24957,88 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 end
             end
         end
+
+        -- Separator and Presets
+        local last_x = input_draw_x + (#fmt_btns) * (fmt_btn_w + fmt_gap)
+        if last_x + S(10) <= ai_btn_x then
+            -- Vertical Separator
+            set_color(UI.C_MEDIUM_GREY, 0.5)
+            gfx.rect(last_x + S(3), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
+            last_x = last_x + S(10)
+            
+            -- Custom Presets
+            for i, p in ipairs(cfg.fmt_presets) do
+                if last_x + fmt_btn_w <= ai_btn_x then
+                    local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
+                    gfx.setfont(F.std)
+                    if draw_actor_btn_inline(last_x, control_draw_y, fmt_btn_w, control_row_h, p.label, b_col) then
+                        UI_STATE.mouse_handled = true
+                        apply_custom_fmt(p.val)
+                    end
+                    
+                    local is_h = UI_STATE.window_focused and 
+                                 (gfx.mouse_x >= last_x and gfx.mouse_x <= last_x + fmt_btn_w and 
+                                  gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
+                    
+                    if is_h then
+                        local tip_id = "preset_" .. i
+                        if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                            UI_STATE.tooltip_state.hover_id = tip_id
+                            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                        end
+                        UI_STATE.tooltip_state.text = "Пресет: " .. p.val
+                        
+                        if is_mouse_clicked(2) then
+                            UI_STATE.mouse_handled = true
+                            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                            local move_up_tag = (i > 1) and "" or "#"
+                            local move_down_tag = (i < #cfg.fmt_presets) and "" or "#"
+                            local sel = gfx.showmenu("Редагувати пресет|Видалити пресет||" .. move_up_tag .. "Перемістити вліво|" .. move_down_tag .. "Перемістити вправо")
+                            
+                            if sel == 1 then show_preset_dialog(i)
+                            elseif sel == 2 then 
+                                if reaper.MB("Ви дійсно хочете видалити пресет '" .. (p.label or "") .. "'?", "Видалення пресета", 1) == 1 then
+                                    table.remove(cfg.fmt_presets, i)
+                                    save_settings()
+                                end
+                            elseif sel == 3 then
+                                local p = table.remove(cfg.fmt_presets, i)
+                                table.insert(cfg.fmt_presets, i - 1, p)
+                                save_settings()
+                            elseif sel == 4 then
+                                local p = table.remove(cfg.fmt_presets, i)
+                                table.insert(cfg.fmt_presets, i + 1, p)
+                                save_settings()
+                            end
+                        end
+                    end
+                    
+                    last_x = last_x + fmt_btn_w + fmt_gap
+                end
+            end
+            
+            -- Plus Button
+            if last_x + fmt_btn_w <= ai_btn_x then
+                local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
+                if draw_actor_btn_inline(last_x, control_draw_y, fmt_btn_w, control_row_h, "+", b_col) then
+                    UI_STATE.mouse_handled = true
+                    show_preset_dialog()
+                end
+                
+                local is_h = UI_STATE.window_focused and 
+                             (gfx.mouse_x >= last_x and gfx.mouse_x <= last_x + fmt_btn_w and 
+                              gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
+                if is_h then
+                    local tip_id = "preset_add"
+                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                        UI_STATE.tooltip_state.hover_id = tip_id
+                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    end
+                    UI_STATE.tooltip_state.text = "Додати новий кастомний пресет"
+                end
+            end
+        end
+        
         gfx.setfont(F.std)
 
         local ai_btn_fits = ai_btn_x >= input_draw_x
