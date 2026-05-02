@@ -7587,6 +7587,9 @@ local function save_project_data()
         table.insert(mark_tbl, string.format("%.3f|%s|%d|%d\n", m.pos, m.name:gsub("\n", "\\n"), m.markindex, m.color))
     end
     save_chunked("ass_markers", mark_tbl)
+    
+    -- Signal change to external scripts (Overlay)
+    reaper.gmem_write(101, (reaper.gmem_read(101) or 0) + 1)
 end
 
 --- Ensure all ass_lines have unique numeric indices
@@ -24325,6 +24328,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                             end
 
                             UI_STATE._markers_is_dirty = true
+                            save_project_data()
                             reaper.MarkProjectDirty(0)
                         end
                     end
