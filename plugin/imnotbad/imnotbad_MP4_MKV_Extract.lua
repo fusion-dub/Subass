@@ -1,5 +1,5 @@
 -- @description MP4/MKV Extract
--- @version 1.0
+-- @version 1.1
 -- @author imnotbad
 -- @required ReaImGui, js_ReaScriptAPI, FFmpeg
 
@@ -32,15 +32,186 @@ elseif r.ImGui_ChildFlags_FrameStyle then
 end
 
 local S = {
-  ctx        = nil,
-  open       = true,
-  file       = "",
-  streams    = {},
-  status     = "Оберіть .mp4/.mkv файл або перетягніть на айтем",
-  diag       = "",
-  processing = false,
-  show_diag  = false,
+  ctx               = nil,
+  open              = true,
+  file              = "",
+  streams           = {},
+  status            = "Оберіть .mp4 або .mkv файл",
+  diag              = "",
+  processing        = false,
+  show_diag         = false,
+  show_replace_menu = false,
+  replace_modal     = {
+    open = false,
+    audio_file = "",
+    audio_streams = {},
+    keep_subs = true,
+    keep_other_audio = true,
+    encode_audio = false,
+    encode_format = "aac",
+    encode_bitrate = "192k",
+    processing = false,
+    progress = 0,
+    progress_text = ""
+  },
+  preview_sub       = {
+    content    = nil,
+    title      = nil,
+    stream_idx = nil,
+    open       = false
+  },
+  selected_channels = {},
+  audio_preview     = {
+    source             = nil,
+    file               = nil,
+    playing            = false,
+    paused             = false,
+    pause_pos          = 0,
+    length             = 0,
+    name               = "",
+    current_stream_idx = nil,
+    preview_channels   = {}
+  }
 }
+
+local C = {
+  win_bg    = 0x2c2c34ff,
+  title_bg  = 0x24242aff,
+  btn       = 0x3e3e48ff,
+  btn_hov   = 0x5a5a66ff,
+  btn_act   = 0x6e6e7cff,
+  btn_dis   = 0x2a2a30ff,
+  btn_diag  = 0x4a3a28ff,
+  text      = 0xeaeaefff,
+  text_dim  = 0xa0a0b0ff,
+  text_cyan = 0x7ad0ffff,
+  text_warn = 0xffcc66ff,
+  text_ok   = 0x88f7b0ff,
+  text_err  = 0xff7a8aff,
+  col_v     = 0xffcc66ff,
+  col_a     = 0x77f7ccff,
+  col_s     = 0xffaaddff,
+  col_d     = 0xb0b0ddff,
+  child_bg  = 0x1e1e24ff,
+  diag_bg   = 0x18181eff,
+  drop_bg   = 0x26262eff,
+  sep       = 0x4a4a5eff,
+}
+
+local function push_colors(ctx)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_WindowBg(), C.win_bg)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_TitleBg(), C.title_bg)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_TitleBgActive(), C.title_bg)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), C.btn)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonHovered(), C.btn_hov)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonActive(), C.btn_act)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ChildBg(), C.child_bg)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), C.win_bg)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Separator(), C.btn)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_CheckMark(), C.text_ok)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_PopupBg(), C.win_bg)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ScrollbarGrab(), C.btn)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), C.title_bg)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBgHovered(), C.btn)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBgActive(), C.btn)
+  return 16
+end
+
+local _, script_path = r.get_action_context()
+local SCRIPT_DIR = script_path:match("(.*[/\\])") or ""
+local TEMP_PREVIEW_DIR = SCRIPT_DIR .. "temp_preview" .. SEP
+
+local function write_to_file(path, content)
+  local f = io.open(path, "wb")
+  if f then
+    f:write(content)
+    f:close()
+    return true
+  end
+  return false
+end
+
+local async_tasks = {}
+
+local function poll_task_queue()
+  if #async_tasks == 0 then return end
+  for i = #async_tasks, 1, -1 do
+    local task = async_tasks[i]
+    local f = io.open(task.done_file, "r")
+    if f then
+      f:close()
+      local out_content = nil
+      local f_out = io.open(task.out_file, "r")
+      if f_out then
+        out_content = f_out:read("*a")
+        f_out:close()
+      end
+      os.remove(task.done_file)
+      if task.out_file then os.remove(task.out_file) end
+      table.remove(async_tasks, i)
+      if task.callback and out_content and out_content ~= "" then
+        task.callback(task.out_file)
+      elseif task.callback then
+        task.callback(nil)
+      end
+    end
+  end
+end
+
+local function run_ffmpeg_async(cmd, on_done)
+  local resource_path = r.GetResourcePath()
+  local id = tostring(os.time()) .. "_" .. math.random(1000, 9999)
+  local script_dir = resource_path .. SEP .. "Scripts" .. SEP
+  local out_file = script_dir .. "ffmpeg_out_" .. id .. ".tmp"
+  local done_file = script_dir .. "ffmpeg_done_" .. id .. ".marker"
+  local bat_file = script_dir .. "ffmpeg_exec_" .. id .. ".bat"
+  os.remove(done_file)
+  os.remove(out_file)
+  if IS_WIN then
+    local f_bat = io.open(bat_file, "w")
+    if not f_bat then
+      if on_done then on_done(nil) end
+      return
+    end
+    f_bat:write("@echo off\r\n")
+    f_bat:write("chcp 65001 > NUL\r\n")
+    f_bat:write(cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
+    f_bat:write('echo DONE > "' .. done_file .. '"\r\n')
+    f_bat:write('del "' .. bat_file .. '"\r\n')
+    f_bat:close()
+    local ps_cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process \\"' ..
+        bat_file .. '\\" -WindowStyle Hidden"'
+    r.ExecProcess(ps_cmd, 0)
+    table.insert(async_tasks, {
+      id = id,
+      out_file = out_file,
+      done_file = done_file,
+      callback = on_done
+    })
+  else
+    local sh_file = script_dir .. "ffmpeg_exec_" .. id .. ".sh"
+    local f_sh = io.open(sh_file, "w")
+    if not f_sh then
+      if on_done then on_done(nil) end
+      return
+    end
+    f_sh:write("#!/bin/bash\n")
+    f_sh:write(cmd .. ' > "' .. out_file .. '" 2>&1\n')
+    f_sh:write('echo DONE > "' .. done_file .. '"\n')
+    f_sh:write('rm "$0"\n')
+    f_sh:close()
+    os.execute('chmod +x "' .. sh_file .. '"')
+    local full_cmd = '( "' .. sh_file .. '" ) &'
+    os.execute(full_cmd)
+    table.insert(async_tasks, {
+      id = id,
+      out_file = out_file,
+      done_file = done_file,
+      callback = on_done
+    })
+  end
+end
 
 local function trim(s)
   return (s or ""):match("^%s*(.-)%s*$")
@@ -104,13 +275,11 @@ local function find_exe(name)
   local _, script_path = r.get_action_context()
   local script_dir = script_path:match("(.*[/\\])") or ""
   local exe = IS_WIN and (name .. ".exe") or name
-
   local candidates = {
     script_dir .. exe,
     r.GetResourcePath() .. SEP .. "UserPlugins" .. SEP .. exe,
     r.GetResourcePath() .. SEP .. exe,
   }
-
   if IS_WIN then
     table.insert(candidates, "C:\\ffmpeg\\bin\\" .. exe)
     table.insert(candidates, "C:\\Program Files\\ffmpeg\\bin\\" .. exe)
@@ -124,7 +293,6 @@ local function find_exe(name)
     table.insert(candidates, "/opt/homebrew/bin/" .. exe)
     table.insert(candidates, "/opt/local/bin/" .. exe)
   end
-
   for _, c in ipairs(candidates) do
     if c ~= "" then
       local f = io.open(c, "rb")
@@ -147,6 +315,20 @@ end
 
 local FFPROBE = find_exe("ffprobe")
 local FFMPEG  = find_exe("ffmpeg")
+
+local function build_pan_filter(selected_list)
+  if #selected_list == 1 then
+    return string.format("pan=mono|c0=c%d", selected_list[1] - 1)
+  elseif #selected_list == 2 then
+    return string.format("pan=stereo|c0=c%d|c1=c%d", selected_list[1] - 1, selected_list[2] - 1)
+  else
+    local parts = {}
+    for i, ch in ipairs(selected_list) do
+      table.insert(parts, string.format("c%d=c%d", i - 1, ch - 1))
+    end
+    return string.format("pan=%dc|%s", #selected_list, table.concat(parts, "|"))
+  end
+end
 
 local function json_str_val(json, key)
   local v = json:match('"' .. key .. '"%s*:%s*"([^"]*)"')
@@ -201,7 +383,6 @@ local function parse_ffprobe_json(json_text)
         local channels = json_num_val(block, "channels")
         local duration_raw = json_str_val(block, "duration")
         local duration_sec = duration_raw and tonumber(duration_raw)
-
         if title == "" then
           title = json_str_val(block, "filename") or
               json_str_val(block, "title") or ""
@@ -276,7 +457,6 @@ local function parse_ffprobe_json(json_text)
             if dur_str then table.insert(extra_parts, dur_str) end
           end
           local extra_str = #extra_parts > 0 and ("  [" .. table.concat(extra_parts, ", ") .. "]") or ""
-
           local lbl
           if title ~= "" and title ~= "und" then
             lbl = string.format("%s: %s%s (%s)%s",
@@ -295,6 +475,7 @@ local function parse_ffprobe_json(json_text)
             title    = title,
             label    = lbl,
             selected = false,
+            channels = channels or 0,
           }
         end
         start = nil
@@ -315,29 +496,6 @@ local function get_media_dir()
   end
   r.RecursiveCreateDirectory(d, 0)
   return d
-end
-
-local function win_quote(path)
-  path = path:gsub("/", "\\")
-  return '"' .. path .. '"'
-end
-
-local function write_to_file(path, content)
-  local f = io.open(path, "wb")
-  if f then
-    f:write(content)
-    f:close()
-    return true
-  end
-  return false
-end
-
-local function read_file(path)
-  local f = io.open(path, "rb")
-  if not f then return nil end
-  local txt = f:read("*a")
-  f:close()
-  return txt
 end
 
 local function probe_streams(filepath)
@@ -418,7 +576,6 @@ local function probe_streams(filepath)
     d("ПОМИЛКА: Не вдалося розпізнати структуру JSON")
     d("Можливо файл не містить жодних потоків або має нестандартну структуру")
   end
-
   S.diag = table.concat(diag, "\n")
   return streams
 end
@@ -517,7 +674,6 @@ end
 local function extract_stream(src, s, media_dir)
   local resource_path = r.GetResourcePath()
   local bat_path = resource_path .. SEP .. "Scripts" .. SEP .. "_mkv_extract.bat"
-
   local base = (src:match("[/\\]([^/\\]+)$") or "track"):gsub("%.[^%.]+$", "")
   local lang_sfx = (s.lang ~= "") and ("_" .. s.lang) or ""
   local ext = stream_ext(s)
@@ -545,82 +701,45 @@ local function extract_stream(src, s, media_dir)
   return nil
 end
 
-local function srt_to_sec(ts)
-  local h, m, s, ms = ts:match("(%d+):(%d+):(%d+)[,.](%d+)")
-  if not h then return 0 end
-  return tonumber(h) * 3600 + tonumber(m) * 60 + tonumber(s) + tonumber(ms) / 1000
-end
-
-local function import_srt_regions(path)
-  local f = io.open(path, "r")
-  if not f then return 0 end
-  local txt = f:read("*a"); f:close()
-  txt = txt .. "\n\n"
-  local n = 0
-  local state = "num"
-  local t0, t1, buf = 0, 0, {}
-  for line in txt:gmatch("([^\r\n]*)\r?\n") do
-    line = trim(line)
-    if state == "num" then
-      if line:match("^%d+$") then state = "time" end
-    elseif state == "time" then
-      local s0, s1 = line:match(
-        "(%d+:%d+:%d+[,.]%d+)%s*%-%-%>%s*(%d+:%d+:%d+[,.]%d+)")
-      if s0 then
-        t0, t1, buf = srt_to_sec(s0), srt_to_sec(s1), {}
-        state = "text"
-      else
-        state = "num"
-      end
-    elseif state == "text" then
-      if line == "" then
-        local text = table.concat(buf, " "):gsub("<[^>]+>", "")
-        if text ~= "" then
-          r.AddProjectMarker2(0, true, t0, t1, text, -1, 0)
-          n = n + 1
-        end
-        state = "num"
-      else
-        buf[#buf + 1] = line
+local function extract_stream_async(src, s, media_dir, on_done)
+  local base = (src:match("[/\\]([^/\\]+)$") or "track"):gsub("%.[^%.]+$", "")
+  local lang_sfx = (s.lang ~= "") and ("_" .. s.lang) or ""
+  local ext = stream_ext(s)
+  local out_path = media_dir .. SEP .. safe_filename(
+    string.format("%s_s%d%s.%s", base, s.idx, lang_sfx, ext)
+  )
+  local ffmpeg_cmd = string.format(
+    '"%s" -y -i "%s" -map 0:%d -c copy "%s"',
+    FFMPEG, src, s.idx, out_path
+  )
+  run_ffmpeg_async(ffmpeg_cmd, function()
+    local f = io.open(out_path, "rb")
+    if f then
+      local size = f:seek("end")
+      f:close()
+      if size and size > 0 then
+        on_done(out_path)
+        return
       end
     end
-  end
-  return n
+    os.remove(out_path)
+    on_done(nil)
+  end)
 end
 
-local function ass_to_sec(ts)
-  local h, m, s, cs = ts:match("(%d+):(%d+):(%d+)%.(%d+)")
-  if not h then return 0 end
-  return tonumber(h) * 3600 + tonumber(m) * 60 + tonumber(s) + tonumber(cs) / 100
-end
-
-local function import_ass_regions(path)
-  local f = io.open(path, "r")
-  if not f then return 0 end
-  local txt = f:read("*a"); f:close()
-  local n = 0
-  for line in txt:gmatch("[^\r\n]+") do
-    local start, stop, text = line:match(
-    "^Dialogue:%s*%d+,([%d:%.]+),([%d:%.]+),[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,(.*)")
-    if start and stop and text then
-      -- Видаляємо теги {\...}
-      text = text:gsub("{[^}]*}", ""):gsub("\\N", " "):gsub("\\n", " ")
-      text = trim(text)
-      if text ~= "" then
-        r.AddProjectMarker2(0, true, ass_to_sec(start), ass_to_sec(stop), text, -1, 0)
-        n = n + 1
-      end
-    end
+local function stop_audio_preview()
+  if S.audio_preview.source then
+    r.CF_Preview_Stop(S.audio_preview.source)
+    S.audio_preview.source = nil
   end
-  return n
-end
-
-local function import_subtitle_regions(path)
-  if path:lower():match("%.ass$") then
-    return import_ass_regions(path)
-  else
-    return import_srt_regions(path)
-  end
+  S.audio_preview.file = nil
+  S.audio_preview.playing = false
+  S.audio_preview.paused = false
+  S.audio_preview.pause_pos = 0
+  S.audio_preview.length = 0
+  S.audio_preview.name = nil
+  S.audio_preview.current_stream_idx = nil
+  S.audio_preview.preview_channels = {}
 end
 
 local function load_file(path)
@@ -640,14 +759,13 @@ local function load_file(path)
     S.streams = {}
     return
   end
-
-  S.file      = path
-  S.status    = "Аналізую потоки…"
-  S.streams   = {}
-  S.diag      = ""
-  S.show_diag = false
-  S.streams   = probe_streams(path)
-
+  S.file              = path
+  S.status            = "Аналізую потоки…"
+  S.streams           = {}
+  S.diag              = ""
+  S.show_diag         = false
+  S.streams           = probe_streams(path)
+  S.selected_channels = {}
   if #S.streams > 0 then
     local supported_count = 0
     local unsupported_list = {}
@@ -680,26 +798,150 @@ local function load_file(path)
   end
 end
 
-local function get_selected_item_media()
-  local n = r.CountSelectedMediaItems(0)
-  for i = 0, n - 1 do
-    local item   = r.GetSelectedMediaItem(0, i)
-    local take   = item and r.GetActiveTake(item)
-    local source = take and r.GetMediaItemTake_Source(take)
-    if source then
-      local fname = r.GetMediaSourceFileName(source, "")
-      if fname and (fname:lower():match("%.mp4$") or fname:lower():match("%.mkv$")) then
-        return fname
-      end
+local function read_subtitle_preview(path, max_chars)
+  local f = io.open(path, "rb")
+  if not f then return nil end
+  local content = f:read("*all")
+  f:close()
+  if not content or content == "" then return nil end
+  return content
+end
+
+local function probe_audio_file(filepath)
+  local streams = {}
+  local resource_path = r.GetResourcePath()
+  local temp_dir = resource_path .. SEP .. "Scripts"
+  r.RecursiveCreateDirectory(temp_dir, 0)
+  local json_path = temp_dir .. SEP .. "_audio_probe.json"
+  os.remove(json_path)
+  local cmd
+  if IS_WIN then
+    local bat_path = temp_dir .. SEP .. "_audio_run.bat"
+    local bat_content = string.format(
+      '@echo off\nchcp 65001 >nul\n"%s" -v quiet -print_format json -show_streams "%s" > "%s" 2>&1',
+      FFPROBE, filepath, json_path
+    )
+    write_to_file(bat_path, bat_content)
+    r.ExecProcess(bat_path, 0)
+    os.remove(bat_path)
+  else
+    cmd = string.format('%s -v quiet -print_format json -show_streams %s > %s 2>&1',
+      shell_q(FFPROBE), shell_q(filepath), shell_q(json_path))
+    os.execute(cmd)
+  end
+  local f = io.open(json_path, "rb")
+  if f then
+    local json = f:read("*a")
+    f:close()
+    os.remove(json_path)
+    if json and #json > 10 then
+      streams = parse_ffprobe_json(json)
     end
   end
-  return nil
+  local audio_only = {}
+  for _, s in ipairs(streams) do
+    if s.type == "audio" then
+      s.selected = (#audio_only == 0)
+      table.insert(audio_only, s)
+    end
+  end
+  return audio_only
+end
+
+local function draw_subtitle_preview()
+  if not S.preview_sub.open or not S.preview_sub.content then return end
+  local win_x, win_y = r.ImGui_GetWindowPos(S.ctx)
+  local win_w, win_h = r.ImGui_GetWindowSize(S.ctx)
+  local popup_w, popup_h = 600, 450
+  local center_x = win_x + (win_w - popup_w) * 0.5
+  local center_y = win_y + (win_h - popup_h) * 0.5
+  center_x = math.max(10, center_x)
+  center_y = math.max(10, center_y)
+  r.ImGui_SetNextWindowPos(S.ctx, center_x, center_y, r.ImGui_Cond_FirstUseEver())
+  r.ImGui_SetNextWindowSize(S.ctx, popup_w, popup_h, r.ImGui_Cond_FirstUseEver())
+  local flags = r.ImGui_WindowFlags_NoCollapse() | r.ImGui_WindowFlags_NoResize() |
+      r.ImGui_WindowFlags_NoDocking()
+  local visible, open = r.ImGui_Begin(S.ctx, "Перегляд субтитрів: " .. (S.preview_sub.title or ""), true, flags)
+  if not open then
+    S.preview_sub.open = false
+    S.preview_sub.content = nil
+    S.preview_sub.title = nil
+    r.ImGui_End(S.ctx)
+    return
+  end
+  if visible then
+    r.ImGui_PushFont(S.ctx, S.font, 13)
+    r.ImGui_PushStyleVar(S.ctx, r.ImGui_StyleVar_ChildRounding(), 8.0)
+    r.ImGui_PushStyleColor(S.ctx, r.ImGui_Col_ChildBg(), C.title_bg)
+    if r.ImGui_BeginChild(S.ctx, "##preview_text", 0, -55, 1) then
+      r.ImGui_PushTextWrapPos(S.ctx, 0)
+      r.ImGui_Text(S.ctx, S.preview_sub.content or "Немає тексту")
+      r.ImGui_PopFont(S.ctx)
+      r.ImGui_PopTextWrapPos(S.ctx)
+      r.ImGui_EndChild(S.ctx)
+    end
+    r.ImGui_PopStyleColor(S.ctx, 1)
+    r.ImGui_PopStyleVar(S.ctx, 1)
+    r.ImGui_Separator(S.ctx)
+    r.ImGui_Dummy(S.ctx, 0, 5)
+    if r.ImGui_Button(S.ctx, "Імпортувати в проєкт", 140, 30) then
+      if S.preview_sub.stream_idx then
+        for _, s in ipairs(S.streams) do
+          if s.idx == S.preview_sub.stream_idx and s.type == "subtitle" then
+            local mdir = get_media_dir()
+            local out = extract_stream(S.file, s, mdir)
+            if out then
+              r.SetExtState("Subass_Notes", "import_request", out, false)
+              S.status = string.format("✓ Субтитри відправлено в Subass_Notes: %s", out:match("[^/\\]+$"))
+            end
+            break
+          end
+        end
+      end
+      S.preview_sub.open = false
+    end
+    r.ImGui_SameLine(S.ctx)
+    if r.ImGui_Button(S.ctx, "Зберегти як файл", 140, 30) then
+      if S.preview_sub.stream_idx then
+        for _, s in ipairs(S.streams) do
+          if s.idx == S.preview_sub.stream_idx and s.type == "subtitle" then
+            local init_dir = S.file:match("(.*)[/\\]") or ""
+            local ok_dir, out_dir = r.JS_Dialog_BrowseForFolder("Обрати папку для збереження субтитрів", init_dir)
+            if ok_dir and out_dir and out_dir ~= "" then
+              out_dir = out_dir:gsub("%z.*", "")
+              local base = (S.file:match("[/\\]([^/\\]+)$") or "subtitle"):gsub("%.[^%.]+$", "")
+              local ext = stream_ext(s)
+              local lang_sfx = (s.lang ~= "") and ("_" .. s.lang) or ""
+              local out_path = out_dir .. SEP .. safe_filename(string.format("%s_s%d%s.%s", base, s.idx, lang_sfx, ext))
+              local content = S.preview_sub.content
+              if content then
+   
+                local f = io.open(out_path, "wb")
+                if f then
+                  f:write(content)
+                  f:close()
+                  S.status = string.format("✓ Збережено: %s", out_path:match("[^/\\]+$"))
+                end
+              end
+            end
+            break
+          end
+        end
+      end
+    end
+    r.ImGui_SameLine(S.ctx)
+    r.ImGui_SameLine(S.ctx, r.ImGui_GetWindowWidth(S.ctx) - 110)
+    if r.ImGui_Button(S.ctx, "Закрити", 100, 30) then
+      S.preview_sub.open = false
+      S.preview_sub.content = nil
+    end
+    r.ImGui_End(S.ctx)
+  end
 end
 
 local function get_next_track_number()
   local track_count = r.CountTracks(0)
   local max_track_num = 0
-
   for i = 0, track_count - 1 do
     local track = r.GetTrack(0, i)
     local track_num = r.GetMediaTrackInfo_Value(track, "IP_TRACKNUMBER")
@@ -707,7 +949,6 @@ local function get_next_track_number()
       max_track_num = math.floor(track_num)
     end
   end
-
   return max_track_num + 1
 end
 
@@ -724,110 +965,625 @@ local function insert_media_on_new_track(file_path, cursor_pos)
   r.SetEditCurPos(edit_cursor, false, false)
 end
 
-local function do_import(src, streams_list)
-  local mdir = get_media_dir()
-  local ok, err = 0, 0
-  local error_details = {}
-  local first_track = true
-  local common_cursor_pos = nil
-  local subtitle_path = nil 
-  r.Undo_BeginBlock()
-  r.PreventUIRefresh(1)
-  for _, s in ipairs(streams_list) do
+local function table_index_of(t, value)
+  for i, v in ipairs(t) do
+    if v == value then return i end
+  end
+  return nil
+end
+
+local function do_replace_audio_async(save_path)
+  local video_file = S.file
+  local audio_file = S.replace_modal.audio_file
+  local keep_subs = S.replace_modal.keep_subs
+  local keep_other_audio = S.replace_modal.keep_other_audio
+  local encode_audio = S.replace_modal.encode_audio
+  local start_time = os.clock()
+  local selected_audio_streams = {}
+  for _, s in ipairs(S.replace_modal.audio_streams) do
     if s.selected then
-      local supported, reason = is_supported_stream(s)
-      if not supported then
-        err = err + 1
-        table.insert(error_details, string.format("Потік #%d (%s) пропущено: %s", s.idx, s.type, reason))
-        S.status = string.format("⚠ Потік #%d пропущено: %s", s.idx, reason)
-      else
-        S.status = string.format("Витягую #%d (%s %s)…", s.idx, s.type, s.codec)
-        local out = extract_stream(src, s, mdir)
-        if out then
-          if s.type == "subtitle" then
-            subtitle_path = out
-          else
-            if first_track then
-              common_cursor_pos = r.GetCursorPosition()
-              first_track = false
-            end
-            insert_media_on_new_track(out, common_cursor_pos)
-          end
-          ok = ok + 1
+      table.insert(selected_audio_streams, s.idx)
+    end
+  end
+
+  local function execute_replace(input_audio)
+    local map_args = {}
+    table.insert(map_args, "-map 0:v")
+    table.insert(map_args, "-map 1:a")
+    if keep_other_audio then table.insert(map_args, "-map 0:a?") end
+    if keep_subs then table.insert(map_args, "-map 0:s?") end
+    local ffmpeg_cmd = string.format(
+      '"%s" -y -i "%s" -i "%s" -c:v copy -c:a copy -shortest -map_metadata 0 -map_chapters 0 %s "%s"',
+      FFMPEG, video_file, input_audio,
+      table.concat(map_args, " "),
+      save_path
+    )
+    S.replace_modal.progress = 0.5
+    S.replace_modal.progress_text = "Об'єднання відео з аудіо..."
+    S.status = "⏳ Заміна аудіо..."
+    run_ffmpeg_async(ffmpeg_cmd, function(out_file)
+      S.replace_modal.progress = 1.0
+      S.replace_modal.progress_text = "Завершено"
+      local f = io.open(save_path, "rb")
+      if f then
+        local size = f:seek("end")
+        f:close()
+        if size and size > 0 then
+          S.replace_modal.processing = false
+          S.replace_modal.open = false
+          S.replace_modal.progress = 0
+          S.replace_modal.progress_text = ""
+          S.status = "✓ Аудіо успішно замінено: " .. (save_path:match("[/\\]([^/\\]+)$") or save_path)
         else
-          err = err + 1
-          table.insert(error_details, string.format("Потік #%d (%s) не вдалося витягнути", s.idx, s.type))
-          S.status = string.format("❌ Помилка витягування потоку #%d", s.idx)
+          S.replace_modal.processing = false
+          S.replace_modal.progress = 0
+          S.status = "❌ Помилка: вихідний файл порожній"
+          os.remove(save_path)
+        end
+      else
+        S.replace_modal.processing = false
+        S.replace_modal.progress = 0
+        S.status = "❌ Помилка: не вдалося створити вихідний файл"
+        if out_file then
+          local f_diag = io.open(out_file, "r")
+          if f_diag then
+            S.diag = "FFmpeg помилка:\n" .. f_diag:read("*a")
+            f_diag:close()
+            S.show_diag = true
+          end
+        end
+      end
+    end)
+  end
+  if encode_audio then
+    local fmt = S.replace_modal.encode_format
+    local br = S.replace_modal.encode_bitrate
+    local temp_converted = get_media_dir() .. SEP .. "temp_converted_audio." ..
+        (fmt == "mp3" and "mp3" or fmt == "flac" and "flac" or fmt == "opus" and "opus" or fmt == "ac3" and "ac3" or "m4a")
+    local filter_parts = {}
+    for i, idx in ipairs(selected_audio_streams) do
+      table.insert(filter_parts, string.format("-map 0:%d", idx))
+    end
+    local codec_args = ""
+    if fmt == "aac" then
+      codec_args = string.format("-c:a aac -b:a %s", br)
+    elseif fmt == "mp3" then
+      codec_args = string.format("-c:a libmp3lame -b:a %s", br)
+    elseif fmt == "flac" then
+      codec_args = "-c:a flac"
+    elseif fmt == "opus" then
+      codec_args = string.format("-c:a libopus -b:a %s", br)
+    elseif fmt == "ac3" then
+      codec_args = string.format("-c:a ac3 -b:a %s", br)
+    end
+    local convert_cmd = string.format(
+      '"%s" -y -i "%s" %s %s "%s"',
+      FFMPEG, audio_file,
+      table.concat(filter_parts, " "),
+      codec_args,
+      temp_converted
+    )
+    S.replace_modal.progress = 0.05
+    S.replace_modal.progress_text = "Конвертація аудіо в " .. fmt:upper() .. "..."
+    S.status = "Конвертація аудіо..."
+    run_ffmpeg_async(convert_cmd, function()
+      S.replace_modal.progress = 0.4
+      S.replace_modal.progress_text = "Конвертацію завершено"
+      local f = io.open(temp_converted, "rb")
+      if f then
+        local size = f:seek("end")
+        f:close()
+        if size and size > 0 then
+          execute_replace(temp_converted)
+        else
+          S.replace_modal.processing = false
+          S.replace_modal.progress = 0
+          S.status = "❌ Помилка конвертації аудіо"
+        end
+      else
+        S.replace_modal.processing = false
+        S.replace_modal.progress = 0
+        S.status = "❌ Помилка конвертації аудіо"
+      end
+    end)
+  else
+    S.replace_modal.progress = 0.2
+    S.replace_modal.progress_text = "Підготовка..."
+    execute_replace(audio_file)
+  end
+end
+
+local function draw_replace_audio_modal() 
+    if S.replace_modal.open then
+      local win_x, win_y = r.ImGui_GetWindowPos(S.ctx)
+      local win_w, win_h = r.ImGui_GetWindowSize(S.ctx)
+      local modal_w, modal_h = 500, 420
+      r.ImGui_SetNextWindowPos(S.ctx,
+        win_x + (win_w - modal_w) * 0.5,
+        win_y + (win_h - modal_h) * 0.5,
+        r.ImGui_Cond_Always()
+      )
+      r.ImGui_SetNextWindowSize(S.ctx, modal_w, modal_h, r.ImGui_Cond_Always())
+      r.ImGui_OpenPopup(S.ctx, "Заміна аудіо у відео##modal")
+      S.replace_modal.open = false
+    end 
+    local ctx = S.ctx
+    local modal_w = 500 
+    local flags = r.ImGui_WindowFlags_NoResize()
+              | r.ImGui_WindowFlags_NoCollapse()
+              | r.ImGui_WindowFlags_NoDocking()
+              | r.ImGui_WindowFlags_NoMove() 
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ModalWindowDimBg(), 0x15151a99)          
+    local visible, open = r.ImGui_BeginPopupModal(ctx, "Заміна аудіо у відео##modal", true, flags)
+    r.ImGui_PopStyleColor(ctx)
+    if not visible then return end
+    if not open then
+      r.ImGui_CloseCurrentPopup(ctx)
+      r.ImGui_EndPopup(ctx)
+      return
+    end
+  if visible then
+    r.ImGui_PushFont(S.ctx, S.font, 13)
+    r.ImGui_TextColored(ctx, C.text_dim, "Відеофайл:")
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_cyan)
+    local video_name = S.file:match("[/\\]([^/\\]+)$") or S.file
+    r.ImGui_TextWrapped(ctx, "▶ " .. video_name)
+    r.ImGui_PopStyleColor(ctx)
+    if r.ImGui_IsItemHovered(ctx) then
+      r.ImGui_SetTooltip(ctx, S.file)
+    end
+    r.ImGui_Spacing(ctx)
+    r.ImGui_Separator(ctx)
+    r.ImGui_Spacing(ctx)
+    r.ImGui_TextColored(ctx, C.text_dim, "Аудіофайл для заміни:")
+    local hw = math.floor((modal_w - 32) / 2.01)
+    if r.ImGui_Button(ctx, "Обрати аудіофайл...", hw, 28) then
+      local extension_mask =
+      "Audio files (*.m4a;*.mp3;*.wav;*.flac;*.aac;*.ogg;*.opus;*.ac3)\0*.m4a;*.mp3;*.wav;*.flac;*.aac;*.ogg;*.opus;*.ac3\0All Files (*.*)\0*.*\0"
+      local ok, f = r.JS_Dialog_BrowseForOpenFiles("Обрати аудіо файл", "", "", extension_mask, false)
+      if ok and f and f ~= "" then
+        f = f:gsub("%z.*", "")
+        S.replace_modal.audio_file = f
+        S.replace_modal.audio_streams = probe_audio_file(f)
+      end
+    end
+    r.ImGui_SameLine(ctx)
+    if r.ImGui_Button(ctx, "З файлу проєкта", hw, 28) then
+      local n = r.CountSelectedMediaItems(0)
+      if n > 0 then
+        local item = r.GetSelectedMediaItem(0, 0)
+        local take = item and r.GetActiveTake(item)
+        local source = take and r.GetMediaItemTake_Source(take)
+        if source then
+          local fname = r.GetMediaSourceFileName(source, "")
+          if fname and fname ~= "" then
+            S.replace_modal.audio_file = fname
+            S.replace_modal.audio_streams = probe_audio_file(fname)
+          end
+        end
+      else
+        S.status = "Виділіть аудіо у проєкті"
+      end
+    end
+    if S.replace_modal.audio_file ~= "" then
+      r.ImGui_Spacing(ctx)
+      local audio_name = S.replace_modal.audio_file:match("[/\\]([^/\\]+)$") or S.replace_modal.audio_file
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_ok)
+      r.ImGui_TextWrapped(ctx, "✓ " .. audio_name)
+      r.ImGui_PopStyleColor(ctx)
+      if #S.replace_modal.audio_streams > 0 then
+        r.ImGui_Spacing(ctx)
+        r.ImGui_TextColored(ctx, C.text_dim, "Аудіодоріжки:")
+        for i, s in ipairs(S.replace_modal.audio_streams) do
+          local changed, val = r.ImGui_Checkbox(ctx, s.label .. "##ra" .. i, s.selected)
+          if changed then S.replace_modal.audio_streams[i].selected = val end
         end
       end
     end
-  end
-  if subtitle_path then
-    r.SetExtState("Subass_Notes", "import_request", subtitle_path, false)
-    S.status = string.format("✓ Субтитри збережено: %s", subtitle_path:match("[^/\\]+$"))
-  end 
-  r.PreventUIRefresh(-1)
-  r.UpdateArrange()
-  r.Undo_EndBlock("MKV/MP4 Extract", -1) 
-  if err == 0 then
-    S.status = string.format("✓ Готово: %d потік(и) імпортовано", ok)
-  else
-    local diag_msg = string.format("Завершено: %d OK / %d помилок\n", ok, err)
-    for _, detail in ipairs(error_details) do
-      diag_msg = diag_msg .. detail .. "\n"
+    r.ImGui_TextColored(ctx, C.text_dim, "Опції:")
+    r.ImGui_SameLine(ctx) 
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_err)
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), 0x00000000)
+    if r.ImGui_Button(ctx, "?", 20, 20) then 
     end
-    S.diag = diag_msg
-    S.status = string.format("⚠ Завершено: %d OK / %d помилок (дивись діагностику)", ok, err)
-    S.show_diag = false
+    r.ImGui_PopStyleColor(ctx, 2) 
+    if r.ImGui_IsItemHovered(ctx) then
+        r.ImGui_SetTooltip(ctx, "• Якщо один з файлів буде коротшим за інший,\nто збережене відео обріжиться по довжині\nнайкоротшого з файлів.")
+    end
+    local keep_subs_changed, keep_subs = r.ImGui_Checkbox(ctx,
+        "Зберегти разом з субтитрами##keep_subs", S.replace_modal.keep_subs)
+    if keep_subs_changed then S.replace_modal.keep_subs = keep_subs end
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_warn)
+    if r.ImGui_IsItemHovered(ctx) then
+        r.ImGui_SetTooltip(ctx, "Якщо вимкнути цю опцію, субтитри\nз оригінального відео не потраплять у новий файл.")
+    end
+    r.ImGui_PopStyleColor(ctx)
+    local keep_audio_changed, keep_audio = r.ImGui_Checkbox(ctx,
+        "Зберегти інші аудіодоріжки##keep_audio", S.replace_modal.keep_other_audio)
+    if keep_audio_changed then S.replace_modal.keep_other_audio = keep_audio end
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_warn)
+    if r.ImGui_IsItemHovered(ctx) then
+        r.ImGui_SetTooltip(ctx, "Якщо вимкнути цю опцію, аудіодоріжки\nз оригінального відео не потраплять у новий файл.")
+    end
+    r.ImGui_PopStyleColor(ctx)
+    r.ImGui_Spacing(ctx)
+    local encode_changed, encode = r.ImGui_Checkbox(ctx,
+      "Кодувати аудіо перед заміною##encode_audio", S.replace_modal.encode_audio)
+    if encode_changed then S.replace_modal.encode_audio = encode end
+    if S.replace_modal.encode_audio then
+      r.ImGui_Indent(ctx, 20)
+      r.ImGui_TextColored(ctx, C.text_dim, "Формат:")
+      local formats = { "aac", "mp3", "flac", "opus", "ac3" }
+      local format_names = { "AAC (.m4a)", "MP3 (.mp3)", "FLAC (.flac)", "Opus (.opus)", "AC3 (.ac3)" }
+      local current_format = S.replace_modal.encode_format
+      local current_idx = table_index_of(formats, current_format) or 1
+      if r.ImGui_BeginCombo(ctx, "##encode_format", format_names[current_idx]) then
+        for i, fmt in ipairs(formats) do
+          local selected = (current_format == fmt)
+          if r.ImGui_Selectable(ctx, format_names[i], selected) then
+            S.replace_modal.encode_format = fmt
+          end
+          if selected then
+            r.ImGui_SetItemDefaultFocus(ctx)
+          end
+        end
+        r.ImGui_EndCombo(ctx)
+      end
+      r.ImGui_TextColored(ctx, C.text_dim, "Бітрейт:")
+      local bitrates = { "96k", "128k", "192k", "256k", "320k" }
+      local current_br = S.replace_modal.encode_bitrate
+      if r.ImGui_BeginCombo(ctx, "##bitrate", current_br) then
+        for _, br in ipairs(bitrates) do
+          local selected = (current_br == br)
+          if r.ImGui_Selectable(ctx, br, selected) then
+            S.replace_modal.encode_bitrate = br
+          end
+          if selected then
+            r.ImGui_SetItemDefaultFocus(ctx)
+          end
+        end
+        r.ImGui_EndCombo(ctx)
+      end
+      r.ImGui_Unindent(ctx, 20)
+    end
+    r.ImGui_Spacing(ctx)
+    r.ImGui_Separator(ctx)
+    r.ImGui_Spacing(ctx)
+    local has_audio = (S.replace_modal.audio_file ~= "")
+    local has_selected = false
+    for _, s in ipairs(S.replace_modal.audio_streams) do
+      if s.selected then
+        has_selected = true; break
+      end
+    end
+    local can_replace = has_audio and (has_selected or #S.replace_modal.audio_streams == 0)
+    local disabled = not can_replace or S.replace_modal.processing
+    if S.replace_modal.processing then
+      r.ImGui_Spacing(ctx)
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_warn)
+      r.ImGui_TextWrapped(ctx, S.status or "Обробка...")
+      r.ImGui_PopStyleColor(ctx)
+      r.ImGui_Spacing(ctx)
+      S.replace_modal.visual_progress = S.replace_modal.visual_progress or 0
+      local target_progress = S.replace_modal.progress
+      if target_progress > 0 then
+        S.replace_modal.visual_progress = S.replace_modal.visual_progress +
+            (target_progress - S.replace_modal.visual_progress) * 0.08
+        if math.abs(target_progress - S.replace_modal.visual_progress) < 0.001 then
+          S.replace_modal.visual_progress = target_progress
+        end
+        local display_prog = math.max(0.0, math.min(1.0, S.replace_modal.visual_progress))
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), C.btn)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_PlotHistogram(), C.text_ok)
+        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FrameRounding(), 4.0)
+        r.ImGui_ProgressBar(ctx, display_prog, modal_w - 60, 20,
+          string.format("%d%%", math.floor(display_prog * 100)))
+        r.ImGui_PopStyleVar(ctx)
+        r.ImGui_PopStyleColor(ctx, 2)
+      else
+        local spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+        local spin_idx = math.floor(os.clock() * 10) % #spinner_chars + 1
+        local spin = spinner_chars[spin_idx]
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), C.btn)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_warn)
+        r.ImGui_Button(ctx, spin .. "  " .. (S.replace_modal.progress_text or "Очікування..."),
+          modal_w - 32, 20)
+        r.ImGui_PopStyleColor(ctx, 2)
+      end
+      if S.replace_modal.progress_text ~= "" and target_progress > 0 then
+        r.ImGui_Spacing(ctx)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
+        r.ImGui_TextWrapped(ctx, S.replace_modal.progress_text)
+        r.ImGui_PopStyleColor(ctx)
+      end
+    else
+      if disabled then
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), C.btn_dis)
+      end
+      if r.ImGui_Button(ctx, "Замінити аудіо", modal_w - 28, 35) then
+        if not disabled then
+          local init_dir = S.file:match("(.*)[/\\]") or ""
+          local video_name_noext = (S.file:match("[/\\]([^/\\]+)$") or "video"):gsub("%.[^%.]+$", "")
+          local ext = S.file:match("%.([^%.]+)$") or "mp4"
+          local default_name = video_name_noext .. "_new_audio." .. ext
+          local ok_save, save_path = r.JS_Dialog_BrowseForSaveFile(
+            "Зберегти відео з новим аудіо",
+            init_dir,
+            default_name,
+            "Video files (*." .. ext .. ")\0*." .. ext .. "\0All Files (*.*)\0*.*\0"
+          )
+          if ok_save and save_path and save_path ~= "" then
+            save_path = save_path:gsub("%z.*", "")
+            S.replace_modal.processing = true
+            S.replace_modal.progress = 0
+            S.replace_modal.visual_progress = 0
+            S.replace_modal.progress_text = "Початок..."
+            do_replace_audio_async(save_path)
+          end
+        end
+      end
+      if disabled then
+        r.ImGui_PopStyleColor(ctx, 2)
+      end 
+    end
   end
-  S.processing = false
+  r.ImGui_PopFont(ctx)
+  r.ImGui_End(ctx)
 end
 
-local C = {
-  win_bg    = 0x333333ff,
-  title_bg  = 0x262626ff,
-  btn       = 0x4d4d4dff,
-  btn_hov   = 0x737373ff,
-  btn_act   = 0x737373ff,
-  btn_dis   = 0x1e1e3aff,
-  btn_diag  = 0x3a2a10ff,
-  text      = 0xd6d6d6ff,
-  text_dim  = 0x858585ff,
-  text_cyan = 0x66ccffff,
-  text_warn = 0xffcc44ff,
-  text_ok   = 0x55ff99ff,
-  text_err  = 0xff5566ff,
-  col_v     = 0xffcc55ff,
-  col_a     = 0x55ffbbff,
-  col_s     = 0xff88eeff,
-  col_d     = 0x8888bbff,
-  child_bg  = 0x0d0d1aff,
-  diag_bg   = 0x0a0a14ff,
-  drop_bg   = 0x181830ff,
-  sep       = 0x333366ff,
-}
+local function format_preview_time(seconds)
+  if not seconds or seconds <= 0 then return "0:00" end
+  local mins = math.floor(seconds / 60)
+  local secs = math.floor(seconds % 60)
+  return string.format("%d:%02d", mins, secs)
+end
 
-local function push_colors(ctx)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_WindowBg(), C.win_bg)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_TitleBg(), C.title_bg)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_TitleBgActive(), C.title_bg)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), C.btn)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonHovered(), C.btn_hov)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonActive(), C.btn_act)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ChildBg(), C.child_bg)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), 0x1a1a2eff)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_CheckMark(), 0x77ddffff)
+local function draw_mini_audio_player()
+  if not S.audio_preview.source then return end
+  local ctx = S.ctx
+  local pos_ok, pos = r.CF_Preview_GetValue(S.audio_preview.source, "D_POSITION")
+  local len_ok, len = r.CF_Preview_GetValue(S.audio_preview.source, "D_LENGTH")
+  if not S.audio_preview.paused and pos_ok and len_ok and pos >= len - 0.05 then
+    S.audio_preview.paused = true
+    S.audio_preview.pause_pos = 0
+    S.audio_preview.playing = false
+  end
+  if S.audio_preview.paused then
+    pos = S.audio_preview.pause_pos
+    len = S.audio_preview.length
+  end
+  local win_h = r.ImGui_GetWindowHeight(ctx)
+  local player_h = 65
+  local cursor_y = r.ImGui_GetCursorPosY(ctx)
+  local bottom_y = win_h - player_h - 20
+  if cursor_y < bottom_y then
+    r.ImGui_SetCursorPosY(ctx, bottom_y)
+  end
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ChildBg(), C.title_bg)
+  r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ChildRounding(), 8.0)
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_PlotHistogram(), C.text_ok)
+  if r.ImGui_BeginChild(ctx, "##audio_player", 0, player_h, 1, 0) then
+    r.ImGui_Dummy(ctx, 0, 0)
+    local play_icon = S.audio_preview.paused and "▶" or "Ⅱ"
+    r.ImGui_PushFont(ctx, S.font, 20)
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), C.btn)
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonHovered(), C.btn_hov)
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonActive(), C.btn_act)
+    if r.ImGui_Button(ctx, play_icon .. "##playpause", 40, 40) then
+      if S.audio_preview.paused then
+        if S.audio_preview.file and r.PCM_Source_CreateFromFile and r.CF_CreatePreview then
+          if S.audio_preview.source then
+            r.CF_Preview_Stop(S.audio_preview.source)
+          end
+          local source = r.PCM_Source_CreateFromFile(S.audio_preview.file)
+          S.audio_preview.source = r.CF_CreatePreview(source)
+          if S.audio_preview.pause_pos > 0 then
+            r.CF_Preview_SetValue(S.audio_preview.source, "D_POSITION", S.audio_preview.pause_pos)
+          end
+          r.CF_Preview_Play(S.audio_preview.source)
+        end
+        S.audio_preview.paused = false
+        S.audio_preview.playing = true
+      else
+        local ok_p, cur_pos = r.CF_Preview_GetValue(S.audio_preview.source, "D_POSITION")
+        local ok_l, cur_len = r.CF_Preview_GetValue(S.audio_preview.source, "D_LENGTH")
+        S.audio_preview.pause_pos = cur_pos or 0
+        S.audio_preview.length = cur_len or 0
+        if S.audio_preview.source then
+          r.CF_Preview_Stop(S.audio_preview.source)
+        end
+        S.audio_preview.paused = true
+        S.audio_preview.playing = false
+      end
+    end
+    r.ImGui_PopStyleColor(ctx, 3)
+    r.ImGui_PopFont(ctx)
+    r.ImGui_SameLine(ctx, 0, 10)
+    r.ImGui_BeginGroup(ctx)
+    local full_name = S.audio_preview.name or "Аудіо"
+    local display_name = full_name
+    local avail_w = r.ImGui_GetContentRegionAvail(ctx) - 50
+    local name_w = r.ImGui_CalcTextSize(ctx, full_name)
+    if name_w > avail_w - 100 then
+      display_name = full_name:sub(1, 40) .. "..."
+    end
+    r.ImGui_PushFont(ctx, S.font, 13)
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_warn)
+    r.ImGui_Text(ctx, display_name)
+    r.ImGui_PopStyleColor(ctx)
+    if r.ImGui_IsItemHovered(ctx) and full_name ~= display_name then
+      r.ImGui_BeginTooltip(ctx)
+      r.ImGui_Text(ctx, full_name)
+      r.ImGui_EndTooltip(ctx)
+    end
+    local time_str = format_preview_time(pos) .. " / " .. format_preview_time(len)
+    local time_w = r.ImGui_CalcTextSize(ctx, time_str)
+    r.ImGui_SameLine(ctx, avail_w - time_w)
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
+    r.ImGui_Text(ctx, time_str)
+    r.ImGui_PopStyleColor(ctx)
+    local progress = (len > 0) and (pos / len) or 0
+    local bar_w = avail_w
+    local cursor_x, cursor_y_pos = r.ImGui_GetCursorScreenPos(ctx)
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), C.btn)
+    r.ImGui_ProgressBar(ctx, progress, bar_w, 6, "")
+    r.ImGui_PopStyleColor(ctx, 1)
+    if r.ImGui_IsItemClicked(ctx, 0) then
+      local mouse_x, mouse_y = r.ImGui_GetMousePos(ctx)
+      local click_pos = (mouse_x - cursor_x) / bar_w
+      click_pos = math.max(0, math.min(1, click_pos))
+      local new_time = click_pos * len
+      if S.audio_preview.paused then
+        S.audio_preview.pause_pos = new_time
+      else
+        if S.audio_preview.source then
+          r.CF_Preview_SetValue(S.audio_preview.source, "D_POSITION", new_time)
+        end
+      end
+    end
+    r.ImGui_PopFont(ctx)
+    r.ImGui_EndGroup(ctx)
+    r.ImGui_SameLine(ctx, r.ImGui_GetWindowWidth(ctx) - 32)
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), C.btn)
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonHovered(), C.btn_hov)
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonActive(), C.btn_act)
+    if r.ImGui_Button(ctx, "✕", 23, 23) then
+      if S.audio_preview.source then
+        r.CF_Preview_Stop(S.audio_preview.source)
+      end
+      S.audio_preview.source = nil
+      S.audio_preview.playing = false
+      S.audio_preview.paused = false
+      S.audio_preview.file = nil
+      S.status = "Відтворення зупинено"
+    end
+    r.ImGui_PopStyleColor(ctx, 3)
+    r.ImGui_EndChild(ctx)
+  end
+  r.ImGui_PopStyleColor(ctx, 2)
+  r.ImGui_PopStyleVar(ctx)
+end
 
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Separator(), C.btn)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_CheckMark(), 0x77ddffff)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_CheckMark(), 0x77ddffff)
+local function get_selected_item_media()
+  local n = r.CountSelectedMediaItems(0)
+  for i = 0, n - 1 do
+    local item   = r.GetSelectedMediaItem(0, i)
+    local take   = item and r.GetActiveTake(item)
+    local source = take and r.GetMediaItemTake_Source(take)
+    if source then
+      local fname = r.GetMediaSourceFileName(source, "")
+      if fname and (fname:lower():match("%.mp4$") or fname:lower():match("%.mkv$")) then
+        return fname
+      end
+    end
+  end
+  return nil
+end
 
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ScrollbarGrab(), C.btn)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), C.title_bg)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBgHovered(), C.btn)
-  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBgActive(), C.btn)
-  return 17
+local function do_import(src, streams_list)
+  local mdir = get_media_dir()
+  local ok_count, err_count = 0, 0
+  local error_details = {}
+  local first_track = true
+  local common_cursor_pos = nil
+  local to_process = {}
+  for _, s in ipairs(streams_list) do
+    if s.selected then
+      local supported, reason = is_supported_stream(s)
+      if supported then
+        table.insert(to_process, s)
+      else
+        err_count = err_count + 1
+        table.insert(error_details, string.format(
+          "Потік #%d (%s) пропущено: %s", s.idx, s.type, reason))
+      end
+    end
+  end
+  if #to_process == 0 then
+    S.processing = false
+    S.status = "Немає підтримуваних потоків для імпорту"
+    return
+  end
+  r.Undo_BeginBlock()
+  r.PreventUIRefresh(1)
+  common_cursor_pos = r.GetCursorPosition()
+  local idx = 0
+  local subtitle_path = nil
+  local function process_next()
+    idx = idx + 1
+    if idx > #to_process then
+      if subtitle_path then
+        r.SetExtState("Subass_Notes", "import_request", subtitle_path, false)
+      end
+      r.PreventUIRefresh(-1)
+      r.UpdateArrange()
+      r.Undo_EndBlock("MKV/MP4 Extract", -1)
+      S.processing = false
+      if err_count == 0 then
+        S.status = string.format("✓ Готово: %d потік(и) імпортовано", ok_count)
+      else
+        S.diag = string.format("Завершено: %d OK / %d помилок\n", ok_count, err_count)
+        for _, d in ipairs(error_details) do
+          S.diag = S.diag .. d .. "\n"
+        end
+        S.status = string.format(
+          "⚠ Завершено: %d OK / %d помилок (дивись діагностику)", ok_count, err_count)
+      end
+      return
+    end
+    local s = to_process[idx]
+    S.status = string.format(
+      "Витягую %d/%d: #%d (%s %s)…", idx, #to_process, s.idx, s.type, s.codec)
+    local base = (src:match("[/\\]([^/\\]+)$") or "track"):gsub("%.[^%.]+$", "")
+    local lang_sfx = (s.lang ~= "") and ("_" .. s.lang) or ""
+    local ext = stream_ext(s)
+    local use_channel_selection = false
+    local selected_list = {}
+    if s.type == "audio" and S.selected_channels[s.idx] then
+      for ch, selected in pairs(S.selected_channels[s.idx]) do
+        if selected then table.insert(selected_list, ch) end
+      end
+      if #selected_list > 0 and #selected_list < s.channels then
+        use_channel_selection = true
+      end
+    end
+    local out_path
+    local ffmpeg_cmd
+    if use_channel_selection then
+      local ch_sfx = "_ch" .. table.concat(selected_list, "")
+      out_path = mdir .. SEP .. safe_filename(
+        string.format("%s_s%d%s%s.wav", base, s.idx, lang_sfx, ch_sfx))
+      ffmpeg_cmd = string.format(
+        '"%s" -y -i "%s" -map 0:%d -af "%s" -ac %d "%s"',
+        FFMPEG, src, s.idx, build_pan_filter(selected_list), #selected_list, out_path)
+    else
+      out_path = mdir .. SEP .. safe_filename(
+        string.format("%s_s%d%s.%s", base, s.idx, lang_sfx, ext))
+      ffmpeg_cmd = string.format(
+        '"%s" -y -i "%s" -map 0:%d -c copy "%s"',
+        FFMPEG, src, s.idx, out_path)
+    end
+    run_ffmpeg_async(ffmpeg_cmd, function()
+      local f = io.open(out_path, "rb")
+      local size = f and f:seek("end")
+      if f then f:close() end
+      if size and size > 0 then
+        if s.type == "subtitle" then
+          subtitle_path = out_path
+        else
+          insert_media_on_new_track(out_path, common_cursor_pos)
+        end
+        ok_count = ok_count + 1
+      else
+        err_count = err_count + 1
+        table.insert(error_details,
+          string.format("Потік #%d (%s) не вдалося витягнути", s.idx, s.type))
+      end
+      process_next()
+    end)
+  end
+  process_next()
 end
 
 local function draw_ui()
@@ -840,34 +1596,63 @@ local function draw_ui()
   r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_PopupRounding(), 8.0)
   r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_WindowTitleAlign(), 0.5, 0.5)
   r.ImGui_SetNextWindowSize(ctx, WIN_W, WIN_H, r.ImGui_Cond_Always())
-
   local vis, open = r.ImGui_Begin(ctx, "MKV/MP4 Extract", true, WIN_FLAGS)
   S.open = open
-
   if vis then
     local inner_w = WIN_W - 16
     local cur_y = r.ImGui_GetCursorPosY(ctx)
 
     -- ── ВЕРХНЯ ЗОНА ──────────────────────────
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ChildBg(), C.drop_bg)
-    if r.ImGui_BeginChild(ctx, "##dropzone", inner_w, 48, CHILD_BORDER, 0) then
-      r.ImGui_SetCursorPos(ctx, 8, 6)
-      if S.file == "" then
+    if r.ImGui_BeginChild(ctx, "##dropzone", inner_w, 50, CHILD_BORDER, 0) then 
+      local btn_width = 140
+      local spacing = 8
+      local has_file = S.file ~= ""
+      r.ImGui_SetCursorPos(ctx, 8, 6) 
+      if not has_file then
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
         r.ImGui_Text(ctx, "Файл не обрано")
         r.ImGui_PopStyleColor(ctx)
       else
-        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_cyan)
         local filename = S.file:match("[/\\]([^/\\]+)$") or S.file
-        r.ImGui_Text(ctx, "▶  " .. filename)
-        r.ImGui_PopStyleColor(ctx)
-        if r.ImGui_IsItemHovered(ctx) then r.ImGui_SetTooltip(ctx, S.file) end
+        local display_name = "▶  " .. filename
+        local avail_w = inner_w - btn_width - (spacing * 2) + 140
+        local max_chars = math.floor(avail_w / 8)
+        if #display_name > max_chars and max_chars > 10 then
+          display_name = display_name:sub(1, max_chars - 3) .. "..."
+        end 
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_cyan)
+        r.ImGui_Text(ctx, display_name)
+        r.ImGui_PopStyleColor(ctx) 
+        if r.ImGui_IsItemHovered(ctx) then
+          r.ImGui_SetTooltip(ctx, S.file)
+        end
       end
-
       r.ImGui_SetCursorPos(ctx, 8, 26)
-      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
-      r.ImGui_Text(ctx, "ffprobe: " .. (FFPROBE:match("[/\\]([^/\\]+)$") or FFPROBE))
-      r.ImGui_PopStyleColor(ctx)
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim) 
+      local ff_text = "ffprobe: " .. (FFPROBE:match("[/\\]([^/\\]+)$") or FFPROBE)
+      local ff_max_chars = math.floor((inner_w - btn_width - 20) / 8)
+      if #ff_text > ff_max_chars then ff_text = ff_text:sub(1, ff_max_chars-3).."..." end
+      r.ImGui_Text(ctx, ff_text)
+      r.ImGui_PopStyleColor(ctx) 
+      if has_file then
+          local x = inner_w - btn_width - spacing 
+          r.ImGui_SetCursorPos(ctx, x+20, 10) 
+          if r.ImGui_Button(ctx, "Додатково ▾", 120, 30) then
+            r.ImGui_OpenPopup(ctx, "extra_menu")
+          end 
+          if r.ImGui_BeginPopup(ctx, "extra_menu") then
+            if r.ImGui_MenuItem(ctx, "Замінити аудіо...") then
+              S.replace_modal.open = true
+            end 
+            r.ImGui_Separator(ctx) 
+            if r.ImGui_MenuItem(ctx, "Копіювати шлях") then
+              r.CF_SetClipboard(S.file)
+              S.status = "✓ Шлях скопійовано"
+            end
+            r.ImGui_EndPopup(ctx)
+          end
+        end
       r.ImGui_EndChild(ctx)
     end
     r.ImGui_PopStyleColor(ctx)
@@ -907,29 +1692,28 @@ local function draw_ui()
         r.ImGui_Text(ctx, "Виділити всі потоки, які підтримуються для імпорту")
         r.ImGui_EndTooltip(ctx)
       end
-      r.ImGui_SameLine(ctx) 
+      r.ImGui_SameLine(ctx)
       local any_selected = false
-      for _, s in ipairs(S.streams) do 
+      for _, s in ipairs(S.streams) do
         if s.selected then
           any_selected = true
           break
-        end 
-      end 
-      if not any_selected then 
-        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim) 
+        end
+      end
+      if not any_selected then
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
       end
       if r.ImGui_Button(ctx, "Зняти все##clear_all", 145, 0) then
         if any_selected then
-          for _, s in ipairs(S.streams) do 
-            s.selected = false 
+          for _, s in ipairs(S.streams) do
+            s.selected = false
           end
         end
       end
-      if not any_selected then 
-        r.ImGui_PopStyleColor(ctx) 
+      if not any_selected then
+        r.ImGui_PopStyleColor(ctx)
       end
     end
-    
     r.ImGui_Spacing(ctx)
     r.ImGui_Spacing(ctx)
 
@@ -954,13 +1738,205 @@ local function draw_ui()
             col = C.col_s
           end
           r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), col)
-          local changed, newval = r.ImGui_Checkbox(ctx, s.label .. "##s" .. i, s.selected)
-          r.ImGui_PopStyleColor(ctx)
-          if changed then S.streams[i].selected = newval end
+          local avail_w = r.ImGui_GetContentRegionAvail(ctx) + 70
+          local max_chars = math.floor(avail_w / 8)
+          local display_label = s.label
+          if #s.label > max_chars and max_chars > 10 then
+            display_label = s.label:sub(1, max_chars - 3) .. "..."
+          end
+          local changed, newval = r.ImGui_Checkbox(ctx, display_label .. "##s" .. i, s.selected)
+          if changed then
+            S.streams[i].selected = newval
+          end
           if r.ImGui_IsItemHovered(ctx) then
             r.ImGui_BeginTooltip(ctx)
-            r.ImGui_Text(ctx, s.label)
+            r.ImGui_TextColored(ctx, C.text, s.label)
             r.ImGui_EndTooltip(ctx)
+          end
+          if s.type == "audio" and s.selected and s.channels and s.channels > 0 then
+            r.ImGui_Indent(ctx, 20)
+            if not S.selected_channels[s.idx] then
+              S.selected_channels[s.idx] = {}
+              for ch = 1, s.channels do
+                S.selected_channels[s.idx][ch] = true
+              end
+            end
+            for ch = 1, s.channels do
+              local ch_label = (s.channels <= 6) and
+                  (ch == 1 and "L" or ch == 2 and "R" or ch == 3 and "C" or
+                    ch == 4 and "LFE" or ch == 5 and "Ls" or ch == 6 and "Rs" or string.format("ch%d", ch))
+                  or string.format("ch%d", ch)
+              if r.ImGui_Checkbox(ctx, ch_label .. "##ch" .. s.idx .. "_" .. ch, S.selected_channels[s.idx][ch]) then
+                S.selected_channels[s.idx][ch] = not S.selected_channels[s.idx][ch]
+              end
+              r.ImGui_SameLine(ctx, 0, 8)
+            end
+            r.ImGui_Unindent(ctx, 20)
+          end
+          r.ImGui_PopStyleColor(ctx)
+          if changed then S.streams[i].selected = newval end
+          local btn_width = 80
+          local spacing = 40
+          if s.type == "subtitle" then
+            r.ImGui_SameLine(ctx, WIN_W - btn_width - spacing)
+            if r.ImGui_Button(ctx, "Перегляд##sub" .. i, btn_width, 0) then
+              S.status = "Витягую субтитри для перегляду..."
+              local mdir = get_media_dir()
+              extract_stream_async(S.file, s, mdir, function(out)
+                if out then
+                  local content = read_subtitle_preview(out)
+                  if content then
+                    S.preview_sub.content = content
+                    S.preview_sub.title = (s.title ~= "" and s.title or ("Потік #" .. s.idx))
+                    S.preview_sub.stream_idx = s.idx
+                    S.preview_sub.open = true
+                    S.status = "Готово до перегляду"
+                  else
+                    S.status = "Помилка: не вдалося прочитати субтитри"
+                  end
+                  os.remove(out)
+                else
+                  S.status = "Помилка витягування субтитрів"
+                end
+              end)
+            end
+          end
+          if s.type == "audio" then
+            local is_current = (S.audio_preview.current_stream_idx == s.idx)
+            local is_playing = is_current and S.audio_preview.playing and not S.audio_preview.paused
+            r.ImGui_SameLine(ctx, WIN_W - btn_width - spacing)
+            if is_playing then
+              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), 0x8a3a3aff)
+              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonHovered(), 0x9a4a4aff)
+            else
+              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), 0x3e3e48ff)
+              r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ButtonHovered(), 0x5a5a66ff)
+            end
+            local btn_label = is_playing and "▉" or "▶"
+            if r.ImGui_Button(ctx, btn_label .. "##aud" .. i, btn_width, 0) then
+              if is_current and S.audio_preview.source then
+                stop_audio_preview()
+                S.status = "Відтворення зупинено"
+              else
+                stop_audio_preview()
+                local use_channel_selection = false
+                local selected_channels_list = {}
+                if S.selected_channels[s.idx] then
+                  local selected_count = 0
+                  for ch = 1, s.channels do
+                    if S.selected_channels[s.idx][ch] then
+                      selected_count = selected_count + 1
+                      table.insert(selected_channels_list, ch)
+                    end
+                  end
+                  if selected_count > 0 and selected_count < s.channels then
+                    use_channel_selection = true
+                  end
+                end
+                local ffmpeg_cmd
+                local out_path
+                if use_channel_selection then
+                  r.RecursiveCreateDirectory(TEMP_PREVIEW_DIR, 0)
+                  out_path = TEMP_PREVIEW_DIR .. string.format("preview_%d_%d.m4a", s.idx, os.time())
+                  ffmpeg_cmd = string.format(
+                    '"%s" -y -i "%s" -map 0:%d -af "%s" -t 180 -c:a aac -b:a 96k "%s"',
+                    FFMPEG, S.file, s.idx, build_pan_filter(selected_channels_list), out_path)
+                else
+                  local mdir = get_media_dir()
+                  local base = (S.file:match("[/\\]([^/\\]+)$") or "track"):gsub("%.[^%.]+$", "")
+                  local lang_sfx = (s.lang ~= "") and ("_" .. s.lang) or ""
+                  local ext = stream_ext(s)
+                  out_path = mdir .. SEP .. safe_filename(
+                    string.format("%s_s%d%s.%s", base, s.idx, lang_sfx, ext))
+                  ffmpeg_cmd = string.format(
+                    '"%s" -y -i "%s" -map 0:%d -c copy "%s"',
+                    FFMPEG, S.file, s.idx, out_path)
+                end
+                local stream_label = s.label
+                local stream_idx = s.idx
+                local stream_title = s.title
+                if use_channel_selection then
+                  local ch_names = {}
+                  for _, ch in ipairs(selected_channels_list) do
+                    local ch_name
+                    if s.channels <= 6 then
+                      local names = { [1] = "L", [2] = "R", [3] = "C", [4] = "LFE", [5] = "Ls", [6] = "Rs" }
+                      ch_name = names[ch] or string.format("%d", ch)
+                    else
+                      local names_7_1 = {
+                        [1] = "L",
+                        [2] = "R",
+                        [3] = "C",
+                        [4] = "LFE",
+                        [5] = "Lss",
+                        [6] = "Rss",
+                        [7] =
+                        "Lrs",
+                        [8] = "Rrs"
+                      }
+                      ch_name = names_7_1[ch] or string.format("%d", ch)
+                    end
+                    table.insert(ch_names, ch_name)
+                  end
+                  S.audio_preview.name = string.format("%s [тільки %s]",
+                    stream_title ~= "" and stream_title or ("Потік #" .. stream_idx),
+                    table.concat(ch_names, ","))
+                else
+                  S.audio_preview.name = stream_label
+                end
+                S.audio_preview.current_stream_idx = stream_idx
+                S.status = "Витягую аудіо…"
+                run_ffmpeg_async(ffmpeg_cmd, function()
+                  local f = io.open(out_path, "rb")
+                  local size = f and f:seek("end")
+                  if f then f:close() end
+                  if size and size > 0 then
+                    if r.PCM_Source_CreateFromFile and r.CF_CreatePreview then
+                      local source = r.PCM_Source_CreateFromFile(out_path)
+                      S.audio_preview.source = r.CF_CreatePreview(source)
+                      S.audio_preview.file = out_path
+                      S.audio_preview.playing = true
+                      S.audio_preview.paused = false
+                      S.audio_preview.pause_pos = 0
+                      local _, len = r.CF_Preview_GetValue(S.audio_preview.source, "D_LENGTH")
+                      S.audio_preview.length = len or 0
+                      r.CF_Preview_Play(S.audio_preview.source)
+                      S.status = "Відтворення: " .. (S.audio_preview.name or "")
+                    else
+                      S.status = "Помилка: не вдалося створити аудіо-джерело"
+                    end
+                  else
+                    S.status = "Помилка витягування аудіо"
+                    S.audio_preview.current_stream_idx = nil
+                    S.audio_preview.name = nil
+                  end
+                end)
+              end
+            end
+            if r.ImGui_IsItemHovered(ctx) then
+              local show_tip = false
+              if S.selected_channels[s.idx] then
+                local selected_count = 0
+                for ch = 1, s.channels do
+                  if S.selected_channels[s.idx][ch] then
+                    selected_count = selected_count + 1
+                  end
+                end
+                if selected_count > 0 and selected_count < s.channels then
+                  show_tip = true
+                end
+              end
+              if show_tip then
+                r.ImGui_BeginTooltip(ctx)
+                r.ImGui_PushTextWrapPos(ctx, 300)
+                r.ImGui_TextColored(ctx, C.text_warn,
+                  "⚠ Обрано не всі канали\n" ..
+                  "Прев'ю обмежено: 3 хв.")
+                r.ImGui_PopTextWrapPos(ctx)
+                r.ImGui_EndTooltip(ctx)
+              end
+            end
+            r.ImGui_PopStyleColor(ctx, 2)
           end
         end
       end
@@ -971,9 +1947,11 @@ local function draw_ui()
     r.ImGui_Spacing(ctx)
     if S.file ~= "" and #S.streams > 0 then
       local any = false
-      for _, s in ipairs(S.streams) do if s.selected then
+      for _, s in ipairs(S.streams) do
+        if s.selected then
           any = true; break
-        end end
+        end
+      end
       local disabled = not any or S.processing
       local selected_count = 0
       for _, s in ipairs(S.streams) do
@@ -999,92 +1977,108 @@ local function draw_ui()
           local ok_dir, out_dir = r.JS_Dialog_BrowseForFolder("Обрати папку для збереження потоків", init_dir)
           if ok_dir and out_dir and out_dir ~= "" then
             out_dir = out_dir:gsub("%z.*", "")
-            local saved, failed = 0, 0
+            local to_save = {}
             local base = (S.file:match("[/\\]([^/\\]+)$") or "track"):gsub("%.[^%.]+$", "")
-            local resource_path = r.GetResourcePath()
             for _, s in ipairs(S.streams) do
               if s.selected then
                 local ext = stream_ext(s)
                 local lang_sfx = (s.lang ~= "") and ("_" .. s.lang) or ""
+                local ch_sfx = ""
+                local use_channel_selection = false
+                local selected_list = {}
+                if s.type == "audio" and S.selected_channels[s.idx] then
+                  for ch, selected in pairs(S.selected_channels[s.idx]) do
+                    if selected then table.insert(selected_list, ch) end
+                  end
+                  table.sort(selected_list)
+                  if #selected_list > 0 and #selected_list < s.channels then
+                    use_channel_selection = true
+                    ch_sfx = "_ch" .. table.concat(selected_list, "")
+                    ext = "wav"
+                  end
+                end
                 local out_path = out_dir .. SEP .. safe_filename(
-                  string.format("%s_s%d%s.%s", base, s.idx, lang_sfx, ext)
-                )
-                S.status = "Зберігаю потік #" .. s.idx .. "…"
-                local bat_path = resource_path .. SEP .. "Scripts" .. SEP .. "_mkv_save_as.bat"
+                  string.format("%s_s%d%s%s.%s", base, s.idx, lang_sfx, ch_sfx, ext))
                 local ffmpeg_cmd
-                if s.type == "attachment" then
+                if use_channel_selection then
+                  ffmpeg_cmd = string.format(
+                    '"%s" -y -i "%s" -map 0:%d -af "%s" -ac %d "%s"',
+                    FFMPEG, S.file, s.idx, build_pan_filter(selected_list), #selected_list, out_path)
+                elseif s.type == "attachment" then
                   ffmpeg_cmd = string.format(
                     '"%s" -y -dump_attachment:%d "%s" -i "%s"',
-                    FFMPEG, s.idx, out_path, S.file
-                  )
+                    FFMPEG, s.idx, out_path, S.file)
                 else
                   ffmpeg_cmd = string.format(
                     '"%s" -y -i "%s" -map 0:%d -c copy "%s"',
-                    FFMPEG, S.file, s.idx, out_path
-                  )
+                    FFMPEG, S.file, s.idx, out_path)
                 end
-                if IS_WIN then
-                  local bat = string.format('@echo off\nchcp 65001 >nul\n%s', ffmpeg_cmd)
-                  write_to_file(bat_path, bat)
-                  r.ExecProcess(bat_path, 0)
-                  os.remove(bat_path)
+                table.insert(to_save, {
+                  s        = s,
+                  out_path = out_path,
+                  cmd      = ffmpeg_cmd,
+                })
+              end
+            end
+            if #to_save == 0 then return end
+            local save_idx = 0
+            local saved, failed = 0, 0
+            S.processing = true
+            local function save_next()
+              save_idx = save_idx + 1
+              if save_idx > #to_save then
+                S.processing = false
+                if failed == 0 then
+                  S.status = string.format("✓ Збережено %d файл(ів) у: %s",
+                    saved, (out_dir:match("[/\\]([^/\\]+)$") or out_dir))
                 else
-                  if s.type == "attachment" then
-                    ffmpeg_cmd = string.format(
-                      '%s -y -dump_attachment:%d %s -i %s',
-                      shell_q(FFMPEG), s.idx, shell_q(out_path), shell_q(S.file)
-                    )
-                  else
-                    ffmpeg_cmd = string.format(
-                      '%s -y -i %s -map 0:%d -c copy %s 2>&1',
-                      shell_q(FFMPEG), shell_q(S.file), s.idx, shell_q(out_path)
-                    )
-                  end
-                  os.execute(ffmpeg_cmd)
+                  S.status = string.format("⚠ Збережено: %d / Помилок: %d", saved, failed)
                 end
-                local fcheck = io.open(out_path, "rb")
-                if fcheck then
-                  local sz = fcheck:seek("end"); fcheck:close()
-                  if sz and sz > 0 then
-                    saved = saved + 1
-                  else
-                    failed = failed + 1
-                  end
+                return
+              end
+              local item = to_save[save_idx]
+              S.status = string.format("Зберігаю %d/%d: потік #%d…",
+                save_idx, #to_save, item.s.idx)
+              run_ffmpeg_async(item.cmd, function()
+                local f = io.open(item.out_path, "rb")
+                local size = f and f:seek("end")
+                if f then f:close() end
+                if size and size > 0 then
+                  saved = saved + 1
                 else
                   failed = failed + 1
                 end
-              end
+                save_next()
+              end)
             end
-            if failed == 0 then
-              S.status = string.format("✓ Збережено %d файл(ів) у: %s",
-                saved, (out_dir:match("[/\\]([^/\\]+)$") or out_dir))
-            else
-              S.status = string.format("⚠ Збережено: %d / Помилок: %d", saved, failed)
-            end
+            save_next()
           end
         end
       end
       if save_disabled then r.ImGui_PopStyleColor(ctx) end
     end
     r.ImGui_Spacing(ctx)
-    local sc = C.text_dim
-    if S.status:find("✓") then
-      sc = C.text_ok
-    elseif S.status:find("Немає виділеного MP4/MKV") or S.status:find("Помилка") or S.status:find("не знайдено") then
-      sc = C.text_err
+    if not S.audio_preview.source then
+      local sc = C.text_dim
+      if S.status:find("✓") then
+        sc = C.text_ok
+      elseif S.status:find("Немає виділеного MP4/MKV") or S.status:find("Помилка") or S.status:find("не знайдено") then
+        sc = C.text_err
+      end
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), sc)
+      r.ImGui_TextWrapped(ctx, S.status)
+      r.ImGui_PopStyleColor(ctx)
+
+      -- ── Панель діагностики ───────────────────────────────
+      r.ImGui_Spacing(ctx)
+      if S.font then r.ImGui_PushFont(ctx, S.font, 11) end
+      local diag_label = S.show_diag and "▼ Діагностика (сховати)" or "▶ Діагностика (показати)"
+      if r.ImGui_Button(ctx, diag_label, inner_w, 20) then
+        S.show_diag = not S.show_diag
+      end
+      if S.font then r.ImGui_PopFont(ctx) end
     end
-    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), sc)
-    r.ImGui_TextWrapped(ctx, S.status)
-    r.ImGui_PopStyleColor(ctx)
-    -- ── Панель діагностики ───────────────────────────────
-    r.ImGui_Spacing(ctx)
-    if S.font then r.ImGui_PushFont(ctx, S.font, 11) end
-    local diag_label = S.show_diag and "▼ Діагностика (сховати)" or "▶ Діагностика (показати)"
-    if r.ImGui_Button(ctx, diag_label, inner_w, 20) then
-      S.show_diag = not S.show_diag
-    end
-    if S.font then r.ImGui_PopFont(ctx) end
-    if S.show_diag and S.diag ~= "" then
+    if not S.audio_preview.source and S.show_diag and S.diag ~= "" then
       r.ImGui_Spacing(ctx)
       r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ChildBg(), C.diag_bg)
       if r.ImGui_BeginChild(ctx, "##diag", inner_w, 120, CHILD_BORDER, 0) then
@@ -1097,12 +2091,56 @@ local function draw_ui()
     end
   end
   if S.font then r.ImGui_PopFont(ctx) end
+  draw_subtitle_preview()
+  draw_replace_audio_modal()
+  draw_mini_audio_player()
   r.ImGui_PopStyleVar(ctx, 5)
   r.ImGui_End(ctx)
   r.ImGui_PopStyleColor(ctx, n_colors)
 end
 
+local function cleanup_preview_resources()
+  if S.audio_preview.source then
+    r.CF_Preview_Stop(S.audio_preview.source)
+    S.audio_preview.source = nil
+  end
+  S.preview_sub.open = false
+  S.preview_sub.content = nil
+  S.audio_preview.playing = false
+  S.audio_preview.paused = false
+  S.audio_preview.name = nil
+  S.audio_preview.current_stream_idx = nil
+  S.audio_preview.pause_pos = 0
+  S.audio_preview.length = 0
+end
+
+local function clean_old_preview_files()
+  if TEMP_PREVIEW_DIR and TEMP_PREVIEW_DIR ~= "" then
+    r.RecursiveCreateDirectory(TEMP_PREVIEW_DIR, 0)
+    if r.EnumerateFiles then
+      local idx = 0
+      while true do
+        local filename = r.EnumerateFiles(TEMP_PREVIEW_DIR, idx)
+        if not filename then break end
+        local full_path = TEMP_PREVIEW_DIR .. filename
+        local success, err = pcall(os.remove, full_path)
+        idx = idx + 1
+      end
+    end
+  end
+end
+
+local function on_window_close()
+  cleanup_preview_resources()
+  for _, task in ipairs(async_tasks) do
+    if task.out_file then pcall(os.remove, task.out_file) end
+    if task.done_file then pcall(os.remove, task.done_file) end
+  end
+  async_tasks = {}
+end
+
 S.ctx = r.ImGui_CreateContext("MKV/MP4 Extract")
+clean_old_preview_files()
 
 if r.ImGui_CreateFont then
   local font_paths
@@ -1153,19 +2191,24 @@ do
 end
 
 local function loop()
-  if not S.ctx or not reaper.ImGui_ValidatePtr(S.ctx, 'ImGui_Context*') then return end
-  local force_close = reaper.GetExtState("Subass_Global", "ForceCloseComplementary")
-  if force_close == "1" or force_close == "imnotbad_MP4_MKV_Extract.lua" then 
-      if force_close == "imnotbad_MP4_MKV_Extract.lua" then
-          reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
-      end
-      S.open = false
+  if not S.ctx or not r.ImGui_ValidatePtr(S.ctx, 'ImGui_Context*') then return end
+  poll_task_queue()
+  local force_close = r.GetExtState("Subass_Global", "ForceCloseComplementary")
+  if force_close == "1" or force_close == "imnotbad_MP4_MKV_Extract.lua" then
+    if force_close == "imnotbad_MP4_MKV_Extract.lua" then
+      r.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
+    end
+    S.open = false
   end
-
-  if not S.open then return end
-
+  if not S.open then
+    return
+  end
   draw_ui()
   r.defer(loop)
+end
+
+if r.atexit then
+  r.atexit(on_window_close)
 end
 
 r.defer(loop)
