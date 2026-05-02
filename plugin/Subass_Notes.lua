@@ -871,7 +871,8 @@ local editor_state = {
     target_scroll_y = 0,
     cached_max_scroll = 0,
     sort_cache = { valid = false, list = {}, method = "" },
-    needs_sync = false
+    needs_sync = false,
+    actor_last_clicked = {}
 }
 
 -- ASS/Subtitle Data
@@ -24088,10 +24089,11 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             
             local alpha_mark = (cfg.editor_actor_sort == "alpha" or not cfg.editor_actor_sort) and "• " or ""
             local count_mark = (cfg.editor_actor_sort == "count") and "• " or ""
+            local recent_mark = (cfg.editor_actor_sort == "recent") and "• " or ""
             local fast_jump_mark = cfg.editor_fast_jump and "• " or ""
             local auto_scroll_mark = cfg.editor_auto_scroll and "• " or ""
             
-            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|<" .. count_mark .. "По кількості реплік|" .. fast_jump_mark .. "Швидкий перехід|" .. auto_scroll_mark .. "Автопрокрутка до актора||Видалити всі приховані коментарі||" .. layout_label .. "|Закрити вікно"
+            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|" .. count_mark .. "По кількості реплік|<" .. recent_mark .. "Останні вибрані|" .. fast_jump_mark .. "Швидкий перехід|" .. auto_scroll_mark .. "Автопрокрутка до актора||Видалити всі приховані коментарі||" .. layout_label .. "|Закрити вікно"
             
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu(menu_str)
@@ -24104,12 +24106,16 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 editor_state.sort_cache.valid = false
                 save_settings()
             elseif ret == 3 then
-                cfg.editor_fast_jump = not cfg.editor_fast_jump
+                cfg.editor_actor_sort = "recent"
+                editor_state.sort_cache.valid = false
                 save_settings()
             elseif ret == 4 then
-                cfg.editor_auto_scroll = not cfg.editor_auto_scroll
+                cfg.editor_fast_jump = not cfg.editor_fast_jump
                 save_settings()
             elseif ret == 5 then
+                cfg.editor_auto_scroll = not cfg.editor_auto_scroll
+                save_settings()
+            elseif ret == 6 then
                 -- Delete all hidden comments from all lines
                 local count = 0
                 push_undo("Видалити всі приховані коментарі")
@@ -24131,11 +24137,11 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 else
                     show_snackbar("Прихованих коментарів не знайдено", "info")
                 end
-            elseif ret == 6 then
+            elseif ret == 7 then
                 if cfg.editor_layout == "right" then cfg.editor_layout = "bottom" else cfg.editor_layout = "right" end
                 save_settings()
                 last_layout_state.state_count = -1
-            elseif ret == 7 then
+            elseif ret == 8 then
                 cfg.editor_mode = false
                 save_settings()
             end
@@ -24162,6 +24168,14 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     else
         if sort_mode == "alpha" then
             table.sort(actors_list)
+        elseif sort_mode == "recent" then
+            local last_clicks = editor_state.actor_last_clicked or {}
+            table.sort(actors_list, function(a, b)
+                local ta = last_clicks[a] or 0
+                local tb = last_clicks[b] or 0
+                if ta ~= tb then return ta > tb end
+                return a < b
+            end)
         else
             -- Count replicas
             local counts = {}
@@ -24284,6 +24298,14 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 if draw_btn_clipped(draw_x, sdraw_y, btn_w, btn_h, label, bg_col, panel_y, actor_area_bottom) then
                     if not is_opt_hover then
                         editor_state.current_actor = actor
+                        
+                        -- Update recent click tracking
+                        if not editor_state.actor_last_clicked then editor_state.actor_last_clicked = {} end
+                        editor_state.actor_last_clicked[actor] = reaper.time_precise()
+                        if cfg.editor_actor_sort == "recent" then
+                            editor_state.sort_cache.valid = false
+                        end
+                        
                         -- Immediate sync if editing
                         if current_region then
                             local new_col = get_actor_color(actor)
