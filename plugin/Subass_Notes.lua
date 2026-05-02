@@ -24729,7 +24729,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                     t2 = end_ts,
                     text = txt,
                     actor = actor,
-                    markindex = r_id
+                    rgn_idx = r_id
                 })
 
                 show_snackbar("Регіон створено", "success")
