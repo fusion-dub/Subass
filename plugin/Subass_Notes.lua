@@ -135,6 +135,7 @@ local cfg = {
     editor_actor_sort = get_set("editor_actor_sort", "alpha"),
     editor_fast_jump = (get_set("editor_fast_jump", "0") == "1" or get_set("editor_fast_jump", 0) == 1),
     editor_auto_scroll = (get_set("editor_auto_scroll", "1") == "1" or get_set("editor_auto_scroll", 1) == 1),
+    editor_show_actor_color = (get_set("editor_show_actor_color", "1") == "1" or get_set("editor_show_actor_color", 1) == 1),
     prompter_slider_mode = (get_set("prompter_slider_mode", "0") == "1" or get_set("prompter_slider_mode", 0) == 1),
     auto_trim = (get_set("auto_trim", "0") == "1" or get_set("auto_trim", 0) == 1),
     trim_start = get_set("trim_start", 40),
@@ -2520,6 +2521,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "editor_actor_sort", cfg.editor_actor_sort, true)
     reaper.SetExtState(section_name, "editor_fast_jump", cfg.editor_fast_jump and "1" or "0", true)
     reaper.SetExtState(section_name, "editor_auto_scroll", cfg.editor_auto_scroll and "1" or "0", true)
+    reaper.SetExtState(section_name, "editor_show_actor_color", cfg.editor_show_actor_color and "1" or "0", true)
 
     -- Invalidate prompter cache when settings change (like wrap length)
     if draw_prompter_cache then
@@ -23185,7 +23187,74 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         gfx.mouse_y >= opt_draw_y and gfx.mouse_y <= opt_draw_y + btn_h)
     end
 
+    local function draw_actor_btn_inline(x, y, w, h, text, bg_col, stripe_col, suppress_hover)
+        local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h) and not suppress_hover
+        local effective_bg = hover and UI.C_BTN_H or (bg_col or UI.C_BTN)
+        set_color(effective_bg)
+        gfx.rect(x, y, w, h, 1)
+        
+        if stripe_col then
+            set_color(stripe_col)
+            local sw = S(1)
+            gfx.rect(x, y + h - sw, w, sw, 1)
+        end
+        
+        set_color(UI.C_TXT)
+        
+        local str_w, str_h = gfx.measurestr(text)
+        gfx.x = x + (w - str_w) / 2
+        gfx.y = y + (h - str_h) / 2
+        gfx.drawstr(text)
+        if hover and is_mouse_clicked() then return true end
+        return false
+    end
+
     -- Clipped button: renders the button but crops it to [clip_y_top, clip_y_bot]
+    local function draw_actor_btn_clipped(x, y, w, h, text, bg_col, clip_y_top, clip_y_bot, stripe_col)
+        local vis_y1 = math.max(y, clip_y_top)
+        local vis_y2 = math.min(y + h, clip_y_bot)
+        if vis_y1 >= vis_y2 then return false end -- fully outside
+        
+        local is_fully_visible = (y >= clip_y_top and y + h <= clip_y_bot)
+        if is_fully_visible then
+            return draw_actor_btn_inline(x, y, w, h, text, bg_col, stripe_col, is_opt_hover)
+        end
+        
+        local buf = OTHER.BUF.DIRECTOR -- Reuse same buffer
+        gfx.setimgdim(buf, w, h)
+        local prev_dest = gfx.dest
+        gfx.dest = buf
+        
+        local hover = UI_STATE.window_focused and not is_opt_hover and
+            (gfx.mouse_x >= x and gfx.mouse_x <= x + w and
+             gfx.mouse_y >= vis_y1 and gfx.mouse_y <= vis_y2)
+        local effective_bg = hover and UI.C_BTN_H or (bg_col or UI.C_BTN)
+        set_color(effective_bg)
+        gfx.rect(0, 0, w, h, 1)
+        
+        if stripe_col then
+            set_color(stripe_col)
+            local sw = S(1)
+            gfx.rect(0, h - sw, w, sw, 1)
+        end
+        
+        set_color(UI.C_TXT)
+
+        local sw, sh = gfx.measurestr(text)
+        gfx.x = (w - sw) / 2
+        gfx.y = (h - sh) / 2
+        gfx.drawstr(text)
+        
+        gfx.dest = prev_dest
+        local src_y = vis_y1 - y
+        local slice_h = vis_y2 - vis_y1
+        gfx.blit(buf, 1, 0, 0, src_y, w, slice_h, x, vis_y1, w, slice_h)
+        
+        if hover and not director_resize_drag and is_mouse_clicked() then return true end
+        return false
+    end
+
+    -- Standard button for other UI elements in this panel
     local function draw_btn_clipped(x, y, w, h, text, bg_col, clip_y_top, clip_y_bot)
         local vis_y1 = math.max(y, clip_y_top)
         local vis_y2 = math.min(y + h, clip_y_bot)
@@ -23195,7 +23264,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         
         if is_fully_visible then
             -- Fast path: no clipping needed, use normal draw
-            return draw_btn_inline(x, y, w, h, text, bg_col, is_opt_hover)
+            return draw_actor_btn_inline(x, y, w, h, text, bg_col, is_opt_hover)
         end
         
         -- Slow path: render to offscreen buffer and blit only visible slice
@@ -23207,8 +23276,10 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         local hover = UI_STATE.window_focused and not is_opt_hover and
             (gfx.mouse_x >= x and gfx.mouse_x <= x + w and
              gfx.mouse_y >= vis_y1 and gfx.mouse_y <= vis_y2)
-        set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
+        local effective_bg = hover and UI.C_BTN_H or (bg_col or UI.C_BTN)
+        set_color(effective_bg)
         gfx.rect(0, 0, w, h, 1)
+        
         set_color(UI.C_TXT)
         local sw, sh = gfx.measurestr(text)
         gfx.x = (w - sw) / 2
@@ -23265,7 +23336,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     
     local opt_draw_y = draw_y
     local function draw_options_menu()
-        if not calc_only and draw_btn_inline(opt_x, opt_draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
+        if not calc_only and draw_actor_btn_inline(opt_x, opt_draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
             local dock_check = gfx.dock(-1) > 0 and "!" or ""
             local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
             local autofill_check = cfg.director_autofill and "• " or ""
@@ -23425,10 +23496,19 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         end
         
         if not calc_only then
-             -- Logic drawing ...
-             -- Active state determination
+            -- Logic drawing ...
             local is_active = current_actors_set[actor]
+            local act_col = nil
+            if cfg.editor_show_actor_color then
+                local native = get_actor_color(actor)
+                if native and native ~= 0 then
+                    local r, g, b = reaper.ColorFromNative(native & 0xFFFFFF)
+                    act_col = {r/255, g/255, b/255}
+                end
+            end
+
             local bg_col = is_active and UI.C_ACCENT_G or UI.C_BTN
+            local stripe_col = (not is_active) and act_col or nil
             local sdraw_y = draw_y - math.floor(director_state.scroll_y or 0) -- scrolled Y
             
             -- Hover Check for Right Click
@@ -23437,7 +23517,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             
             -- Only draw if any part is visible in actor area (draw_btn_clipped handles visual cropping)
             if sdraw_y + btn_h > panel_y and sdraw_y < actor_area_bottom then
-                if draw_btn_clipped(draw_x, sdraw_y, btn_w, btn_h, label, bg_col, panel_y, actor_area_bottom) then
+                if draw_actor_btn_clipped(draw_x, sdraw_y, btn_w, btn_h, label, bg_col, panel_y, actor_area_bottom, stripe_col) then
                     if not is_opt_hover then
                         -- Toggle Logic
                         local txt = director_state.input.text
@@ -23474,6 +23554,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         director_state.input.focus = true
                     end
                 end
+
             end -- clip
             
             -- Right Click (must be in visible area)
@@ -23896,7 +23977,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         end
         
         gfx.setfont(F.std)
-        if draw_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
+        if draw_actor_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
             save_director_changes()
         end
 
@@ -24027,15 +24108,37 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                         gfx.mouse_y >= opt_draw_y and gfx.mouse_y <= opt_draw_y + btn_h)
     end
 
+    local function draw_actor_btn_inline(x, y, w, h, text, bg_col, stripe_col, suppress_hover)
+        local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h) and not suppress_hover
+        local effective_bg = hover and UI.C_BTN_H or (bg_col or UI.C_BTN)
+        set_color(effective_bg)
+        gfx.rect(x, y, w, h, 1)
+        
+        if stripe_col then
+            set_color(stripe_col)
+            local sw = S(1)
+            gfx.rect(x, y + h - sw, w, sw, 1)
+        end
+        
+        set_color(UI.C_TXT)
+        
+        local str_w, str_h = gfx.measurestr(text)
+        gfx.x = x + (w - str_w) / 2
+        gfx.y = y + (h - str_h) / 2
+        gfx.drawstr(text)
+        if hover and is_mouse_clicked() then return true end
+        return false
+    end
+
     -- Clipped button: renders the button but crops it to [clip_y_top, clip_y_bot]
-    local function draw_btn_clipped(x, y, w, h, text, bg_col, clip_y_top, clip_y_bot)
+    local function draw_actor_btn_clipped(x, y, w, h, text, bg_col, clip_y_top, clip_y_bot, stripe_col)
         local vis_y1 = math.max(y, clip_y_top)
         local vis_y2 = math.min(y + h, clip_y_bot)
         if vis_y1 >= vis_y2 then return false end -- fully outside
         
         local is_fully_visible = (y >= clip_y_top and y + h <= clip_y_bot)
         if is_fully_visible then
-            return draw_btn_inline(x, y, w, h, text, bg_col, is_opt_hover)
+            return draw_actor_btn_inline(x, y, w, h, text, bg_col, stripe_col, is_opt_hover)
         end
         
         local buf = OTHER.BUF.DIRECTOR -- Reuse same buffer
@@ -24046,9 +24149,18 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         local hover = UI_STATE.window_focused and not is_opt_hover and
             (gfx.mouse_x >= x and gfx.mouse_x <= x + w and
              gfx.mouse_y >= vis_y1 and gfx.mouse_y <= vis_y2)
-        set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
+        local effective_bg = hover and UI.C_BTN_H or (bg_col or UI.C_BTN)
+        set_color(effective_bg)
         gfx.rect(0, 0, w, h, 1)
+        
+        if stripe_col then
+            set_color(stripe_col)
+            local sw = S(1)
+            gfx.rect(0, h - sw, w, sw, 1)
+        end
+        
         set_color(UI.C_TXT)
+
         local sw, sh = gfx.measurestr(text)
         gfx.x = (w - sw) / 2
         gfx.y = (h - sh) / 2
@@ -24062,6 +24174,36 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         if hover and not director_resize_drag and is_mouse_clicked() then return true end
         return false
     end
+
+    -- Standard button for other UI elements in this panel
+    local function draw_btn_clipped(x, y, w, h, text, bg_col, clip_y_top, clip_y_bot)
+        local vis_y1 = math.max(y, clip_y_top)
+        local vis_y2 = math.min(y + h, clip_y_bot)
+        if vis_y1 >= vis_y2 then return false end
+        if y >= clip_y_top and y + h <= clip_y_bot then
+            return draw_actor_btn_inline(x, y, w, h, text, bg_col, is_opt_hover)
+        end
+        local buf = OTHER.BUF.DIRECTOR
+        gfx.setimgdim(buf, w, h)
+        local prev_dest = gfx.dest
+        gfx.dest = buf
+        local hover = UI_STATE.window_focused and not is_opt_hover and (gfx.mouse_x >= x and gfx.mouse_x <= x+w and gfx.mouse_y >= vis_y1 and gfx.mouse_y <= vis_y2)
+        local effective_bg = hover and UI.C_BTN_H or (bg_col or UI.C_BTN)
+        set_color(effective_bg)
+        gfx.rect(0, 0, w, h, 1)
+        
+        set_color(UI.C_TXT)
+        local sw, sh = gfx.measurestr(text)
+        gfx.x, gfx.y = (w-sw)/2, (h-sh)/2
+        gfx.drawstr(text)
+        gfx.dest = prev_dest
+        gfx.blit(buf, 1, 0, 0, vis_y1-y, w, vis_y2-vis_y1, x, vis_y1, w, vis_y2-vis_y1)
+        if hover and not director_resize_drag and is_mouse_clicked() then return true end
+        return false
+    end
+
+    -- Local helper to draw clipped lines for actor borders
+
 
     -- --- ROW 1: ACTORS ---
     local x = padding
@@ -24087,7 +24229,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     local limit_x = opt_x - S(5)
 
     local function draw_options_menu()
-        if not calc_only and draw_btn_inline(opt_x, opt_draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
+        if not calc_only and draw_actor_btn_inline(opt_x, opt_draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
             local layout_label = is_editor_right and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
             
             local alpha_mark = (cfg.editor_actor_sort == "alpha" or not cfg.editor_actor_sort) and "• " or ""
@@ -24095,8 +24237,9 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             local recent_mark = (cfg.editor_actor_sort == "recent") and "• " or ""
             local fast_jump_mark = cfg.editor_fast_jump and "• " or ""
             local auto_scroll_mark = cfg.editor_auto_scroll and "• " or ""
+            local show_color_mark = cfg.editor_show_actor_color and "• " or ""
             
-            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|" .. count_mark .. "По кількості реплік|<" .. recent_mark .. "Останні вибрані|" .. fast_jump_mark .. "Швидкий перехід|" .. auto_scroll_mark .. "Автопрокрутка до актора||Видалити всі приховані коментарі||" .. layout_label .. "|Закрити вікно"
+            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|" .. count_mark .. "По кількості реплік|<" .. recent_mark .. "Останні вибрані|" .. fast_jump_mark .. "Швидкий перехід|" .. auto_scroll_mark .. "Автопрокрутка до актора|" .. show_color_mark .. "Відображати колір актора||Видалити всі приховані коментарі||" .. layout_label .. "|Закрити вікно"
             
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu(menu_str)
@@ -24119,6 +24262,9 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 cfg.editor_auto_scroll = not cfg.editor_auto_scroll
                 save_settings()
             elseif ret == 6 then
+                cfg.editor_show_actor_color = not cfg.editor_show_actor_color
+                save_settings()
+            elseif ret == 7 then
                 -- Delete all hidden comments from all lines
                 local count = 0
                 push_undo("Видалити всі приховані коментарі")
@@ -24140,11 +24286,11 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 else
                     show_snackbar("Прихованих коментарів не знайдено", "info")
                 end
-            elseif ret == 7 then
+            elseif ret == 8 then
                 if cfg.editor_layout == "right" then cfg.editor_layout = "bottom" else cfg.editor_layout = "right" end
                 save_settings()
                 last_layout_state.state_count = -1
-            elseif ret == 8 then
+            elseif ret == 9 then
                 cfg.editor_mode = false
                 save_settings()
             end
@@ -24294,11 +24440,24 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         
         if not calc_only then
             local is_active = (actor == editor_state.current_actor)
+            local act_col = nil
+            if cfg.editor_show_actor_color then
+                local native = get_actor_color(actor)
+                if native and native ~= 0 then
+                    local r, g, b = reaper.ColorFromNative(native & 0xFFFFFF)
+                    act_col = {r/255, g/255, b/255}
+                end
+            end
+            
             local bg_col = is_active and UI.C_ACCENT_G or UI.C_BTN
+            local stripe_col = (not is_active) and act_col or nil
+            
             local sdraw_y = draw_y - math.floor(editor_state.scroll_y or 0)
             
             if sdraw_y + btn_h > panel_y and sdraw_y < actor_area_bottom then
-                if draw_btn_clipped(draw_x, sdraw_y, btn_w, btn_h, label, bg_col, panel_y, actor_area_bottom) then
+                local clicked = draw_actor_btn_clipped(draw_x, sdraw_y, btn_w, btn_h, label, bg_col, panel_y, actor_area_bottom, stripe_col)
+
+                if clicked then
                     if not is_opt_hover then
                         editor_state.current_actor = actor
                         
@@ -24685,7 +24844,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 elseif label == "I" then gfx.setfont(F.ital)
                 else gfx.setfont(F.std) end
 
-                if draw_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, label, b_col) then
+                if draw_actor_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, label, b_col) then
                     apply_fmt(fmt_tags[i])
                 end
                 
@@ -24709,7 +24868,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
 
         local ai_btn_fits = ai_btn_x >= input_draw_x
         if ai_btn_fits then
-            if draw_btn_inline(ai_btn_x, control_draw_y, ai_btn_w, control_row_h, ai_btn_text, ai_b_col) and not is_disabled then
+            if draw_actor_btn_inline(ai_btn_x, control_draw_y, ai_btn_w, control_row_h, ai_btn_text, ai_b_col) and not is_disabled then
                 trigger_ai_modal(editor_state.input, ai_btn_x + ai_btn_w - S(30), control_draw_y + control_row_h, provider_name)
             end
 
@@ -24759,7 +24918,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         local save_h = (input_draw_y + input_row_h) - control_draw_y
 
         gfx.setfont(F.std)
-        if draw_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
+        if draw_actor_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
             if not is_disabled then save_editor_changes() end
         end
 
