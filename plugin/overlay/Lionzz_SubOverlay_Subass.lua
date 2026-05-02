@@ -15,6 +15,7 @@ local close_requested = false
 local cached_current, cached_next, cached_next2, cached_start, cached_stop = nil, nil, nil, nil, nil
 local external_ass_lines = {}           -- База даних реплік з Subass_Notes.lua
 local last_external_sync_time = 0       -- Час останньої синхронізації
+local last_external_ver = -1            -- Остання версія даних з Subass_Notes
 local token_cache = { current = {}, next1 = {}, next2 = {}, corr = {}, oact = {} }
 
 -- Кеш координат відеовікна
@@ -1981,8 +1982,13 @@ end
 -- Синхронізація даних з основного скрипта Subass_Notes.lua
 local function sync_external_data()
     local now = reaper.time_precise()
-    if now - last_external_sync_time < 1.0 then return end -- Синхронізуємо не частіше ніж раз на секунду
+    local g_ver = reaper.gmem_read(101)
+    
+    -- Синхронізуємо якщо змінилася версія в gmem АБО пройшла 1 секунда
+    if g_ver == last_external_ver and now - last_external_sync_time < 1.0 then return end
+    
     last_external_sync_time = now
+    last_external_ver = g_ver
 
     local section = "Subass_Notes"
     local ok, l_dump = reaper.GetProjExtState(0, section, "ass_lines")
