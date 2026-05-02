@@ -325,7 +325,7 @@ def download_resource(url, format_id, output_path, subtitle_lang=None, media_typ
             return {"error": "Для об'єднання відео та аудіо в найвищій якості потрібен FFmpeg. Встановіть FFmpeg на Windows та додайте його в PATH."}
         # Force merge chosen video with best M4A (AAC) audio track to ensure Windows REAPER compatibility.
         # Fallback to any best audio if m4a is missing.
-        final_format = f"{format_id}+bestaudio[ext=m4a]/{format_id}+bestaudio"
+        final_format = f"{format_id}+bestaudio[ext=m4a]/{format_id}+bestaudio/{format_id}"
     else:
         # Audio or specific combined format
         final_format = format_id
