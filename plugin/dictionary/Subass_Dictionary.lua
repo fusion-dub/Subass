@@ -999,21 +999,25 @@ function UTILS.download_thumbnail(url, callback)
     end)
 end
 
-function UTILS.download_media(url, format_id, title, ext, m_type, item_key)
-    local prj_path = reaper.GetProjectPath("")
-    if prj_path == "" then
-        cfg_dwn.error_tooltip = { text = "Спершу збережіть проект!", t = reaper.time_precise() }
-        return
-    end
+function UTILS.download_media(url, format_id, title, ext, m_type, item_key, custom_path, skip_insert)
+    local full_path = custom_path
     
-    local base_filename = title:gsub('[\\/:*?"<>|]', "_")
-    local ext_str = "." .. (ext or "mp4")
-    local full_path = prj_path .. "/" .. base_filename .. ext_str
-    
-    local counter = 1
-    while reaper.file_exists(full_path) do
-        full_path = prj_path .. "/" .. base_filename .. " (" .. counter .. ")" .. ext_str
-        counter = counter + 1
+    if not full_path then
+        local prj_path = reaper.GetProjectPath("")
+        if prj_path == "" then
+            cfg_dwn.error_tooltip = { text = "Спершу збережіть проект або використовуйте 'Зберегти як'!", t = reaper.time_precise() }
+            return
+        end
+        
+        local base_filename = title:gsub('[\\/:*?"<>|]', "_")
+        local ext_str = "." .. (ext or "mp4")
+        full_path = prj_path .. "/" .. base_filename .. ext_str
+        
+        local counter = 1
+        while reaper.file_exists(full_path) do
+            full_path = prj_path .. "/" .. base_filename .. " (" .. counter .. ")" .. ext_str
+            counter = counter + 1
+        end
     end
     
     local cmd_args = string.format('--download --target "%s" --format "%s" --type "%s" --output "%s"', 
@@ -1031,13 +1035,15 @@ function UTILS.download_media(url, format_id, title, ext, m_type, item_key)
         
         local success, res = pcall(UTILS.json_decode_robust, output)
         if success and res and res.status == "success" then
-            -- Insert into REAPER on a new track
-            reaper.defer(function()
-                local final_path = res.path or full_path
-                if reaper.file_exists(final_path) then
-                    reaper.InsertMedia(final_path, 0) -- 0: add to new track
-                end
-            end)
+            if not skip_insert then
+                reaper.defer(function()
+                    local final_path = res.path or full_path
+                    if reaper.file_exists(final_path) then
+                        reaper.InsertMedia(final_path, 0) -- 0: add to new track
+                    end
+                end)
+            end
+            cfg_dwn.error_tooltip = { text = "Файл успішно завантажено", t = reaper.time_precise(), type = "success" }
         else
             local err_msg = (res and res.error) or "Завантаження не вдалося."
             cfg_dwn.error_tooltip = { text = "Помилка: " .. err_msg, t = reaper.time_precise() }
@@ -2762,7 +2768,8 @@ local function RenderTab_DownloadCenter()
             if elapsed < 4.0 then
                 local wx, wy = reaper.ImGui_GetWindowPos(ctx)
                 local ww, wh = reaper.ImGui_GetWindowSize(ctx)
-                local msg = "⚠  " .. cfg_dwn.error_tooltip.text
+                local is_success = cfg_dwn.error_tooltip.type == "success"
+                local msg = (is_success and "✓  " or "⚠  ") .. cfg_dwn.error_tooltip.text
                 local msg_w = reaper.ImGui_CalcTextSize(ctx, msg) + 32
                 local banner_h = 32
                 local bx = wx + (ww - msg_w) * 0.5
@@ -2774,11 +2781,15 @@ local function RenderTab_DownloadCenter()
                              | reaper.ImGui_WindowFlags_NoInputs()
                              | reaper.ImGui_WindowFlags_NoNav()
                              | reaper.ImGui_WindowFlags_NoMove()
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), 0x882222EE)
+                
+                local bg_col = is_success and 0x306030EE or 0x882222EE
+                local txt_col = is_success and 0xCCFFCCFF or 0xFFCCCCFF
+                
+                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), bg_col)
                 reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowRounding(), 6)
                 if reaper.ImGui_Begin(ctx, "##err_banner", nil, wflags) then
                     reaper.ImGui_SetCursorPosY(ctx, (banner_h - reaper.ImGui_GetTextLineHeight(ctx)) * 0.5)
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFFCCCCFF)
+                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), txt_col)
                     reaper.ImGui_Text(ctx, msg)
                     reaper.ImGui_PopStyleColor(ctx)
                     reaper.ImGui_End(ctx)
@@ -2882,7 +2893,7 @@ local function RenderTab_DownloadCenter()
                     reaper.ImGui_PopFont(ctx)
                     if data.duration then
                         local m = math.floor(data.duration / 60)
-                        local s = data.duration % 60
+                        local s = math.floor(data.duration % 60)
                         reaper.ImGui_TextDisabled(ctx, string.format("Тривалість: %d:%02d", m, s))
                     end
                     reaper.ImGui_EndGroup(ctx)
@@ -2945,7 +2956,7 @@ local function RenderTab_DownloadCenter()
                             local is_loading = (cfg_dwn.loading_item == btn_key)
                             
                             reaper.ImGui_Text(ctx, f_label)
-                            reaper.ImGui_SameLine(ctx, avail_w - 90)
+                            reaper.ImGui_SameLine(ctx, avail_w - 205 - 8)
                             
                             local is_any_loading = (cfg_dwn.loading_item ~= nil)
 
@@ -2962,13 +2973,32 @@ local function RenderTab_DownloadCenter()
                                 end
                                 
                                 if prog_val > 0 then
-                                    reaper.ImGui_ProgressBar(ctx, prog_val, 90, 20, string.format("%d%%", math.floor(prog_val * 100)))
+                                    reaper.ImGui_ProgressBar(ctx, prog_val, 205 + 8, 20, string.format("%d%%", math.floor(prog_val * 100)))
                                 else
-                                    reaper.ImGui_Button(ctx, spin .. "##" .. btn_key, 90)
+                                    reaper.ImGui_Button(ctx, spin .. "##" .. btn_key, 205 + 8)
                                 end
                                 reaper.ImGui_EndDisabled(ctx)
                             else
                                 if is_any_loading then reaper.ImGui_BeginDisabled(ctx) end
+                                if reaper.ImGui_Button(ctx, "Зберегти як...##" .. btn_key, 115) then
+                                    local def_ext = f.ext or "mp4"
+                                    local initial_dir = reaper.GetProjectPath("")
+                                    local default_name = (data.title or "Відео") .. "." .. def_ext
+                                    
+                                    if reaper.JS_Dialog_BrowseForSaveFile then
+                                        local filter = def_ext:upper() .. " Files (*." .. def_ext .. ")\0*." .. def_ext .. "\0All Files (*.*)\0*.*\0"
+                                        local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти медіа", initial_dir, default_name, filter)
+                                        if retval == 1 then
+                                            UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or "Відео", f.ext, f.type, btn_key, filename, true)
+                                        end
+                                    else
+                                        local ok, filename = reaper.GetUserInputs("Зберегти як", 1, "Повний шлях до файлу:,extrawidth=400", initial_dir .. "/" .. default_name)
+                                        if ok then
+                                            UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or "Відео", f.ext, f.type, btn_key, filename, true)
+                                        end
+                                    end
+                                end
+                                reaper.ImGui_SameLine(ctx, avail_w - 90)
                                 if reaper.ImGui_Button(ctx, "Завантажити##" .. btn_key, 90) then
                                     UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or "Відео", f.ext, f.type, btn_key)
                                 end
