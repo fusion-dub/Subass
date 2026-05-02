@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.1
+-- @version 7.2
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.1",
+    script_title = "Subass Notes v7.2",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -7893,41 +7893,136 @@ sanitize_indices()
 -- =============================================================================
 
 -- Helper: Unique Random Color per Actor
---- Get consistent color for an actor (hashing name if not set)
+--- Get consistent color for an actor. Uses a batch assignment strategy:
+--- on first call for an unknown actor, assigns colors to ALL actors at once
+--- in alphabetical order from a curated 16-color palette + golden-ratio fallback.
 --- @param actor string Actor name
 --- @return number Native color integer
 local function get_actor_color(actor)
     if not actor or actor == "" or not cfg.random_color_actors then return 0 end
-    if ASS.actor_colors[actor] then return ASS.actor_colors[actor] end
-    if OTHER.global_actor_colors[actor] then 
-        ASS.actor_colors[actor] = OTHER.global_actor_colors[actor]
-        return OTHER.global_actor_colors[actor] 
+
+    -- 1. Fast path: already has a color
+    if ASS.actor_colors[actor] then
+        return ASS.actor_colors[actor]
     end
-    
-    -- Try to recover an existing color from REAPER regions for this actor before randomizing
-    if regions then
-        for _, r in ipairs(regions) do
-            if r.actor == actor and r.color and r.color ~= 0 then
-                ASS.actor_colors[actor] = r.color
-                return r.color
-            end
+
+    -- 2. Apply global user-defined colors first
+    if OTHER.global_actor_colors[actor] then
+        ASS.actor_colors[actor] = OTHER.global_actor_colors[actor]
+        return ASS.actor_colors[actor]
+    end
+
+    -- 3. Batch assign colors to ALL unknown actors at once
+    local need_color = {}
+    local need_set = {}
+    local function check_actor(a)
+        if OTHER.global_actor_colors[a] then
+            ASS.actor_colors[a] = OTHER.global_actor_colors[a]
+        elseif not ASS.actor_colors[a] and not need_set[a] then
+            table.insert(need_color, a)
+            need_set[a] = true
         end
     end
-    
-    -- Generate random color (but avoid too dark/black)
-    -- Simple approach: Random R, G, B
-    -- Ensure visible against track background?
-    -- Reaper color is int: R | (G<<8) | (B<<16) | 0x1000000(OS specific flags?)
-    -- Native Reaper Color: reaper.ColorToNative(r,g,b). 
-    -- Marker color adds | 0x1000000 usually.
-    
-    local r = math.random(50, 255)
-    local g = math.random(50, 255)
-    local b = math.random(50, 255)
-    
-    local native_col = reaper.ColorToNative(r, g, b) | 0x1000000
-    ASS.actor_colors[actor] = native_col
-    return native_col
+
+    if ass_actors then
+        for a in pairs(ass_actors) do check_actor(a) end
+    end
+    check_actor(actor)
+    table.sort(need_color) -- alphabetical for determinism
+
+    -- Curated palette: 16 vivid hues ~22.5° apart
+    local PALETTE = {
+        {220,  60,  60},  -- 1  red        0°
+        {220, 140,  50},  -- 2  orange    30°
+        {210, 200,  50},  -- 3  yellow    55°
+        {130, 210,  50},  -- 4  lime      90°
+        { 50, 200,  80},  -- 5  green    112°
+        { 50, 210, 160},  -- 6  mint     160°
+        { 50, 200, 210},  -- 7  cyan     185°
+        { 50, 140, 220},  -- 8  sky      210°
+        { 60,  70, 220},  -- 9  blue     240°
+        {110,  60, 220},  -- 10 indigo   263°
+        {175,  60, 220},  -- 11 violet   285°
+        {220,  60, 200},  -- 12 magenta  308°
+        {220,  60, 130},  -- 13 rose     332°
+        {180, 120,  60},  -- 14 tan      27°
+        { 90, 180, 210},  -- 15 sky-blue 197°
+        {210, 170, 100},  -- 16 gold     38°
+    }
+
+    -- Helpers (circular hue distance, RGB→hue, hue via native round-trip)
+    local function hue_dist(a, b)
+        local d = math.abs(a - b); return d > 0.5 and (1.0 - d) or d
+    end
+    local function rgb_to_hue(r, g, b)
+        r, g, b = r/255, g/255, b/255
+        local mx = math.max(r,g,b); local mn = math.min(r,g,b); local d = mx-mn
+        if d < 0.001 then return 0 end
+        local h
+        if     mx == r then h = ((g-b)/d) % 6
+        elseif mx == g then h = (b-r)/d + 2
+        else                h = (r-g)/d + 4
+        end
+        return h/6
+    end
+    -- HSL → RGB (standard formula, h in 0-1)
+    local function hsl_to_rgb(h, s, l)
+        local function f(n)
+            local k = (n + h*12) % 12
+            return l - s*math.max(-1, math.min(k-3, 9-k, 1)) * math.min(l, 1-l)
+        end
+        return math.floor(f(0)*255+0.5), math.floor(f(8)*255+0.5), math.floor(f(4)*255+0.5)
+    end
+
+    local HUE_THRESHOLD = 0.08  -- ~29° — enough spacing between 16 slots
+
+    -- Assign colors one by one in alphabetical order
+    for _, a in ipairs(need_color) do
+        if ASS.actor_colors[a] then goto continue end  -- assigned by earlier batch step
+
+        -- Collect true visual hues already in use
+        local used_hues = {}
+        for _, col in pairs(ASS.actor_colors) do
+            local cr, cg, cb = reaper.ColorFromNative(col & 0xFFFFFF)
+            table.insert(used_hues, rgb_to_hue(cr, cg, cb))
+        end
+
+        -- Try palette in order
+        local br, bg, bb
+        for _, rgb in ipairs(PALETTE) do
+            local ph = rgb_to_hue(rgb[1], rgb[2], rgb[3])
+            local taken = false
+            for _, uh in ipairs(used_hues) do
+                if hue_dist(ph, uh) < HUE_THRESHOLD then taken = true; break end
+            end
+            if not taken then br, bg, bb = rgb[1], rgb[2], rgb[3]; break end
+        end
+
+        -- Fallback: golden-ratio gap-fill
+        if not br then
+            local best_hue, best_dist = 0, -1
+            local offset = (#used_hues * 0.6180339887) % 1.0
+            for i = 0, 127 do
+                local h = (offset + i * 0.6180339887) % 1.0
+                local md = 1.0
+                for _, uh in ipairs(used_hues) do
+                    local d = hue_dist(h, uh); if d < md then md = d end
+                end
+                if md > best_dist then best_dist = md; best_hue = h end
+            end
+            local s = 0.72; local l = 0.50
+            br, bg, bb = hsl_to_rgb(best_hue, s, l)
+        end
+
+        br = math.max(40, math.min(220, br))
+        bg = math.max(40, math.min(220, bg))
+        bb = math.max(40, math.min(220, bb))
+        ASS.actor_colors[a] = reaper.ColorToNative(br, bg, bb) | 0x1000000
+
+        ::continue::
+    end
+
+    return ASS.actor_colors[actor] or (reaper.ColorToNative(128,128,128) | 0x1000000)
 end
 
 --- Sync ass_actors with current ass_lines (Remove actors with 0 replicas)
@@ -8166,7 +8261,11 @@ local function update_regions_cache()
                         if (color_to_save & 0x1000000) == 0 then
                             color_to_save = color_to_save | 0x1000000
                         end
-                        ASS.actor_colors[actor_name] = color_to_save
+                        -- Only pre-seed if we don't already have a color for this actor.
+                        -- This prevents overwriting a palette color that was just generated.
+                        if not ASS.actor_colors[actor_name] then
+                            ASS.actor_colors[actor_name] = color_to_save
+                        end
                     end
                 end
                 changed = true
