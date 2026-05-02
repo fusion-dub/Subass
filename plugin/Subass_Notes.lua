@@ -1955,7 +1955,7 @@ function ACHIEVEMENTS.check_perfect_accuracy_ach_23()
             local takes_count, _ = STATS.get_session_summary()
             local attempts = takes_count / recorded_count
 
-            if attempts <= 1.1 and takes_count > 10 and attempts > 0.3 then
+            if attempts <= 1.1 and takes_count > 30 and attempts > 0.4 then
                 ACHIEVEMENTS.add_stat("ach_23_count", 1)
                 reaper.SetProjExtState(0, section_name, "earned_ach_23", "1")
                 reaper.MarkProjectDirty(0)
