@@ -24018,12 +24018,9 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     local btn_h = S(24)
 
     -- --- AUTO-DETECT CURRENT STATE ---
-    local play_pos = reaper.GetPlayPosition()
-    local edit_pos = reaper.GetCursorPosition()
-    local cur_time = reaper.GetPlayState() > 0 and play_pos or edit_pos
+    local cur_time = reaper.GetPlayState() > 0 and reaper.GetPlayPosition() or reaper.GetCursorPosition()
     
     local start_ts, end_ts = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
-    local has_selection = (end_ts > start_ts)
     
     -- Find all regions at cur_time using existing utility
     local overlapping_lines = UTILS.get_ass_lines_at_time(cur_time, 0.001)
@@ -24039,6 +24036,48 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     overlapping_lines = filtered_lines
     
     if #overlapping_lines > 0 then
+        -- --- ВЗАЄМОДІЯ З REAPER (Ruler/Timeline Hit) ---
+        -- Вибираємо конкретний регіон серед накладених через клік по його хедеру
+        local mouse_state = 0
+        if reaper.JS_Mouse_GetState then mouse_state = reaper.JS_Mouse_GetState(1) & 1 end
+
+        if (mouse_state == 1 and not editor_state.mouse_was_down) then
+            if reaper.BR_GetMouseCursorContext then 
+                local context = reaper.BR_GetMouseCursorContext()
+                if context == "ruler" or context == "timeline" then
+                local mouse_time = reaper.BR_GetMouseCursorContext_Position()
+                    if mouse_time and mouse_time >= 0 then
+                        local best_hit = nil
+                        local max_dist = 1000000
+                        
+                        -- Шукаємо серед накладених регіонів той, чий хедер найближче до кліку
+                        for _, line in ipairs(overlapping_lines) do
+                            local dist = math.abs(mouse_time - line.t1)
+                            
+                            -- Пріоритет зміни: додаємо мікро-штраф поточному регіону
+                            local effective_dist = dist
+                            if line.rgn_idx == editor_state.last_region_id then
+                                effective_dist = dist + 0.001
+                            end
+                            
+                            -- Якщо клік в межах 1 секунди від хедера будь-якого з накладених регіонів
+                            if effective_dist < max_dist and dist < 1.0 then 
+                                max_dist = effective_dist
+                                best_hit = line
+                            end
+                        end
+
+                        if best_hit and best_hit.rgn_idx ~= editor_state.last_region_id then
+                            editor_state.last_region_id = best_hit.rgn_idx
+                            editor_state.needs_sync = true
+                        end
+                    end
+                end
+            end
+        end
+
+        editor_state.mouse_was_down = (mouse_state == 1)
+
         -- Pick the best matching line
         local best_line = nil
         
@@ -24104,8 +24143,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     end
 
     local is_editing = (current_region ~= nil)
-    local is_in_selection = (has_selection and cur_time >= start_ts and cur_time <= end_ts)
-    local is_creating = (not is_editing and is_in_selection)
+    local is_creating = (not is_editing and ((end_ts > start_ts) and cur_time >= start_ts and cur_time <= end_ts))
     local is_disabled = (not is_editing and not is_creating)
     
     local opt_btn_w = S(30)
@@ -24212,9 +24250,6 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         return false
     end
 
-    -- Local helper to draw clipped lines for actor borders
-
-
     -- --- ROW 1: ACTORS ---
     local x = padding
     local y = is_editor_right and S(2) or padding
@@ -24234,8 +24269,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     local draw_y = panel_y + y
     local _, current_actors_set = get_actors_from_text(editor_state.input.text)
     local save_btn_w = S(100)
-    local is_right_layout = is_editor_right
-    local input_w = is_right_layout and (panel_w - padding*2) or (panel_w - padding*2 - save_btn_w - S(10))
+    local input_w = is_editor_right and (panel_w - padding*2) or (panel_w - padding*2 - save_btn_w - S(10))
     local limit_x = opt_x - S(5)
 
     local function draw_options_menu()
@@ -24357,7 +24391,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
 
     -- --- DYNAMIC LAYOUT CALCULATION ---
     local act_row_h = btn_h + S(5)
-    local max_actor_h_limit = is_right_layout and (4 * act_row_h + S(2)) or (3 * act_row_h + S(10))
+    local max_actor_h_limit = is_editor_right and (4 * act_row_h + S(2)) or (3 * act_row_h + S(10))
 
     -- 1. Calculate how much height actors ACTUALLY need (simulating wrap)
     local cur_x = padding
@@ -24379,7 +24413,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         cur_y = cur_y + act_row_h
     end
     
-    local start_y = is_right_layout and S(8) or S(16)
+    local start_y = is_editor_right and S(8) or S(16)
     local needed_actor_h = start_y + cur_y + btn_h
     
     -- 2. Determine Actor Area Height (clamped to 3 rows)
@@ -24434,7 +24468,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             if not is_visible then
                 if y < cur_scroll then
                     -- Actor is above the visible area, scroll to its top
-                    editor_state.target_scroll_y = y - (is_right_layout and S(2) or padding)
+                    editor_state.target_scroll_y = y - (is_editor_right and S(2) or padding)
                 else
                     -- Actor is below the visible area, scroll to its bottom
                     editor_state.target_scroll_y = y + btn_h - actor_area_h + S(5)
@@ -24878,7 +24912,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             local preset = not is_new and cfg.fmt_presets[idx] or {label="", val=""}
             
             local ok, ret = reaper.GetUserInputs(is_new and "Додати пресет" or "Редагувати пресет", 2, 
-                "Назва (2 симв),Вміст (викор. ... для виділення),extrawidth=200", 
+                "Назва (2 симв),Вміст (... для виділення),extrawidth=220", 
                 preset.label .. "," .. preset.val)
                 
             if ok then
@@ -24903,7 +24937,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             end
         end
 
-        local save_btn_w = is_right_layout and S(80) or S(110)
+        local save_btn_w = is_editor_right and S(80) or S(110)
         local left_w = full_w - save_btn_w - padding
 
         -- Calculate AI Button position first
@@ -25041,8 +25075,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         
         gfx.setfont(F.std)
 
-        local ai_btn_fits = ai_btn_x >= input_draw_x
-        if ai_btn_fits then
+        if ai_btn_x >= input_draw_x then
             if draw_actor_btn_inline(ai_btn_x, control_draw_y, ai_btn_w, control_row_h, ai_btn_text, ai_b_col) and not is_disabled then
                 trigger_ai_modal(editor_state.input, ai_btn_x + ai_btn_w - S(30), control_draw_y + control_row_h, provider_name)
             end
