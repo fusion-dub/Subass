@@ -24035,6 +24035,51 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     end
     overlapping_lines = filtered_lines
     
+    -- --- АВТО-ПЕРЕМИКАННЯ НА НОВОСТВОРЕНІ РЕГІОНИ ---
+    local state_count = reaper.GetProjectStateChangeCount(0)
+    if not editor_state.last_state_count or state_count ~= editor_state.last_state_count then
+        local last_undo = reaper.Undo_CanUndo2(0) or ""
+        local _, num_markers, num_regions = reaper.CountProjectMarkers(0)
+        local m_count = num_markers + num_regions
+        
+        -- Запускаємо логіку тільки якщо реально змінився Undo-стек або кількість маркерів
+        if last_undo ~= editor_state.last_processed_undo or m_count ~= editor_state.last_marker_count then
+            if last_undo == "Add region" then
+                local max_id = -1
+                local found_new_id = nil
+                
+                -- Шукаємо серед усіх маркерів той, що під курсором і має найбільший ID
+                for i = 0, m_count - 1 do
+                    local _, isr, pos, r_end, _, _, id = reaper.EnumProjectMarkers3(0, i)
+                    if isr and cur_time >= (pos - 0.01) and cur_time <= (r_end + 0.01) then
+                        if id > max_id then
+                            max_id = id
+                            found_new_id = id
+                        end
+                    end
+                end
+
+                if found_new_id then
+                    editor_state.last_region_id = found_new_id
+                    editor_state.needs_sync = true
+                    
+                    -- Миттєво оновлюємо дані плагіна
+                    rebuild_regions()
+                    overlapping_lines = UTILS.get_ass_lines_at_time(cur_time, 0.001)
+                    local updated_filtered = {}
+                    for _, line in ipairs(overlapping_lines) do
+                        if line.enabled ~= false then table.insert(updated_filtered, line) end
+                    end
+                    overlapping_lines = updated_filtered
+                end
+            end
+            -- Запам'ятовуємо стан, щоб не перевіряти повторно при кліках
+            editor_state.last_processed_undo = last_undo
+            editor_state.last_marker_count = m_count
+        end
+        editor_state.last_state_count = state_count
+    end
+    
     if #overlapping_lines > 0 then
         -- --- ВЗАЄМОДІЯ З REAPER (Ruler/Timeline Hit) ---
         -- Вибираємо конкретний регіон серед накладених через клік по його хедеру
