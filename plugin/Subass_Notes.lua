@@ -24843,7 +24843,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                     end
                     if next_r_start < math.huge then
                         reaper.SetEditCurPos(next_r_start, true, false)
-                        editor_state.input.focus = true
+                        -- editor_state.input.focus = true
                     end
                 end
 
