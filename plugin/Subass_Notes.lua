@@ -24138,7 +24138,15 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         
         -- Priority 2: Fallback to the one that started latest (closest to current time)
         if not best_line then
-            best_line = overlapping_lines[#overlapping_lines]
+            -- Якщо текст змінено, використовуємо збережені дані попереднього регіону (Sticky Focus)
+            if editor_state.input.text ~= editor_state.original_text and not editor_state.needs_sync and editor_state.last_line_data then
+                best_line = editor_state.last_line_data
+            end
+            
+            -- Якщо все ще не знайшли (не dirty) — беремо те, що під курсором
+            if not best_line then
+                best_line = overlapping_lines[#overlapping_lines]
+            end
         end
         
         if best_line then
@@ -24161,6 +24169,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             if needs_sync then
                 editor_state.needs_sync = false -- Reset flag
                 editor_state.last_region_id = current_region.id
+                editor_state.last_line_data = best_line -- Запам'ятовуємо дані для sticky-режиму
                 editor_state.input.text = current_region.name
                 editor_state.original_text = current_region.name
                 editor_state.current_actor = current_region.actor
@@ -24175,16 +24184,17 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     end
     
     if not current_region then
-        -- Clear input if we just left a region and didn't make any changes
-        if editor_state.last_region_id ~= nil then
-            if editor_state.input.text == editor_state.original_text then
+        -- Очищаємо інпут ТІЛЬКИ якщо текст НЕ змінено
+        if editor_state.input.text == editor_state.original_text then
+            if editor_state.last_region_id ~= nil then
                 editor_state.input.text = ""
                 editor_state.original_text = ""
                 editor_state.current_actor = ""
                 editor_state.input.focus = false
             end
+            editor_state.last_region_id = nil
+            editor_state.last_line_data = nil
         end
-        editor_state.last_region_id = nil
     end
 
     local is_editing = (current_region ~= nil)
