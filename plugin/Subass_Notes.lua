@@ -23886,6 +23886,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         -- History Button (#)
         if director_state.has_recent_notes then
             if cpx + S(24) <= (panel_x + panel_w - padding) then
+                gfx.setfont(F.std)
                 if draw_actor_btn_inline(cpx, preset_row_y, S(24), control_row_h, "#", UI.C_ACCENT_N) then
                     -- Collect Unique Notes
                     local unique_notes = {}
