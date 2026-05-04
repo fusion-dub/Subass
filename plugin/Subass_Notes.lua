@@ -23211,10 +23211,10 @@ local function show_panel_preset_dialog(panel_type, idx)
 end
 
 local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
+    gfx.setfont(F.std)
     if not calc_only then
         set_color(UI.C_BG)
         gfx.rect(panel_x, panel_y, panel_w, panel_h, 1)
-        gfx.setfont(F.std)
     end
     
     local is_dir_right = (cfg.director_layout == "right")
@@ -23941,6 +23941,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         for i, p in ipairs(cfg.director_presets) do
             local btn_w = S(45)
             if cpx + btn_w <= (panel_x + panel_w - padding) then
+                gfx.setfont(F.std)
                 if draw_actor_btn_inline(cpx, preset_row_y, btn_w, control_row_h, p.label, UI.C_BTN) then
                     local txt = director_state.input.text
                     local actor_prefix = txt:match("^%[.-%]%s*") or ""
@@ -23984,6 +23985,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             end
         end
         if cpx + S(24) <= (panel_x + panel_w - padding) then
+            gfx.setfont(F.std)
             if draw_actor_btn_inline(cpx, preset_row_y, S(24), control_row_h, "+", UI.C_ACCENT_N) then
                 show_panel_preset_dialog("director")
             end
@@ -24130,10 +24132,10 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
 end
 
 local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
+    gfx.setfont(F.std)
     if not calc_only then
         set_color(UI.C_BG)
         gfx.rect(panel_x, panel_y, panel_w, panel_h, 1)
-        gfx.setfont(F.std)
     end
     
     local is_editor_right = (cfg.editor_layout == "right")
@@ -24432,6 +24434,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
     local x = padding
     local y = is_editor_right and S(2) or padding
     
+    gfx.setfont(F.std)
     if not calc_only then
         set_color(UI.C_BG)
         gfx.rect(panel_x, panel_y, panel_w, panel_h, 1)
@@ -25203,6 +25206,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             -- Plus Button
             if last_x + fmt_btn_w <= ai_btn_x then
                 local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
+                gfx.setfont(F.std)
                 if draw_actor_btn_inline(last_x, control_draw_y, fmt_btn_w, control_row_h, "+", b_col) then
                     UI_STATE.mouse_handled = true
                     show_panel_preset_dialog("editor")
