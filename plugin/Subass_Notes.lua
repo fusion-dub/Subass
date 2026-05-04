@@ -23197,17 +23197,11 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         gfx.mouse_y >= opt_draw_y and gfx.mouse_y <= opt_draw_y + btn_h)
     end
 
-    local function draw_actor_btn_inline(x, y, w, h, text, bg_col, stripe_col, suppress_hover)
+    local function draw_actor_btn_inline(x, y, w, h, text, bg_col, suppress_hover)
         local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h) and not suppress_hover
         local effective_bg = hover and UI.C_BTN_H or (bg_col or UI.C_BTN)
         set_color(effective_bg)
         gfx.rect(x, y, w, h, 1)
-        
-        if stripe_col then
-            set_color(stripe_col)
-            local sw = S(1)
-            gfx.rect(x, y + h - sw, w, sw, 1)
-        end
         
         set_color(UI.C_TXT)
         
@@ -23220,14 +23214,14 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     end
 
     -- Clipped button: renders the button but crops it to [clip_y_top, clip_y_bot]
-    local function draw_actor_btn_clipped(x, y, w, h, text, bg_col, clip_y_top, clip_y_bot, stripe_col)
+    local function draw_actor_btn_clipped(x, y, w, h, text, bg_col, clip_y_top, clip_y_bot)
         local vis_y1 = math.max(y, clip_y_top)
         local vis_y2 = math.min(y + h, clip_y_bot)
         if vis_y1 >= vis_y2 then return false end -- fully outside
         
         local is_fully_visible = (y >= clip_y_top and y + h <= clip_y_bot)
         if is_fully_visible then
-            return draw_actor_btn_inline(x, y, w, h, text, bg_col, stripe_col, is_opt_hover)
+            return draw_actor_btn_inline(x, y, w, h, text, bg_col, is_opt_hover)
         end
         
         local buf = OTHER.BUF.DIRECTOR -- Reuse same buffer
@@ -23241,12 +23235,6 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         local effective_bg = hover and UI.C_BTN_H or (bg_col or UI.C_BTN)
         set_color(effective_bg)
         gfx.rect(0, 0, w, h, 1)
-        
-        if stripe_col then
-            set_color(stripe_col)
-            local sw = S(1)
-            gfx.rect(0, h - sw, w, sw, 1)
-        end
         
         set_color(UI.C_TXT)
 
@@ -23518,7 +23506,6 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             end
 
             local bg_col = is_active and UI.C_ACCENT_G or UI.C_BTN
-            local stripe_col = (not is_active) and act_col or nil
             local sdraw_y = draw_y - math.floor(director_state.scroll_y or 0) -- scrolled Y
             
             -- Hover Check for Right Click
@@ -23527,7 +23514,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             
             -- Only draw if any part is visible in actor area (draw_btn_clipped handles visual cropping)
             if sdraw_y + btn_h > panel_y and sdraw_y < actor_area_bottom then
-                if draw_actor_btn_clipped(draw_x, sdraw_y, btn_w, btn_h, label, bg_col, panel_y, actor_area_bottom, stripe_col) then
+                if draw_actor_btn_clipped(draw_x, sdraw_y, btn_w, btn_h, label, bg_col, panel_y, actor_area_bottom) then
                     if not is_opt_hover then
                         -- Toggle Logic
                         local txt = director_state.input.text
