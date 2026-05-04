@@ -2406,6 +2406,7 @@ UI.UI_THEMES = {
         C_HILI_HEADER = {0.2, 0.3, 0.35},   -- Header Hover
         C_ACCENT_G = {0.2, 0.6, 0.2},       -- Green (Active)
         C_ACCENT_N = {0.3, 0.35, 0.3},      -- Neutral
+        C_ACCENT_SN = {0.22, 0.24, 0.22},      -- Neutral
         C_MARKER_BG = {0.3, 0.1, 0.1},      -- Dark Red Row
         C_MARKER_SEL = {0.5, 0.4, 0.0},     -- Dark Orange Selection
         C_TOOLTIP_BG = {0, 0, 0, 0.9},      -- Dark Tooltip BG
@@ -2436,6 +2437,7 @@ UI.UI_THEMES = {
         C_HILI_HEADER = {0.15, 0.2, 0.25},  -- Deeper Header Hover
         C_ACCENT_G = {0.15, 0.5, 0.15},     -- Deeper Green
         C_ACCENT_N = {0.2, 0.25, 0.2},      -- Deeper Neutral
+        C_ACCENT_SN = {0.14, 0.16, 0.14},      -- Neutral
         C_MARKER_BG = {0.25, 0.08, 0.08},   -- Deep Dark Red Row
         C_MARKER_SEL = {0.45, 0.35, 0.05},  -- Deep Orange Selection
         C_TOOLTIP_BG = {0, 0, 0, 0.95},     -- Black Tooltip BG
@@ -2466,6 +2468,7 @@ UI.UI_THEMES = {
         C_HILI_HEADER = {0.60, 0.60, 0.70},  -- Header Hover Highlight
         C_ACCENT_G = {0.70, 0.95, 0.70},    -- Pastel Green (Light)
         C_ACCENT_N = {0.55, 0.55, 0.53},    -- Neutral Grey
+        C_ACCENT_SN = {0.65, 0.70, 0.68},      -- Neutral
         C_MARKER_BG = {0.95, 0.35, 0.35},   -- Strong Red Row
         C_MARKER_SEL = {0.92, 0.65, 0.45},  -- Pastel Orange Selection (Light)
         C_TOOLTIP_BG = {0.95, 0.95, 0.93, 1}, -- Light Opaque Tooltip BG
@@ -23890,7 +23893,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         if director_state.has_recent_notes then
             if cpx + S(24) <= (panel_x + panel_w - padding) then
                 gfx.setfont(F.std)
-                if draw_actor_btn_inline(cpx, preset_row_y, S(24), control_row_h, "#", UI.C_ACCENT_N) then
+                if draw_actor_btn_inline(cpx, preset_row_y, S(24), control_row_h, "#", UI.C_ACCENT_SN) then
                     -- Collect Unique Notes
                     local unique_notes = {}
                     local used_text = {}
@@ -23946,7 +23949,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
             local btn_w = S(45)
             if cpx + btn_w <= (panel_x + panel_w - padding) then
                 gfx.setfont(F.std)
-                if draw_actor_btn_inline(cpx, preset_row_y, btn_w, control_row_h, p.label, UI.C_BTN) then
+                if draw_actor_btn_inline(cpx, preset_row_y, btn_w, control_row_h, p.label, UI.C_ROW) then
                     local txt = director_state.input.text
                     local actor_prefix = txt:match("^%[.-%]%s*") or ""
                     local rem = txt:sub(#actor_prefix + 1)
@@ -23990,7 +23993,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         end
         if cpx + S(24) <= (panel_x + panel_w - padding) then
             gfx.setfont(F.std)
-            if draw_actor_btn_inline(cpx, preset_row_y, S(24), control_row_h, "+", UI.C_ACCENT_N) then
+            if draw_actor_btn_inline(cpx, preset_row_y, S(24), control_row_h, "+", UI.C_ACCENT_SN) then
                 show_panel_preset_dialog("director")
             end
             
@@ -25100,14 +25103,14 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         local ai_btn_text = "Запитати " .. provider_name
         local ai_btn_w = S(130)
         local ai_btn_x = input_draw_x + left_w - ai_btn_w
-        local ai_b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
+        local ai_b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
 
         for i, label in ipairs(fmt_btns) do
             local bx = input_draw_x + (i-1) * (fmt_btn_w + fmt_gap)
             
             -- Only draw if it does not overlap with the AI button
             if bx + fmt_btn_w <= ai_btn_x then
-                local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
+                local b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
                 
                 -- Apply styling for preview
                 if label == "B" then gfx.setfont(F.bld)
@@ -25159,7 +25162,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             local preset_btn_w = S(36)
             for i, p in ipairs(cfg.fmt_presets) do
                 if last_x + preset_btn_w <= ai_btn_x then
-                    local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
+                    local b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
                     gfx.setfont(F.std)
                     if draw_actor_btn_inline(last_x, control_draw_y, preset_btn_w, control_row_h, p.label, b_col) then
                         UI_STATE.mouse_handled = true
@@ -25209,7 +25212,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             
             -- Plus Button
             if last_x + fmt_btn_w <= ai_btn_x then
-                local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
+                local b_col = is_disabled and UI.C_TAB_INA or UI.C_ACCENT_SN
                 gfx.setfont(F.std)
                 if draw_actor_btn_inline(last_x, control_draw_y, fmt_btn_w, control_row_h, "+", b_col) then
                     UI_STATE.mouse_handled = true
