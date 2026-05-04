@@ -162,6 +162,7 @@ local cfg = {
     -- hotkeys for 12 actions (string, defaults: 1,2,3,4,5,6,7,8,9,0,-,=)
     hotkeys = get_set("hotkeys", "1,2,3,4,5,6,7,8,9,0,-,="),
     fmt_presets = {}, -- Loaded below after STATS module
+    director_presets = {}, -- Loaded below after STATS module
 }
 
 local OTHER = {
@@ -1387,13 +1388,31 @@ function STATS.json_decode(str)
     return res
 end
 
--- Load presets now that STATS is ready
-local raw_presets = reaper.GetExtState(section_name, "fmt_presets")
-if raw_presets ~= "" then
-    cfg.fmt_presets = STATS.json_decode(raw_presets) or {}
-else
-    cfg.fmt_presets = {}
+function OTHER.load_panel_presets()
+    -- Load presets now that STATS is ready
+    local raw_presets = reaper.GetExtState(section_name, "fmt_presets")
+    if raw_presets ~= "" then
+        cfg.fmt_presets = STATS.json_decode(raw_presets) or {}
+    else
+        cfg.fmt_presets = {}
+    end
+
+    local raw_dir_presets = reaper.GetExtState(section_name, "dir_presets")
+    if raw_dir_presets ~= "" then
+        cfg.director_presets = STATS.json_decode(raw_dir_presets) or {}
+    else
+        cfg.director_presets = {
+            {label = "ЗВУ", val = "Пропуск звуку"},
+            {label = "ДИК", val = "Погана дикція, чіткіше "},
+            {label = "ПРЕ", val = "Пропуск репліки"},
+            {label = "ТВЩ", val = "Твердішу Щ"},
+            {label = "ТВЧ", val = "Твердішу Ч"},
+            {label = "ФЕВ", val = "Чую Ф замість В"},
+        }
+    end
 end
+
+OTHER.load_panel_presets()
 
 --- Perform a global audit of all projects in the registry to count unique deadline failures
 function ACHIEVEMENTS.global_deadline_sweep()
@@ -1785,7 +1804,6 @@ end
 
 --- Initialize stats on script load
 STATS.load()
-
 
 --- Check if the current project has failed its deadline and track it uniquely
 function ACHIEVEMENTS.check_deadline_failure()
@@ -2634,6 +2652,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "check_clipping", cfg.check_clipping and "1" or "0", true)
     reaper.SetExtState(section_name, "hotkeys", cfg.hotkeys, true)
     reaper.SetExtState(section_name, "fmt_presets", STATS.json_encode(cfg.fmt_presets or {}), true)
+    reaper.SetExtState(section_name, "dir_presets", STATS.json_encode(cfg.director_presets or {}), true)
 
     update_prompter_fonts()
 end
@@ -23161,6 +23180,36 @@ size > 0 ? (
     reaper.UpdateArrange()
 end
 
+
+local function show_panel_preset_dialog(panel_type, idx)
+    local is_new = (idx == nil)
+    local target_presets = (panel_type == "director") and cfg.director_presets or cfg.fmt_presets
+    local panel_name = (panel_type == "director") and "Режисер" or "Редактор"
+    
+    local preset = not is_new and target_presets[idx] or {label="", val=""}
+    
+    local ok, ret = reaper.GetUserInputs(is_new and ("Додати пресет (" .. panel_name .. ")") or ("Редагувати пресет (" .. panel_name .. ")"), 2, 
+        "Назва (3 симв),Вміст" .. (panel_type == "editor" and " (... для виділення)" or "") .. ",extrawidth=250", 
+        preset.label .. "," .. preset.val)
+    
+    if ok then
+        local l, v = ret:match("^(.-),(.*)$")
+        if l and v then
+            local off_l = utf8.offset(l, 4)
+            if off_l then l = l:sub(1, off_l - 1) end
+            if l == "" then 
+                l = v
+                local off_v = utf8.offset(l, 4)
+                if off_v then l = l:sub(1, off_v - 1) end
+            end
+            local new_preset = {label = l, val = v}
+            if is_new then table.insert(target_presets, new_preset)
+            else target_presets[idx] = new_preset end
+            save_settings()
+        end
+    end
+end
+
 local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
     if not calc_only then
         set_color(UI.C_BG)
@@ -23445,10 +23494,40 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         end
     end
 
-    -- --- SCROLL: calculate actor area height limit ---
-    local is_right_layout = (cfg.director_layout == "right")
-    local input_reserve = S(30) + S(10) + (is_right_layout and (S(30) + S(10)) or 0) -- min input + padding + optional save btn
-    local actor_area_bottom = math.max(panel_y + btn_h, panel_y + panel_h - input_reserve) -- always show at least one row
+    -- Check for recent notes visibility
+    local has_recent_notes = false
+    for _, m in ipairs(ass_markers) do
+        if m.name and m.name:gsub("%s", "") ~= "" then
+            has_recent_notes = true
+            break
+        end
+    end
+    director_state.has_recent_notes = has_recent_notes
+
+    -- --- DRY RUN for height calculation (Matching draw_editor_panel) ---
+    local dry_x = padding
+    local dry_y = 0
+    local act_row_h = btn_h + S(5)
+    
+    for _, actor in ipairs(director_actors) do
+        local w, _ = gfx.measurestr(actor)
+        local b_w = w + S(20)
+        if panel_x + dry_x + b_w > limit_x then
+            dry_x = padding
+            dry_y = dry_y + act_row_h
+        end
+        dry_x = dry_x + b_w + S(5)
+    end
+    
+    if panel_x + dry_x + S(24) > limit_x then dry_x = padding dry_y = dry_y + act_row_h end
+    
+    local start_y = is_right_layout and S(8) or S(16)
+    local needed_actor_h = start_y + dry_y + btn_h
+    local max_actor_h_limit = is_right_layout and (4 * act_row_h + S(2)) or (3 * act_row_h + S(10))
+    local actor_area_h = math.min(needed_actor_h, max_actor_h_limit)
+    local actor_area_bottom = panel_y + actor_area_h
+    
+    -- --- SCROLL: handle wheel in actor area ---
     if not calc_only and UI_STATE.window_focused and gfx.mouse_wheel ~= 0 and
        gfx.mouse_x >= panel_x and gfx.mouse_x <= panel_x + panel_w and
        gfx.mouse_y >= panel_y and gfx.mouse_y <= actor_area_bottom then
@@ -23549,6 +23628,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
                         director_state.input.cursor = #director_state.input.text
                         director_state.input.anchor = director_state.input.cursor
                         director_state.input.focus = true
+                        record_field_history(director_state.input)
                     end
                 end
 
@@ -23732,15 +23812,6 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         x = x + btn_w + S(5)
         draw_x = panel_x + x -- Update draw X
     end
-    
-    -- Check for recent notes visibility
-    director_state.has_recent_notes = false
-    for _, m in ipairs(ass_markers) do
-        if m.name and m.name:gsub("%s", "") ~= "" then
-            director_state.has_recent_notes = true
-            break
-        end
-    end
 
     -- Clamp scroll after layout is known
     if not calc_only then
@@ -23763,68 +23834,6 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
 
     if not calc_only then
         -- Draw # Button (Recent Notes)
-        if director_state.has_recent_notes then
-            if draw_x + S(24) > limit_x then
-                x = padding
-                y = y + btn_h + S(5)
-                draw_x = panel_x + x
-                draw_y = panel_y + y
-            end
-            local sdraw_y_hash = draw_y - math.floor(director_state.scroll_y or 0)
-            if sdraw_y_hash + btn_h > panel_y and sdraw_y_hash < actor_area_bottom then
-                if draw_btn_clipped(draw_x, sdraw_y_hash, S(24), btn_h, "#", UI.C_ACCENT_N, panel_y, actor_area_bottom) then
-                    if not is_opt_hover then
-                        -- Collect Unique Notes
-                        local unique_notes = {}
-                        local used_text = {}
-                        
-                        -- 1. Try Recent Indices First
-                        local markers_by_id = {}
-                        for _, m in ipairs(ass_markers) do markers_by_id[m.markindex] = m end
-                    
-                        for _, rid in ipairs(director_state.recent_indices) do
-                            local m = markers_by_id[rid]
-                            if m and m.name and m.name ~= "" and not used_text[m.name] then
-                                table.insert(unique_notes, m.name)
-                                used_text[m.name] = true
-                                if #unique_notes >= 15 then break end
-                            end
-                        end
-                        
-                        -- 2. Fill with Newest Markers if space remains
-                        if #unique_notes < 15 then
-                            for i = #ass_markers, 1, -1 do
-                                local m = ass_markers[i]
-                                if m and m.name and m.name ~= "" and not used_text[m.name] then
-                                    table.insert(unique_notes, m.name)
-                                    used_text[m.name] = true
-                                    if #unique_notes >= 15 then break end
-                                end
-                            end
-                        end
-                        
-                        if #unique_notes > 0 then
-                            local menu_items = {}
-                            for _, note in ipairs(unique_notes) do
-                                table.insert(menu_items, (note:gsub("|", "||")))
-                            end
-                            local menu_str = table.concat(menu_items, "|")
-                            
-                            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                            local ret = gfx.showmenu(menu_str)
-                            if ret > 0 and unique_notes[ret] then
-                                director_state.input.text = unique_notes[ret]
-                                director_state.input.cursor = #director_state.input.text
-                                director_state.input.anchor = director_state.input.cursor
-                                director_state.input.focus = true
-                            end
-                        end
-                    end
-                end
-            end -- clip hash
-            draw_x = draw_x + S(24) + S(5)
-            x = x + S(24) + S(5)
-        end
 
         -- Check wrap for "+" button
         if draw_x + S(24) > limit_x then
@@ -23864,16 +23873,142 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     
     draw_options_menu()
     
-    -- --- ROW 2: INPUT & SAVE ---
+    -- --- ROW 2: PRESETS ---
+    local control_row_h = S(28)
+    local preset_row_y = actor_area_bottom + padding
+    if not calc_only then
+        -- Separator line
+        set_color(UI.C_MEDIUM_GREY)
+        gfx.line(panel_x, actor_area_bottom, panel_x + panel_w, actor_area_bottom)
+        
+        local cpx = panel_x + padding
+        
+        -- History Button (#)
+        if director_state.has_recent_notes then
+            if cpx + S(24) <= (panel_x + panel_w - padding) then
+                if draw_actor_btn_inline(cpx, preset_row_y, S(24), control_row_h, "#", UI.C_ACCENT_N) then
+                    -- Collect Unique Notes
+                    local unique_notes = {}
+                    local used_text = {}
+                        
+                        -- 1. Try Recent Indices First
+                    local markers_by_id = {}
+                    for _, m in ipairs(ass_markers) do markers_by_id[m.markindex] = m end
+                
+                    for _, rid in ipairs(director_state.recent_indices) do
+                        local m = markers_by_id[rid]
+                        if m and m.name and m.name ~= "" and not used_text[m.name] then
+                            table.insert(unique_notes, m.name)
+                            used_text[m.name] = true
+                            if #unique_notes >= 15 then break end
+                        end
+                    end
+                    
+                        -- 2. Fill with Newest Markers if space remains
+                    if #unique_notes < 15 then
+                        for i = #ass_markers, 1, -1 do
+                            local m = ass_markers[i]
+                            if m and m.name and m.name ~= "" and not used_text[m.name] then
+                                table.insert(unique_notes, m.name)
+                                used_text[m.name] = true
+                                if #unique_notes >= 15 then break end
+                            end
+                        end
+                    end
+                    
+                    if #unique_notes > 0 then
+                        local menu_items = {}
+                        for _, note in ipairs(unique_notes) do
+                            table.insert(menu_items, (note:gsub("|", "||")))
+                        end
+                        local menu_str = table.concat(menu_items, "|")
+                            
+                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                        local ret = gfx.showmenu(menu_str)
+                        if ret > 0 and unique_notes[ret] then
+                            director_state.input.text = unique_notes[ret]
+                            director_state.input.cursor = #director_state.input.text
+                            director_state.input.anchor = director_state.input.cursor
+                            director_state.input.focus = true
+                            record_field_history(director_state.input)
+                        end
+                    end
+                end
+                cpx = cpx + S(24) + S(5)
+            end
+        end
+
+        for i, p in ipairs(cfg.director_presets) do
+            local btn_w = S(45)
+            if cpx + btn_w <= (panel_x + panel_w - padding) then
+                if draw_actor_btn_inline(cpx, preset_row_y, btn_w, control_row_h, p.label, UI.C_BTN) then
+                    local txt = director_state.input.text
+                    local actor_prefix = txt:match("^%[.-%]%s*") or ""
+                    local rem = txt:sub(#actor_prefix + 1)
+                    local time_prefix = rem:match("^%d+[:%.][%d:%.]*%s*-%s*") or ""
+                    
+                    local prefix = actor_prefix .. time_prefix
+                    director_state.input.text = prefix .. p.val
+                    director_state.input.cursor = #director_state.input.text
+                    director_state.input.anchor = director_state.input.cursor
+                    director_state.input.focus = true
+                    record_field_history(director_state.input)
+                    UI_STATE.mouse_handled = true
+                end
+                
+                -- Tooltip and Right Click Menu
+                local is_h = UI_STATE.window_focused and 
+                             gfx.mouse_x >= cpx and gfx.mouse_x <= cpx + btn_w and 
+                             gfx.mouse_y >= preset_row_y and gfx.mouse_y <= preset_row_y + control_row_h
+                
+                if is_h then
+                    local tip_id = "dir_preset_" .. i
+                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                        UI_STATE.tooltip_state.hover_id = tip_id
+                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    end
+                    UI_STATE.tooltip_state.text = "Пресет: " .. p.val
+                    
+                    if is_right_mouse_clicked() then
+                        UI_STATE.mouse_handled = true
+                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                        local menu_str = "Редагувати пресет|Видалити пресет||" .. (i > 1 and "" or "#") .. "Перемістити вліво|" .. (i < #cfg.director_presets and "" or "#") .. "Перемістити вправо"
+                        local sel = gfx.showmenu(menu_str)
+                        if sel == 1 then show_panel_preset_dialog("director", i)
+                        elseif sel == 2 then table.remove(cfg.director_presets, i) save_settings()
+                        elseif sel == 3 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i-1, t) save_settings()
+                        elseif sel == 4 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i+1, t) save_settings() end
+                    end
+                end
+                cpx = cpx + btn_w + S(5)
+            end
+        end
+        if cpx + S(24) <= (panel_x + panel_w - padding) then
+            if draw_actor_btn_inline(cpx, preset_row_y, S(24), control_row_h, "+", UI.C_ACCENT_N) then
+                show_panel_preset_dialog("director")
+            end
+            
+            -- Tooltip for Add Preset
+            local is_h = UI_STATE.window_focused and 
+                         gfx.mouse_x >= cpx and gfx.mouse_x <= cpx + S(24) and 
+                         gfx.mouse_y >= preset_row_y and gfx.mouse_y <= preset_row_y + control_row_h
+            if is_h then
+                local tip_id = "dir_add_preset"
+                if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                    UI_STATE.tooltip_state.hover_id = tip_id
+                    UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                end
+                UI_STATE.tooltip_state.text = "Додати новий пресет"
+            end
+        end
+    end
+    
+    -- --- ROW 3: INPUT & SAVE ---
     local min_input_h = S(30)
     local save_btn_space = is_right_layout and (S(30) + S(10)) or 0
-    local input_area_h = min_input_h + padding + save_btn_space
     local input_draw_x = panel_x + padding
     
-    -- input_draw_y: follows actors if they fit, else pinned to actor_area_bottom
-    -- input_h: always fills from input_draw_y to panel bottom (shrinks smoothly with panel)
-    local natural_input_y = panel_y + y + btn_h + S(10)
-    local input_draw_y = math.min(natural_input_y, actor_area_bottom)
+    local input_draw_y = preset_row_y + control_row_h + padding
     local input_h = math.max(min_input_h, (panel_y + panel_h) - input_draw_y - padding - save_btn_space)
     
     if not calc_only then
@@ -23989,7 +24124,8 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
         end
     end
     
-    -- Return fixed height = actor viewport + fixed input area (prevents auto-expand with many actors)
+    -- Return fixed height = actor viewport + presets row + input area
+    local input_area_h = (preset_row_y + control_row_h + padding + input_h + padding + save_btn_space) - actor_area_bottom
     return (actor_area_bottom - panel_y) + input_area_h
 end
 
@@ -24949,36 +25085,6 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             UI_STATE.mouse_handled = true
         end
 
-        local function show_preset_dialog(idx)
-            local is_new = (idx == nil)
-            local preset = not is_new and cfg.fmt_presets[idx] or {label="", val=""}
-            
-            local ok, ret = reaper.GetUserInputs(is_new and "Додати пресет" or "Редагувати пресет", 2, 
-                "Назва (2 симв),Вміст (... для виділення),extrawidth=220", 
-                preset.label .. "," .. preset.val)
-                
-            if ok then
-                local l, v = ret:match("^(.-),(.*)$")
-                if l and v then
-                    local off_l = utf8.offset(l, 3)
-                    if off_l then l = l:sub(1, off_l - 1) end
-                    if l == "" then 
-                        l = v
-                        local off_v = utf8.offset(l, 3)
-                        if off_v then l = l:sub(1, off_v - 1) end
-                    end
-                    
-                    local new_preset = {label = l, val = v}
-                    if is_new then
-                        table.insert(cfg.fmt_presets, new_preset)
-                    else
-                        cfg.fmt_presets[idx] = new_preset
-                    end
-                    save_settings()
-                end
-            end
-        end
-
         local save_btn_w = is_editor_right and S(80) or S(110)
         local left_w = full_w - save_btn_w - padding
 
@@ -25043,17 +25149,18 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             last_x = last_x + S(10)
             
             -- Custom Presets
+            local preset_btn_w = S(36)
             for i, p in ipairs(cfg.fmt_presets) do
-                if last_x + fmt_btn_w <= ai_btn_x then
+                if last_x + preset_btn_w <= ai_btn_x then
                     local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
                     gfx.setfont(F.std)
-                    if draw_actor_btn_inline(last_x, control_draw_y, fmt_btn_w, control_row_h, p.label, b_col) then
+                    if draw_actor_btn_inline(last_x, control_draw_y, preset_btn_w, control_row_h, p.label, b_col) then
                         UI_STATE.mouse_handled = true
                         apply_custom_fmt(p.val)
                     end
                     
                     local is_h = UI_STATE.window_focused and 
-                                 (gfx.mouse_x >= last_x and gfx.mouse_x <= last_x + fmt_btn_w and 
+                                 (gfx.mouse_x >= last_x and gfx.mouse_x <= last_x + preset_btn_w and 
                                   gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
                     
                     if is_h then
@@ -25071,7 +25178,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                             local move_down_tag = (i < #cfg.fmt_presets) and "" or "#"
                             local sel = gfx.showmenu("Редагувати пресет|Видалити пресет||" .. move_up_tag .. "Перемістити вліво|" .. move_down_tag .. "Перемістити вправо")
                             
-                            if sel == 1 then show_preset_dialog(i)
+                            if sel == 1 then show_panel_preset_dialog("editor", i)
                             elseif sel == 2 then 
                                 if reaper.MB("Ви дійсно хочете видалити пресет '" .. (p.label or "") .. "'?", "Видалення пресета", 1) == 1 then
                                     table.remove(cfg.fmt_presets, i)
@@ -25089,7 +25196,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                         end
                     end
                     
-                    last_x = last_x + fmt_btn_w + fmt_gap
+                    last_x = last_x + preset_btn_w + fmt_gap
                 end
             end
             
@@ -25098,7 +25205,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 local b_col = is_disabled and UI.C_TAB_INA or UI.C_BTN
                 if draw_actor_btn_inline(last_x, control_draw_y, fmt_btn_w, control_row_h, "+", b_col) then
                     UI_STATE.mouse_handled = true
-                    show_preset_dialog()
+                    show_panel_preset_dialog("editor")
                 end
                 
                 local is_h = UI_STATE.window_focused and 
@@ -26195,7 +26302,7 @@ local function draw_table(input_queue)
     end
 
     local total_h = #table_layout_cache > 0 and (table_layout_cache[#table_layout_cache].y + table_layout_cache[#table_layout_cache].h) or 0
-    local min_panel_h = S(84)
+    local min_panel_h = S(128)
     if cfg.editor_mode then min_panel_h = S(188) end 
 
     -- Safeguard: auto-close bottom panels if window is too small
