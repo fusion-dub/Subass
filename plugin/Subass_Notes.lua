@@ -284,18 +284,20 @@ local OTHER = {
         IMG_ACH_23_dis=43,
         IMG_ACH_24_dis=42,
 
-        IMG_ACH_25 = 41,
+        IMG_ACH_25=41,
         IMG_ACH_25_dis=40,
-        IMG_ACH_26 = 39,
+        IMG_ACH_26=39,
         IMG_ACH_26_dis=38,
-        IMG_ACH_27 = 37,
+        IMG_ACH_27=37,
         IMG_ACH_27_dis=36,
-        IMG_ACH_28 = 35,
+        IMG_ACH_28=35,
         IMG_ACH_28_dis=34,
-        IMG_ACH_29 = 33,
+        IMG_ACH_29=33,
         IMG_ACH_29_dis=32,
-        IMG_ACH_30 = 31,
+        IMG_ACH_30=31,
         IMG_ACH_30_dis=30,
+
+        CATS=29,
     },
     QWERTY_TO_UA = {
         [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
@@ -360,7 +362,7 @@ OTHER.LOADERS_CFG = {
     { path = "media" .. OTHER.SEPARATOR .. "loading3.png", buf = OTHER.BUF.IMG_3, frames = 8,  fps = 10, frame_w = 500, zoom = 0.95, weight = 0.25 },
     { path = "media" .. OTHER.SEPARATOR .. "loading4.png", buf = OTHER.BUF.IMG_4, frames = 8,  fps = 10, frame_w = 68,  zoom = 1.70, weight = 0.01, is_itachi = true }
 }
-
+OTHER.CATS_CFG = { path = "media" .. OTHER.SEPARATOR .. "cats.png",  buf = OTHER.BUF.CATS, frames = 6, fps = 6, frame_w = 500 }
 OTHER.DEADLINE_GIF_CFG = { path = "media" .. OTHER.SEPARATOR .. "deadline.png",  buf = OTHER.BUF.IMG_5, frames = 10, fps = 8, frame_w = 512, zoom = 0.85 }
 OTHER.COPA_GIF_CFG = { path = "media" .. OTHER.SEPARATOR .. "copa.png",  buf = OTHER.BUF.IMG_6, frames = 9, fps = 8, frame_w = 200, zoom = 0.75 }
 OTHER.ACH_CFG = {
@@ -597,6 +599,14 @@ function OTHER.load_assets()
         end
     end
 
+    -- Load Cats GIF
+    if OTHER.CATS_CFG then
+        local df_path = script_path .. OTHER.CATS_CFG.path
+        if reaper.file_exists(df_path) then
+            gfx.loadimg(OTHER.CATS_CFG.buf, df_path)
+        end
+    end
+
     -- Load Copa GIF
     if OTHER.COPA_GIF_CFG then
         local df_path = script_path .. OTHER.COPA_GIF_CFG.path
@@ -705,6 +715,7 @@ local UI_STATE = {
     current_tab = get_set("last_tab", 1),
     last_mouse_cap = 0,
     mouse_handled = false,
+    show_cats = false,
     scroll_y = 0,
     target_scroll_y = 0,
     prompter_slider_y = 0,
@@ -1408,9 +1419,11 @@ function OTHER.load_panel_presets()
             {label = "ТЩЧ", val = "Твердішу Щ/Ч"},
             {label = "ЛОГ", val = "Логіка мови, дивно звучить"},
             {label = "ФЕВ", val = "Чую Ф замість В"},
-            {label = "ЕНР", val = "Додай енергії, мляво"},
+            {label = "ЕНР", val = "Додай енергії, мляво звучить"},
             {label = "ЛІП", val = "Ліпсінк, уважніше!"},
             {label = "НАГ", val = "Неправильний наголос: "},
+            {label = "АНС", val = "Акцент на слові: "},
+            {label = "ПЗД", val = "Потрібно завершити думку, поставити крапку."},
         }
     end
 end
@@ -17924,6 +17937,40 @@ local function draw_file()
         -- Apply Stress Marks Button
         local s_y = get_y(y_cursor)
         if s_y + S(75) > start_y and s_y < gfx.h + S(50) then
+            -- CATS EASTER EGG
+            if not is_narrow then
+                local draw_w, draw_h = S(100), S(100)
+                local dot_x = gfx.w - S(18)
+                local dot_y = s_y - S(2)
+                if UI_STATE.show_cats then
+                    local cfg = OTHER.CATS_CFG
+                    if cfg then
+                        local frame = math.floor((reaper.time_precise() * cfg.fps) % cfg.frames)
+                        local gx, gy = dot_x - draw_w + S(14), dot_y - draw_h + S(12)
+                        
+                        gfx.mode = 0
+                        gfx.a = 1
+                        gfx.blit(cfg.buf, 1, 0, frame * cfg.frame_w, 0, cfg.frame_w, cfg.frame_w, gx, gy, draw_w, draw_h)
+                        
+                        if is_mouse_clicked() and not UI_STATE.mouse_handled and 
+                           gfx.mouse_x >= gx and gfx.mouse_x <= gx + draw_w and 
+                           gfx.mouse_y >= gy and gfx.mouse_y <= gy + draw_h then
+                            UI_STATE.show_cats = false
+                            UI_STATE.mouse_handled = true
+                        end
+                    end
+                else
+                    set_color(UI.C_TAB_ACT)
+                    gfx.rect(dot_x - 2, dot_y - 2, 2, 2, 1)
+                    if is_mouse_clicked() and not UI_STATE.mouse_handled and 
+                       gfx.mouse_x >= dot_x - 10 and gfx.mouse_x <= dot_x and 
+                       gfx.mouse_y >= dot_y - 10 and gfx.mouse_y <= dot_y then
+                        UI_STATE.show_cats = true
+                        UI_STATE.mouse_handled = true
+                    end
+                end
+            end
+
             local is_running = UI_STATE.script_loading_state.active
             local btn_text = is_running and "AI обробка..." or ">  Застосувати наголоси  <"
             local btn_col = is_running and UI.C_BTN_H or UI.C_TAB_ACT
