@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.3
+-- @version 7.3.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.3",
+    script_title = "Subass Notes v7.3.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -2051,25 +2051,26 @@ function ACHIEVEMENTS.check_feather_silence_ach_24(item, length)
     -- Optimized: Use low sample rate (1000Hz) for ultra-fast light analysis
     local check_srate = 1000 
     local total_samples = math.floor(length * check_srate)
-    if total_samples <= 0 then 
+    local ts_chs = total_samples * n_chans
+
+    if total_samples <= 0 or ts_chs <= 0 then 
         reaper.DestroyAudioAccessor(accessor)
         return false 
     end
 
-    local buffer = reaper.new_array(total_samples * n_chans)
+    local buffer = reaper.new_array(ts_chs)
     local retval = reaper.GetAudioAccessorSamples(accessor, check_srate, n_chans, 0, total_samples, buffer)
     reaper.DestroyAudioAccessor(accessor)
     
     if retval > 0 then
         local sum_sq = 0
-        local total_values = total_samples * n_chans
         
-        for i = 1, total_values do
+        for i = 1, ts_chs do
             local val = buffer[i] or 0
             sum_sq = sum_sq + (val * val)
         end
         
-        local mean_sq = sum_sq / total_values
+        local mean_sq = sum_sq / ts_chs
         -- -60 dB threshold (square of 0.001 linear) is 0.000001
         if mean_sq < 0.000001 then
             ACHIEVEMENTS.add_stat("ach_24_count", 1)
@@ -15199,7 +15200,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
                             total, string.rep("—", 12))
                     elseif ach.id == "ach_24" then
                         local total = ACHIEVEMENTS.stats["ach_24_count"] or 0
-                        tooltip_text = string.format("Миттєвостей тиші зафіксовано: %d\n%s\n\"Вміння мовчати — це теж мистецтво.\"\n(Запис абсолютної тиші тривалістю 5+ секунд)", 
+                        tooltip_text = string.format("Миттєвостей тиші зафіксовано: %d\n%s\n\"Вміння мовчати — це теж мистецтво.\"\n(Запис тиші тривалістю 5+ секунд)", 
                             total, string.rep("—", 12))
                     elseif ach.id == "ach_25" then
                         local total = ACHIEVEMENTS.stats["ach_25_count"] or 0
