@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.2
+-- @version 7.3
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.2",
+    script_title = "Subass Notes v7.3",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -336,6 +336,30 @@ local OTHER = {
 
 -- Helper to open URLs safely (fallback if SWS not installed)
 local UTILS = {}
+
+--- Escape non-ASCII characters to \uXXXX for safe storage in .ini
+function UTILS.unicode_escape(s)
+    if type(s) ~= "string" then return s end
+    local result = {}
+    for p, c in utf8.codes(s) do
+        if c > 127 then
+            table.insert(result, string.format("\\u%04x", c))
+        else
+            table.insert(result, string.char(c))
+        end
+    end
+    return table.concat(result)
+end
+
+--- Unescape \uXXXX sequences back to UTF-8
+function UTILS.unicode_unescape(s)
+    if type(s) ~= "string" then return s end
+    return s:gsub("\\u(%x%x%x%x)", function(hex)
+        local code = tonumber(hex, 16)
+        if code then return utf8.char(code) end
+        return "\\u" .. hex
+    end)
+end
 
 -- Global Scale Helper
 local function S(val)
@@ -1401,16 +1425,16 @@ end
 
 function OTHER.load_panel_presets()
     -- Load presets now that STATS is ready
-    local raw_presets = reaper.GetExtState(section_name, "fmt_presets")
+    local raw_presets = reaper.GetExtState(section_name, "fmt_presets_ext")
     if raw_presets ~= "" then
-        cfg.fmt_presets = STATS.json_decode(raw_presets) or {}
+        cfg.fmt_presets = STATS.json_decode(UTILS.unicode_unescape(raw_presets)) or {}
     else
         cfg.fmt_presets = {}
     end
 
-    local raw_dir_presets = reaper.GetExtState(section_name, "dir_presets")
+    local raw_dir_presets = reaper.GetExtState(section_name, "dir_presets_ext")
     if raw_dir_presets ~= "" then
-        cfg.director_presets = STATS.json_decode(raw_dir_presets) or {}
+        cfg.director_presets = STATS.json_decode(UTILS.unicode_unescape(raw_dir_presets)) or {}
     else
         cfg.director_presets = {
             {label = "ЗВУ", val = "Пропуск звуку"},
@@ -2670,8 +2694,8 @@ local function save_settings()
     reaper.SetExtState(section_name, "trim_end", tostring(cfg.trim_end), true)
     reaper.SetExtState(section_name, "check_clipping", cfg.check_clipping and "1" or "0", true)
     reaper.SetExtState(section_name, "hotkeys", cfg.hotkeys, true)
-    reaper.SetExtState(section_name, "fmt_presets", STATS.json_encode(cfg.fmt_presets or {}), true)
-    reaper.SetExtState(section_name, "dir_presets", STATS.json_encode(cfg.director_presets or {}), true)
+    reaper.SetExtState(section_name, "fmt_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.fmt_presets or {})), true)
+    reaper.SetExtState(section_name, "dir_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.director_presets or {})), true)
 
     update_prompter_fonts()
 end
