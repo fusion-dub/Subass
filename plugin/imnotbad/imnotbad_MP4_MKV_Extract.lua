@@ -1,5 +1,5 @@
 -- @description MP4/MKV Extract
--- @version 1.1
+-- @version 1.2
 -- @author imnotbad
 -- @required ReaImGui, js_ReaScriptAPI, FFmpeg
 
@@ -32,16 +32,16 @@ elseif r.ImGui_ChildFlags_FrameStyle then
 end
 
 local S = {
-  ctx               = nil,
-  open              = true,
-  file              = "",
-  streams           = {},
-  status            = "Оберіть .mp4 або .mkv файл",
-  diag              = "",
-  processing        = false,
-  show_diag         = false,
-  show_replace_menu = false,
-  replace_modal     = {
+  ctx                   = nil,
+  open                  = true,
+  file                  = "",
+  streams               = {},
+  status                = "Оберіть .mp4 або .mkv файл",
+  diag                  = "",
+  processing            = false,
+  show_diag             = false,
+  show_replace_menu     = false,
+  replace_modal         = {
     open = false,
     audio_file = "",
     audio_streams = {},
@@ -54,14 +54,26 @@ local S = {
     progress = 0,
     progress_text = ""
   },
-  preview_sub       = {
+  preview_sub           = {
     content    = nil,
     title      = nil,
     stream_idx = nil,
     open       = false
   },
-  selected_channels = {},
-  audio_preview     = {
+  subtitle_import_modal = {
+    open = false,
+    subtitle_file = "",
+    subtitle_content = nil,
+    subtitle_lang = "ukr",
+    subtitle_title = "",
+    keep_existing_subs = true,
+    processing = false,
+    progress = 0,
+    progress_text = "",
+    visual_progress = 0
+  },
+  selected_channels     = {},
+  audio_preview         = {
     source             = nil,
     file               = nil,
     playing            = false,
@@ -566,7 +578,7 @@ local function probe_streams(filepath)
       end
     end
     if #unsupported > 0 then
-      d("⚠ УВАГА: Знайдено непідтримувані потоки:")
+      d("УВАГА: Знайдено непідтримувані потоки:")
       for _, msg in ipairs(unsupported) do
         d(msg)
       end
@@ -781,10 +793,10 @@ local function load_file(path)
       S.status = string.format("✓ Знайдено %d потоків (%d підтримується) — оберіть та натисніть «Імпортувати»",
         #S.streams, supported_count)
     else
-      S.status = "⚠ Знайдено потоки, але жоден не підтримується для імпорту"
+      S.status = "Знайдено потоки, але жоден не підтримується для імпорту"
     end
     if #unsupported_list > 0 then
-      local diag_msg = "⚠ Непідтримувані потоки:\n" .. table.concat(unsupported_list, "\n")
+      local diag_msg = "Непідтримувані потоки:\n" .. table.concat(unsupported_list, "\n")
       if S.diag ~= "" then
         S.diag = S.diag .. "\n\n" .. diag_msg
       else
@@ -915,7 +927,6 @@ local function draw_subtitle_preview()
               local out_path = out_dir .. SEP .. safe_filename(string.format("%s_s%d%s.%s", base, s.idx, lang_sfx, ext))
               local content = S.preview_sub.content
               if content then
-   
                 local f = io.open(out_path, "wb")
                 if f then
                   f:write(content)
@@ -1000,7 +1011,7 @@ local function do_replace_audio_async(save_path)
     )
     S.replace_modal.progress = 0.5
     S.replace_modal.progress_text = "Об'єднання відео з аудіо..."
-    S.status = "⏳ Заміна аудіо..."
+    S.status = "Заміна аудіо..."
     run_ffmpeg_async(ffmpeg_cmd, function(out_file)
       S.replace_modal.progress = 1.0
       S.replace_modal.progress_text = "Завершено"
@@ -1017,13 +1028,13 @@ local function do_replace_audio_async(save_path)
         else
           S.replace_modal.processing = false
           S.replace_modal.progress = 0
-          S.status = "❌ Помилка: вихідний файл порожній"
+          S.status = "Помилка: вихідний файл порожній"
           os.remove(save_path)
         end
       else
         S.replace_modal.processing = false
         S.replace_modal.progress = 0
-        S.status = "❌ Помилка: не вдалося створити вихідний файл"
+        S.status = "Помилка: не вдалося створити вихідний файл"
         if out_file then
           local f_diag = io.open(out_file, "r")
           if f_diag then
@@ -1078,12 +1089,12 @@ local function do_replace_audio_async(save_path)
         else
           S.replace_modal.processing = false
           S.replace_modal.progress = 0
-          S.status = "❌ Помилка конвертації аудіо"
+          S.status = "Помилка конвертації аудіо"
         end
       else
         S.replace_modal.processing = false
         S.replace_modal.progress = 0
-        S.status = "❌ Помилка конвертації аудіо"
+        S.status = "Помилка конвертації аудіо"
       end
     end)
   else
@@ -1093,35 +1104,35 @@ local function do_replace_audio_async(save_path)
   end
 end
 
-local function draw_replace_audio_modal() 
-    if S.replace_modal.open then
-      local win_x, win_y = r.ImGui_GetWindowPos(S.ctx)
-      local win_w, win_h = r.ImGui_GetWindowSize(S.ctx)
-      local modal_w, modal_h = 500, 420
-      r.ImGui_SetNextWindowPos(S.ctx,
-        win_x + (win_w - modal_w) * 0.5,
-        win_y + (win_h - modal_h) * 0.5,
-        r.ImGui_Cond_Always()
-      )
-      r.ImGui_SetNextWindowSize(S.ctx, modal_w, modal_h, r.ImGui_Cond_Always())
-      r.ImGui_OpenPopup(S.ctx, "Заміна аудіо у відео##modal")
-      S.replace_modal.open = false
-    end 
-    local ctx = S.ctx
-    local modal_w = 500 
-    local flags = r.ImGui_WindowFlags_NoResize()
-              | r.ImGui_WindowFlags_NoCollapse()
-              | r.ImGui_WindowFlags_NoDocking()
-              | r.ImGui_WindowFlags_NoMove() 
-    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ModalWindowDimBg(), 0x15151a99)          
-    local visible, open = r.ImGui_BeginPopupModal(ctx, "Заміна аудіо у відео##modal", true, flags)
-    r.ImGui_PopStyleColor(ctx)
-    if not visible then return end
-    if not open then
-      r.ImGui_CloseCurrentPopup(ctx)
-      r.ImGui_EndPopup(ctx)
-      return
-    end
+local function draw_replace_audio_modal()
+  if S.replace_modal.open then
+    local win_x, win_y = r.ImGui_GetWindowPos(S.ctx)
+    local win_w, win_h = r.ImGui_GetWindowSize(S.ctx)
+    local modal_w, modal_h = 500, 420
+    r.ImGui_SetNextWindowPos(S.ctx,
+      win_x + (win_w - modal_w) * 0.5,
+      win_y + (win_h - modal_h) * 0.5,
+      r.ImGui_Cond_Always()
+    )
+    r.ImGui_SetNextWindowSize(S.ctx, modal_w, modal_h, r.ImGui_Cond_Always())
+    r.ImGui_OpenPopup(S.ctx, "Заміна аудіо у відео##modal")
+    S.replace_modal.open = false
+  end
+  local ctx = S.ctx
+  local modal_w = 500
+  local flags = r.ImGui_WindowFlags_NoResize()
+      | r.ImGui_WindowFlags_NoCollapse()
+      | r.ImGui_WindowFlags_NoDocking()
+      | r.ImGui_WindowFlags_NoMove()
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ModalWindowDimBg(), 0x15151a99)
+  local visible, open = r.ImGui_BeginPopupModal(ctx, "Заміна аудіо у відео##modal", true, flags)
+  r.ImGui_PopStyleColor(ctx)
+  if not visible then return end
+  if not open then
+    r.ImGui_CloseCurrentPopup(ctx)
+    r.ImGui_EndPopup(ctx)
+    return
+  end
   if visible then
     r.ImGui_PushFont(S.ctx, S.font, 13)
     r.ImGui_TextColored(ctx, C.text_dim, "Відеофайл:")
@@ -1140,7 +1151,7 @@ local function draw_replace_audio_modal()
     if r.ImGui_Button(ctx, "Обрати аудіофайл...", hw, 28) then
       local extension_mask =
       "Audio files (*.m4a;*.mp3;*.wav;*.flac;*.aac;*.ogg;*.opus;*.ac3)\0*.m4a;*.mp3;*.wav;*.flac;*.aac;*.ogg;*.opus;*.ac3\0All Files (*.*)\0*.*\0"
-      local ok, f = r.JS_Dialog_BrowseForOpenFiles("Обрати аудіо файл", "", "", extension_mask, false)
+      local ok, f = r.JS_Dialog_BrowseForOpenFiles("Обрати аудіофайл", "", "", extension_mask, false)
       if ok and f and f ~= "" then
         f = f:gsub("%z.*", "")
         S.replace_modal.audio_file = f
@@ -1148,7 +1159,7 @@ local function draw_replace_audio_modal()
       end
     end
     r.ImGui_SameLine(ctx)
-    if r.ImGui_Button(ctx, "З файлу проєкта", hw, 28) then
+    if r.ImGui_Button(ctx, "Обрати з файлу проєкта", hw, 28) then
       local n = r.CountSelectedMediaItems(0)
       if n > 0 then
         local item = r.GetSelectedMediaItem(0, 0)
@@ -1181,29 +1192,30 @@ local function draw_replace_audio_modal()
       end
     end
     r.ImGui_TextColored(ctx, C.text_dim, "Опції:")
-    r.ImGui_SameLine(ctx) 
+    r.ImGui_SameLine(ctx)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_err)
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), 0x00000000)
-    if r.ImGui_Button(ctx, "?", 20, 20) then 
+    if r.ImGui_Button(ctx, "?", 20, 20) then
     end
-    r.ImGui_PopStyleColor(ctx, 2) 
+    r.ImGui_PopStyleColor(ctx, 2)
     if r.ImGui_IsItemHovered(ctx) then
-        r.ImGui_SetTooltip(ctx, "• Якщо один з файлів буде коротшим за інший,\nто збережене відео обріжиться по довжині\nнайкоротшого з файлів.")
+      r.ImGui_SetTooltip(ctx,
+        "• Якщо один з файлів буде коротшим за інший,\nто збережене відео обріжиться по довжині\nнайкоротшого з файлів.")
     end
     local keep_subs_changed, keep_subs = r.ImGui_Checkbox(ctx,
-        "Зберегти разом з субтитрами##keep_subs", S.replace_modal.keep_subs)
+      "Зберегти разом з субтитрами##keep_subs", S.replace_modal.keep_subs)
     if keep_subs_changed then S.replace_modal.keep_subs = keep_subs end
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_warn)
     if r.ImGui_IsItemHovered(ctx) then
-        r.ImGui_SetTooltip(ctx, "Якщо вимкнути цю опцію, субтитри\nз оригінального відео не потраплять у новий файл.")
+      r.ImGui_SetTooltip(ctx, "Якщо вимкнути цю опцію, субтитри\nз оригінального відео не потраплять у новий файл.")
     end
     r.ImGui_PopStyleColor(ctx)
     local keep_audio_changed, keep_audio = r.ImGui_Checkbox(ctx,
-        "Зберегти інші аудіодоріжки##keep_audio", S.replace_modal.keep_other_audio)
+      "Зберегти інші аудіодоріжки##keep_audio", S.replace_modal.keep_other_audio)
     if keep_audio_changed then S.replace_modal.keep_other_audio = keep_audio end
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_warn)
     if r.ImGui_IsItemHovered(ctx) then
-        r.ImGui_SetTooltip(ctx, "Якщо вимкнути цю опцію, аудіодоріжки\nз оригінального відео не потраплять у новий файл.")
+      r.ImGui_SetTooltip(ctx, "Якщо вимкнути цю опцію, аудіодоріжки\nз оригінального відео не потраплять у новий файл.")
     end
     r.ImGui_PopStyleColor(ctx)
     r.ImGui_Spacing(ctx)
@@ -1325,7 +1337,7 @@ local function draw_replace_audio_modal()
       end
       if disabled then
         r.ImGui_PopStyleColor(ctx, 2)
-      end 
+      end
     end
   end
   r.ImGui_PopFont(ctx)
@@ -1528,7 +1540,7 @@ local function do_import(src, streams_list)
           S.diag = S.diag .. d .. "\n"
         end
         S.status = string.format(
-          "⚠ Завершено: %d OK / %d помилок (дивись діагностику)", ok_count, err_count)
+          "Завершено: %d OK / %d помилок (дивись діагностику)", ok_count, err_count)
       end
       return
     end
@@ -1586,6 +1598,607 @@ local function do_import(src, streams_list)
   process_next()
 end
 
+local function do_add_subtitle_async(save_path)
+  local video_file = S.file
+  local sub_file = S.subtitle_import_modal.subtitle_file
+  local sub_lang = S.subtitle_import_modal.subtitle_lang or "ukr"
+  local sub_title = S.subtitle_import_modal.subtitle_title or ""
+  local keep_existing_subs = S.subtitle_import_modal.keep_existing_subs
+  local resource_path = r.GetResourcePath()
+  local temp_dir = resource_path .. SEP .. "Scripts"
+  r.RecursiveCreateDirectory(temp_dir, 0)
+  local input_ext = video_file:match("^.+(%.[^%.]+)$"):lower()
+  local is_mp4 = input_ext == ".mp4"
+  local temp_files = {}
+  local final_output_path = save_path
+  local mkv_temp_file = nil
+  if is_mp4 then
+    mkv_temp_file = temp_dir .. SEP .. "temp_subtitles_" .. os.time() .. "_" .. math.random(1000, 9999) .. ".mkv"
+    table.insert(temp_files, mkv_temp_file)
+    save_path = mkv_temp_file
+  end
+  local function exec_sync(cmd, error_msg)
+    if IS_WIN then
+      local bat = temp_dir .. SEP .. "_cmd_" .. os.time() .. "_" .. math.random(1000, 9999) .. ".bat"
+      write_to_file(bat, "@echo off\nchcp 65001 >nul\n" .. cmd .. "\necho ERRORLEVEL=%ERRORLEVEL%")
+      local result = r.ExecProcess(bat, 0)
+      os.remove(bat)
+      if result and result:match("ERRORLEVEL=[1-9]") then
+        if error_msg then S.status = error_msg end
+        return false
+      end
+      return true
+    else
+      local ret = os.execute(cmd)
+      if ret ~= 0 and error_msg then S.status = error_msg end
+      return ret == 0
+    end
+  end
+  local function get_file_ext(path)
+    return (path:match("^.+(%.[^%.]+)$") or ".srt"):lower()
+  end
+  local function codec_to_ext(codec_name)
+    local map = {
+      ass               = ".ass",
+      ssa               = ".ass",
+      subrip            = ".srt",
+      srt               = ".srt",
+      webvtt            = ".vtt",
+      vtt               = ".vtt",
+      mov_text          = ".srt",
+      hdmv_pgs_subtitle = ".sup",
+      dvd_subtitle      = ".sub",
+      dvb_subtitle      = ".sub",
+      microdvd          = ".sub",
+      subviewer         = ".sub",
+      subviewer1        = ".sub",
+      jacosub           = ".jss",
+      mpl2              = ".mpl",
+      pjs               = ".pjs",
+      realtext          = ".rt",
+      sami              = ".smi",
+      stl               = ".stl",
+      ttml              = ".ttml",
+      lrc               = ".lrc",
+    }
+    if not codec_name then return ".srt" end
+    return map[codec_name:lower()] or ".srt"
+  end
+  local function ensure_utf8_with_bom(filepath)
+    local ext = get_file_ext(filepath)
+    local text_formats = {
+      [".srt"] = true,
+      [".ass"] = true,
+      [".ssa"] = true,
+      [".vtt"] = true,
+      [".ttml"] = true,
+      [".lrc"] = true,
+      [".smi"] = true,
+      [".sub"] = true,
+      [".jss"] = true,
+      [".mpl"] = true,
+      [".rt"] = true,
+      [".stl"] = true,
+    }
+    if not text_formats[ext] then return filepath end
+    local f_in = io.open(filepath, "rb")
+    if not f_in then return filepath end
+    local content = f_in:read("*a")
+    f_in:close()
+    if not content or #content == 0 then return filepath end
+    if content:sub(1, 3) == "\239\187\191" then return filepath end
+    local out_path = temp_dir .. SEP .. "utf8_" .. os.time() .. "_" .. math.random(1000, 9999) .. ext
+    local f_out = io.open(out_path, "wb")
+    if not f_out then return filepath end
+    f_out:write("\239\187\191")
+
+    local function write_cp(cp)
+      if cp < 0x80 then
+        f_out:write(string.char(cp))
+      elseif cp < 0x800 then
+        f_out:write(string.char(0xC0 + math.floor(cp / 64), 0x80 + (cp % 64)))
+      elseif cp < 0xD800 or cp >= 0xE000 then
+        f_out:write(string.char(
+          0xE0 + math.floor(cp / 4096),
+          0x80 + math.floor((cp % 4096) / 64),
+          0x80 + (cp % 64)))
+      end
+    end
+
+    if content:sub(1, 2) == "\255\254" then
+      local i = 3
+      while i <= #content - 1 do
+        write_cp(content:byte(i + 1) * 256 + content:byte(i))
+        i = i + 2
+      end
+      f_out:close(); return out_path
+    elseif content:sub(1, 2) == "\254\255" then
+      local i = 3
+      while i <= #content - 1 do
+        write_cp(content:byte(i) * 256 + content:byte(i + 1))
+        i = i + 2
+      end
+      f_out:close(); return out_path
+    end
+    f_out:write(content)
+    f_out:close()
+    return out_path
+  end
+  local probe_out = temp_dir .. SEP .. "_probe_" .. os.time() .. ".txt"
+  local probe_cmd
+  if IS_WIN then
+    probe_cmd = string.format(
+      '"%s" -v error -select_streams s -show_entries stream=index,codec_name:stream_tags=language,title -of csv=p=0 "%s" > "%s" 2>&1',
+      FFPROBE, video_file, probe_out)
+  else
+    probe_cmd = string.format(
+      '%s -v error -select_streams s -show_entries stream=index,codec_name:stream_tags=language,title -of csv=p=0 %s > %s 2>&1',
+      shell_q(FFPROBE), shell_q(video_file), shell_q(probe_out))
+  end
+  exec_sync(probe_cmd, nil)
+  local dur_out = temp_dir .. SEP .. "_dur_" .. os.time() .. ".txt"
+  local dur_cmd
+  if IS_WIN then
+    dur_cmd = string.format(
+      '"%s" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "%s" > "%s" 2>&1',
+      FFPROBE, video_file, dur_out)
+  else
+    dur_cmd = string.format(
+      '%s -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 %s > %s 2>&1',
+      shell_q(FFPROBE), shell_q(video_file), shell_q(dur_out))
+  end
+  exec_sync(dur_cmd, nil)
+  local video_duration = nil
+  local f_dur = io.open(dur_out, "r")
+  if f_dur then
+    local v = f_dur:read("*l")
+    f_dur:close()
+    if v and v:match("^%d") then video_duration = v:match("([%d%.]+)") end
+  end
+  os.remove(dur_out)
+  local existing_subs = {}
+  local f_probe = io.open(probe_out, "r")
+  if f_probe then
+    for line in f_probe:lines() do
+      line = line:match("^%s*(.-)%s*$")
+      if line ~= "" then
+        local parts = {}
+        for field in (line .. ","):gmatch("([^,]*),") do
+          table.insert(parts, field)
+        end
+        local codec = parts[2] or ""
+        local lang  = parts[3] or ""
+        local title = parts[4] or ""
+        if lang == "N/A" then lang = "und" end
+        if title == "N/A" then title = "" end
+        if codec == "N/A" then codec = "" end
+        table.insert(existing_subs, { codec = codec, lang = lang, title = title })
+      end
+    end
+    f_probe:close()
+  end
+  os.remove(probe_out)
+  local input_sub = ensure_utf8_with_bom(sub_file)
+  if input_sub ~= sub_file then table.insert(temp_files, input_sub) end
+  local chk = io.open(input_sub, "rb")
+  if not chk then
+    S.status = "Помилка: не вдалося відкрити файл субтитрів"
+    return
+  end
+  local chk_size = chk:seek("end"); chk:close()
+  if chk_size == 0 then
+    S.status = "Помилка: файл субтитрів порожній"
+    return
+  end
+  local exported = {}
+  if keep_existing_subs and #existing_subs > 0 then
+    for si, sub_info in ipairs(existing_subs) do
+      local ext      = codec_to_ext(sub_info.codec)
+      local exp_path = temp_dir .. SEP .. "_expsub_" .. si .. "_" .. os.time() .. "_" .. math.random(1000, 9999) .. ext
+      local exp_cmd
+      if IS_WIN then
+        exp_cmd = string.format(
+          '"%s" -y -i "%s" -map 0:s:%d -c:s copy "%s" 2>&1',
+          FFMPEG, video_file, si - 1, exp_path)
+      else
+        exp_cmd = string.format(
+          '%s -y -i %s -map 0:s:%d -c:s copy %s 2>&1',
+          shell_q(FFMPEG), shell_q(video_file), si - 1, shell_q(exp_path))
+      end
+      exec_sync(exp_cmd, nil)
+      local ef = io.open(exp_path, "rb")
+      if ef then
+        local sz = ef:seek("end"); ef:close()
+        if sz and sz > 0 then
+          local final = ensure_utf8_with_bom(exp_path)
+          if final ~= exp_path then
+            os.remove(exp_path)
+            table.insert(temp_files, final)
+          else
+            table.insert(temp_files, exp_path)
+          end
+          table.insert(exported, {
+            file  = final,
+            lang  = sub_info.lang,
+            title = sub_info.title,
+          })
+        else
+          os.remove(exp_path)
+        end
+      end
+    end
+  end
+  local inputs_parts = {}
+  local map_parts    = {}
+  local meta_parts   = {}
+  local disp_parts   = {}
+  if IS_WIN then
+    table.insert(inputs_parts, string.format('-i "%s"', video_file))
+  else
+    table.insert(inputs_parts, string.format('-i %s', shell_q(video_file)))
+  end
+  table.insert(map_parts, "-map 0:v")
+  table.insert(map_parts, "-map 0:a")
+  local sub_stream_count = 0
+  if keep_existing_subs then
+    for ei, exp in ipairs(exported) do
+      local inp_idx = ei
+      if IS_WIN then
+        table.insert(inputs_parts, string.format('-i "%s"', exp.file))
+      else
+        table.insert(inputs_parts, string.format('-i %s', shell_q(exp.file)))
+      end
+      table.insert(map_parts, string.format("-map %d:0", inp_idx))
+      table.insert(meta_parts, string.format(
+        '-metadata:s:s:%d language=%s', sub_stream_count, exp.lang))
+      if exp.title ~= "" then
+        table.insert(meta_parts, string.format(
+          '-metadata:s:s:%d title="%s"', sub_stream_count, exp.title:gsub('"', '\\"')))
+      end
+      table.insert(disp_parts, string.format("-disposition:s:%d 0", sub_stream_count))
+      sub_stream_count = sub_stream_count + 1
+    end
+  end
+  local new_inp_idx = (keep_existing_subs and #exported or 0) + 1
+  if IS_WIN then
+    table.insert(inputs_parts, string.format('-i "%s"', input_sub))
+  else
+    table.insert(inputs_parts, string.format('-i %s', shell_q(input_sub)))
+  end
+  table.insert(map_parts, string.format("-map %d:0", new_inp_idx))
+  table.insert(meta_parts, string.format(
+    '-metadata:s:s:%d language=%s', sub_stream_count, sub_lang))
+  if sub_title ~= "" then
+    table.insert(meta_parts, string.format(
+      '-metadata:s:s:%d title="%s"', sub_stream_count, sub_title:gsub('"', '\\"')))
+  end
+  table.insert(disp_parts, string.format("-disposition:s:%d default", sub_stream_count))
+  local dur_flag                        = video_duration and ("-t " .. video_duration .. " ") or ""
+  local ffmpeg_cmd                      = string.format(
+    '"%s" -y %s %s -c:v copy -c:a copy -c:s copy %s %s -map_metadata 0 -map_chapters 0 %s"%s"',
+    FFMPEG,
+    table.concat(inputs_parts, " "),
+    table.concat(map_parts, " "),
+    table.concat(meta_parts, " "),
+    table.concat(disp_parts, " "),
+    dur_flag,
+    save_path
+  )
+  S.subtitle_import_modal.progress      = 0.3
+  S.subtitle_import_modal.progress_text = "Додавання субтитрів..."
+  S.status                              = "Додавання субтитрів у відео..."
+  run_ffmpeg_async(ffmpeg_cmd, function()
+    local f_check = io.open(save_path, "rb")
+    if not f_check then
+      for _, tmp in ipairs(temp_files) do
+        if tmp then os.remove(tmp) end
+      end
+      S.subtitle_import_modal.processing = false
+      S.status = "Помилка: не вдалося створити файл з субтитрами"
+      return
+    end
+    local file_size = f_check:seek("end")
+    f_check:close()
+    if file_size == 0 then
+      for _, tmp in ipairs(temp_files) do
+        if tmp then os.remove(tmp) end
+      end
+      S.subtitle_import_modal.processing = false
+      S.status = "Помилка: створено порожній файл"
+      return
+    end
+    if is_mp4 then
+      local copy_cmd
+      if IS_WIN then
+        copy_cmd = string.format('copy /Y "%s" "%s"', save_path, final_output_path)
+      else
+        copy_cmd = string.format('cp "%s" "%s"', save_path, final_output_path)
+      end
+      exec_sync(copy_cmd, nil)
+      local f_final = io.open(final_output_path, "rb")
+      if not f_final or f_final:seek("end") == 0 then
+        if f_final then f_final:close() end
+        for _, tmp in ipairs(temp_files) do
+          if tmp then os.remove(tmp) end
+        end
+        S.subtitle_import_modal.processing = false
+        S.status = "Помилка: не вдалося зберегти файл"
+        return
+      end
+      f_final:close()
+    end
+    for _, tmp in ipairs(temp_files) do
+      if tmp and tmp ~= final_output_path then
+        os.remove(tmp)
+      end
+    end
+    S.subtitle_import_modal.progress      = 1.0
+    S.subtitle_import_modal.progress_text = "Завершено"
+    local output_file                     = is_mp4 and final_output_path or save_path
+    local f                               = io.open(output_file, "rb")
+    if f then
+      local size = f:seek("end"); f:close()
+      if size and size > 0 then
+        S.subtitle_import_modal.processing      = false
+        S.subtitle_import_modal.open            = false
+        S.subtitle_import_modal.progress        = 0
+        S.subtitle_import_modal.visual_progress = 0
+        S.subtitle_import_modal.progress_text   = ""
+        if is_mp4 then
+          S.status = "✓ Субтитри (" .. sub_lang .. ") додано"
+          S.file = final_output_path
+        else
+          S.status = "✓ Субтитри (" .. sub_lang .. ") додано"
+        end
+      else
+        S.subtitle_import_modal.processing = false
+        S.status = "Помилка: вихідний файл порожній"
+        os.remove(output_file)
+      end
+    else
+      S.subtitle_import_modal.processing = false
+      S.status = "Помилка: не вдалося створити вихідний файл"
+    end
+  end)
+end
+
+local function draw_subtitle_import_modal()
+  if S.subtitle_import_modal.open then
+    local win_x, win_y = r.ImGui_GetWindowPos(S.ctx)
+    local win_w, win_h = r.ImGui_GetWindowSize(S.ctx)
+    local modal_w, modal_h = 550, 500
+    r.ImGui_SetNextWindowPos(S.ctx,
+      win_x + (win_w - modal_w) * 0.5,
+      win_y + (win_h - modal_h) * 0.5,
+      r.ImGui_Cond_Always()
+    )
+    r.ImGui_SetNextWindowSize(S.ctx, modal_w, modal_h, r.ImGui_Cond_Always())
+    r.ImGui_OpenPopup(S.ctx, "Додати субтитри##modal")
+    S.subtitle_import_modal.open = false
+  end
+  local ctx = S.ctx
+  local modal_w = 550
+  local flags = r.ImGui_WindowFlags_NoResize()
+      | r.ImGui_WindowFlags_NoCollapse()
+      | r.ImGui_WindowFlags_NoDocking()
+      | r.ImGui_WindowFlags_NoMove()
+  r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ModalWindowDimBg(), 0x15151a99)
+  local visible, open = r.ImGui_BeginPopupModal(ctx, "Додати субтитри##modal", true, flags)
+  r.ImGui_PopStyleColor(ctx)
+  if not visible then return end
+  if not open then
+    r.ImGui_CloseCurrentPopup(ctx)
+    r.ImGui_EndPopup(ctx)
+    return
+  end
+  if visible then
+    r.ImGui_PushFont(S.ctx, S.font, 13)
+    r.ImGui_TextColored(ctx, C.text_dim, "Відеофайл:")
+    r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_cyan)
+    local video_name = S.file:match("[/\\]([^/\\]+)$") or S.file
+    r.ImGui_TextWrapped(ctx, "▶ " .. video_name)
+    r.ImGui_PopStyleColor(ctx)
+    if r.ImGui_IsItemHovered(ctx) then
+      r.ImGui_SetTooltip(ctx, S.file)
+    end
+    r.ImGui_Spacing(ctx)
+    r.ImGui_Separator(ctx)
+    r.ImGui_Spacing(ctx)
+    r.ImGui_TextColored(ctx, C.text_dim, "Файл субтитрів:")
+    local btn_w = math.floor((modal_w - 32) / 2.01)
+    if r.ImGui_Button(ctx, "Обрати .srt/.ass файл...", btn_w, 28) then
+      local extension_mask =
+      "Subtitle files (*.srt;*.ass)\0*.srt;*.ass\0All Files (*.*)\0*.*\0"
+      local ok, f = r.JS_Dialog_BrowseForOpenFiles("Обрати файл субтитрів", "", "", extension_mask, false)
+      if ok and f and f ~= "" then
+        f = f:gsub("%z.*", "")
+        S.subtitle_import_modal.subtitle_file = f
+        S.subtitle_import_modal.subtitle_content = read_subtitle_preview(f)
+      end
+    end
+    if S.subtitle_import_modal.subtitle_file ~= "" then
+      r.ImGui_Spacing(ctx)
+      local sub_name = S.subtitle_import_modal.subtitle_file:match("[/\\]([^/\\]+)$") or
+          S.subtitle_import_modal.subtitle_file
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_ok)
+      r.ImGui_TextWrapped(ctx, "✓ " .. sub_name)
+      r.ImGui_PopStyleColor(ctx)
+      if S.subtitle_import_modal.subtitle_content then
+        r.ImGui_Spacing(ctx)
+        r.ImGui_TextColored(ctx, C.text_dim, "Попередній перегляд:")
+        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_ChildRounding(), 8.0)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ChildBg(), C.title_bg)
+        if r.ImGui_BeginChild(ctx, "##sub_preview", modal_w - 32, 120, 1) then
+          r.ImGui_PushTextWrapPos(ctx, 0)
+          local preview = S.subtitle_import_modal.subtitle_content:sub(1)
+          if #S.subtitle_import_modal.subtitle_content > 500 then
+            preview = preview .. "..."
+          end
+          r.ImGui_Text(ctx, preview)
+          r.ImGui_PopTextWrapPos(ctx)
+          r.ImGui_EndChild(ctx)
+        end
+        r.ImGui_PopStyleVar(ctx)
+        r.ImGui_PopStyleColor(ctx)
+      end
+      r.ImGui_Spacing(ctx)
+      r.ImGui_Separator(ctx)
+      r.ImGui_Spacing(ctx)
+      r.ImGui_TextColored(ctx, C.text_dim, "Мова субтитрів:")
+      r.ImGui_SameLine(ctx)
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_err)
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), 0x00000000)
+      if r.ImGui_Button(ctx, "?", 20, 20) then end
+      r.ImGui_PopStyleColor(ctx, 2)
+      if r.ImGui_IsItemHovered(ctx) then
+        r.ImGui_SetTooltip(ctx, "Виберіть мову для субтитрів")
+      end
+      local languages = {
+        { code = "ukr", name = "Українська" },
+        { code = "eng", name = "Англійська" },
+        { code = "kor", name = "Корейська" },
+        { code = "fra", name = "Французька" },
+        { code = "deu", name = "Німецька" },
+        { code = "spa", name = "Іспанська" },
+        { code = "ita", name = "Італійська" },
+        { code = "pol", name = "Польська" },
+        { code = "ces", name = "Чеська" },
+        { code = "jpn", name = "Японська" },
+        { code = "zho", name = "Китайська" },
+        { code = "und", name = "Невизначена" }
+      }
+      local current_lang_name = "Українська"
+      for _, lang in ipairs(languages) do
+        if lang.code == S.subtitle_import_modal.subtitle_lang then
+          current_lang_name = lang.name
+          break
+        end
+      end
+      r.ImGui_PushID(ctx, "subtitle_lang_combo")
+      if r.ImGui_BeginCombo(ctx, "##sub_lang", current_lang_name) then
+        for _, lang in ipairs(languages) do
+          local selected = (S.subtitle_import_modal.subtitle_lang == lang.code)
+          if r.ImGui_Selectable(ctx, lang.name, selected) then
+            S.subtitle_import_modal.subtitle_lang = lang.code
+          end
+          if selected then
+            r.ImGui_SetItemDefaultFocus(ctx)
+          end
+        end
+        r.ImGui_EndCombo(ctx)
+      end
+      r.ImGui_PopID(ctx)
+      r.ImGui_Spacing(ctx)
+      local keep_changed, keep_subs = r.ImGui_Checkbox(ctx,
+        "Зберегти існуючі субтитри з оригінального відео##keep_subs",
+        S.subtitle_import_modal.keep_existing_subs)
+      if keep_changed then
+        S.subtitle_import_modal.keep_existing_subs = keep_subs
+      end
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_warn)
+      if r.ImGui_IsItemHovered(ctx) then
+        r.ImGui_SetTooltip(ctx, "Якщо вимкнути, оригінальні субтитри не будуть скопійовані у новий файл")
+      end
+      r.ImGui_PopStyleColor(ctx)
+      r.ImGui_Spacing(ctx)
+      r.ImGui_TextColored(ctx, C.text_dim, "Назва субтитрів:")
+      S.subtitle_import_modal.subtitle_title = S.subtitle_import_modal.subtitle_title or ""
+      r.ImGui_PushID(ctx, "subtitle_title_input")
+      r.ImGui_SetNextItemWidth(ctx, 360)
+      local changed, new_title = r.ImGui_InputText(
+        ctx, "##sub_title",
+        S.subtitle_import_modal.subtitle_title,
+        128
+      )
+      if changed then
+        S.subtitle_import_modal.subtitle_title = new_title
+      end
+      r.ImGui_PopID(ctx)
+    else
+      r.ImGui_Spacing(ctx)
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
+      r.ImGui_TextWrapped(ctx, "Оберіть файл субтитрів для продовження...")
+      r.ImGui_PopStyleColor(ctx)
+    end
+    r.ImGui_Spacing(ctx)
+    r.ImGui_Separator(ctx)
+    r.ImGui_Spacing(ctx)
+    local has_subtitle = (S.subtitle_import_modal.subtitle_file ~= "")
+    local disabled = not has_subtitle or S.subtitle_import_modal.processing
+    if S.subtitle_import_modal.processing then
+      r.ImGui_Spacing(ctx)
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_warn)
+      r.ImGui_TextWrapped(ctx, S.status or "Обробка...")
+      r.ImGui_PopStyleColor(ctx)
+      r.ImGui_Spacing(ctx)
+      S.subtitle_import_modal.visual_progress = S.subtitle_import_modal.visual_progress or 0
+      local target_progress = S.subtitle_import_modal.progress
+      if target_progress > 0 then
+        S.subtitle_import_modal.visual_progress = S.subtitle_import_modal.visual_progress +
+            (target_progress - S.subtitle_import_modal.visual_progress) * 0.08
+        if math.abs(target_progress - S.subtitle_import_modal.visual_progress) < 0.001 then
+          S.subtitle_import_modal.visual_progress = target_progress
+        end
+        local display_prog = math.max(0.0, math.min(1.0, S.subtitle_import_modal.visual_progress))
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_FrameBg(), C.btn)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_PlotHistogram(), C.text_ok)
+        r.ImGui_PushStyleVar(ctx, r.ImGui_StyleVar_FrameRounding(), 4.0)
+        r.ImGui_ProgressBar(ctx, display_prog, modal_w - 60, 20,
+          string.format("%d%%", math.floor(display_prog * 100)))
+        r.ImGui_PopStyleVar(ctx)
+        r.ImGui_PopStyleColor(ctx, 2)
+      else
+        local spinner_chars = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+        local spin_idx = math.floor(os.clock() * 10) % #spinner_chars + 1
+        local spin = spinner_chars[spin_idx]
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), C.btn)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_warn)
+        r.ImGui_Button(ctx, spin .. "  " .. (S.subtitle_import_modal.progress_text or "Очікування..."),
+          modal_w - 32, 20)
+        r.ImGui_PopStyleColor(ctx, 2)
+      end
+      if S.subtitle_import_modal.progress_text ~= "" and target_progress > 0 then
+        r.ImGui_Spacing(ctx)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
+        r.ImGui_TextWrapped(ctx, S.subtitle_import_modal.progress_text)
+        r.ImGui_PopStyleColor(ctx)
+      end
+    else
+      if disabled then
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
+        r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Button(), C.btn_dis)
+      end
+      if r.ImGui_Button(ctx, "Додати субтитри", modal_w - 28, 35) then
+        if not disabled then
+          local init_dir = S.file:match("(.*)[/\\]") or ""
+          local video_name_noext = (S.file:match("[/\\]([^/\\]+)$") or "video"):gsub("%.[^%.]+$", "")
+          local ext = S.file:match("%.([^%.]+)$") or "mkv"
+          local default_name = video_name_noext .. "_with_subs." .. ext
+          local ok_save, save_path = r.JS_Dialog_BrowseForSaveFile(
+            "Зберегти відео з субтитрами",
+            init_dir,
+            default_name,
+            "Video files (*." .. ext .. ")\0*." .. ext .. "\0All Files (*.*)\0*.*\0"
+          )
+          if ok_save and save_path and save_path ~= "" then
+            save_path = save_path:gsub("%z.*", "")
+            S.subtitle_import_modal.processing = true
+            S.subtitle_import_modal.progress = 0
+            S.subtitle_import_modal.visual_progress = 0
+            S.subtitle_import_modal.progress_text = "Початок..."
+            do_add_subtitle_async(save_path)
+          end
+        end
+      end
+      if disabled then
+        r.ImGui_PopStyleColor(ctx, 2)
+      end
+    end
+    r.ImGui_PopFont(ctx)
+    r.ImGui_End(ctx)
+  end
+end
+
 local function draw_ui()
   local ctx = S.ctx
   if S.font then r.ImGui_PushFont(ctx, S.font, 13) end
@@ -1604,11 +2217,11 @@ local function draw_ui()
 
     -- ── ВЕРХНЯ ЗОНА ──────────────────────────
     r.ImGui_PushStyleColor(ctx, r.ImGui_Col_ChildBg(), C.drop_bg)
-    if r.ImGui_BeginChild(ctx, "##dropzone", inner_w, 50, CHILD_BORDER, 0) then 
+    if r.ImGui_BeginChild(ctx, "##dropzone", inner_w, 50, CHILD_BORDER, 0) then
       local btn_width = 140
       local spacing = 8
       local has_file = S.file ~= ""
-      r.ImGui_SetCursorPos(ctx, 8, 6) 
+      r.ImGui_SetCursorPos(ctx, 8, 6)
       if not has_file then
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
         r.ImGui_Text(ctx, "Файл не обрано")
@@ -1620,45 +2233,48 @@ local function draw_ui()
         local max_chars = math.floor(avail_w / 8)
         if #display_name > max_chars and max_chars > 10 then
           display_name = display_name:sub(1, max_chars - 3) .. "..."
-        end 
+        end
         r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_cyan)
         r.ImGui_Text(ctx, display_name)
-        r.ImGui_PopStyleColor(ctx) 
+        r.ImGui_PopStyleColor(ctx)
         if r.ImGui_IsItemHovered(ctx) then
           r.ImGui_SetTooltip(ctx, S.file)
         end
       end
       r.ImGui_SetCursorPos(ctx, 8, 26)
-      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim) 
+      r.ImGui_PushStyleColor(ctx, r.ImGui_Col_Text(), C.text_dim)
       local ff_text = "ffprobe: " .. (FFPROBE:match("[/\\]([^/\\]+)$") or FFPROBE)
       local ff_max_chars = math.floor((inner_w - btn_width - 20) / 8)
-      if #ff_text > ff_max_chars then ff_text = ff_text:sub(1, ff_max_chars-3).."..." end
+      if #ff_text > ff_max_chars then ff_text = ff_text:sub(1, ff_max_chars - 3) .. "..." end
       r.ImGui_Text(ctx, ff_text)
-      r.ImGui_PopStyleColor(ctx) 
+      r.ImGui_PopStyleColor(ctx)
       if has_file then
-          local x = inner_w - btn_width - spacing 
-          r.ImGui_SetCursorPos(ctx, x+20, 10) 
-          if r.ImGui_Button(ctx, "Додатково ▾", 120, 30) then
-            r.ImGui_OpenPopup(ctx, "extra_menu")
-          end 
-          if r.ImGui_BeginPopup(ctx, "extra_menu") then
-            if r.ImGui_MenuItem(ctx, "Замінити аудіо...") then
-              S.replace_modal.open = true
-            end 
-            r.ImGui_Separator(ctx) 
-            if r.ImGui_MenuItem(ctx, "Копіювати шлях") then
-              r.CF_SetClipboard(S.file)
-              S.status = "✓ Шлях скопійовано"
-            end
-            r.ImGui_EndPopup(ctx)
-          end
+        local x = inner_w - btn_width - spacing
+        r.ImGui_SetCursorPos(ctx, x + 20, 10)
+        if r.ImGui_Button(ctx, "Додатково ▾", 120, 30) then
+          r.ImGui_OpenPopup(ctx, "extra_menu")
         end
+        if r.ImGui_BeginPopup(ctx, "extra_menu") then
+          if r.ImGui_MenuItem(ctx, "Замінити аудіо...") then
+            S.replace_modal.open = true
+          end
+          if r.ImGui_MenuItem(ctx, "Додати субтитри...") then
+            S.subtitle_import_modal.open = true
+          end
+          r.ImGui_Separator(ctx)
+          if r.ImGui_MenuItem(ctx, "Копіювати шлях") then
+            r.CF_SetClipboard(S.file)
+            S.status = "✓ Шлях скопійовано"
+          end
+          r.ImGui_EndPopup(ctx)
+        end
+      end
       r.ImGui_EndChild(ctx)
     end
     r.ImGui_PopStyleColor(ctx)
     r.ImGui_Spacing(ctx)
     local hw = math.floor((inner_w - 4) / 2.01)
-    if r.ImGui_Button(ctx, "Обрати mp4/mkv файл…", hw, 30) then
+    if r.ImGui_Button(ctx, "Обрати .mp4/.mkv файл…", hw, 30) then
       local extension_mask = "Video files (*.mp4, *.mkv)\0*.mp4;*.mkv\0All Files (*.*)\0*.*\0"
       local ok, f = r.JS_Dialog_BrowseForOpenFiles("Обрати MP4/MKV файл", "", "", extension_mask, false)
       if ok and f and f ~= "" then
@@ -1672,7 +2288,7 @@ local function draw_ui()
       end
     end
     r.ImGui_SameLine(ctx)
-    if r.ImGui_Button(ctx, "З файлу проєкта", hw, 30) then
+    if r.ImGui_Button(ctx, "Обрати з файлу проєкта", hw, 30) then
       local f = get_selected_item_media()
       if f then load_file(f) else S.status = "Немає виділеного MP4/MKV" end
     end
@@ -1930,7 +2546,7 @@ local function draw_ui()
                 r.ImGui_BeginTooltip(ctx)
                 r.ImGui_PushTextWrapPos(ctx, 300)
                 r.ImGui_TextColored(ctx, C.text_warn,
-                  "⚠ Обрано не всі канали\n" ..
+                  "Обрано не всі канали\n" ..
                   "Прев'ю обмежено: 3 хв.")
                 r.ImGui_PopTextWrapPos(ctx)
                 r.ImGui_EndTooltip(ctx)
@@ -2032,7 +2648,7 @@ local function draw_ui()
                   S.status = string.format("✓ Збережено %d файл(ів) у: %s",
                     saved, (out_dir:match("[/\\]([^/\\]+)$") or out_dir))
                 else
-                  S.status = string.format("⚠ Збережено: %d / Помилок: %d", saved, failed)
+                  S.status = string.format("Збережено: %d / Помилок: %d", saved, failed)
                 end
                 return
               end
@@ -2093,6 +2709,7 @@ local function draw_ui()
   if S.font then r.ImGui_PopFont(ctx) end
   draw_subtitle_preview()
   draw_replace_audio_modal()
+  draw_subtitle_import_modal()
   draw_mini_audio_player()
   r.ImGui_PopStyleVar(ctx, 5)
   r.ImGui_End(ctx)
@@ -2176,7 +2793,7 @@ end
 do
   local f = io.open(FFMPEG, "rb")
   if not f then
-    S.status    = "⚠ ffmpeg не знайдено! Діагностика для деталей."
+    S.status    = "ffmpeg не знайдено! Діагностика для деталей."
     S.diag      = "ffmpeg шлях: " .. FFMPEG .. "\n"
         .. "ffprobe шлях: " .. FFPROBE .. "\n\n"
         .. "Покладіть ffmpeg.exe і ffprobe.exe у папку:\n"
