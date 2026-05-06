@@ -298,6 +298,7 @@ local OTHER = {
         IMG_ACH_30_dis=30,
 
         CATS=29,
+        ACH_PLACE=28,
     },
     QWERTY_TO_UA = {
         [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
@@ -386,6 +387,7 @@ OTHER.LOADERS_CFG = {
     { path = "media" .. OTHER.SEPARATOR .. "loading3.png", buf = OTHER.BUF.IMG_3, frames = 8,  fps = 10, frame_w = 500, zoom = 0.95, weight = 0.25 },
     { path = "media" .. OTHER.SEPARATOR .. "loading4.png", buf = OTHER.BUF.IMG_4, frames = 8,  fps = 10, frame_w = 68,  zoom = 1.70, weight = 0.01, is_itachi = true }
 }
+OTHER.ACH_PLACE_CFG = { path = "media" .. OTHER.SEPARATOR .. "ach_place.png",  buf = OTHER.BUF.ACH_PLACE, frames = 9, frame_w = 270 }
 OTHER.CATS_CFG = { path = "media" .. OTHER.SEPARATOR .. "cats.png",  buf = OTHER.BUF.CATS, frames = 6, fps = 6, frame_w = 500 }
 OTHER.DEADLINE_GIF_CFG = { path = "media" .. OTHER.SEPARATOR .. "deadline.png",  buf = OTHER.BUF.IMG_5, frames = 10, fps = 8, frame_w = 512, zoom = 0.85 }
 OTHER.COPA_GIF_CFG = { path = "media" .. OTHER.SEPARATOR .. "copa.png",  buf = OTHER.BUF.IMG_6, frames = 9, fps = 8, frame_w = 200, zoom = 0.75 }
@@ -628,6 +630,14 @@ function OTHER.load_assets()
         local df_path = script_path .. OTHER.CATS_CFG.path
         if reaper.file_exists(df_path) then
             gfx.loadimg(OTHER.CATS_CFG.buf, df_path)
+        end
+    end
+
+    -- Load Ach place
+    if OTHER.ACH_PLACE_CFG then
+        local df_path = script_path .. OTHER.ACH_PLACE_CFG.path
+        if reaper.file_exists(df_path) then
+            gfx.loadimg(OTHER.ACH_PLACE_CFG.buf, df_path)
         end
     end
 
@@ -9441,18 +9451,50 @@ function STATS.register_plugin_usage()
         reaper.SetExtState(section_name, "MachineID", machine_id, true)
     end
     
+    -- Serialize ACHIEVEMENTS.stats to a temp JSON file
+    local stats_file_path = script_path .. "stats/subass_ach_stats.json"
+    local stats_json = STATS.json_encode(ACHIEVEMENTS.stats)
+    local sf = io.open(stats_file_path, "w")
+    if sf then
+        sf:write(stats_json)
+        sf:close()
+    end
+    
     -- Execute in background (Fire-and-Forget)
-    local cmd = string.format('python3 "%s" --register --script_title "%s" --machine_id "%s"', 
-                                full_script_path, GL.script_title, machine_id)
+    local cmd = string.format('python3 "%s" --register --script_title "%s" --machine_id "%s" --stats-file "%s"', 
+                                full_script_path, GL.script_title, machine_id, stats_file_path)
     
     if reaper.GetOS():match("Win") then
         full_script_path = full_script_path:gsub("/", "\\")
+        stats_file_path = stats_file_path:gsub("/", "\\")
         local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
-        cmd = string.format('%s "%s" --register --script_title "%s" --machine_id "%s"', 
-                                    py_exe, full_script_path, GL.script_title, machine_id)
+        cmd = string.format('%s "%s" --register --script_title "%s" --machine_id "%s" --stats-file "%s"', 
+                                    py_exe, full_script_path, GL.script_title, machine_id, stats_file_path)
     end
     
-    run_async_command(cmd, nil, true, nil, false)
+    -- Helper to read rankings from file
+    local function update_rankings_from_disk()
+        local rankings_path = script_path .. "stats/subass_rankings.json"
+        local f = io.open(rankings_path, "r")
+        if f then
+            local content = f:read("*a")
+            f:close()
+            if STATS and STATS.json_decode then
+                local ok, data = pcall(STATS.json_decode, content)
+                if ok and data and data.rankings then
+                    ACHIEVEMENTS.rankings = data.rankings
+                end
+            end
+        end
+    end
+
+    -- 1. Read existing data immediately (from previous run)
+    update_rankings_from_disk()
+
+    -- 2. Execute in background with callback to read fresh results
+    run_async_command(cmd, function(exit_code)
+        update_rankings_from_disk()
+    end, true, nil, false)
 end
 
 -- ═══════════════════════════════════════════════════════════════
@@ -15073,7 +15115,20 @@ function ACHIEVEMENTS.draw_window(input_queue)
             gfx.y = cy + item_sz - th_meas - S(10)
             gfx.drawstr(draw_name)
 
-            -- Tooltip on hover
+            local rank_key = ach.id .. "_count"
+            if ach.id == "ach_1" then rank_key = "ach_1_total_lines"
+            elseif ach.id == "ach_2" then rank_key = "ach_2_total_lines"
+            elseif ach.id == "ach_3" then rank_key = "ach_3_conjugation"
+            elseif ach.id == "ach_5" then rank_key = "ach_5_corr_item_count"
+            elseif ach.id == "ach_6" then rank_key = "ach_6_failed_count"
+            elseif ach.id == "ach_7" then rank_key = "ach_7_itachi_uchiha"
+            elseif ach.id == "ach_8" then rank_key = "ach_8_corr_item_count"
+            elseif ach.id == "ach_29" then rank_key = "ach_29_import_count"
+            end
+
+            local r_data = ACHIEVEMENTS.rankings and ACHIEVEMENTS.rankings[rank_key]
+
+            -- Interaction & Tooltips
             if gfx.mouse_x >= cx and gfx.mouse_x <= cx + item_sz and
                gfx.mouse_y >= cy and gfx.mouse_y <= cy + item_sz then
                 
@@ -15233,13 +15288,83 @@ function ACHIEVEMENTS.draw_window(input_queue)
                 else
                     tooltip_text = ach.name .. " (не відкрито)"
                 end
-                
+
                 if tooltip_text ~= "" then
-                    UI_STATE.tooltip_state.text = tooltip_text
-                    if UI_STATE.tooltip_state.hover_id ~= "ach_" .. i then
-                        UI_STATE.tooltip_state.hover_id = "ach_" .. i
-                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    -- Check if we should override with Ranking Tooltip
+                    local show_rank_tooltip = false
+                    local r_tooltip = ""
+                    local bx, by = cx + item_sz - S(32), cy + S(2)
+                    local bw, bh = S(32), S(32)
+
+                    if r_data and (r_data.position or r_data.unlocked_by) then
+                        if r_data.position and r_data.position > 9 then
+                            gfx.setfont(F.std)
+                            local pw, ph = gfx.measurestr("#" .. tostring(r_data.position))
+                            bw, bh = pw + S(10), ph + S(10)
+                            bx = cx + item_sz - bw
+                        end
+                        if gfx.mouse_x >= bx and gfx.mouse_x <= cx + item_sz and
+                           gfx.mouse_y >= cy and gfx.mouse_y <= cy + bh then
+                            show_rank_tooltip = true
+                            if r_data.position then
+                                r_tooltip = string.format("ВИ ПОСІДАЄТЕ: %d місце\n(серед %d користувачів)", r_data.position, r_data.total_competitors or 0)
+                            elseif r_data.unlocked_by then
+                                r_tooltip = string.format("ПОПУЛЯРНІСТЬ: %d людей\n(вже мають це досягнення)", r_data.unlocked_by)
+                            end
+                        end
                     end
+
+                    if show_rank_tooltip and r_tooltip ~= "" then
+                        UI_STATE.tooltip_state.text = r_tooltip
+                        if UI_STATE.tooltip_state.hover_id ~= "ach_rank_" .. i then
+                            UI_STATE.tooltip_state.hover_id = "ach_rank_" .. i
+                            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                        end
+                    else
+                        UI_STATE.tooltip_state.text = tooltip_text
+                        if UI_STATE.tooltip_state.hover_id ~= "ach_" .. i then
+                            UI_STATE.tooltip_state.hover_id = "ach_" .. i
+                            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                        end
+                    end
+                end
+            end
+
+            -- Draw Ranking Badge (Top Right)
+            if r_data and (r_data.position or r_data.unlocked_by) then
+                local bx, by = cx + item_sz - S(32), cy + S(2)
+                local bw, bh = S(24), S(24)
+                
+                if r_data.position then
+                    local pos = r_data.position
+                    if pos <= 9 then
+                        local frame_idx = 9 - pos
+                        local sw, sh = gfx.getimgdim(OTHER.ACH_PLACE_CFG.buf)
+                        if sw and sw > 0 then
+                            local fw = sw / 9
+                            gfx.mode = 0
+                            gfx.set(1, 1, 1, 1)
+                            gfx.blit(OTHER.ACH_PLACE_CFG.buf, 1, 0, fw * frame_idx, 0, fw, sh, bx, by, bw, bh)
+                        end
+                    else
+                        gfx.setfont(F.std)
+                        local p_str = "#" .. tostring(pos)
+                        local pw, ph = gfx.measurestr(p_str)
+                        bw, bh = pw + S(4), ph
+                        bx = cx + item_sz - bw - S(6)
+                        set_color(UI.C_TXT, 0.4)
+                        gfx.x, gfx.y = bx, by
+                        gfx.drawstr(p_str)
+                    end
+                elseif r_data.unlocked_by then
+                    gfx.setfont(F.std)
+                    local p_str = tostring(r_data.unlocked_by)
+                    local pw, ph = gfx.measurestr(p_str)
+                    bw, bh = pw + S(4), ph
+                    bx = cx + item_sz - bw - S(6)
+                    set_color(UI.C_TXT, 0.4)
+                    gfx.x, gfx.y = bx, by
+                    gfx.drawstr(p_str)
                 end
             end
         end
@@ -28253,6 +28378,7 @@ local function main()
     if UI_STATE.is_restarting then return end
 
     OTHER.show_auto_startup_suggestion()
+    ACHIEVEMENTS.sync_stats()
     
     -- Initial project state load (if first run)
     if UI_STATE.last_project_id == "" then
