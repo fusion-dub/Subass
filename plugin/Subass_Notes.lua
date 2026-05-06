@@ -15019,7 +15019,19 @@ function ACHIEVEMENTS.draw_window(input_queue)
             ACHIEVEMENTS.target_scroll_y = math.max(0, math.min(max_scroll, ACHIEVEMENTS.target_scroll_y - gfx.mouse_wheel * 0.5))
             gfx.mouse_wheel = 0
         end
+
+        -- Right click context menu
+        if gfx.mouse_cap & 2 == 2 and UI_STATE.last_mouse_cap & 2 == 0 then
+            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+            local ret = gfx.showmenu("Оновити дані")
+            if ret == 1 then
+                STATS.register_plugin_usage()
+                show_snackbar("Оновлення даних...")
+            end
+            UI_STATE.mouse_handled = true
+        end
     end
+    UI_STATE.last_mouse_cap = gfx.mouse_cap
     ACHIEVEMENTS.scroll_y = ACHIEVEMENTS.scroll_y + (ACHIEVEMENTS.target_scroll_y - ACHIEVEMENTS.scroll_y) * 0.5
     
     local open_count = 0
