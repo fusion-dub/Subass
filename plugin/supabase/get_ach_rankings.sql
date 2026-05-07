@@ -18,7 +18,10 @@ BEGIN
             COALESCE(NULLIF(u.dubber_name, ''), u.username) AS dubber_name,
             SUM((value#>>'{}')::float8) AS val
         FROM users u, jsonb_each(u.stats::jsonb)
-        WHERE (key = ach_prefix OR key LIKE ach_prefix || '_%')
+        WHERE (
+            (ach_prefix = 'ach_3' AND key IN ('ach_3_definition', 'ach_3_conjugation', 'ach_3_synonyms', 'ach_3_idioms', 'ach_3_word_usage'))
+            OR (ach_prefix != 'ach_3' AND (key = ach_prefix OR key LIKE ach_prefix || '_%'))
+          )
           AND key NOT LIKE '%_tracking'
           AND jsonb_typeof(value) = 'number'
         GROUP BY u.machine_id, COALESCE(NULLIF(u.dubber_name, ''), u.username)
