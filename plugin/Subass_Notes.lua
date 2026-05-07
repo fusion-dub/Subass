@@ -362,6 +362,17 @@ function UTILS.unicode_unescape(s)
     end)
 end
 
+--- Format number with thousands separator (e.g. 1,000,000)
+function UTILS.format_number(amount)
+    if not amount or type(amount) ~= "number" then return tostring(amount or 0) end
+    local formatted = tostring(math.floor(amount))
+    while true do  
+        formatted, k = string.gsub(formatted, "^(-?%d+)(%d%d%d)", '%1,%2')
+        if (k == 0) then break end
+    end
+    return formatted
+end
+
 -- Global Scale Helper
 local function S(val)
     return math.floor(val * cfg.gui_scale)
@@ -15127,7 +15138,7 @@ function ACHIEVEMENTS.draw_dialog()
                 end
                 
                 -- Value
-                local val_str = tostring(math.floor(row.value or 0))
+                local val_str = UTILS.format_number(row.value or 0)
                 local vw = gfx.measurestr(val_str)
                 local val_x = x + w - pad - vw - S(10)
                 
@@ -15286,7 +15297,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
                 gfx.setfont(F.bld)
                 set_color(UI.C_TXT, 0.5)
                 gfx.x, gfx.y = cx + S(6), cy + S(4)
-                gfx.drawstr(tostring(total))
+                gfx.drawstr(UTILS.format_number(total))
             end
             
             -- Image
@@ -15356,8 +15367,8 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local vtt = ACHIEVEMENTS.stats["ach_1_vtt_import"] or 0
                         local total = ACHIEVEMENTS.stats["ach_1_total_lines"] or 0
                         
-                        tooltip_text = string.format("Імпортовано SRT: %d\nІмпортовано ASS: %d\nІмпортовано VTT: %d\n%s\nІмпортовано реплік: %d", 
-                            srt, ass, vtt, string.rep("—", 12), total)
+                        tooltip_text = string.format("Імпортовано SRT: %s\nІмпортовано ASS: %s\nІмпортовано VTT: %s\n%s\nІмпортовано реплік: %s", 
+                            UTILS.format_number(srt), UTILS.format_number(ass), UTILS.format_number(vtt), string.rep("—", 12), UTILS.format_number(total))
                     elseif ach.id == "ach_3" then
                         local def = ACHIEVEMENTS.stats["ach_3_definition"] or 0
                         local conj = ACHIEVEMENTS.stats["ach_3_conjugation"] or 0
@@ -15365,26 +15376,26 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local idiom = ACHIEVEMENTS.stats["ach_3_idioms"] or 0
                         local usage = ACHIEVEMENTS.stats["ach_3_word_usage"] or 0
                         
-                        tooltip_text = string.format("Перегляд словника ГОРОХ\n%s\nТлумачення: %d\nСловозміна: %d\nСиноніми: %d\nФразеологія: %d\nСлововживання: %d", 
-                            string.rep("—", 12), def, conj, syn, idiom, usage)
+                        tooltip_text = string.format("Перегляд словника ГОРОХ\n%s\nТлумачення: %s\nСловозміна: %s\nСиноніми: %s\nФразеологія: %s\nСлововживання: %s", 
+                            string.rep("—", 12), UTILS.format_number(def), UTILS.format_number(conj), UTILS.format_number(syn), UTILS.format_number(idiom), UTILS.format_number(usage))
                     elseif ach.id == "ach_7" then
                         local total = ACHIEVEMENTS.stats["ach_7_itachi_uchiha"] or 0
-                        tooltip_text = string.format("\"Завжди вірний селищу.\"\n%s\n\nЗустрічей з Ітачі: %d", 
-                            string.rep("—", 12), total)
+                        tooltip_text = string.format("\"Завжди вірний селищу.\"\n%s\n\nЗустрічей з Ітачі: %s", 
+                            string.rep("—", 12), UTILS.format_number(total))
                     elseif ach.id == "ach_2" then
                         local total = ACHIEVEMENTS.stats["ach_2_total_lines"] or 0
                         local runs = ACHIEVEMENTS.stats["ach_2_run_count"] or 0
-                        tooltip_text = string.format("Застосувань наголосів: %d\nНаголошено реплік: %d\n%s\n\"Правильний наголос — як спеція:\nзабагато зіпсує, замало — знебарвить.\"", 
-                            runs, total, string.rep("—", 12))
+                        tooltip_text = string.format("Застосувань наголосів: %s\nНаголошено реплік: %s\n%s\n\"Правильний наголос — як спеція:\nзабагато зіпсує, замало — знебарвить.\"", 
+                            UTILS.format_number(runs), UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_8" then
                         local export = ACHIEVEMENTS.stats["ach_8_export_count"] or 0
                         local items = ACHIEVEMENTS.stats["ach_8_corr_item_count"] or 0
-                        tooltip_text = string.format("Віддано паків правок: %d\nПередано зауважень: %d\n%s\n\"Справжній майстер помічає кожну помилку не заради осуду, а щоб допомогти іншим досягти досконалості.\"", 
-                            export, items, string.rep("—", 12))
+                        tooltip_text = string.format("Віддано паків правок: %s\nПередано зауважень: %s\n%s\n\"Справжній майстер помічає кожну помилку не заради осуду, а щоб допомогти іншим досягти досконалості.\"", 
+                            UTILS.format_number(export), UTILS.format_number(items), string.rep("—", 12))
                     elseif ach.id == "ach_6" then
                         local total = ACHIEVEMENTS.stats["ach_6_failed_count"] or 0
-                        tooltip_text = string.format("Прострочено дедлайнів: %d\n%s\n\"Ви підвели команду, не здавши проєкт вчасно. Терміни — це не просто дати, це Ваше слово.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Прострочено дедлайнів: %s\n%s\n\"Ви підвели команду, не здавши проєкт вчасно. Терміни — це не просто дати, це Ваше слово.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_4" then
                         local parts = { "Використано ШІ" .. "\n" .. string.rep("—", 12) }
                         
@@ -15393,7 +15404,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
                             local stat_key = "ach_4_" .. task.id .. "_count"
                             local val = ACHIEVEMENTS.stats[stat_key] or 0
                             if val > 0 then
-                                table.insert(parts, string.format("%s: %d", task.name, val))
+                                table.insert(parts, string.format("%s: %s", task.name, UTILS.format_number(val)))
                             end
                         end
                         
@@ -15405,99 +15416,99 @@ function ACHIEVEMENTS.draw_window(input_queue)
                     elseif ach.id == "ach_5" then
                         local imports = ACHIEVEMENTS.stats["ach_5_import_count"] or 0
                         local items = ACHIEVEMENTS.stats["ach_5_corr_item_count"] or 0
-                        tooltip_text = string.format("Прийнято паків правок: %d\nОтримано правок: %d\n%s\n\"Критика — це лише інше ім'я для можливості стати кращим.\"", 
-                            imports, items, string.rep("—", 12))
+                        tooltip_text = string.format("Прийнято паків правок: %s\nОтримано правок: %s\n%s\n\"Критика — це лише інше ім'я для можливості стати кращим.\"", 
+                            UTILS.format_number(imports), UTILS.format_number(items), string.rep("—", 12))
                     elseif ach.id == "ach_11" then
                         local total = ACHIEVEMENTS.stats["ach_11_count"] or 0
                         local words = ACHIEVEMENTS.stats["ach_11_word_count"] or 0
                         local duration = ACHIEVEMENTS.stats["ach_11_total_duration"] or 0
-                        tooltip_text = string.format("Записаних дублів: %d\nПромовлено слів: %d\nЗагальний час: %s\n%s\n\"Тиша — це лише пауза між записом.\"", 
-                            total, words, ACHIEVEMENTS.format_long_duration(duration), string.rep("—", 12))
+                        tooltip_text = string.format("Записаних дублів: %s\nПромовлено слів: %s\nЗагальний час: %s\n%s\n\"Тиша — це лише пауза між записом.\"", 
+                            UTILS.format_number(total), UTILS.format_number(words), ACHIEVEMENTS.format_long_duration(duration), string.rep("—", 12))
                     elseif ach.id == "ach_10" then
                         local total = ACHIEVEMENTS.stats["ach_10_count"] or 0
-                        tooltip_text = string.format("Кількість створених проєктів: %d\n%s\n\"Для справжнього архітектора кожен проєкт — це новий всесвіт.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Кількість створених проєктів: %s\n%s\n\"Для справжнього архітектора кожен проєкт — це новий всесвіт.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_14" then
                         local total = ACHIEVEMENTS.stats["ach_14_count"] or 0
-                        tooltip_text = string.format("Проєкти, в яких проведено понад 12 годин: %d\n%s\n\"Час — це матерія, з якої зроблено життя та ваші кращі проєкти.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Проєкти, в яких проведено понад 12 годин: %s\n%s\n\"Час — це матерія, з якої зроблено життя та ваші кращі проєкти.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_15" then
                         local total = ACHIEVEMENTS.stats["ach_15_count"] or 0
-                        tooltip_text = string.format("За кожне промовлене слово \"секс\": %d\n%s\n\"Кожне слово має свою вагу, але деякі змушують серце битися частіше.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("За кожне промовлене слово \"секс\": %s\n%s\n\"Кожне слово має свою вагу, але деякі змушують серце битися частіше.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_12" then
                         local total = ACHIEVEMENTS.stats["ach_12_count"] or 0
-                        tooltip_text = string.format("Запис надскладної репліки: %d\n%s\n\"Двадцять перша спроба — за замовчуванням шедевр.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Запис надскладної репліки: %s\n%s\n\"Двадцять перша спроба — за замовчуванням шедевр.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_9" then
                         local total = ACHIEVEMENTS.stats["ach_9_count"] or 0
-                        tooltip_text = string.format("Кількість довгих записів (>30с): %d\n%s\n\"Голос, що зачаровує своєю тривалістю.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Кількість довгих записів (>30с): %s\n%s\n\"Голос, що зачаровує своєю тривалістю.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_13" then
                         local total = ACHIEVEMENTS.stats["ach_13_count"] or 0
-                        tooltip_text = string.format("Випадків розриву реальності (кліпінгу): %d\n%s\n\"Деякі звуки неможливо приборкати — вони просто спалюють все на своєму шляху.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Випадків розриву реальності (кліпінгу): %s\n%s\n\"Деякі звуки неможливо приборкати — вони просто спалюють все на своєму綢ляху.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_18" then
                         local total = ACHIEVEMENTS.stats["ach_18_count"] or 0
-                        tooltip_text = string.format("Участь у епічних сагах (80хв+): %d\n%s\n\"Великі історії вимагають великого терпіння та майстерності.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Участь у епічних сагах (80хв+): %s\n%s\n\"Великі історії вимагають великого терпіння та майстерності.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_16" then
                         local total = ACHIEVEMENTS.stats["ach_16_count"] or 0
-                        tooltip_text = string.format("Проєкти з понад 15 треками: %d\n%s\n\"Справжня потужність звуку народжується в гармонії багатьох голосів.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Проєкти з понад 15 треками: %s\n%s\n\"Справжня потужність звуку народжується в гармонії багатьох голосів.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_17" then
                         local total = ACHIEVEMENTS.stats["ach_17_count"] or 0
-                        tooltip_text = string.format("Проєкти з понад 50 акторами: %d\n%s\n\"Ім'я їм — Легіон. Армія голосів, що створює нову реальність.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Проєкти з понад 50 акторами: %s\n%s\n\"Ім'я їм — Легіон. Армія голосів, що створює нову реальність.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_19" then
                         local total = ACHIEVEMENTS.stats["ach_19_count"] or 0
-                        tooltip_text = string.format("Репліки з понад 8 шиплячими: %d\n%s\n\"Тссс... Твій голос ковзає між словами, наче змія в густій траві.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Репліки з понад 8 шиплячими: %s\n%s\n\"Тссс... Твій голос ковзає між словами, наче змія в густій траві.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_20" then
                         local total = ACHIEVEMENTS.stats["ach_20_count"] or 0
-                        tooltip_text = string.format("Проєкти з понад 1000 дублів: %d\n%s\n\"Кожен дубль — це новий крок до ідеалу. Тисяча кроків — це вже майстерність.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Проєкти з понад 1000 дублів: %s\n%s\n\"Кожен дубль — це новий крок до ідеалу. Тисяча кроків — це вже майстерність.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_21" then
                         local total = ACHIEVEMENTS.stats["ach_21_count"] or 0
-                        tooltip_text = string.format("Зафіксовано ідеальних синхронів: %d\n%s\n\"Довжина записаного дубля ідентична довжині регіону субтитрів.\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Зафіксовано ідеальних синхронів: %s\n%s\n\"Довжина записаного дубля ідентична довжині регіону субтитрів.\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_22" then
                         local total = ACHIEVEMENTS.stats["ach_22_count"] or 0
-                        tooltip_text = string.format("Ночей проведено за мікрофоном: %d\n%s\n\"Між північчю та світанком голоси звучать інакше. Магія ночі у кожному подиху.\"\n(Видається раз на добу з 00:00 до 04:00)", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Ночей проведено за мікрофоном: %s\n%s\n\"Між північчю та світанком голоси звучать інакше. Магія ночі у кожному подиху.\"\n(Видається раз на добу з 00:00 до 04:00)", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_23" then
                         local total = ACHIEVEMENTS.stats["ach_23_count"] or 0
-                        tooltip_text = string.format("Проєкти з ідеальною точністю: %d\n%s\n\"Твоя влучність вражає. Кожне слово — точно в ціль, наче стріла богині полювання.\"\n(50+ реплік з коефіцієнтом дублів <= 1.1)", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Проєкти з ідеальною точністю: %s\n%s\n\"Твоя влучність вражає. Кожне слово — точно в ціль, наче стріла богині полювання.\"\n(50+ реплік з коефіцієнтом дублів <= 1.1)", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_24" then
                         local total = ACHIEVEMENTS.stats["ach_24_count"] or 0
-                        tooltip_text = string.format("Миттєвостей тиші зафіксовано: %d\n%s\n\"Вміння мовчати — це теж мистецтво.\"\n(Запис тиші тривалістю 5+ секунд)", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Миттєвостей тиші зафіксовано: %s\n%s\n\"Вміння мовчати — це теж мистецтво.\"\n(Запис тиші тривалістю 5+ секунд)", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_25" then
                         local total = ACHIEVEMENTS.stats["ach_25_count"] or 0
-                        tooltip_text = string.format("Викликано джина: %d\n%s\n\"Обережно у вас є тільки три бажання!\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Викликано джина: %s\n%s\n\"Обережно у вас є тільки три бажання!\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_26" then
                         local total = ACHIEVEMENTS.stats["ach_26_count"] or 0
-                        tooltip_text = string.format("Скопійовано статистику: %d\n%s\n\"Математика успіху проста: кожен крок наближає тебе до мети. Тепер це офіційно зафіксовано!\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Скопійовано статистику: %s\n%s\n\"Математика успіху проста: кожен крок наближає тебе до мети. Тепер це офіційно зафіксовано!\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_27" then
                         local total = ACHIEVEMENTS.stats["ach_27_count"] or 0
-                        tooltip_text = string.format("Зібрати всі API ключи: %d\n%s\n\"Ключі від усіх дверей світу. Тепер ти володар незвіданих знань!\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Зібрати всі API ключи: %s\n%s\n\"Ключі від усіх дверей світу. Тепер ти володар незвіданих знань!\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_28" then
                         local total = ACHIEVEMENTS.stats["ach_28_count"] or 0
-                        tooltip_text = string.format("Редакцій тексту: %d\n%s\n\"Письменник без пера, як двірник без граблів\"\n(Видається за редагування тексту в режимі Редактора)", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Редакцій тексту: %s\n%s\n\"Письменник без пера, як двірник без граблів\"\n(Видається за редагування тексту в режимі Редактора)", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_29" then
                         local total = ACHIEVEMENTS.stats["ach_29_count"] or 0
                         local import_count = ACHIEVEMENTS.stats["ach_29_import_count"] or 0
-                        tooltip_text = string.format("Інтегровано переклад від ШІ: %d\nКількість перекладених реплік: %d\n%s\n\"Нитка за ниткою, цифра за цифрою — слова перетворюються на сенси, невідомі досі.\"", 
-                            total, import_count, string.rep("—", 12))
+                        tooltip_text = string.format("Інтегровано переклад від ШІ: %s\nКількість перекладених реплік: %s\n%s\n\"Нитка за ниткою, цифра за цифрою — слова перетворюються на сенси, невідомі досі.\"", 
+                            UTILS.format_number(total), UTILS.format_number(import_count), string.rep("—", 12))
                     elseif ach.id == "ach_30" then
                         local total = ACHIEVEMENTS.stats["ach_30_count"] or 0
-                        tooltip_text = string.format("Налаштовано сповіщень: %d\n%s\n\"Тепер ви не забудете про дедлайн бо півень правосуддя вам про нього нагадає\"", 
-                            total, string.rep("—", 12))
+                        tooltip_text = string.format("Налаштовано сповіщень: %s\n%s\n\"Тепер ви не забудете про дедлайн бо півень правосуддя вам про нього нагадає\"", 
+                            UTILS.format_number(total), string.rep("—", 12))
                     else
                         tooltip_text = ach.name
                     end
@@ -15523,9 +15534,9 @@ function ACHIEVEMENTS.draw_window(input_queue)
                            gfx.mouse_y >= cy and gfx.mouse_y <= cy + bh then
                             show_rank_tooltip = true
                             if r_data.position then
-                                r_tooltip = string.format("ВИ ПОСІДАЄТЕ: %d місце\n(серед %d користувачів)", r_data.position, r_data.total_competitors or 0)
+                                r_tooltip = string.format("ВИ ПОСІДАЄТЕ: %s місце\n(серед %s користувачів)", UTILS.format_number(r_data.position), UTILS.format_number(r_data.total_competitors or 0))
                             elseif r_data.unlocked_by then
-                                r_tooltip = string.format("ПОПУЛЯРНІСТЬ: %d людей\n(вже мають це досягнення)", r_data.unlocked_by)
+                                r_tooltip = string.format("ПОПУЛЯРНІСТЬ: %s людей\n(вже мають це досягнення)", UTILS.format_number(r_data.unlocked_by))
                             end
                         end
                     end
