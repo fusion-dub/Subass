@@ -5,6 +5,7 @@ import { z } from "npm:zod";
 const PayloadSchema = z.object({
   machine_id: z.string().min(1),
   username: z.string().min(1),
+  dubber_name: z.string().min(1),
   script_title: z.string().min(1),
   os: z.string().min(1),
   last_active: z.string().min(1),
@@ -34,6 +35,7 @@ Deno.serve(async (req: Request) => {
           machine_id: userData.machine_id,
           username: userData.username,
           script_title: userData.script_title,
+          dubber_name: userData.dubber_name,
           os: userData.os,
           last_active: userData.last_active,
           stats: userData.stats,
