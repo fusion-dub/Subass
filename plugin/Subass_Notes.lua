@@ -15055,7 +15055,7 @@ end
 function ACHIEVEMENTS.draw_dialog()
     if not ACHIEVEMENTS.show_leaderboard or not ACHIEVEMENTS.leaderboard_data then return end
     
-    local w, h = gfx.w * 0.9, gfx.h * 0.9
+    local w, h = gfx.w * 0.92, gfx.h * 0.92
     local x, y = (gfx.w - w) / 2, (gfx.h - h) / 2
     local pad = S(20)
     
