@@ -15624,7 +15624,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
     -- Edit Name Button
     local edit_sz = S(24)
     local edit_x = close_x - edit_sz - S(8)
-    if btn(edit_x, pad, edit_sz, edit_sz, "✎", UI.C_BTN, UI.C_TXT) then
+    if btn(edit_x, pad, edit_sz, edit_sz, "✎", UI.C_BTN, UI.C_TXT) and not ACHIEVEMENTS.show_leaderboard then
         local ok, ret = reaper.GetUserInputs("Профіль користувача", 1, "Ваше ім'я (до 40 симв.):", display_name)
         if ok then
             local new_name = ret:gsub("^%s*(.-)%s*$", "%1"):sub(1, 40)
@@ -25159,7 +25159,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                         end
                         
                         -- Immediate sync if editing
-                        if current_region then
+                        if current_region and current_region.id then
                             local new_col = get_actor_color(actor)
                             -- Use existing color if get_actor_color returns 0 (default/not found)
                             if not new_col or new_col == 0 then new_col = current_region.col end
@@ -25314,7 +25314,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                             editor_state.current_actor = name
                             
                             -- Immediate sync if editing an existing region
-                            if current_region then
+                            if current_region and current_region.id then
                                 local new_col = get_actor_color(name)
                                 if not new_col or new_col == 0 then new_col = current_region.col end
                                 
