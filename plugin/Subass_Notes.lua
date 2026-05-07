@@ -15058,28 +15058,8 @@ function ACHIEVEMENTS.draw_dialog()
     set_color(UI.C_TXT, 0.1)
     gfx.rect(x, y, w, h, 0)
     
-    -- Title
-    gfx.setfont(F.title)
-    set_color(UI.C_TXT, 1)
-    local ach_name = ACHIEVEMENTS.leaderboard_data.ach_name or "Досягнення"
-    -- Try to find pretty name from OTHER.ACH_CFG
-    for _, ach in ipairs(OTHER.ACH_CFG) do
-        if ach.id == ach_name then
-            ach_name = ach.name
-            break
-        end
-    end
-    
-    gfx.x, gfx.y = x + pad, y + pad
-    gfx.drawstr("Таблиця лідерів: " .. ach_name)
-    
-    -- Close button
+    -- Close button size
     local close_sz = S(24)
-    if btn(x + w - pad - close_sz, y + pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
-        ACHIEVEMENTS.show_leaderboard = false
-        UI_STATE.mouse_handled = true
-    end
-    
     local content_y = y + pad + S(40)
     local row_h = S(35)
     local list_h = h - (content_y - y) - pad
@@ -15107,8 +15087,7 @@ function ACHIEVEMENTS.draw_dialog()
     end
     ACHIEVEMENTS.leaderboard_scroll_y = ACHIEVEMENTS.leaderboard_scroll_y + (ACHIEVEMENTS.leaderboard_target_scroll_y - ACHIEVEMENTS.leaderboard_scroll_y) * 0.5
     
-    -- Scissor area for content
-    -- gfx.setimgdim doesn't exist for clipping, we just manually clip by skipping rows
+    -- DRAW CONTENT
     for i, row in ipairs(rows_to_draw) do
         local rx = x + pad
         local ry = content_y + (i - 1) * row_h - ACHIEVEMENTS.leaderboard_scroll_y
@@ -15119,29 +15098,80 @@ function ACHIEVEMENTS.draw_dialog()
                 gfx.line(rx, ry + row_h/2, x + w - pad, ry + row_h/2)
             else
                 if row.is_me then
-                    set_color(UI.C_TAB_INA, 0.2)
+                    set_color(UI.C_TAB_INA, 0.5)
                     gfx.rect(x + S(5), ry, w - S(10), row_h, 1)
                 end
                 
                 gfx.setfont(F.std)
                 set_color(row.is_me and UI.C_TXT or UI.C_TXT, row.is_me and 1.0 or 0.7)
                 
-                -- Rank
-                gfx.x, gfx.y = rx, ry + (row_h - S(14))/2
-                gfx.drawstr(string.format("%d.", row.rank))
+                local ty = ry + (row_h - S(14))/2
                 
-                -- Name
-                gfx.x = rx + S(40)
-                gfx.drawstr(row.dubber_name or "Анонім")
+                -- Rank / Medal
+                local pos = row.rank
+                if pos and pos <= 9 then
+                    local frame_idx = 9 - pos
+                    local sw, sh = gfx.getimgdim(OTHER.ACH_PLACE_CFG.buf)
+                    if sw and sw > 0 then
+                        local fw = sw / 9
+                        local bw, bh = S(24), S(24)
+                        local bx = rx - S(4)
+                        local by = ry + (row_h - bh)/2
+                        gfx.mode = 0
+                        gfx.set(1, 1, 1, 1)
+                        gfx.blit(OTHER.ACH_PLACE_CFG.buf, 1, 0, fw * frame_idx, 0, fw, sh, bx, by, bw, bh)
+                    end
+                else
+                    gfx.x, gfx.y = rx, ty
+                    gfx.drawstr(string.format("%d.", pos or 0))
+                end
                 
                 -- Value
                 local val_str = tostring(math.floor(row.value or 0))
                 local vw = gfx.measurestr(val_str)
-                gfx.x = x + w - pad - vw - S(10)
+                local val_x = x + w - pad - vw - S(10)
+                
+                -- Name with ellipsis
+                local name_x = rx + S(40)
+                local avail_name_w = val_x - name_x - S(15)
+                local draw_name = fit_text_width(row.dubber_name or "Анонім", avail_name_w)
+                
+                gfx.x, gfx.y = name_x, ty
+                gfx.drawstr(draw_name)
+                
+                gfx.x, gfx.y = val_x, ty
                 gfx.drawstr(val_str)
             end
         end
     end
+
+    -- MASK TOP (Header area) - Draw this after content to cover overlap
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(x, y, w, content_y - y, 1)
+
+    -- Draw Title & Close Button
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT, 1)
+    local ach_name = ACHIEVEMENTS.leaderboard_data.ach_name or "Досягнення"
+    for _, ach in ipairs(OTHER.ACH_CFG) do
+        if ach.id == ach_name then
+            ach_name = ach.name
+            break
+        end
+    end
+    
+    gfx.x, gfx.y = x + pad, y + pad
+    local draw_title = fit_text_width("Таблиця лідерів: " .. ach_name, w - pad*2 - close_sz - S(10))
+    gfx.drawstr(draw_title)
+    
+    if btn(x + w - pad - close_sz, y + pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+        ACHIEVEMENTS.show_leaderboard = false
+        UI_STATE.mouse_handled = true
+    end
+
+    -- Draw Border over everything
+    set_color(UI.C_TXT, 0.1)
+    gfx.rect(x, y, w, h, 0)
     
     if max_scroll > 0 then
         ACHIEVEMENTS.leaderboard_target_scroll_y = draw_scrollbar(x + w - S(8), content_y, S(6), list_h, total_content_h, list_h, ACHIEVEMENTS.leaderboard_target_scroll_y)
