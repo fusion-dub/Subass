@@ -38,7 +38,6 @@ BEGIN
         jsonb_agg(
             jsonb_build_object(
                 'rank',         rank,
-                'machine_id',   machine_id,
                 'dubber_name',  dubber_name,
                 'value',        val,
                 'is_me',        (machine_id = target_id)
@@ -49,7 +48,6 @@ BEGIN
         (
             SELECT jsonb_build_object(
                 'rank',         rank,
-                'machine_id',   machine_id,
                 'dubber_name',  dubber_name,
                 'value',        val,
                 'is_me',        true
