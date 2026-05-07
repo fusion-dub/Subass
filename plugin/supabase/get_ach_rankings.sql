@@ -27,12 +27,13 @@ BEGIN
         GROUP BY u.machine_id, COALESCE(NULLIF(u.dubber_name, ''), u.username)
     ),
     -- Ранжуємо за спаданням значення (тільки ті, хто > 0)
+    -- Додаємо machine_id як tie-breaker для стабільності результатів
     ranked AS (
         SELECT
             machine_id,
             dubber_name,
             val,
-            ROW_NUMBER() OVER (ORDER BY val DESC NULLS LAST) AS rank
+            ROW_NUMBER() OVER (ORDER BY val DESC, machine_id ASC) AS rank
         FROM ach_stats
         WHERE val > 0
     )
