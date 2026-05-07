@@ -15254,9 +15254,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
             -- Progress Counter (Top Left)
             local total = 0
             if ach.id == "ach_1" then
-                total = (ACHIEVEMENTS.stats["ach_1_srt_import"] or 0) + 
-                        (ACHIEVEMENTS.stats["ach_1_ass_import"] or 0) + 
-                        (ACHIEVEMENTS.stats["ach_1_vtt_import"] or 0)
+                total = ACHIEVEMENTS.stats["ach_1_total_lines"] or 0
             elseif ach.id == "ach_3" then
                 total = (ACHIEVEMENTS.stats["ach_3_definition"] or 0) + 
                         (ACHIEVEMENTS.stats["ach_3_conjugation"] or 0) + 
@@ -15270,13 +15268,15 @@ function ACHIEVEMENTS.draw_window(input_queue)
             elseif ach.id == "ach_7" then
                 total = ACHIEVEMENTS.stats["ach_7_itachi_uchiha"] or 0
             elseif ach.id == "ach_2" then
-                total = ACHIEVEMENTS.stats["ach_2_run_count"] or 0
+                total = ACHIEVEMENTS.stats["ach_2_total_lines"] or 0
             elseif ach.id == "ach_8" then
-                total = ACHIEVEMENTS.stats["ach_8_export_count"] or 0
+                total = ACHIEVEMENTS.stats["ach_8_corr_item_count"] or 0
             elseif ach.id == "ach_6" then
                 total = ACHIEVEMENTS.stats["ach_6_failed_count"] or 0
             elseif ach.id == "ach_5" then
-                total = ACHIEVEMENTS.stats["ach_5_import_count"] or 0
+                total = ACHIEVEMENTS.stats["ach_5_corr_item_count"] or 0
+            elseif ach.id == "ach_29" then
+                total = ACHIEVEMENTS.stats["ach_29_import_count"] or 0
             else
                 -- Standard count mapping for ach_10, ach_11, ach_12, ach_13, ach_14, ach_18, etc.
                 total = ACHIEVEMENTS.stats[ach.id .. "_count"] or 0
@@ -15325,7 +15325,6 @@ function ACHIEVEMENTS.draw_window(input_queue)
             local rank_key = ach.id .. "_count"
             if ach.id == "ach_1" then rank_key = "ach_1_total_lines"
             elseif ach.id == "ach_2" then rank_key = "ach_2_total_lines"
-            elseif ach.id == "ach_3" then rank_key = "ach_3_conjugation"
             elseif ach.id == "ach_5" then rank_key = "ach_5_corr_item_count"
             elseif ach.id == "ach_6" then rank_key = "ach_6_failed_count"
             elseif ach.id == "ach_7" then rank_key = "ach_7_itachi_uchiha"
@@ -15341,7 +15340,12 @@ function ACHIEVEMENTS.draw_window(input_queue)
                 
                 -- CLICK TO FETCH LEADERBOARD
                 if is_mouse_clicked(1) then
-                    ACHIEVEMENTS.fetch_leaderboard(ach.id, rank_key)
+                    -- For achievements with sub-keys (ach_3, ach_4), fetch using base prefix
+                    local fetch_prefix = rank_key
+                    if ach.id == "ach_3" or ach.id == "ach_4" then
+                        fetch_prefix = ach.id
+                    end
+                    ACHIEVEMENTS.fetch_leaderboard(ach.id, fetch_prefix)
                 end
 
                 local tooltip_text = ""
