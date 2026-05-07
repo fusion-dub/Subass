@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.3.1
+-- @version 7.4
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.3.1",
+    script_title = "Subass Notes v7.4",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -15633,9 +15633,10 @@ function ACHIEVEMENTS.draw_window(input_queue)
     local avail_tw = close_x - pad - S(30) -- Adjusted for edit button
     
     -- Edit Name Button
-    local edit_sz = S(24)
-    local edit_x = close_x - edit_sz - S(8)
-    if btn(edit_x, pad, edit_sz, edit_sz, "✎", UI.C_BTN, UI.C_TXT) and not ACHIEVEMENTS.show_leaderboard then
+    local edit_w = S(90)
+    local edit_h = S(24)
+    local edit_x = close_x - edit_w - S(8)
+    if btn(edit_x, pad, edit_w, edit_h, "Змінити ім'я", UI.C_BTN, UI.C_TXT) and not ACHIEVEMENTS.show_leaderboard then
         local ok, ret = reaper.GetUserInputs("Профіль користувача", 1, "Ваше ім'я (до 40 симв.):", display_name)
         if ok then
             local new_name = ret:gsub("^%s*(.-)%s*$", "%1"):sub(1, 40)
@@ -15662,7 +15663,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
     gfx.x, gfx.y = pad, pad + S(22)
     local pct = math.floor(tonumber(ACHIEVEMENTS.rankings and ACHIEVEMENTS.rankings["overall_percentile"]) or 0)
     local progress_text = string.format("Здобуто %d з %d нагород, ви краще за %d%% користувачів", open_count, #OTHER.ACH_CFG, pct)
-    gfx.drawstr(fit_text_width(progress_text, avail_tw))
+    gfx.drawstr(fit_text_width(progress_text, edit_x - pad - S(5)))
 
     -- Handle Esc key
     if input_queue then
