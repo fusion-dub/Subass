@@ -17,6 +17,7 @@ BEGIN
         SELECT 
             machine_id, 
             CASE 
+                WHEN key IN ('ach_3_definition', 'ach_3_conjugation', 'ach_3_synonyms', 'ach_3_idioms', 'ach_3_word_usage') THEN 'ach_3_count'
                 WHEN key LIKE 'ach_4_%' THEN 'ach_4_count' 
                 ELSE key 
             END as key, 
@@ -71,7 +72,11 @@ BEGIN
     WITH all_stats AS (
         SELECT
             machine_id,
-            CASE WHEN key LIKE 'ach_4_%' THEN 'ach_4_count' ELSE key END AS key,
+            CASE 
+                WHEN key IN ('ach_3_definition', 'ach_3_conjugation', 'ach_3_synonyms', 'ach_3_idioms', 'ach_3_word_usage') THEN 'ach_3_count'
+                WHEN key LIKE 'ach_4_%' THEN 'ach_4_count' 
+                ELSE key 
+            END AS key,
             SUM((value#>>'{}'  )::float8) AS val
         FROM users, jsonb_each(stats::jsonb)
         WHERE key NOT LIKE '%_tracking'
