@@ -15027,11 +15027,127 @@ function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key)
         if f then
             local content = f:read("*a")
             f:close()
-            reaper.ShowConsoleMsg("\n--- Leaderboard for " .. ach_id .. " ---\n" .. content .. "\n")
-        else
-            reaper.ShowConsoleMsg("\n--- Failed to fetch leaderboard for " .. ach_id .. " ---\n")
+            if STATS and STATS.json_decode then
+                local ok, data = pcall(STATS.json_decode, content)
+                if ok and data and data.ok then
+                    ACHIEVEMENTS.leaderboard_data = data
+                    ACHIEVEMENTS.leaderboard_data.ach_name = ach_id
+                    ACHIEVEMENTS.show_leaderboard = true
+                    ACHIEVEMENTS.leaderboard_scroll_y = 0
+                    ACHIEVEMENTS.leaderboard_target_scroll_y = 0
+                end
+            end
         end
     end, true, "Fetching " .. ach_id .. " leaderboard...", false)
+end
+
+function ACHIEVEMENTS.draw_dialog()
+    if not ACHIEVEMENTS.show_leaderboard or not ACHIEVEMENTS.leaderboard_data then return end
+    
+    local w, h = gfx.w * 0.9, gfx.h * 0.9
+    local x, y = (gfx.w - w) / 2, (gfx.h - h) / 2
+    local pad = S(20)
+    
+    -- Darken background
+    set_color(UI.C_BG, 0.6)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+    
+    -- Main Dialog Box
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(x, y, w, h, 1)
+    set_color(UI.C_TXT, 0.1)
+    gfx.rect(x, y, w, h, 0)
+    
+    -- Title
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT, 1)
+    local ach_name = ACHIEVEMENTS.leaderboard_data.ach_name or "Досягнення"
+    -- Try to find pretty name from OTHER.ACH_CFG
+    for _, ach in ipairs(OTHER.ACH_CFG) do
+        if ach.id == ach_name then
+            ach_name = ach.name
+            break
+        end
+    end
+    
+    gfx.x, gfx.y = x + pad, y + pad
+    gfx.drawstr("Таблиця лідерів: " .. ach_name)
+    
+    -- Close button
+    local close_sz = S(24)
+    if btn(x + w - pad - close_sz, y + pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+        ACHIEVEMENTS.show_leaderboard = false
+        UI_STATE.mouse_handled = true
+    end
+    
+    local content_y = y + pad + S(40)
+    local row_h = S(35)
+    local list_h = h - (content_y - y) - pad
+    
+    -- List Data
+    local lb = ACHIEVEMENTS.leaderboard_data.leaderboard or {}
+    local me = ACHIEVEMENTS.leaderboard_data.me
+    
+    local rows_to_draw = {}
+    for _, item in ipairs(lb) do table.insert(rows_to_draw, item) end
+    if me then
+        -- Add separator and me row
+        table.insert(rows_to_draw, { is_sep = true })
+        table.insert(rows_to_draw, me)
+    end
+    
+    local total_content_h = #rows_to_draw * row_h
+    local max_scroll = math.max(0, total_content_h - list_h)
+    
+    if gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= content_y and gfx.mouse_y <= y + h - pad then
+        if gfx.mouse_wheel ~= 0 then
+            ACHIEVEMENTS.leaderboard_target_scroll_y = math.max(0, math.min(max_scroll, ACHIEVEMENTS.leaderboard_target_scroll_y - gfx.mouse_wheel * 0.5))
+            gfx.mouse_wheel = 0
+        end
+    end
+    ACHIEVEMENTS.leaderboard_scroll_y = ACHIEVEMENTS.leaderboard_scroll_y + (ACHIEVEMENTS.leaderboard_target_scroll_y - ACHIEVEMENTS.leaderboard_scroll_y) * 0.5
+    
+    -- Scissor area for content
+    -- gfx.setimgdim doesn't exist for clipping, we just manually clip by skipping rows
+    for i, row in ipairs(rows_to_draw) do
+        local rx = x + pad
+        local ry = content_y + (i - 1) * row_h - ACHIEVEMENTS.leaderboard_scroll_y
+        
+        if ry + row_h > content_y and ry < content_y + list_h then
+            if row.is_sep then
+                set_color(UI.C_TXT, 0.1)
+                gfx.line(rx, ry + row_h/2, x + w - pad, ry + row_h/2)
+            else
+                if row.is_me then
+                    set_color(UI.C_TAB_INA, 0.2)
+                    gfx.rect(x + S(5), ry, w - S(10), row_h, 1)
+                end
+                
+                gfx.setfont(F.std)
+                set_color(row.is_me and UI.C_TXT or UI.C_TXT, row.is_me and 1.0 or 0.7)
+                
+                -- Rank
+                gfx.x, gfx.y = rx, ry + (row_h - S(14))/2
+                gfx.drawstr(string.format("%d.", row.rank))
+                
+                -- Name
+                gfx.x = rx + S(40)
+                gfx.drawstr(row.dubber_name or "Анонім")
+                
+                -- Value
+                local val_str = tostring(math.floor(row.value or 0))
+                local vw = gfx.measurestr(val_str)
+                gfx.x = x + w - pad - vw - S(10)
+                gfx.drawstr(val_str)
+            end
+        end
+    end
+    
+    if max_scroll > 0 then
+        ACHIEVEMENTS.leaderboard_target_scroll_y = draw_scrollbar(x + w - S(8), content_y, S(6), list_h, total_content_h, list_h, ACHIEVEMENTS.leaderboard_target_scroll_y)
+    end
+    
+    UI_STATE.mouse_handled = true
 end
 
 function ACHIEVEMENTS.draw_window(input_queue)
@@ -15064,7 +15180,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
     local total_h = rows * (item_sz + spacing) - spacing
     local max_scroll = math.max(0, total_h - res_h)
     
-    if gfx.mouse_x >= pad and gfx.mouse_x <= gfx.w - pad and gfx.mouse_y >= content_y and gfx.mouse_y <= gfx.h - pad then
+    if not ACHIEVEMENTS.show_leaderboard and gfx.mouse_x >= pad and gfx.mouse_x <= gfx.w - pad and gfx.mouse_y >= content_y and gfx.mouse_y <= gfx.h - pad then
         if gfx.mouse_wheel ~= 0 then
             ACHIEVEMENTS.target_scroll_y = math.max(0, math.min(max_scroll, ACHIEVEMENTS.target_scroll_y - gfx.mouse_wheel * 0.5))
             gfx.mouse_wheel = 0
@@ -15190,7 +15306,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
             local r_data = ACHIEVEMENTS.rankings and ACHIEVEMENTS.rankings[rank_key]
 
             -- Interaction & Tooltips
-            if gfx.mouse_x >= cx and gfx.mouse_x <= cx + item_sz and
+            if not ACHIEVEMENTS.show_leaderboard and gfx.mouse_x >= cx and gfx.mouse_x <= cx + item_sz and
                gfx.mouse_y >= cy and gfx.mouse_y <= cy + item_sz then
                 
                 -- CLICK TO FETCH LEADERBOARD
@@ -15508,11 +15624,18 @@ function ACHIEVEMENTS.draw_window(input_queue)
         for i = #input_queue, 1, -1 do
             local char = input_queue[i]
             if char == 27 then -- Esc
-                close_achievements()
+                if ACHIEVEMENTS.show_leaderboard then
+                    ACHIEVEMENTS.show_leaderboard = false
+                else
+                    close_achievements()
+                end
                 table.remove(input_queue, i)
             end
         end
     end
+
+    -- DRAW LEADERBOARD DIALOG ON TOP
+    ACHIEVEMENTS.draw_dialog()
 end
 
 --- Draw dictionary modal with definitions and synonyms, ГОРОХ
