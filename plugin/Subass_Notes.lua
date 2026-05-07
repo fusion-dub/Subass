@@ -24753,7 +24753,6 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
             
             -- SYNC Logic: Check if we need to update the editor content
             local needs_sync = (editor_state.last_region_id ~= current_region.id) or 
-                               (editor_state.input.text == "" and current_region.name ~= "") or
                                editor_state.needs_sync
             
             if needs_sync then
@@ -24765,6 +24764,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 editor_state.current_actor = current_region.actor
                 editor_state.input.cursor = #current_region.name
                 editor_state.input.anchor = #current_region.name
+                editor_state.input.history = nil -- Очищаємо історію при зміні регіону
                 ai_modal.show = false
                 if cfg.editor_auto_scroll then
                     editor_state.scroll_to_actor = current_region.actor
@@ -24781,6 +24781,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
                 editor_state.original_text = ""
                 editor_state.current_actor = ""
                 editor_state.input.focus = false
+                editor_state.input.history = nil -- Очищаємо історію
             end
             editor_state.last_region_id = nil
             editor_state.last_line_data = nil
@@ -27380,7 +27381,7 @@ local function draw_table(input_queue)
                             table.insert(menu_items, "<")
                         end
                         
-                        local has_merge = #sel_indices > 1 and #sel_indices <= 5
+                        local has_merge = #sel_indices > 1 and #sel_indices <= 50
                         local has_single = #sel_indices == 1
                         
                         if has_merge then
@@ -27520,8 +27521,14 @@ local function draw_table(input_queue)
                                 table_selection[base_id] = true
                                 cleanup_actors()
                                 rebuild_regions()
-                                table_data_cache.state_count = -1 -- FORCE UPDATE TABLE
-                                last_layout_state.state_count = -1 -- FORCE UPDATE LAYOUT
+
+                                prompter_drawer.marker_cache.count = -1
+                                prompter_drawer.filtered_cache.state_count = -1
+                                prompter_drawer.has_markers_cache.count = -1
+                                table_data_cache.state_count = -1
+                                last_layout_state.state_count = -1
+                                UI_STATE._markers_is_dirty = true
+
                                 show_snackbar("Репліки об'єднано (" .. #selected_entries .. ")", "success")
                             end
                         elseif has_single then
