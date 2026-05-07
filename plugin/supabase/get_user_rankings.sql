@@ -6,6 +6,7 @@ AS $$
 DECLARE
     result JSONB;
     total_count INT;
+    overall_percentile FLOAT;
 BEGIN
     -- 1. Отримуємо загальну кількість користувачів
     SELECT count(*) INTO total_count FROM users;
@@ -65,6 +66,34 @@ BEGIN
     ) INTO result
     FROM global_popularity gp
     LEFT JOIN rankings r ON r.key = gp.key;
+
+    -- 7. Рахуємо загальний відсоток (краще за N% користувачів по всім досягненням)
+    WITH all_stats AS (
+        SELECT
+            machine_id,
+            CASE WHEN key LIKE 'ach_4_%' THEN 'ach_4_count' ELSE key END AS key,
+            SUM((value#>>'{}'  )::float8) AS val
+        FROM users, jsonb_each(stats::jsonb)
+        WHERE key NOT LIKE '%_tracking'
+          AND jsonb_typeof(value) = 'number'
+        GROUP BY 1, 2
+    )
+    SELECT
+        CASE WHEN sum(competitors) > 0
+        THEN round((sum(competitors - pos)::float / sum(competitors) * 100)::numeric, 1)
+        ELSE 0
+        END
+    INTO overall_percentile
+    FROM (
+        SELECT
+            a.key,
+            (SELECT count(*) FROM all_stats b WHERE b.key = a.key AND b.val > a.val) + 1 AS pos,
+            (SELECT count(*) FROM all_stats b WHERE b.key = a.key AND b.val > 0) AS competitors
+        FROM (SELECT key, val FROM all_stats WHERE machine_id = target_id) a
+        WHERE a.val > 0
+    ) r;
+
+    result := result || jsonb_build_object('overall_percentile', overall_percentile);
 
     RETURN result;
 END;
