@@ -371,6 +371,7 @@ cfg.w_director = get_set("w_director", S(300))
 cfg.h_director = get_set("h_director", S(120))
 cfg.w_editor = get_set("w_editor", S(300))
 cfg.h_editor = get_set("h_editor", S(120))
+cfg.dubber_name = UTILS.unicode_unescape(get_set("dubber_name", ""))
 
 local dynamic_director_h = nil
 local dynamic_editor_h = nil
@@ -2575,6 +2576,7 @@ local text_palette = {
 local function save_settings()
     reaper.SetExtState(section_name, "last_tab", tostring(UI_STATE.current_tab), true)
     reaper.SetExtState(section_name, "dock", tostring(GL.last_dock_state), true)
+    reaper.SetExtState(section_name, "dubber_name", UTILS.unicode_escape(cfg.dubber_name or ""), true)
     
     reaper.SetExtState(section_name, "p_fsize", tostring(cfg.p_fsize), true)
     reaper.SetExtState(section_name, "p_cr", tostring(cfg.p_cr), true)
@@ -9453,7 +9455,11 @@ function STATS.register_plugin_usage()
     
     -- Serialize ACHIEVEMENTS.stats to a temp JSON file
     local stats_file_path = script_path .. "stats/subass_ach_stats.json"
-    local stats_json = STATS.json_encode(ACHIEVEMENTS.stats)
+    local stats_json = STATS.json_encode({
+        stats=ACHIEVEMENTS.stats,
+        dubber_name=(cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач"),
+    })
+
     local sf = io.open(stats_file_path, "w")
     if sf then
         sf:write(stats_json)
@@ -14984,6 +14990,50 @@ function SEARCH_ITEM.draw_window(input_queue)
     SEARCH_ITEM.draw_mini_player()
 end
 
+function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key)
+    if ACHIEVEMENTS.loading_ach then return end
+    ACHIEVEMENTS.loading_ach = ach_id
+    
+    local source = debug.getinfo(1,'S').source
+    local script_path = source:match([[^@?(.*[\\/])]]) or ""
+    local full_script_path = script_path .. "stats/subass_extra_stats.py"
+    
+    local machine_id = reaper.GetExtState(section_name, "MachineID")
+    if not machine_id or machine_id == "" then
+        machine_id = reaper.genGuid("")
+        machine_id = machine_id:gsub("[%{%}%-]", ""):lower()
+        reaper.SetExtState(section_name, "MachineID", machine_id, true)
+    end
+
+    local cmd = string.format('python3 "%s" --get-leaderboard --ach-prefix "%s" --machine_id "%s"', 
+                                full_script_path, rank_key, machine_id)
+    
+    if reaper.GetOS():match("Win") then
+        full_script_path = full_script_path:gsub("/", "\\")
+        local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
+        cmd = string.format('%s "%s" --get-leaderboard --ach-prefix "%s" --machine_id "%s"', 
+                                     py_exe, full_script_path, rank_key, machine_id)
+    end
+
+    -- id for async tracking
+    local async_id = tostring(os.time()) .. "_" .. math.random(1000,9999)
+    local res_path = reaper.GetResourcePath() .. "/Scripts/"
+    local out_file = res_path .. "async_out_" .. async_id .. ".tmp"
+    
+    run_async_command(cmd, function()
+        ACHIEVEMENTS.loading_ach = nil
+        local leaderboard_path = script_path .. "stats/subass_leaderboard.json"
+        local f = io.open(leaderboard_path, "r")
+        if f then
+            local content = f:read("*a")
+            f:close()
+            reaper.ShowConsoleMsg("\n--- Leaderboard for " .. ach_id .. " ---\n" .. content .. "\n")
+        else
+            reaper.ShowConsoleMsg("\n--- Failed to fetch leaderboard for " .. ach_id .. " ---\n")
+        end
+    end, true, "Fetching " .. ach_id .. " leaderboard...", false)
+end
+
 function ACHIEVEMENTS.draw_window(input_queue)
     if not ACHIEVEMENTS.show then return end
 
@@ -15021,7 +15071,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
         end
 
         -- Right click context menu
-        if gfx.mouse_cap & 2 == 2 and UI_STATE.last_mouse_cap & 2 == 0 then
+        if is_right_mouse_clicked() then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu("Оновити дані")
             if ret == 1 then
@@ -15031,7 +15081,6 @@ function ACHIEVEMENTS.draw_window(input_queue)
             UI_STATE.mouse_handled = true
         end
     end
-    UI_STATE.last_mouse_cap = gfx.mouse_cap
     ACHIEVEMENTS.scroll_y = ACHIEVEMENTS.scroll_y + (ACHIEVEMENTS.target_scroll_y - ACHIEVEMENTS.scroll_y) * 0.5
     
     local open_count = 0
@@ -15144,6 +15193,11 @@ function ACHIEVEMENTS.draw_window(input_queue)
             if gfx.mouse_x >= cx and gfx.mouse_x <= cx + item_sz and
                gfx.mouse_y >= cy and gfx.mouse_y <= cy + item_sz then
                 
+                -- CLICK TO FETCH LEADERBOARD
+                if is_mouse_clicked(1) then
+                    ACHIEVEMENTS.fetch_leaderboard(ach.id, rank_key)
+                end
+
                 local tooltip_text = ""
                 if is_unlocked then
                     if ach.id == "ach_1" then
@@ -15342,6 +15396,17 @@ function ACHIEVEMENTS.draw_window(input_queue)
                 end
             end
 
+            -- LOADING INDICATOR
+            if ACHIEVEMENTS.loading_ach == ach.id then
+                set_color(UI.C_BG, 0.7)
+                gfx.rect(cx, cy, item_sz, item_sz, 1)
+                set_color(UI.C_TXT, 1)
+                gfx.setfont(F.bld)
+                local lw, lh = gfx.measurestr("Завантаження...")
+                gfx.x, gfx.y = cx + (item_sz - lw) / 2, cy + (item_sz - lh) / 2
+                gfx.drawstr("Завантаження...")
+            end
+
             -- Draw Ranking Badge (Top Right)
             if r_data and (r_data.position or r_data.unlocked_by) then
                 local bx, by = cx + item_sz - S(32), cy + S(2)
@@ -15402,14 +15467,41 @@ function ACHIEVEMENTS.draw_window(input_queue)
         close_achievements()
     end
     
-    -- Title
+    -- Title (Two-line personalized header)
+    local display_name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
+    local avail_tw = close_x - pad - S(30) -- Adjusted for edit button
+    
+    -- Edit Name Button
+    local edit_sz = S(24)
+    local edit_x = close_x - edit_sz - S(8)
+    if btn(edit_x, pad, edit_sz, edit_sz, "✎", UI.C_BTN, UI.C_TXT) then
+        local ok, ret = reaper.GetUserInputs("Профіль користувача", 1, "Ваше ім'я (до 40 симв.):", display_name)
+        if ok then
+            local new_name = ret:gsub("^%s*(.-)%s*$", "%1"):sub(1, 40)
+            if new_name ~= "" then
+                cfg.dubber_name = new_name
+                save_settings()
+                STATS.register_plugin_usage()
+                show_snackbar("Ім'я оновлено", "success")
+            end
+        end
+        UI_STATE.mouse_handled = true
+    end
+
+    -- Line 1: User Name
     gfx.setfont(F.title)
     set_color(UI.C_TXT)
-    local title = "Мої досягнення: " .. open_count .. "/" .. #OTHER.ACH_CFG
-    local avail_tw = close_x - pad - S(10)
-    local draw_title = fit_text_width(title, avail_tw)
-    gfx.x, gfx.y = pad, pad
-    gfx.drawstr(draw_title)
+    gfx.x, gfx.y = pad, pad - S(2)
+    local name_title = fit_text_width("Зал слави: " .. display_name, edit_x - pad - S(5))
+    gfx.drawstr(name_title)
+    
+    -- Line 2: Progress Status
+    gfx.setfont(F.tip)
+    set_color(UI.C_TXT, 0.6)
+    gfx.x, gfx.y = pad, pad + S(22)
+    local pct = math.floor(tonumber(ACHIEVEMENTS.rankings and ACHIEVEMENTS.rankings["overall_percentile"]) or 0)
+    local progress_text = string.format("Здобуто %d з %d нагород, ви краще за %d%% користувачів", open_count, #OTHER.ACH_CFG, pct)
+    gfx.drawstr(fit_text_width(progress_text, avail_tw))
 
     -- Handle Esc key
     if input_queue then
