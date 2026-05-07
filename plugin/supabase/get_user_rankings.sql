@@ -36,7 +36,7 @@ BEGIN
         SELECT 
             a.key,
             a.val as my_value,
-            (SELECT count(*) FROM all_stats b WHERE b.key = a.key AND b.val > a.val) + 1 as pos,
+            (SELECT count(*) FROM all_stats b WHERE b.key = a.key AND (b.val > a.val OR (b.val = a.val AND b.machine_id < target_id))) + 1 as pos,
             (SELECT count(*) FROM all_stats b WHERE b.key = a.key AND b.val > 0) as competitors
         FROM my_keys a
     ),
@@ -92,7 +92,7 @@ BEGIN
     FROM (
         SELECT
             a.key,
-            (SELECT count(*) FROM all_stats b WHERE b.key = a.key AND b.val > a.val) + 1 AS pos,
+            (SELECT count(*) FROM all_stats b WHERE b.key = a.key AND (b.val > a.val OR (b.val = a.val AND b.machine_id < target_id))) + 1 AS pos,
             (SELECT count(*) FROM all_stats b WHERE b.key = a.key AND b.val > 0) AS competitors
         FROM (SELECT key, val FROM all_stats WHERE machine_id = target_id) a
         WHERE a.val > 0
