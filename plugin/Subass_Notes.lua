@@ -18423,10 +18423,10 @@ local function draw_file()
             gfx.setfont(F.std)
             gfx.x, gfx.y = S(20), t_y
             local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
-            local txt_see_more_options = fit_text_width("Вітаю: " .. name .. "\nІмпортуйте файл аби побачити більше опцій.", gfx.w - S(40))
+            local txt_see_more_options = fit_text_width("Вітаю: " .. name .. "\nІмпортуй файл аби побачити більше опцій.", gfx.w - S(40))
             gfx.drawstr(txt_see_more_options)
         end
-        y_cursor = y_cursor + S(45)
+        y_cursor = y_cursor + S(65)
     end
     
     -- Drop Zone Visual
@@ -20221,12 +20221,13 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
     local takes, dur = STATS.get_session_summary()
     local play_state = reaper.GetPlayState()
     local is_recording = (play_state & 4) == 4
-    
+
     if not UI_STATE.ass_file_loaded or not ass_lines or #ass_lines == 0 then
         -- Need to import subtitles
         set_color(UI.GET_P_COLOR(0.3))
         gfx.setfont(F.std)
-        local txt = "Потрібно імпортувати субтитри"
+        local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
+        local txt = name .. ", потрібно імпортувати субтитри"
         local tw, th = gfx.measurestr(txt)
         gfx.x = content_offset_left + (available_w - tw) / 2
         gfx.y = (gfx.h - th) / 2
@@ -20235,7 +20236,8 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         gfx.drawstr(txt)
     elseif (takes > 0 or dur > 0) and not is_recording and cfg.show_final_stats then
         -- Concept Pro: SUCCESS SCREEN
-        local title = "ЧУДОВА РОБОТА!"
+        local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
+        local title = "Чудова робота, " .. name .. "!"
         local progress = UTILS.get_recording_progress() or 0
         local speed = (dur > 0) and math.floor(takes / (dur / 3600)) or 0
         
