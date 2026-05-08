@@ -15055,7 +15055,7 @@ end
 function ACHIEVEMENTS.draw_dialog()
     if not ACHIEVEMENTS.show_leaderboard or not ACHIEVEMENTS.leaderboard_data then return end
     
-    local w, h = gfx.w * 0.92, gfx.h * 0.92
+    local w, h = gfx.w, gfx.h
     local x, y = (gfx.w - w) / 2, (gfx.h - h) / 2
     local pad = S(20)
     
@@ -15218,7 +15218,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
     local cols = math.max(1, math.floor((avail_w + spacing) / (item_sz + spacing)))
     
     local rows = math.ceil(#OTHER.ACH_CFG / cols)
-    local total_h = rows * (item_sz + spacing) - spacing
+    local total_h = rows * (item_sz + spacing) - spacing + S(10)
     local max_scroll = math.max(0, total_h - res_h)
     
     if not ACHIEVEMENTS.show_leaderboard and gfx.mouse_x >= pad and gfx.mouse_x <= gfx.w - pad and gfx.mouse_y >= content_y and gfx.mouse_y <= gfx.h - pad then
@@ -15252,7 +15252,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
         local row = math.floor((i - 1) / cols)
         
         local cx = pad + col * (item_sz + spacing)
-        local cy = content_y + row * (item_sz + spacing) - math.floor(ACHIEVEMENTS.scroll_y)
+        local cy = content_y + S(10) + row * (item_sz + spacing) - math.floor(ACHIEVEMENTS.scroll_y)
         
         if cy + item_sz > content_y and cy < content_y + res_h then
             -- Draw Background
@@ -15624,7 +15624,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
         ACHIEVEMENTS.show = false
         UI_STATE.mouse_handled = true
     end
-    if btn(close_x, close_y, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+    if btn(close_x, close_y, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) and not ACHIEVEMENTS.show_leaderboard then
         close_achievements()
     end
     
