@@ -1,4 +1,9 @@
-CREATE OR REPLACE FUNCTION get_ach_rankings(ach_prefix TEXT, target_id TEXT, limit_count INT DEFAULT 30)
+CREATE OR REPLACE FUNCTION get_ach_rankings(
+    ach_prefix TEXT, 
+    target_id TEXT, 
+    limit_count INT DEFAULT 30,
+    page_num INT DEFAULT 1
+)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -6,6 +11,8 @@ AS $$
 DECLARE
     top_users  JSONB;
     me_row JSONB;
+    offset_val INT := (page_num - 1) * limit_count;
+    total_count INT;
 BEGIN
     WITH
     -- Агрегуємо значення по кожному користувачу для даного досягнення.
@@ -38,7 +45,7 @@ BEGIN
         WHERE val > 0
     )
     SELECT
-        -- Топ-30, з позначкою is_me для поточного користувача
+        -- Поточна сторінка, з позначкою is_me для поточного користувача
         jsonb_agg(
             jsonb_build_object(
                 'rank',         rank,
@@ -46,9 +53,12 @@ BEGIN
                 'value',        val,
                 'is_me',        (machine_id = target_id)
             ) ORDER BY rank
-        ) FILTER (WHERE rank <= limit_count),
+        ) FILTER (WHERE rank > offset_val AND rank <= offset_val + limit_count),
 
-        -- Поточний користувач окремо, якщо він поза топ-30
+        -- Загальна кількість
+        (SELECT COUNT(*) FROM ranked),
+
+        -- Поточний користувач окремо, якщо він поза поточною сторінкою (тільки на 1-й сторінці)
         (
             SELECT jsonb_build_object(
                 'rank',         rank,
@@ -57,14 +67,19 @@ BEGIN
                 'is_me',        true
             )
             FROM ranked
-            WHERE machine_id = target_id AND rank > limit_count
+            WHERE machine_id = target_id 
+              AND (rank <= offset_val OR rank > offset_val + limit_count)
+              AND page_num = 1
         )
-    INTO top_users, me_row
+    INTO top_users, total_count, me_row
     FROM ranked;
 
     RETURN jsonb_build_object(
         'leaderboard', COALESCE(top_users, '[]'::jsonb),
-        'me',          me_row   -- null якщо користувач в топ-30
+        'me',          me_row,   -- null якщо користувач в списку або не на 1-й сторінці
+        'has_more',    (offset_val + limit_count < total_count),
+        'total_count', COALESCE(total_count, 0),
+        'page',        page_num
     );
 END;
 $$;
