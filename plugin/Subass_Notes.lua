@@ -15063,6 +15063,42 @@ function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key)
     end, true, "Fetching " .. ach_id .. " leaderboard...", false)
 end
 
+function ACHIEVEMENTS.get_ach_hint(ach_id)
+    local hints = {
+        ach_1 = "Кількість імпортованих реплік",
+        ach_2 = "Кількість наголошених реплік",
+        ach_3 = "Переглядів словника ГОРОХ",
+        ach_4 = "Використано ШІ-функцій",
+        ach_5 = "Імпортовано правок",
+        ach_6 = "Прострочено дедлайнів у проектах",
+        ach_7 = "Зустрічей з Ітачі Учіха",
+        ach_8 = "Віддано правок для колег",
+        ach_9 = "Записів довжиною понад 30 секунд",
+        ach_10 = "Кількість створених проєктів",
+        ach_11 = "Кількість записаних айтемів/дублів",
+        ach_12 = "Спроб запису однієї репліки (21+ разів)",
+        ach_13 = "Випадків кліпінгу (перевантаження звуку)",
+        ach_14 = "Проєктів, де проведено понад 12 годин",
+        ach_15 = "Випадків промовлення слова \"секс\"",
+        ach_16 = "Проєктів з понад 15 треками",
+        ach_17 = "Проєктів з понад 50 акторами",
+        ach_18 = "Проєктів тривалістю понад 80 хвилин",
+        ach_19 = "Записано реплік з понад 8 шиплячими звуків",
+        ach_20 = "Проєктів з понад 1000 дублів",
+        ach_21 = "Зафіксовано ідеальних синхронів",
+        ach_22 = "Ночей проведено за мікрофоном (00:00 - 04:00)",
+        ach_23 = "Записано 50 реплік з кулькістю дублів <= 1.1",
+        ach_24 = "Записів тиші тривалістю 5+ секунд",
+        ach_25 = "Кількість копіювання імені розробника",
+        ach_26 = "Кількість копіювань статистики по акторам",
+        ach_27 = "Зібрано всіх доступних API ключів",
+        ach_28 = "Редаговано реплік в режимі Редактора",
+        ach_29 = "Імпортовано перекладених реплік через ШІ",
+        ach_30 = "Налаштовано сповіщень про дедлайни"
+    }
+    return hints[ach_id] or ""
+end
+
 function ACHIEVEMENTS.draw_dialog()
     if not ACHIEVEMENTS.show_leaderboard or not ACHIEVEMENTS.leaderboard_data then return end
     
@@ -15112,7 +15148,7 @@ function ACHIEVEMENTS.draw_dialog()
     -- DRAW CONTENT
     for i, row in ipairs(rows_to_draw) do
         local rx = x + pad
-        local ry = content_y + (i - 1) * row_h - ACHIEVEMENTS.leaderboard_scroll_y
+        local ry = content_y + S(10) + (i - 1) * row_h - ACHIEVEMENTS.leaderboard_scroll_y
         
         if ry + row_h > content_y and ry < content_y + list_h then
             if row.is_sep then
@@ -15137,14 +15173,14 @@ function ACHIEVEMENTS.draw_dialog()
                     if sw and sw > 0 then
                         local fw = sw / 9
                         local bw, bh = S(24), S(24)
-                        local bx = rx - S(4)
+                        local bx = rx + S(1)
                         local by = ry + (row_h - bh)/2
                         gfx.mode = 0
                         gfx.set(1, 1, 1, 1)
                         gfx.blit(OTHER.ACH_PLACE_CFG.buf, 1, 0, fw * frame_idx, 0, fw, sh, bx, by, bw, bh)
                     end
                 else
-                    gfx.x, gfx.y = rx, ty
+                    gfx.x, gfx.y = rx + S(5), ty
                     gfx.drawstr(string.format("%d.", pos or 0))
                 end
                 
@@ -15182,9 +15218,19 @@ function ACHIEVEMENTS.draw_dialog()
         end
     end
     
-    gfx.x, gfx.y = x + pad, y + pad
+    gfx.x, gfx.y = x + pad, y + pad - S(2)
     local draw_title = fit_text_width("Таблиця лідерів: " .. ach_name, w - pad*2 - close_sz - S(10))
     gfx.drawstr(draw_title)
+    
+    gfx.setfont(F.tip)
+    set_color(UI.C_TXT, 0.6)
+    local current_ach_id = ACHIEVEMENTS.leaderboard_data.ach_name
+    local hint = ACHIEVEMENTS.get_ach_hint(current_ach_id)
+    if ACHIEVEMENTS.stats[current_ach_id .. "_tracking"] ~= 1 then
+        hint = "Досягнення не відкрито"
+    end
+    gfx.x, gfx.y = x + pad, y + pad + S(24)
+    gfx.drawstr(fit_text_width(hint, w - pad*2 - close_sz - S(10)))
     
     if btn(x + w - pad - close_sz, y + pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
         ACHIEVEMENTS.show_leaderboard = false
@@ -15671,7 +15717,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
     -- Line 2: Progress Status
     gfx.setfont(F.tip)
     set_color(UI.C_TXT, 0.6)
-    gfx.x, gfx.y = pad, pad + S(22)
+    gfx.x, gfx.y = pad, pad + S(24)
     local pct = math.floor(tonumber(ACHIEVEMENTS.rankings and ACHIEVEMENTS.rankings["overall_percentile"]) or 0)
     local progress_text = string.format("Здобуто %d з %d нагород, ви краще за %d%% користувачів", open_count, #OTHER.ACH_CFG, pct)
     gfx.drawstr(fit_text_width(progress_text, edit_x - pad - S(5)))
