@@ -18422,10 +18422,11 @@ local function draw_file()
         if t_y + S(70) > start_y and t_y < gfx.h + S(50) then
             gfx.setfont(F.std)
             gfx.x, gfx.y = S(20), t_y
-            local txt_see_more_options = fit_text_width("Імпортуй файл аби побачити більше опцій.", gfx.w - S(40))
+            local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
+            local txt_see_more_options = fit_text_width("Вітаю: " .. name .. "\nІмпортуйте файл аби побачити більше опцій.", gfx.w - S(40))
             gfx.drawstr(txt_see_more_options)
         end
-        y_cursor = y_cursor + S(30)
+        y_cursor = y_cursor + S(45)
     end
     
     -- Drop Zone Visual
