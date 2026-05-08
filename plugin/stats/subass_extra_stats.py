@@ -47,6 +47,7 @@ def main():
     parser.add_argument('--stats-file', dest='stats_file', help='Path to a JSON file containing ACHIEVEMENTS.stats')
     parser.add_argument('--get-leaderboard', action='store_true', help='Fetch leaderboard for specific achievement')
     parser.add_argument('--ach-prefix', help='Achievement ID for leaderboard')
+    parser.add_argument('--page', type=int, default=1, help='Page number for leaderboard')
     
     args = parser.parse_args()
 
@@ -177,6 +178,7 @@ def main():
                 "machine_id": machine_id,
                 "ach_prefix": args.ach_prefix,
                 "limit_count": 30,
+                "page": args.page,
             }
             supabase_headers = {
                 "Content-Type": "application/json",
