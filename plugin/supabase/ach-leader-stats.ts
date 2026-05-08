@@ -20,19 +20,19 @@ Deno.serve(async (req: Request) => {
             return new Response(JSON.stringify({ error: parsed.error.flatten() }), { status: 400 });
         }
 
-        const { machine_id, ach_prefix, limit_count, page } = parsed.data;
+        const { machine_id, ach_prefix, limit_count = 30, page = 1 } = parsed.data;
 
         const supabaseAdmin = createClient(
             Deno.env.get("SUPABASE_URL") ?? "",
             Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
         );
 
-        const rpcParams: Record<string, unknown> = {
+        const rpcParams = {
             target_id: machine_id,
             ach_prefix,
+            limit_count,
+            page_num: page,
         };
-        if (limit_count !== undefined) rpcParams.limit_count = limit_count;
-        if (page !== undefined) rpcParams.page_num = page;
 
         const { data, error: rpcError } = await supabaseAdmin
             .rpc("get_ach_rankings", rpcParams);
