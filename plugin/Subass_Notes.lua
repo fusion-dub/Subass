@@ -15012,9 +15012,10 @@ function SEARCH_ITEM.draw_window(input_queue)
     SEARCH_ITEM.draw_mini_player()
 end
 
-function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key)
+function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key, page)
     if ACHIEVEMENTS.loading_ach then return end
     ACHIEVEMENTS.loading_ach = ach_id
+    local current_page = page or 1
     
     local source = debug.getinfo(1,'S').source
     local script_path = source:match([[^@?(.*[\\/])]]) or ""
@@ -15027,20 +15028,18 @@ function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key)
         reaper.SetExtState(section_name, "MachineID", machine_id, true)
     end
 
-    local cmd = string.format('python3 "%s" --get-leaderboard --ach-prefix "%s" --machine_id "%s"', 
-                                full_script_path, rank_key, machine_id)
+    local cmd = string.format('python3 "%s" --get-leaderboard --ach-prefix "%s" --machine_id "%s" --page %d', 
+                                full_script_path, rank_key, machine_id, current_page)
     
     if reaper.GetOS():match("Win") then
         full_script_path = full_script_path:gsub("/", "\\")
         local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
-        cmd = string.format('%s "%s" --get-leaderboard --ach-prefix "%s" --machine_id "%s"', 
-                                     py_exe, full_script_path, rank_key, machine_id)
+        cmd = string.format('%s "%s" --get-leaderboard --ach-prefix "%s" --machine_id "%s" --page %d', 
+                                     py_exe, full_script_path, rank_key, machine_id, current_page)
     end
 
     -- id for async tracking
     local async_id = tostring(os.time()) .. "_" .. math.random(1000,9999)
-    local res_path = reaper.GetResourcePath() .. "/Scripts/"
-    local out_file = res_path .. "async_out_" .. async_id .. ".tmp"
     
     run_async_command(cmd, function()
         ACHIEVEMENTS.loading_ach = nil
@@ -15052,11 +15051,40 @@ function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key)
             if STATS and STATS.json_decode then
                 local ok, data = pcall(STATS.json_decode, content)
                 if ok and data and data.ok then
-                    ACHIEVEMENTS.leaderboard_data = data
-                    ACHIEVEMENTS.leaderboard_data.ach_name = ach_id
-                    ACHIEVEMENTS.show_leaderboard = true
-                    ACHIEVEMENTS.leaderboard_scroll_y = 0
-                    ACHIEVEMENTS.leaderboard_target_scroll_y = 0
+                    if current_page == 1 then
+                        ACHIEVEMENTS.leaderboard_data = data
+                        ACHIEVEMENTS.leaderboard_data.ach_name = ach_id
+                        ACHIEVEMENTS.leaderboard_data.rank_key = rank_key
+                        ACHIEVEMENTS.show_leaderboard = true
+                        ACHIEVEMENTS.leaderboard_scroll_y = 0
+                        ACHIEVEMENTS.leaderboard_target_scroll_y = 0
+                    else
+                        -- Append items
+                        if data.leaderboard then
+                            for _, item in ipairs(data.leaderboard) do
+                                table.insert(ACHIEVEMENTS.leaderboard_data.leaderboard, item)
+                            end
+                        end
+                        ACHIEVEMENTS.leaderboard_data.has_more = data.has_more
+                        ACHIEVEMENTS.leaderboard_data.page = data.page
+                    end
+                    
+                    -- Pre-calculate rows to draw (Optimization: avoid per-frame loop)
+                    local lb = ACHIEVEMENTS.leaderboard_data.leaderboard or {}
+                    local me = ACHIEVEMENTS.leaderboard_data.me
+                    
+                    local me_in_list = false
+                    for _, item in ipairs(lb) do
+                        if item.is_me then me_in_list = true break end
+                    end
+                    
+                    local rows = {}
+                    for _, item in ipairs(lb) do table.insert(rows, item) end
+                    if me and not me_in_list then
+                        table.insert(rows, { is_sep = true })
+                        table.insert(rows, me)
+                    end
+                    ACHIEVEMENTS.leaderboard_data.rows = rows
                 end
             end
         end
@@ -15118,23 +15146,17 @@ function ACHIEVEMENTS.draw_dialog()
     
     -- Close button size
     local close_sz = S(24)
-    local content_y = y + pad + S(40)
+    local content_y = y + pad + S(45)
     local row_h = S(35)
     local list_h = h - (content_y - y) - pad
     
     -- List Data
-    local lb = ACHIEVEMENTS.leaderboard_data.leaderboard or {}
-    local me = ACHIEVEMENTS.leaderboard_data.me
-    
-    local rows_to_draw = {}
-    for _, item in ipairs(lb) do table.insert(rows_to_draw, item) end
-    if me then
-        -- Add separator and me row
-        table.insert(rows_to_draw, { is_sep = true })
-        table.insert(rows_to_draw, me)
-    end
+    local rows_to_draw = ACHIEVEMENTS.leaderboard_data.rows or {}
     
     local total_content_h = #rows_to_draw * row_h
+    if ACHIEVEMENTS.leaderboard_data.has_more then
+        total_content_h = total_content_h + row_h + S(10)
+    end
     local max_scroll = math.max(0, total_content_h - list_h)
     
     if gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= content_y and gfx.mouse_y <= y + h - pad then
@@ -15148,7 +15170,7 @@ function ACHIEVEMENTS.draw_dialog()
     -- DRAW CONTENT
     for i, row in ipairs(rows_to_draw) do
         local rx = x + pad
-        local ry = content_y + S(10) + (i - 1) * row_h - ACHIEVEMENTS.leaderboard_scroll_y
+        local ry = content_y + S(5) + (i - 1) * row_h - ACHIEVEMENTS.leaderboard_scroll_y
         
         if ry + row_h > content_y and ry < content_y + list_h then
             if row.is_sep then
@@ -15161,7 +15183,7 @@ function ACHIEVEMENTS.draw_dialog()
                 end
                 
                 gfx.setfont(F.std)
-                set_color(row.is_me and UI.C_TXT or UI.C_TXT, row.is_me and 1.0 or 0.7)
+                set_color(UI.C_TXT, row.is_me and 1.0 or 0.7)
                 
                 local ty = ry + (row_h - S(14))/2
                 
@@ -15199,6 +15221,22 @@ function ACHIEVEMENTS.draw_dialog()
                 
                 gfx.x, gfx.y = val_x, ty
                 gfx.drawstr(val_str)
+            end
+        end
+    end
+
+    -- Load More Button
+    if ACHIEVEMENTS.leaderboard_data.has_more then
+        local btn_w = S(160)
+        local btn_h = S(30)
+        local btn_x = x + (w - btn_w) / 2
+        local btn_y = content_y + S(5) + #rows_to_draw * row_h + S(5) - ACHIEVEMENTS.leaderboard_scroll_y
+        
+        if btn_y + btn_h > content_y and btn_y < content_y + list_h then
+            if btn(btn_x, btn_y, btn_w, btn_h, "Завантажити ще", UI.C_BTN, UI.C_TXT) then
+                local next_page = (ACHIEVEMENTS.leaderboard_data.page or 1) + 1
+                ACHIEVEMENTS.fetch_leaderboard(ACHIEVEMENTS.leaderboard_data.ach_name, ACHIEVEMENTS.leaderboard_data.rank_key, next_page)
+                UI_STATE.mouse_handled = true
             end
         end
     end
