@@ -1942,7 +1942,16 @@ end
 --- Check if the current project has earned the 'Architect' achievement uniquely
 function ACHIEVEMENTS.check_project_architect_ach_10()
     local _, filename = reaper.EnumProjects(-1)
-    if not filename or filename == "" then return end -- Skip unsaved (empty) projects
+    
+    -- If project is unsaved but has the "earned" flag, it's likely from a template.
+    -- We clear it so it can be re-earned once this project is saved.
+    if not filename or filename == "" then
+        local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_10")
+        if retval > 0 and earned == "1" then
+            reaper.SetProjExtState(0, section_name, "earned_ach_10", "")
+        end
+        return 
+    end
     
     local retval, earned = reaper.GetProjExtState(0, section_name, "earned_ach_10")
     if retval == 0 or earned ~= "1" then
@@ -15185,7 +15194,7 @@ function ACHIEVEMENTS.draw_dialog()
     gfx.rect(x, y, w, h, 0)
     
     if max_scroll > 0 then
-        ACHIEVEMENTS.leaderboard_target_scroll_y = draw_scrollbar(x + w - S(8), content_y, S(6), list_h, total_content_h, list_h, ACHIEVEMENTS.leaderboard_target_scroll_y)
+        ACHIEVEMENTS.leaderboard_target_scroll_y = draw_scrollbar(x + w - S(8), content_y, S(8), list_h, total_content_h, list_h, ACHIEVEMENTS.leaderboard_target_scroll_y)
     end
     
     UI_STATE.mouse_handled = true
