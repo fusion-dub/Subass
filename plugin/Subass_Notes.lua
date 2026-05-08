@@ -804,8 +804,10 @@ local UI_STATE = {
     last_is_recording = false,
     window_focused = true, -- Track if window is focused
     inside_window = false, -- Track if mouse is within window bounds
-    AUTO_UPDATE_INTERVAL = 21600, -- 6 hours
+    AUTO_UPDATE_INTERVAL = 18000, -- 5 hours
+    AUTO_UPDATE_STATS_INTERVAL = 21600, -- 6 hours
     last_update_check_time = 0,
+    last_registry_update_time = reaper.time_precise(),
     is_restarting = false,
     hotkey_capture_idx = nil, -- Which action is waiting for a key press
     is_loading = false, -- Safety flag for project lifecycle
@@ -2055,7 +2057,7 @@ function ACHIEVEMENTS.check_perfect_accuracy_ach_23()
             local takes_count, _ = STATS.get_session_summary()
             local attempts = takes_count / recorded_count
 
-            if attempts <= 1.1 and takes_count > 30 and attempts > 0.4 then
+            if attempts <= 1.1 and takes_count > 30 and attempts > 0.5 then
                 ACHIEVEMENTS.add_stat("ach_23_count", 1)
                 reaper.SetProjExtState(0, section_name, "earned_ach_23", "1")
                 reaper.MarkProjectDirty(0)
@@ -29048,9 +29050,18 @@ local function main()
     -- Periodic Update Check
     if reaper.time_precise() - UI_STATE.last_update_check_time > UI_STATE.AUTO_UPDATE_INTERVAL then
         -- Only check if we are not already doing something async AND python detection finished AND is OK
-        if not UI_STATE.script_loading_state.active and not OTHER.rec_state.checking and OTHER.rec_state.python.ok then 
+        if not UI_STATE.script_loading_state.active and not OTHER.rec_state.checking and OTHER.rec_state.python.ok then
             UI_STATE.last_update_check_time = reaper.time_precise()
             check_for_updates(true) -- Silent check
+        end
+    end
+
+    -- Periodic Update User Stats
+    if reaper.time_precise() - UI_STATE.last_registry_update_time > UI_STATE.AUTO_UPDATE_STATS_INTERVAL then
+        -- Only check if we are not already doing something async AND python detection finished AND is OK
+        if not UI_STATE.script_loading_state.active and not OTHER.rec_state.checking and OTHER.rec_state.python.ok then
+            UI_STATE.last_registry_update_time = reaper.time_precise()
+            STATS.register_plugin_usage()
         end
     end
 
