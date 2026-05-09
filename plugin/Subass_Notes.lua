@@ -617,6 +617,9 @@ OTHER.ACH_CFG = {
     },
 }
 
+local DRAW_WINDOW = {}
+local DRAW_TABS = {}
+
 -- Assets Loading
 function OTHER.load_assets()
     local script_path = debug.getinfo(1, "S").source:match("^@?(.+[/\\])") or ""
@@ -3799,7 +3802,7 @@ local function show_snackbar(text, type, delay)
 end
 
 --- Draw tooltip at mouse position
-local function draw_tooltip()
+function DRAW_WINDOW.draw_tooltip()
     if not UI_STATE.tooltip_state.text or UI_STATE.tooltip_state.text == "" then 
         UI_STATE.tooltip_state.hover_id = nil
         return 
@@ -3890,7 +3893,7 @@ local function draw_tooltip()
 end
 
 --- Draw snackbar notification with fade-out animation
-local function draw_snackbar()
+function DRAW_WINDOW.draw_snackbar()
     if UI_STATE.snackbar_state.text == "" then return end
     
     local current_time = reaper.time_precise()
@@ -5283,7 +5286,7 @@ end
 --- @param char_width number Width of character
 --- @param char_height number Height of font
 --- @param is_uppercase boolean Whether character is uppercase (for adaptive positioning)
-local function draw_acute_accent_primitive(base_x, base_y, char_width, char_height, is_uppercase)
+function DRAW_WINDOW.draw_acute_accent_primitive(base_x, base_y, char_width, char_height, is_uppercase)
     -- Acute accent: two tilted lines side by side, right one is red
     local accent_height = char_height * 0.22 
     local left_line_thickness = 3 
@@ -5376,7 +5379,7 @@ local function draw_text_with_stress_marks(text, use_all_caps, use_stress_caps)
             gfx.drawstr(char_str)
             
             local is_uppercase = (char_str == utf8_upper(char_str))
-            draw_acute_accent_primitive(char_start_x, char_y, w_base, h_base, is_uppercase)
+            DRAW_WINDOW.draw_acute_accent_primitive(char_start_x, char_y, w_base, h_base, is_uppercase)
             
             i = next_char_start + 2
         else
@@ -12582,7 +12585,7 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
 end
 
 --- Draw and handle AI Assistant Overlay (Refined to Dropdown)
-local function draw_ai_modal(skip_draw)
+function DRAW_WINDOW.draw_ai_modal(skip_draw)
     if not ai_modal.show then 
         ai_modal.was_shown = false
         return 
@@ -14160,13 +14163,13 @@ end
 --- Draw and handle text editor modal dialog
 --- @param input_queue table Input events queue
 --- @return boolean True if editor consumed the input
-local function draw_text_editor(input_queue)
+function DRAW_WINDOW.draw_text_editor(input_queue)
     if not text_editor_state.active then return false end
     
     local content_changed = false
     
     -- AI Modal Input Pass
-    if draw_ai_modal(true) then 
+    if DRAW_WINDOW.draw_ai_modal(true) then 
         content_changed = true 
         -- Update history via the new unified helper for AI changes
         record_field_history(text_editor_state)
@@ -14349,7 +14352,7 @@ local function draw_text_editor(input_queue)
     end
 
     -- Draw pass for AI modal
-    draw_ai_modal(false)
+    DRAW_WINDOW.draw_ai_modal(false)
     
     return true
 end
@@ -15781,7 +15784,7 @@ end
 
 --- Draw dictionary modal with definitions and synonyms, ГОРОХ
 --- @param input_queue table List of key inputs
-local function draw_dictionary_modal(input_queue)
+function DRAW_WINDOW.draw_dictionary_modal(input_queue)
     if not dict_modal.show then return end
     
     local hovered_segment = nil
@@ -17146,7 +17149,7 @@ local function do_check()
     OTHER.rec_state.checked = true
 end
 
-local function draw_requirements_window()
+function DRAW_WINDOW.draw_requirements_window()
     if not OTHER.rec_state.checked then do_check() end
 
     -- STARTUP LOADING SCREEN (Prevent flash)
@@ -17590,7 +17593,7 @@ local function open_text_editor(initial_text, callback, line_idx, all_lines, is_
 end
 
 --- Draw main navigation UI_STATE.tabs
-local function draw_tabs()
+function DRAW_TABS.draw_tabs()
     local btn_scan_w = S(30)
     local btn_dash_w = S(30) -- New "D" button width
     
@@ -17753,7 +17756,7 @@ end
 
 --- Tabs Views ---
 --- Draw the detailed file view with import buttons and actor stats
-local function draw_file()
+function DRAW_TABS.draw_file()
     -- PRE-CALCULATE CONTENT HEIGHT FOR SCROLLING
     local is_narrow = gfx.w < S(470)
     local content_h = 0
@@ -18986,7 +18989,7 @@ local function prompter_delete_logic()
 end
 
 --- Draw prompter display with current and next subtitles
-local function draw_prompter_drawer(input_queue)
+function DRAW_WINDOW.draw_prompter_drawer(input_queue)
     update_marker_cache()
     
     local drawer_top_y = S(25)
@@ -20237,7 +20240,7 @@ local function handle_info_overlay_interaction(content_offset_left, content_offs
     end
 end
 
-local function draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, override_time, active_idx)
+function DRAW_WINDOW.draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, override_time, active_idx)
     if not cfg.p_info then return end
     
     gfx.setfont(F.std)
@@ -20430,7 +20433,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
     return false
 end
 
-local function draw_prompter_slider(input_queue)
+function DRAW_WINDOW.draw_prompter_slider(input_queue)
     local bg_r, bg_g, bg_b = cfg.bg_cr, cfg.bg_cg, cfg.bg_cb
     set_color({bg_r, bg_g, bg_b})
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
@@ -20787,9 +20790,9 @@ local function draw_prompter_slider(input_queue)
     -- Info Overlay graphics (at the end of content)
     local current_active_regions = {}
     if active_idx ~= -1 then table.insert(current_active_regions, regions[active_idx]) end
-    draw_info_overlay_graphics(content_offset_left, content_offset_right, current_active_regions, UI_STATE.latched_overlay_time, active_idx)
+    DRAW_WINDOW.draw_info_overlay_graphics(content_offset_left, content_offset_right, current_active_regions, UI_STATE.latched_overlay_time, active_idx)
 
-    if cfg.p_drawer then draw_prompter_drawer(input_queue) end
+    if cfg.p_drawer then DRAW_WINDOW.draw_prompter_drawer(input_queue) end
 
     handle_prompter_context_menu(is_show_final_stats)
 
@@ -20799,9 +20802,9 @@ local function draw_prompter_slider(input_queue)
     end
 end
 
-local function draw_prompter(input_queue)
+function DRAW_TABS.draw_prompter(input_queue)
     if cfg.prompter_slider_mode then
-        draw_prompter_slider(input_queue)
+        DRAW_WINDOW.draw_prompter_slider(input_queue)
         return
     end
 
@@ -21621,11 +21624,11 @@ local function draw_prompter(input_queue)
     end
 
     -- Info Overlay graphics (OVER EVERYTHING ELSE)
-    draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, UI_STATE.latched_overlay_time, active_idx)
+    DRAW_WINDOW.draw_info_overlay_graphics(content_offset_left, content_offset_right, active_regions, UI_STATE.latched_overlay_time, active_idx)
 
     -- === DRAWER UI DRAWING (OVER EVERYTHING) ===
     if cfg.p_drawer then
-        draw_prompter_drawer(input_queue)
+        DRAW_WINDOW.draw_prompter_drawer(input_queue)
     end
     -- === END DRAWER UI ===
 
@@ -21684,7 +21687,7 @@ end
 -- UI: SETTINGS TAB
 -- =============================================================================
 
-local function draw_settings()
+function DRAW_TABS.draw_settings()
     local x_start = S(20)
     local start_y = S(50)
     local content_h = 0 
@@ -23784,7 +23787,7 @@ local function show_panel_preset_dialog(panel_type, idx)
     end
 end
 
-local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
+function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
     gfx.setfont(F.std)
     if not calc_only then
         set_color(UI.C_BG)
@@ -24706,7 +24709,7 @@ local function draw_director_panel(panel_x, panel_y, panel_w, panel_h, input_que
     return (actor_area_bottom - panel_y) + input_area_h
 end
 
-local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
+function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
     gfx.setfont(F.std)
     if not calc_only then
         set_color(UI.C_BG)
@@ -25837,7 +25840,7 @@ local function draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue
         gfx.setfont(corr_font, cfg.p_font, S(base_sz or 18))
         
         if ai_modal.show and ai_modal.target_state == editor_state.input then
-            if draw_ai_modal(true) then
+            if DRAW_WINDOW.draw_ai_modal(true) then
                 editor_state.input.focus = true
             end
         end
@@ -26001,7 +26004,7 @@ function OTHER.AI_insert_result()
     end
 end
 
-local function draw_table(input_queue)
+function DRAW_TABS.draw_table(input_queue)
     local show_actor = UI_STATE.ass_file_loaded
     local start_y = S(65)
     OTHER.col_vis_menu.handled = false -- Reset per frame
@@ -27913,7 +27916,7 @@ local function draw_table(input_queue)
 
     -- Draw Director/Editor Panel
     if cfg.director_mode or cfg.editor_mode then
-        local draw_func = cfg.director_mode and draw_director_panel or draw_editor_panel
+        local draw_func = cfg.director_mode and DRAW_WINDOW.draw_director_panel or DRAW_WINDOW.draw_editor_panel
         if is_panel_right then
             -- Right Layout (Align with filters: S(35))
             local dir_y = S(35)
@@ -29039,28 +29042,28 @@ local function main()
         elseif ACHIEVEMENTS.show then
             if ACHIEVEMENTS.draw_window then ACHIEVEMENTS.draw_window(input_queue) end
         elseif dict_modal.show then
-            draw_dictionary_modal(input_queue)
+            DRAW_WINDOW.draw_dictionary_modal(input_queue)
         elseif text_editor_state.active then
-            draw_text_editor(input_queue)
+            DRAW_WINDOW.draw_text_editor(input_queue)
         else
             if UI_STATE.current_tab == 1 then 
                 if UI_STATE.last_tab ~= 1 then
                     DICT.load()
                 end
                 if UI_STATE.inside_window then handle_drag_drop() end
-                draw_file()
-            elseif UI_STATE.current_tab == 2 then draw_table(input_queue)
-            elseif UI_STATE.current_tab == 3 then draw_prompter(input_queue) 
-            elseif UI_STATE.current_tab == 4 then draw_settings() end
+                DRAW_TABS.draw_file()
+            elseif UI_STATE.current_tab == 2 then DRAW_TABS.draw_table(input_queue)
+            elseif UI_STATE.current_tab == 3 then DRAW_TABS.draw_prompter(input_queue) 
+            elseif UI_STATE.current_tab == 4 then DRAW_TABS.draw_settings() end
             
             UI_STATE.last_tab = UI_STATE.current_tab
             
             -- Draw Tabs LAST (Z-Index top)
-            draw_tabs()
+            DRAW_TABS.draw_tabs()
             
             -- Draw AI modal over panels if active outside text editor
             if not text_editor_state.active and ai_modal.show then
-                draw_ai_modal(false)
+                DRAW_WINDOW.draw_ai_modal(false)
             end
 
             -- Context Menu logic (Right-click on tab bar / empty space)
@@ -29080,12 +29083,12 @@ local function main()
         end
     end
 
-    draw_snackbar()
+    DRAW_WINDOW.draw_snackbar()
     ACHIEVEMENTS.draw_ach_snackbar()
-    draw_tooltip()
+    DRAW_WINDOW.draw_tooltip()
     
     -- Draw Requirements Overlay (top-most priority, but below snackbar/tooltip)
-    draw_requirements_window()
+    DRAW_WINDOW.draw_requirements_window()
 
     local cur_dock = gfx.dock(-1)
     if cur_dock > 0 then
