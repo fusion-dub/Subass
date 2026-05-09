@@ -9616,7 +9616,8 @@ function ACHIEVEMENTS.fetch_profile(machine_id)
     
     UI_STATE.script_loading_state.text = "Завантаження профілю..."
     UI_STATE.selected_profile = nil -- Clear old data
-    UI_STATE.show_profile_view = true -- Show window immediately
+    ACHIEVEMENTS.profile_scroll_y = 0
+    ACHIEVEMENTS.profile_target_scroll_y = 0
     
     run_async_command(cmd, function(exit_code)
         UI_STATE.script_loading_state.active = false
@@ -9632,6 +9633,7 @@ function ACHIEVEMENTS.fetch_profile(machine_id)
                 UI_STATE.show_profile_view = true
             else
                 show_snackbar("Не вдалося завантажити профіль", "error")
+                UI_STATE.show_profile_view = false
             end
             os.remove(profile_path)
         end
@@ -15207,8 +15209,15 @@ function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key, page)
                         table.insert(rows, me)
                     end
                     ACHIEVEMENTS.leaderboard_data.rows = rows
+                else
+                    show_snackbar("Не вдалося завантажити таблицю лідерів", "error")
                 end
+            else
+                show_snackbar("Помилка декодування JSON", "error")
             end
+            os.remove(leaderboard_path)
+        else
+            show_snackbar("Немає зв'язку з сервером (файл відсутній)", "error")
         end
     end, true, "Fetching " .. ach_id .. " leaderboard...", false)
 end
@@ -16206,11 +16215,11 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
 
     -- Helper for drawing sections and calculating height
     local function draw_view_section(title, text, w)
+        gfx.setfont(F.std)
         local lines = wrap_text(text and text ~= "" and text or "Не вказано", w, S(16))
         local section_h = S(22) + #lines * S(18) + S(25)
         
         if cy + section_h > content_y and cy < content_y + content_h then
-            gfx.setfont(F.std)
             set_color(UI.C_ACCENT, 0.7)
             gfx.x, gfx.y = pad, cy
             gfx.drawstr(title)
