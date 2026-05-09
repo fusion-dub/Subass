@@ -9613,8 +9613,14 @@ function ACHIEVEMENTS.fetch_profile(machine_id)
     local py_path = script_path .. "stats/subass_extra_stats.py"
     
     local cmd = string.format('python3 "%s" --get-profile "%s"', py_path, machine_id)
+    local is_windows = reaper.GetOS():match("Win")
+    if is_windows then
+        local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
+        cmd = string.format('%s "%s" --get-profile "%s"', py_exe, py_path, machine_id)
+    end
     
     UI_STATE.script_loading_state.text = "Завантаження профілю..."
+    UI_STATE.script_loading_state.active = true
     UI_STATE.selected_profile = nil -- Clear old data
     ACHIEVEMENTS.profile_scroll_y = 0
     ACHIEVEMENTS.profile_target_scroll_y = 0
@@ -9636,6 +9642,9 @@ function ACHIEVEMENTS.fetch_profile(machine_id)
                 UI_STATE.show_profile_view = false
             end
             os.remove(profile_path)
+        else
+            show_snackbar("Помилка з'єднання або скрипта", "error")
+            UI_STATE.show_profile_view = false
         end
     end, false, "Завантаження...", false)
 end
@@ -16351,7 +16360,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     }
     local timbre_tooltip = p.dubber_timbre and timbre_map[p.dubber_timbre]
 
-    local combined_voice = (p.dubber_voice or "Не вказано") .. " (" .. (p.dubber_timbre or "Не вказано") .. ")"
+    local combined_voice = p.dubber_voice and p.dubber_timbre and ((p.dubber_voice or "Не вказано") .. " (" .. (p.dubber_timbre or "Не вказано") .. ")") or ""
     current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip)
 
     local cond_map = {
