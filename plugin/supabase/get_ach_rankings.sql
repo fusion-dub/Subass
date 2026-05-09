@@ -50,6 +50,7 @@ BEGIN
             jsonb_build_object(
                 'rank',         rank,
                 'dubber_name',  dubber_name,
+                'machine_id',   machine_id,
                 'value',        val,
                 'is_me',        (machine_id = target_id)
             ) ORDER BY rank
@@ -63,6 +64,7 @@ BEGIN
             SELECT jsonb_build_object(
                 'rank',         rank,
                 'dubber_name',  dubber_name,
+                'machine_id',   machine_id,
                 'value',        val,
                 'is_me',        true
             )
