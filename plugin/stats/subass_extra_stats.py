@@ -170,21 +170,28 @@ def main():
                 headers=supabase_headers,
                 timeout=10
             )
-            if resp_sb.status_code not in [200, 201]:
-                print(f"Warning: Supabase error {resp_sb.status_code}: {resp_sb.text}", file=sys.stderr)
+            
+            output_path = Path(__file__).parent / "subass_rankings.json"
+            if resp_sb.status_code in [200, 201]:
+                result_data = resp_sb.json()
+                result_data["ok"] = True
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump(result_data, f, indent=4, ensure_ascii=False)
+                print(f"✓ Supabase: OK")
             else:
-                # Зберігаємо результат у файл для Lua
-                try:
-                    result_data = resp_sb.json()
-                    output_path = Path(__file__).parent / "subass_rankings.json"
-                    with open(output_path, "w", encoding="utf-8") as f:
-                        json.dump(result_data, f, indent=4, ensure_ascii=False)
-                    print(f"✓ Supabase: OK (Results saved to {output_path.name})")
-                except Exception as save_err:
-                    print(f"Warning: Could not save rankings file: {save_err}", file=sys.stderr)
-                    print(f"✓ Supabase: OK")
+                error_msg = f"HTTP {resp_sb.status_code}: {resp_sb.text}"
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump({"ok": False, "error": error_msg}, f, indent=4, ensure_ascii=False)
+                print(f"Warning: Supabase error: {error_msg}", file=sys.stderr)
         except Exception as e:
-            print(f"Warning: Supabase error: {e}", file=sys.stderr)
+            error_msg = str(e)
+            print(f"Warning: Supabase error: {error_msg}", file=sys.stderr)
+            try:
+                output_path = Path(__file__).parent / "subass_rankings.json"
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump({"ok": False, "error": error_msg}, f, indent=4, ensure_ascii=False)
+            except:
+                pass
 
         sys.exit(0)
 
