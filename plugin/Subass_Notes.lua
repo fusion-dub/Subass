@@ -12428,25 +12428,38 @@ end
 -- TEXT EDITOR MODAL
 -- =============================================================================
 
---- Wrap text to fit width
+--- Wrap text to fit width, preserving newlines
 local function wrap_text(text, max_w)
     local lines = {}
-    local words = {}
-    for w in text:gmatch("%S+") do table.insert(words, w) end
-    
-    local current_line = ""
-    for _, w in ipairs(words) do
-        local test_line = current_line == "" and w or (current_line .. " " .. w)
-        -- Ignore stress marks for layout measurement
-        local measure_line = test_line:gsub(acute, "")
-        if gfx.measurestr(measure_line) > max_w then
-            table.insert(lines, current_line)
-            current_line = w
+    -- Split by newline first to preserve manual paragraphs
+    for p in string.gmatch(text.."\n", "(.-)\n") do
+        if p:match("^%s*$") and p == "" then
+            table.insert(lines, "")
         else
-            current_line = test_line
+            local words = {}
+            for w in p:gmatch("%S+") do table.insert(words, w) end
+            
+            local current_line = ""
+            for _, w in ipairs(words) do
+                local test_line = current_line == "" and w or (current_line .. " " .. w)
+                -- Ignore stress marks for layout measurement
+                local measure_line = test_line:gsub(acute or "", "")
+                if gfx.measurestr(measure_line) > max_w then
+                    table.insert(lines, current_line)
+                    current_line = w
+                else
+                    current_line = test_line
+                end
+            end
+            if current_line ~= "" then table.insert(lines, current_line) end
         end
     end
-    if current_line ~= "" then table.insert(lines, current_line) end
+    
+    -- Clean up the artificial trailing newline if original text didn't have one
+    if #lines > 0 and lines[#lines] == "" and text:sub(-1) ~= "\n" then
+        table.remove(lines)
+    end
+    
     return lines
 end
 
@@ -15365,10 +15378,6 @@ function ACHIEVEMENTS.draw_dialog()
                 local avail_name_w = val_x - name_x - S(15)
                 local draw_name = fit_text_width(row.dubber_name or "Анонім", avail_name_w)
                 
-                if row_hover then
-                    set_color(UI.C_ACCENT) -- Highlight name on hover
-                end
-
                 gfx.x, gfx.y = name_x, ty
                 gfx.drawstr(draw_name)
                 
@@ -16164,7 +16173,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
         gfx.rect(0, 0, gfx.w, gfx.h, 1)
 
         -- Loading state
-        set_color(UI.C_ACCENT, 0.3)
+        set_color(UI.C_TXT, 0.3)
         local txt = "Завантаження даних..."
         gfx.setfont(F.title)
         local tw, th = gfx.measurestr(txt)
@@ -16215,17 +16224,20 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
 
     -- Helper for drawing sections and calculating height
     local function draw_view_section(title, text, w)
-        gfx.setfont(F.std)
-        local lines = wrap_text(text and text ~= "" and text or "Не вказано", w, S(16))
+        gfx.setfont(F.tip_big) -- Explicitly set standard font before text measurements
+        local has_txt = text and text ~= ""
+        local lines = wrap_text(has_txt and text or "Не вказано", w, S(16))
         local section_h = S(22) + #lines * S(18) + S(25)
         
         if cy + section_h > content_y and cy < content_y + content_h then
-            set_color(UI.C_ACCENT, 0.7)
+            gfx.setfont(F.tip)
+            set_color(UI.C_TXT, 0.7)
             gfx.x, gfx.y = pad, cy
             gfx.drawstr(title)
-            cy = cy + S(22)
+            cy = cy + S(20)
             
-            set_color(UI.C_TXT, 0.9)
+            gfx.setfont(F.tip_big)
+            set_color(UI.C_TXT, has_txt and 1.0 or 0.7)
             for _, line in ipairs(lines) do
                 if cy + S(18) > content_y and cy < content_y + content_h then
                     gfx.x, gfx.y = pad, cy
@@ -16233,7 +16245,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
                 end
                 cy = cy + S(18)
             end
-            cy = cy + S(25)
+            cy = cy + S(30)
         else
             cy = cy + section_h
         end
@@ -16243,13 +16255,15 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     -- Track total height for NEXT frame's scroll limit
     local current_total_h = S(40) -- Start padding
     
+    current_total_h = current_total_h + draw_view_section("БІО", p.dubber_bio, width)
+
     local combined_voice = (p.dubber_voice or "Не вказано") .. " (" .. (p.dubber_timbre or "Не вказано") .. ")"
     current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width)
-    current_total_h = current_total_h + draw_view_section("БІОГРАФІЯ", p.dubber_bio, width)
-    current_total_h = current_total_h + draw_view_section("ПОРТФОЛІО", p.dubber_samples, width)
+
     current_total_h = current_total_h + draw_view_section("ОБЛАДНАННЯ", p.dubber_equipment, width)
-    current_total_h = current_total_h + draw_view_section("УМОВИ", p.dubber_conditions, width)
+    current_total_h = current_total_h + draw_view_section("УМОВИ ЗАПИСУ", p.dubber_conditions, width)
     current_total_h = current_total_h + draw_view_section("КОНТАКТИ", p.dubber_contact, width)
+    current_total_h = current_total_h + draw_view_section("ПОРТФОЛІО", p.dubber_samples, width)
 
     -- Save max_scroll for the next frame
     ACHIEVEMENTS.profile_max_scroll = math.max(0, (current_total_h + S(40)) - content_h)
@@ -17316,7 +17330,7 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
                                                     if is_inflection_tab and seg_hover and not is_obstructed then
                                                         set_color(UI.C_HILI_RED)
                                                         gfx.rect(current_x - 2, ly - 1, sw + 4, line_h + 2, 1)
-                                                        set_color(UI.C_ACCENT or UI.C_SEL)
+                                                        set_color(UI.C_TXT or UI.C_SEL)
                                                         if is_mouse_clicked(1) and (gfx.mouse_cap & 2 == 0) and not dict_modal.tts_loading then
                                                             local tts_text = seg.word
                                                             if not tts_text or tts_text == "" then tts_text = seg.text end
@@ -17399,7 +17413,7 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
                                         if is_inflection_tab and not is_symbol and seg_hover and not is_obstructed then
                                             set_color(UI.C_HILI_RED)
                                             gfx.rect(gfx.x - 2, gfx.y - 1, sw + 4, line_h + 2, 1)
-                                            set_color(UI.C_ACCENT or UI.C_SEL)
+                                            set_color(UI.C_TXT or UI.C_SEL)
                                             if is_mouse_clicked(1) and (gfx.mouse_cap & 2 == 0) and not dict_modal.tts_loading then
                                                 local tts_text = seg.word
                                                 if not tts_text or tts_text == "" then tts_text = seg.text end
