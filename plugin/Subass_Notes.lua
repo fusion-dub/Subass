@@ -383,6 +383,13 @@ cfg.h_director = get_set("h_director", S(120))
 cfg.w_editor = get_set("w_editor", S(300))
 cfg.h_editor = get_set("h_editor", S(120))
 cfg.dubber_name = UTILS.unicode_unescape(get_set("dubber_name", ""))
+cfg.dubber_bio = UTILS.unicode_unescape(get_set("dubber_bio", ""))
+cfg.dubber_contact = UTILS.unicode_unescape(get_set("dubber_contact", ""))
+cfg.dubber_samples = UTILS.unicode_unescape(get_set("dubber_samples", ""))
+cfg.dubber_equipment = UTILS.unicode_unescape(get_set("dubber_equipment", ""))
+cfg.dubber_conditions = UTILS.unicode_unescape(get_set("dubber_conditions", "Ніяких"))
+cfg.dubber_voice = UTILS.unicode_unescape(get_set("dubber_voice", "Чоловічий"))
+cfg.dubber_timbre = UTILS.unicode_unescape(get_set("dubber_timbre", "Середній"))
 
 local dynamic_director_h = nil
 local dynamic_editor_h = nil
@@ -818,6 +825,7 @@ local UI_STATE = {
     last_marker_cache_proj_state = 0, -- last reaper.GetProjectStateChangeCount(0)
     last_global_proj_state = 0, -- last reaper.GetProjectStateChangeCount(0)
     _markers_is_dirty = true,  -- Forces search index rebuild on first use
+    show_edit_profile = false,
 }
 
 local DEADLINE = {
@@ -2602,6 +2610,13 @@ local function save_settings()
     reaper.SetExtState(section_name, "last_tab", tostring(UI_STATE.current_tab), true)
     reaper.SetExtState(section_name, "dock", tostring(GL.last_dock_state), true)
     reaper.SetExtState(section_name, "dubber_name", UTILS.unicode_escape(cfg.dubber_name or ""), true)
+    reaper.SetExtState(section_name, "dubber_bio", UTILS.unicode_escape(cfg.dubber_bio or ""), true)
+    reaper.SetExtState(section_name, "dubber_contact", UTILS.unicode_escape(cfg.dubber_contact or ""), true)
+    reaper.SetExtState(section_name, "dubber_samples", UTILS.unicode_escape(cfg.dubber_samples or ""), true)
+    reaper.SetExtState(section_name, "dubber_equipment", UTILS.unicode_escape(cfg.dubber_equipment or ""), true)
+    reaper.SetExtState(section_name, "dubber_conditions", UTILS.unicode_escape(cfg.dubber_conditions or "Ніяких"), true)
+    reaper.SetExtState(section_name, "dubber_voice", UTILS.unicode_escape(cfg.dubber_voice or "Чоловічий"), true)
+    reaper.SetExtState(section_name, "dubber_timbre", UTILS.unicode_escape(cfg.dubber_timbre or "Середній"), true)
     
     reaper.SetExtState(section_name, "p_fsize", tostring(cfg.p_fsize), true)
     reaper.SetExtState(section_name, "p_cr", tostring(cfg.p_cr), true)
@@ -3734,6 +3749,15 @@ local function is_any_text_input_focused()
     if OTHER.find_replace_state and OTHER.find_replace_state.show then
         if OTHER.find_replace_state.find and OTHER.find_replace_state.find.focus then return true end
         if OTHER.find_replace_state.replace and OTHER.find_replace_state.replace.focus then return true end
+    end
+    if OTHER.profile_state then
+        if OTHER.profile_state.name.focus or 
+           OTHER.profile_state.bio.focus or 
+           OTHER.profile_state.contact.focus or 
+           OTHER.profile_state.samples.focus or 
+           OTHER.profile_state.equipment.focus then 
+            return true 
+        end
     end
     return false
 end
@@ -7114,6 +7138,7 @@ function UTILS.close_all_modals()
     SEARCH_ITEM.show = false
     ACHIEVEMENTS.show = false
     dict_modal.show = false
+    UI_STATE.show_edit_profile = false
 end
 
 UTILS.GLOBAL_HOTKEY_ACTIONS = {
@@ -9464,7 +9489,10 @@ function STATS.upload_subtitles_analytics()
 end
 
 --- Register plugin usage on first run (Fire-and-Forget)
-function STATS.register_plugin_usage() 
+--- @param callback function Optional callback on completion
+--- @param is_silent boolean If true, don't show full-screen loader
+function STATS.register_plugin_usage(callback, is_silent) 
+    if is_silent == nil then is_silent = true end
     -- Build Python script path
     local source = debug.getinfo(1,'S').source
     local script_path = source:match([[^@?(.*[\\/])]]) or ""
@@ -9483,6 +9511,13 @@ function STATS.register_plugin_usage()
     local stats_json = STATS.json_encode({
         stats=ACHIEVEMENTS.stats,
         dubber_name=(cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач"),
+        dubber_bio = cfg.dubber_bio or "",
+        dubber_contact = cfg.dubber_contact or "",
+        dubber_samples = cfg.dubber_samples or "",
+        dubber_equipment = cfg.dubber_equipment or "",
+        dubber_conditions = cfg.dubber_conditions or "Ніяких",
+        dubber_voice = cfg.dubber_voice or "Чоловічий",
+        dubber_timbre = cfg.dubber_timbre or "Середній",
     })
 
     local sf = io.open(stats_file_path, "w")
@@ -9504,7 +9539,9 @@ function STATS.register_plugin_usage()
     end
     
     -- Helper to read rankings from file
-    local function update_rankings_from_disk()
+    --- @param silent_mode boolean If true, don't show error snackbar
+    --- @return boolean success
+    local function update_rankings_from_disk(silent_mode)
         local rankings_path = script_path .. "stats/subass_rankings.json"
         local f = io.open(rankings_path, "r")
         if f then
@@ -9512,20 +9549,56 @@ function STATS.register_plugin_usage()
             f:close()
             if STATS and STATS.json_decode then
                 local ok, data = pcall(STATS.json_decode, content)
-                if ok and data and data.rankings then
-                    ACHIEVEMENTS.rankings = data.rankings
+                if ok and data then
+                    if data.ok == false then
+                        if not silent_mode then
+                            show_snackbar("Помилка синхронізації: " .. (data.error or "невідома"), "error")
+                        end
+                        os.remove(rankings_path) -- Delete error file so it doesn't persist
+                        return false
+                    end
+
+                    if data.rankings then
+                        ACHIEVEMENTS.rankings = data.rankings
+                        
+                        -- Sync profile from server if available
+                        if data.rankings.profile then
+                            local p = data.rankings.profile
+                            local updated = false
+                            
+                            local fields = {
+                                "dubber_name", "dubber_bio", "dubber_contact", 
+                                "dubber_samples", "dubber_equipment", "dubber_conditions",
+                                "dubber_voice", "dubber_timbre"
+                            }
+                            
+                            for _, field in ipairs(fields) do
+                                if p[field] and p[field] ~= "" and p[field] ~= cfg[field] then
+                                    cfg[field] = p[field]
+                                    updated = true
+                                end
+                            end
+                            
+                            if updated then
+                                save_settings() -- Persist synced profile to ExtState
+                            end
+                        end
+                        return true
+                    end
                 end
             end
         end
+        return false
     end
 
     -- 1. Read existing data immediately (from previous run)
-    update_rankings_from_disk()
+    update_rankings_from_disk(true)
 
     -- 2. Execute in background with callback to read fresh results
     run_async_command(cmd, function(exit_code)
-        update_rankings_from_disk()
-    end, true, nil, false)
+        local success = update_rankings_from_disk(is_silent)
+        if callback then callback(success) end
+    end, is_silent, "Синхронізація...", false)
 end
 
 -- ═══════════════════════════════════════════════════════════════
@@ -13579,7 +13652,7 @@ local function record_field_history(state)
     end
 end
 
-local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is_multiline, is_director_mode, font_category_size)
+local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is_multiline, is_director_mode, font_category_size, max_len)
     -- Load persistent UA mode if ID is provided and state is not yet initialized for this session
     if id and state.ua_mode == nil then
         state.ua_mode = (reaper.GetExtState(section_name, "ua_mode_" .. id) == "1")
@@ -13871,6 +13944,15 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
     end
     
     if state.focus then process_input_events(input_queue, state, is_multiline, visual_lines) end
+    
+    if max_len and utf8.len(state.text or "") > max_len then
+        local offset = utf8.offset(state.text, max_len + 1)
+        if offset then
+            state.text = state.text:sub(1, offset - 1)
+            state.cursor = math.min(state.cursor, #state.text)
+            state.anchor = math.min(state.anchor, #state.text)
+        end
+    end
 
     -- Scroll Handling
     if hover and gfx.mouse_wheel ~= 0 then
@@ -15729,22 +15811,25 @@ function ACHIEVEMENTS.draw_window(input_queue)
     -- Title (Two-line personalized header)
     local display_name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
     local avail_tw = close_x - pad - S(30) -- Adjusted for edit button
-    
+
     -- Edit Name Button
-    local edit_w = S(90)
+    local edit_w = S(145)
     local edit_h = S(24)
     local edit_x = close_x - edit_w - S(8)
-    if btn(edit_x, pad, edit_w, edit_h, "Змінити ім'я", UI.C_BTN, UI.C_TXT) and not ACHIEVEMENTS.show_leaderboard then
-        local ok, ret = reaper.GetUserInputs("Профіль користувача", 1, "Ваше ім'я (до 40 симв.):", display_name)
-        if ok then
-            local new_name = ret:gsub("^%s*(.-)%s*$", "%1"):sub(1, 40)
-            if new_name ~= "" then
-                cfg.dubber_name = new_name
-                save_settings()
-                STATS.register_plugin_usage()
-                show_snackbar("Ім'я оновлено", "success")
-            end
-        end
+    if btn(edit_x, pad, edit_w, edit_h, "Редагувати профіль", UI.C_BTN, UI.C_TXT) and not ACHIEVEMENTS.show_leaderboard then
+        UI_STATE.show_edit_profile = true
+        OTHER.profile_state = {
+            name = { text = cfg.dubber_name or "", cursor = 0, anchor = 0, focus = false },
+            bio = { text = cfg.dubber_bio or "", cursor = 0, anchor = 0, focus = false },
+            contact = { text = cfg.dubber_contact or "", cursor = 0, anchor = 0, focus = false },
+            samples = { text = cfg.dubber_samples or "", cursor = 0, anchor = 0, focus = false },
+            equipment = { text = cfg.dubber_equipment or "", cursor = 0, anchor = 0, focus = false },
+            conditions = cfg.dubber_conditions or "Ніяких",
+            voice = cfg.dubber_voice or "Чоловічий",
+            timbre = cfg.dubber_timbre or "Середній",
+            scroll_y = 0,
+            target_scroll_y = 0
+        }
         UI_STATE.mouse_handled = true
     end
 
@@ -15780,6 +15865,203 @@ function ACHIEVEMENTS.draw_window(input_queue)
 
     -- DRAW LEADERBOARD DIALOG ON TOP
     ACHIEVEMENTS.draw_dialog()
+end
+
+--- Draw user profile editor modal (Full Screen ACHIEVEMENTS style)
+--- @param input_queue table List of key inputs
+function DRAW_WINDOW.draw_edit_profile(input_queue)
+    if not UI_STATE.show_edit_profile then return end
+    if not OTHER.profile_state then return end
+
+    local state = OTHER.profile_state
+    local pad = S(20)
+    local header_h = S(64)
+    local footer_h = S(55)
+    
+    -- Background overlay (Full Screen)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+    -- SCROLLABLE CONTENT AREA
+    local content_y = header_h
+    local content_h = gfx.h - header_h - footer_h
+    local total_content_h = S(500) -- Total height of all inputs + spacing
+    local max_scroll = math.max(0, total_content_h - content_h)
+
+    -- Handle mouse wheel
+    if gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= content_y and gfx.mouse_y <= content_y + content_h then
+        if gfx.mouse_wheel ~= 0 then
+            state.target_scroll_y = math.max(0, math.min(max_scroll, state.target_scroll_y - gfx.mouse_wheel * 0.5))
+            gfx.mouse_wheel = 0
+        end
+    end
+    state.scroll_y = state.scroll_y + (state.target_scroll_y - state.scroll_y) * 0.5
+
+    local cy = content_y + S(20) - state.scroll_y
+    local label_w = S(120)
+    local input_w = math.min(S(500), gfx.w - pad * 2 - label_w - S(20))
+    local input_h = S(30)
+    local spacing = S(20)
+
+    local function draw_row(label, state_key, h, is_multi, placeholder, max_len)
+        -- Only draw if within content bounds (with some margin for partial visibility)
+        if cy + h > content_y and cy < content_y + content_h then
+            gfx.setfont(F.std)
+            set_color(UI.C_TXT, 0.7)
+            gfx.x, gfx.y = pad, cy + (is_multi and 0 or (h - gfx.texth) / 2)
+            gfx.drawstr(label)
+            
+            ui_text_input("profile_" .. state_key, pad + label_w, cy, input_w, h, state[state_key], placeholder or "", input_queue, is_multi, nil, nil, max_len)
+        end
+        cy = cy + h + spacing
+    end
+
+    local function draw_radio(label, state_key, options, tooltips)
+        if cy + input_h > content_y and cy < content_y + content_h then
+            gfx.setfont(F.std)
+            set_color(UI.C_TXT, 0.7)
+            gfx.x, gfx.y = pad, cy + (input_h - gfx.texth) / 2
+            gfx.drawstr(label)
+            
+            local rx = pad + label_w
+            local rw = S(100)
+            for i, opt in ipairs(options) do
+                local is_sel = state[state_key] == opt
+                local bg = is_sel and UI.C_ACCENT_G or UI.C_BTN
+                local txt = is_sel and UI.C_BG or UI.C_TXT
+                
+                -- Tooltip handling
+                local hover = (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= cy and gfx.mouse_y <= cy + input_h)
+                if hover and tooltips and tooltips[i] then
+                    local tip_id = "profile_radio_" .. state_key .. "_" .. i
+                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                        UI_STATE.tooltip_state.hover_id = tip_id
+                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    end
+                    UI_STATE.tooltip_state.text = tooltips[i]
+                end
+
+                if btn(rx, cy, rw, input_h, opt, bg, txt) then
+                    state[state_key] = opt
+                end
+                rx = rx + rw + S(5)
+            end
+        end
+        cy = cy + input_h + spacing
+    end
+
+    draw_row("Ім'я:", "name", input_h, false, "Ваше ім'я або нікнейм...", 40)
+    draw_row("Про себе:", "bio", S(100), true, "Коротко про ваш досвід та спеціалізацію...", 1000)
+    draw_row("Зв'язок:", "contact", input_h, false, "Повне посилання на Telegram або інші соц. мережі...", 1000)
+    draw_row("Портфоліо:", "samples", input_h, false, "Посилання на ваші роботи (YouTube, Drive)...", 1000)
+    draw_row("Обладнання:", "equipment", input_h, false, "Мікрофон, звукова карта, тощо...", 1000)
+
+    draw_radio("Умови:", "conditions", {"Ніяких", "Обр. Кімната", "Акс. Будка", "Студія"}, {
+        "Звичайна житлова кімната без акустичної підготовки (може бути чутно відлуння)",
+        "Приміщення з частковою підготовкою: наявні штори, килими або поролон (незначне відлуння)",
+        "Спеціалізована вокальна кабіна (Booth), що забезпечує максимально 'сухий' звук",
+        "Професійна студія з повним акустичним розрахунком та звукоізоляцією"
+    })
+    draw_radio("Голос:", "voice", {"Чоловічий", "Жіночий"}, {
+        "Чоловічий голос",
+        "Жіночий голос"
+    })
+    draw_radio("Тембр:", "timbre", {"Низький", "Середній", "Високий"}, {
+        "Глибокий, низький голос (бас, баритон)",
+        "Звичайний голос середнього діапазону",
+        "Тонкий, високий голос (тенор, сопрано)"
+    })
+
+    -- Draw scrollbar
+    if max_scroll > 0 then
+        state.target_scroll_y = draw_scrollbar(gfx.w - S(10), content_y, S(10), content_h, total_content_h, content_h, state.target_scroll_y)
+    end
+
+    -- HEADER (Draw over content)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, header_h, 1)
+    
+    -- Header Title (Left)
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT)
+    gfx.x, gfx.y = pad, (header_h - gfx.texth) / 2
+    local close_sz = S(24)
+    local draw_title = fit_text_width("Редагування профілю", gfx.w - pad * 2 - close_sz - S(20))
+    gfx.drawstr(draw_title)
+    
+    -- Close button (Right)
+    if btn(gfx.w - pad - close_sz, (header_h - close_sz) / 2, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+        UI_STATE.show_edit_profile = false
+        OTHER.profile_state = nil
+    end
+
+    -- FOOTER (Draw over content)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, gfx.h - footer_h, gfx.w, footer_h, 1)
+    set_color(UI.C_FR_BORDER, 0.3)
+    gfx.line(0, gfx.h - footer_h, gfx.w, gfx.h - footer_h)
+
+    -- Check for changes and validation
+    local name_trimmed = state.name.text:match("^%s*(.-)%s*$") or ""
+    local is_name_valid = name_trimmed ~= ""
+    local has_changes = (state.name.text ~= (cfg.dubber_name or "")) or
+                        (state.bio.text ~= (cfg.dubber_bio or "")) or
+                        (state.contact.text ~= (cfg.dubber_contact or "")) or
+                        (state.samples.text ~= (cfg.dubber_samples or "")) or
+                        (state.equipment.text ~= (cfg.dubber_equipment or "")) or
+                        (state.conditions ~= (cfg.dubber_conditions or "Ніяких")) or
+                        (state.voice ~= (cfg.dubber_voice or "Чоловічий")) or
+                        (state.timbre ~= (cfg.dubber_timbre or "Середній"))
+
+    local btn_w = S(140)
+    local btn_h = S(36)
+    local bx = gfx.w - pad - btn_w
+    local by = gfx.h - footer_h + (footer_h - btn_h) / 2
+
+    -- Save Button
+    local can_save = has_changes and is_name_valid
+    local save_bg = can_save and UI.C_ACCENT_G or UI.C_BTN
+    local save_txt = can_save and UI.C_BG or UI.C_TXT
+    if btn(bx, by, btn_w, btn_h, "Зберегти", save_bg, save_txt) then
+        if not is_name_valid then
+            show_snackbar("Ім'я не може бути порожнім", "error")
+        elseif has_changes then
+            cfg.dubber_name = name_trimmed
+            cfg.dubber_bio = state.bio.text
+            cfg.dubber_contact = state.contact.text
+            cfg.dubber_samples = state.samples.text
+            cfg.dubber_equipment = state.equipment.text
+            cfg.dubber_conditions = state.conditions
+            cfg.dubber_voice = state.voice
+            cfg.dubber_timbre = state.timbre
+            save_settings()
+            
+            STATS.register_plugin_usage(function(success)
+                if success then
+                    show_snackbar("Профіль оновлено", "success")
+                    UI_STATE.show_edit_profile = false
+                    OTHER.profile_state = nil
+                else
+                    -- Snackbar with error is already shown inside update_rankings_from_disk
+                    -- We just don't close the window
+                end
+            end, false) -- is_silent = false to show native loader
+        end
+    end
+
+
+    -- Close on Esc
+    if input_queue then
+        for i = #input_queue, 1, -1 do
+            if input_queue[i] == 27 then
+                UI_STATE.show_edit_profile = false
+                OTHER.profile_state = nil
+                table.remove(input_queue, i)
+            end
+        end
+    end
+    
+    UI_STATE.mouse_handled = true
 end
 
 --- Draw dictionary modal with definitions and synonyms, ГОРОХ
@@ -29037,6 +29319,8 @@ local function main()
             DUBBERS.draw_dashboard(input_queue)
         elseif DEADLINE.dashboard_show then
             DEADLINE.draw_dashboard(input_queue)
+        elseif UI_STATE.show_edit_profile then
+            DRAW_WINDOW.draw_edit_profile(input_queue)
         elseif SEARCH_ITEM.show then
             if SEARCH_ITEM.draw_window then SEARCH_ITEM.draw_window(input_queue) end
         elseif ACHIEVEMENTS.show then
