@@ -13,8 +13,7 @@ BEGIN
         'dubber_conditions', dubber_conditions,
         'dubber_voice', dubber_voice,
         'dubber_timbre', dubber_timbre,
-        'last_active', last_active,
-        'machine_id', machine_id
+        'last_active', last_active
     ) INTO result
     FROM users
     WHERE machine_id = target_id;
