@@ -7139,6 +7139,7 @@ function UTILS.close_all_modals()
     ACHIEVEMENTS.show = false
     dict_modal.show = false
     UI_STATE.show_edit_profile = false
+    UI_STATE.show_profile_view = false
 end
 
 UTILS.GLOBAL_HOTKEY_ACTIONS = {
@@ -9601,6 +9602,40 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
         local success = update_rankings_from_disk(is_silent)
         if callback then callback(success) end
     end, is_silent, "Синхронізація...", false)
+end
+
+--- Fetch detailed profile for specific machine_id
+function ACHIEVEMENTS.fetch_profile(machine_id)
+    if not machine_id or machine_id == "" then return end
+    
+    local source = debug.getinfo(1,'S').source
+    local script_path = source:match([[^@?(.*[\\/])]]) or ""
+    local py_path = script_path .. "stats/subass_extra_stats.py"
+    
+    local cmd = string.format('python3 "%s" --get-profile "%s"', py_path, machine_id)
+    
+    UI_STATE.script_loading_state.text = "Завантаження профілю..."
+    UI_STATE.selected_profile = nil -- Clear old data
+    UI_STATE.show_profile_view = true -- Show window immediately
+    
+    run_async_command(cmd, function(exit_code)
+        UI_STATE.script_loading_state.active = false
+        
+        local profile_path = script_path .. "stats/subass_profile_details.json"
+        local f = io.open(profile_path, "r")
+        if f then
+            local content = f:read("*a")
+            f:close()
+            local ok, data = pcall(STATS.json_decode, content)
+            if ok and data and data.ok then
+                UI_STATE.selected_profile = data.profile
+                UI_STATE.show_profile_view = true
+            else
+                show_snackbar("Не вдалося завантажити профіль", "error")
+            end
+            os.remove(profile_path)
+        end
+    end, false, "Завантаження...", false)
 end
 
 -- ═══════════════════════════════════════════════════════════════
@@ -15269,8 +15304,26 @@ function ACHIEVEMENTS.draw_dialog()
                     gfx.rect(x + S(5), ry, w - S(10), row_h, 1)
                 end
                 
+                -- Full row hover & click detection
+                local mx, my = gfx.mouse_x, gfx.mouse_y
+                local row_hover = mx >= x + S(5) and mx <= x + w - S(5) and my >= ry and my <= ry + row_h
+                
+                if row_hover then
+                    set_color(UI.C_TXT, 0.05)
+                    gfx.rect(x + S(5), ry, w - S(10), row_h, 1)
+                    UI_STATE.mouse_handled = true
+                    
+                    if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) then
+                        if row.machine_id and row.machine_id ~= "" then
+                            ACHIEVEMENTS.fetch_profile(row.machine_id)
+                        else
+                            show_snackbar("ID користувача не знайдено", "error")
+                        end
+                    end
+                end
+
                 gfx.setfont(F.std)
-                set_color(UI.C_TXT, row.is_me and 1.0 or 0.7)
+                set_color(UI.C_TXT, (row.is_me or row_hover) and 1.0 or 0.7)
                 
                 local ty = ry + (row_h - S(14))/2
                 
@@ -15303,9 +15356,14 @@ function ACHIEVEMENTS.draw_dialog()
                 local avail_name_w = val_x - name_x - S(15)
                 local draw_name = fit_text_width(row.dubber_name or "Анонім", avail_name_w)
                 
+                if row_hover then
+                    set_color(UI.C_ACCENT) -- Highlight name on hover
+                end
+
                 gfx.x, gfx.y = name_x, ty
                 gfx.drawstr(draw_name)
                 
+                set_color(UI.C_TXT, (row.is_me or row_hover) and 1.0 or 0.5)
                 gfx.x, gfx.y = val_x, ty
                 gfx.drawstr(val_str)
             end
@@ -15331,6 +15389,8 @@ function ACHIEVEMENTS.draw_dialog()
     -- MASK TOP (Header area) - Draw this after content to cover overlap
     set_color(UI.C_BG, 1.0)
     gfx.rect(x, y, w, content_y - y, 1)
+    set_color(UI.C_TXT, 0.1)
+    gfx.line(x, content_y, x + w, content_y)
 
     -- Draw Title & Close Button
     gfx.setfont(F.title)
@@ -15798,6 +15858,8 @@ function ACHIEVEMENTS.draw_window(input_queue)
     -- Draw Header Overlay (draw ON TOP of grid items when scrolling)
     set_color(UI.C_BG, 1.0)
     gfx.rect(0, 0, gfx.w, content_y, 1)
+    set_color(UI.C_TXT, 0.1)
+    gfx.line(0, content_y, gfx.w, content_y)
 
     -- Close button (Top Right)
     local close_sz = S(24)
@@ -15877,7 +15939,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
 
     local state = OTHER.profile_state
     local pad = S(20)
-    local header_h = S(64)
+    local header_h = S(65)
     local footer_h = S(55)
     
     -- Background overlay (Full Screen)
@@ -15982,17 +16044,19 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     -- HEADER (Draw over content)
     set_color(UI.C_BG, 1.0)
     gfx.rect(0, 0, gfx.w, header_h, 1)
+    set_color(UI.C_TXT, 0.1)
+    gfx.line(0, content_y, gfx.w, content_y)
     
     -- Header Title (Left)
     gfx.setfont(F.title)
     set_color(UI.C_TXT)
-    gfx.x, gfx.y = pad, (header_h - gfx.texth) / 2
+    gfx.x, gfx.y = pad, pad - S(2)
     local close_sz = S(24)
     local draw_title = fit_text_width("Редагування профілю", gfx.w - pad * 2 - close_sz - S(20))
     gfx.drawstr(draw_title)
     
     -- Close button (Right)
-    if btn(gfx.w - pad - close_sz, (header_h - close_sz) / 2, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+    if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
         UI_STATE.show_edit_profile = false
         OTHER.profile_state = nil
     end
@@ -16065,6 +16129,158 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
             if input_queue[i] == 27 then
                 UI_STATE.show_edit_profile = false
                 OTHER.profile_state = nil
+                table.remove(input_queue, i)
+            end
+        end
+    end
+    
+    UI_STATE.mouse_handled = true
+end
+
+--- Draw remote user profile (Full Screen style)
+function DRAW_WINDOW.draw_remote_profile(input_queue)
+    if not UI_STATE.show_profile_view then return end
+    
+    local p = UI_STATE.selected_profile
+    local pad = S(20)
+    local header_h = S(64)
+    
+    -- Background overlay (Full Screen)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+    if not p then
+        -- Background overlay
+        set_color(UI.C_BG, 1.0)
+        gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+        -- Loading state
+        set_color(UI.C_ACCENT, 0.3)
+        local txt = "Завантаження даних..."
+        gfx.setfont(F.title)
+        local tw, th = gfx.measurestr(txt)
+        gfx.x, gfx.y = (gfx.w - tw) / 2, (gfx.h - th) / 2
+        gfx.drawstr(txt)
+        
+        -- Header Mask
+        set_color(UI.C_BG, 1.0)
+        gfx.rect(0, 0, gfx.w, header_h, 1)
+
+        -- Title
+        gfx.setfont(F.title)
+        set_color(UI.C_TXT, 1)
+        gfx.x, gfx.y = pad, pad - S(2)
+        gfx.drawstr("Профіль користувача")
+
+        -- Close button
+        local close_sz = S(24)
+        if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+            UI_STATE.show_profile_view = false
+        end
+
+        UI_STATE.mouse_handled = true
+        return
+    end
+
+    -- SCROLLABLE CONTENT AREA
+    local content_y = header_h
+    local content_h = gfx.h - header_h
+    
+    -- Use persistent max_scroll from previous frame (or 0 initially)
+    local max_scroll = ACHIEVEMENTS.profile_max_scroll or 0
+
+    if not ACHIEVEMENTS.profile_scroll_y then ACHIEVEMENTS.profile_scroll_y = 0 end
+    if not ACHIEVEMENTS.profile_target_scroll_y then ACHIEVEMENTS.profile_target_scroll_y = 0 end
+
+    -- Mouse wheel scroll
+    if gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= content_y and gfx.mouse_y <= content_y + content_h then
+        if gfx.mouse_wheel ~= 0 then
+            ACHIEVEMENTS.profile_target_scroll_y = math.max(0, math.min(max_scroll, ACHIEVEMENTS.profile_target_scroll_y - gfx.mouse_wheel * 0.5))
+            gfx.mouse_wheel = 0
+        end
+    end
+    ACHIEVEMENTS.profile_scroll_y = ACHIEVEMENTS.profile_scroll_y + (ACHIEVEMENTS.profile_target_scroll_y - ACHIEVEMENTS.profile_scroll_y) * 0.5
+
+    local cy = content_y + S(20) - ACHIEVEMENTS.profile_scroll_y
+    local width = math.min(S(600), gfx.w - pad * 2)
+
+    -- Helper for drawing sections and calculating height
+    local function draw_view_section(title, text, w)
+        local lines = wrap_text(text and text ~= "" and text or "Не вказано", w, S(16))
+        local section_h = S(22) + #lines * S(18) + S(25)
+        
+        if cy + section_h > content_y and cy < content_y + content_h then
+            gfx.setfont(F.std)
+            set_color(UI.C_ACCENT, 0.7)
+            gfx.x, gfx.y = pad, cy
+            gfx.drawstr(title)
+            cy = cy + S(22)
+            
+            set_color(UI.C_TXT, 0.9)
+            for _, line in ipairs(lines) do
+                if cy + S(18) > content_y and cy < content_y + content_h then
+                    gfx.x, gfx.y = pad, cy
+                    gfx.drawstr(line)
+                end
+                cy = cy + S(18)
+            end
+            cy = cy + S(25)
+        else
+            cy = cy + section_h
+        end
+        return section_h
+    end
+
+    -- Track total height for NEXT frame's scroll limit
+    local current_total_h = S(40) -- Start padding
+    
+    local combined_voice = (p.dubber_voice or "Не вказано") .. " (" .. (p.dubber_timbre or "Не вказано") .. ")"
+    current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width)
+    current_total_h = current_total_h + draw_view_section("БІОГРАФІЯ", p.dubber_bio, width)
+    current_total_h = current_total_h + draw_view_section("ПОРТФОЛІО", p.dubber_samples, width)
+    current_total_h = current_total_h + draw_view_section("ОБЛАДНАННЯ", p.dubber_equipment, width)
+    current_total_h = current_total_h + draw_view_section("УМОВИ", p.dubber_conditions, width)
+    current_total_h = current_total_h + draw_view_section("КОНТАКТИ", p.dubber_contact, width)
+
+    -- Save max_scroll for the next frame
+    ACHIEVEMENTS.profile_max_scroll = math.max(0, (current_total_h + S(40)) - content_h)
+
+    -- MASK TOP & HEADER (Draw on top of content)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, header_h, 1)
+    set_color(UI.C_TXT, 0.1)
+    gfx.line(0, header_h, gfx.w, header_h)
+    
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT)
+    gfx.x, gfx.y = pad, pad - S(2)
+    -- Fix: Reduced the cut-off margin from S(100) to S(40) so it doesn't disappear in narrow windows
+    gfx.drawstr(fit_text_width(p.dubber_name or "Анонім", gfx.w - pad*2 - S(40)))
+
+    gfx.setfont(F.tip)
+    set_color(UI.C_TXT, 0.6)
+    gfx.x, gfx.y = pad, pad + S(24)
+    gfx.drawstr("Профіль користувача")
+
+    -- Close button
+    local close_sz = S(24)
+    if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+        UI_STATE.show_profile_view = false
+    end
+
+    -- Draw Border & Scrollbar
+    set_color(UI.C_TXT, 0.1)
+    gfx.rect(0, 0, gfx.w, gfx.h, 0)
+
+    if ACHIEVEMENTS.profile_max_scroll > 0 then
+        ACHIEVEMENTS.profile_target_scroll_y = draw_scrollbar(gfx.w - S(8), content_y, S(8), content_h, current_total_h + S(40), content_h, ACHIEVEMENTS.profile_target_scroll_y)
+    end
+
+    -- Handle Esc key
+    if input_queue then
+        for i = #input_queue, 1, -1 do
+            if input_queue[i] == 27 then
+                UI_STATE.show_profile_view = false
                 table.remove(input_queue, i)
             end
         end
@@ -29330,6 +29546,8 @@ local function main()
             DEADLINE.draw_dashboard(input_queue)
         elseif UI_STATE.show_edit_profile then
             DRAW_WINDOW.draw_edit_profile(input_queue)
+        elseif UI_STATE.show_profile_view then
+            DRAW_WINDOW.draw_remote_profile(input_queue)
         elseif SEARCH_ITEM.show then
             if SEARCH_ITEM.draw_window then SEARCH_ITEM.draw_window(input_queue) end
         elseif ACHIEVEMENTS.show then
