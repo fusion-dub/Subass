@@ -114,6 +114,7 @@ local cfg = {
     col_table_cps = (get_set("col_table_cps", "1") == "1" or get_set("col_table_cps", 1) == 1),
     col_table_dubber = (get_set("col_table_dubber", "0") == "1" or get_set("col_table_dubber", 0) == 1),
     col_table_actor = (get_set("col_table_actor", "1") == "1" or get_set("col_table_actor", 1) == 1),
+    profile_edit_seen = (get_set("profile_edit_seen", "0") == "1" or get_set("profile_edit_seen", 0) == 1),
     
     show_markers_in_table = (get_set("show_markers_in_table", "1") == "1" or get_set("show_markers_in_table", 1) == 1),
     notify_time = reaper.GetExtState(section_name, "notify_time") ~= "" and reaper.GetExtState(section_name, "notify_time") or "19:00",
@@ -2617,6 +2618,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "dubber_conditions", UTILS.unicode_escape(cfg.dubber_conditions or "Ніяких"), true)
     reaper.SetExtState(section_name, "dubber_voice", UTILS.unicode_escape(cfg.dubber_voice or "Чоловічий"), true)
     reaper.SetExtState(section_name, "dubber_timbre", UTILS.unicode_escape(cfg.dubber_timbre or "Середній"), true)
+    reaper.SetExtState(section_name, "profile_edit_seen", cfg.profile_edit_seen and "1" or "0", true)
     
     reaper.SetExtState(section_name, "p_fsize", tostring(cfg.p_fsize), true)
     reaper.SetExtState(section_name, "p_cr", tostring(cfg.p_cr), true)
@@ -16119,6 +16121,9 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
         if not is_name_valid then
             show_snackbar("Ім'я не може бути порожнім", "error")
         elseif has_changes then
+            cfg.profile_edit_seen = true
+            save_settings()
+
             local new_profile_data = {
                 dubber_name = name_trimmed,
                 dubber_bio = state.bio.text,
@@ -16148,7 +16153,6 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
             end, false, new_profile_data) -- is_silent = false, pass override data
         end
     end
-
 
     -- Close on Esc
     if input_queue then
@@ -18402,6 +18406,10 @@ function DRAW_TABS.draw_file()
     local is_narrow = gfx.w < S(470)
     local content_h = 0
     
+    if not cfg.profile_edit_seen then
+        content_h = content_h + S(65) + S(15)
+    end
+    
     -- 1. Action Buttons Height
     if is_narrow then
         content_h = content_h + S(40) + S(5) + S(40) -- Two rows
@@ -18486,6 +18494,66 @@ function DRAW_TABS.draw_file()
     local btn_h = S(40)
     
     local y_cursor = 0
+    
+    if not cfg.profile_edit_seen then
+        local cur_y = get_y(y_cursor)
+        local banner_h = S(65)
+        local banner_w = gfx.w - padding * 2
+        
+        -- 1. Draw Red Warning Background
+        set_color({1.0, 0.1, 0.1}, 0.08) -- Soft Red Background
+        gfx.rect(padding, cur_y, banner_w, banner_h, 1)
+        
+        -- 3. Thick Red Border (2px effect)
+        set_color({1.0, 0.2, 0.2}, 0.6)
+        gfx.rect(padding, cur_y, banner_w, banner_h, 0)
+        gfx.rect(padding + 1, cur_y + 1, banner_w - 2, banner_h - 2, 0)
+        
+        -- 4. Two-Line Text
+        local b_btn_w = S(110)
+        local text_x = padding + S(15)
+        local text_max_w = banner_w - b_btn_w - S(45)
+        
+        -- Line 1: Strong Title
+        gfx.setfont(F.std)
+        set_color({1.0, 0.4, 0.4}, 1.0)
+        gfx.x = text_x
+        gfx.y = cur_y + S(15)
+        gfx.drawstr(fit_text_width("Будь ласка, заповніть свій профіль!", text_max_w))
+        
+        -- Line 2: Subtitle/Explanation
+        gfx.setfont(F.std)
+        set_color(UI.C_TXT, 0.8)
+        gfx.x = text_x
+        gfx.y = cur_y + S(35)
+        gfx.drawstr(fit_text_width("Це необхідно для участі в загальному рейтингу.", text_max_w))
+        
+        -- 5. Button
+        local b_btn_h = S(38)
+        local bx = gfx.w - padding - b_btn_w - S(15)
+        local by = cur_y + (banner_h - b_btn_h) / 2
+        
+        if btn(bx, by, b_btn_w, b_btn_h, "Заповнити", {0.8, 0.2, 0.2, 1.0}, UI.C_BG) then
+            ACHIEVEMENTS.show = true
+            UI_STATE.show_edit_profile = true
+            OTHER.profile_state = {
+                name = { text = cfg.dubber_name or "", cursor = 0, anchor = 0, focus = false },
+                bio = { text = cfg.dubber_bio or "", cursor = 0, anchor = 0, focus = false },
+                contact = { text = cfg.dubber_contact or "", cursor = 0, anchor = 0, focus = false },
+                samples = { text = cfg.dubber_samples or "", cursor = 0, anchor = 0, focus = false },
+                equipment = { text = cfg.dubber_equipment or "", cursor = 0, anchor = 0, focus = false },
+                conditions = cfg.dubber_conditions,
+                voice = cfg.dubber_voice,
+                timbre = cfg.dubber_timbre,
+                scroll_y = 0,
+                target_scroll_y = 0
+            }
+            UI_STATE.mouse_handled = true
+        end
+        
+        y_cursor = y_cursor + banner_h + S(15)
+    end
+    
     local cur_y = get_y(y_cursor)
     
     -- Calculate widths based on mode
