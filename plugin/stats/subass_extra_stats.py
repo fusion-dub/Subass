@@ -75,7 +75,14 @@ def main():
                 with open(args.stats_file, 'r', encoding='utf-8') as sf:
                     stats_raw = json.load(sf)
                 stats_filtered = {k: v for k, v in stats_raw['stats'].items() if not k.endswith('_tracking')}
-                dubber_name = stats_raw['dubber_name']
+                dubber_name = stats_raw.get('dubber_name', '')
+                dubber_bio = stats_raw.get('dubber_bio', '')
+                dubber_contact = stats_raw.get('dubber_contact', '')
+                dubber_samples = stats_raw.get('dubber_samples', '')
+                dubber_equipment = stats_raw.get('dubber_equipment', '')
+                dubber_conditions = stats_raw.get('dubber_conditions', 'Ніяких')
+                dubber_voice = stats_raw.get('dubber_voice', 'Чоловічий')
+                dubber_timbre = stats_raw.get('dubber_timbre', 'Середній')
             except OSError as e:
                 print(f"Warning: Could not read stats file: {e}", file=sys.stderr)
             except json.JSONDecodeError as e:
@@ -103,6 +110,13 @@ def main():
                 "username": {"stringValue": username},
                 "machine_id": {"stringValue": machine_id},
                 "dubber_name": {"stringValue": dubber_name},
+                "dubber_bio": {"stringValue": dubber_bio},
+                "dubber_contact": {"stringValue": dubber_contact},
+                "dubber_samples": {"stringValue": dubber_samples},
+                "dubber_equipment": {"stringValue": dubber_equipment},
+                "dubber_conditions": {"stringValue": dubber_conditions},
+                "dubber_voice": {"stringValue": dubber_voice},
+                "dubber_timbre": {"stringValue": dubber_timbre},
                 "last_active": {"timestampValue": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
                 "os": {"stringValue": sys.platform},
                 "stats": stats_map,
@@ -135,6 +149,13 @@ def main():
                 "script_title": args.script_title,
                 "os": sys.platform,
                 "dubber_name": dubber_name,
+                "dubber_bio": dubber_bio,
+                "dubber_contact": dubber_contact,
+                "dubber_samples": dubber_samples,
+                "dubber_equipment": dubber_equipment,
+                "dubber_conditions": dubber_conditions,
+                "dubber_voice": dubber_voice,
+                "dubber_timbre": dubber_timbre,
                 "last_active": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "stats": stats_filtered,
             }
