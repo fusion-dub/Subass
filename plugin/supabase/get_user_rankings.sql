@@ -99,6 +99,25 @@ BEGIN
     ) r;
 
     result := result || jsonb_build_object('overall_percentile', overall_percentile);
+    
+    -- 8. Додаємо профіль користувача
+    result := result || jsonb_build_object(
+        'profile', (
+            SELECT jsonb_build_object(
+                'dubber_name', dubber_name,
+                'dubber_bio', dubber_bio,
+                'dubber_contact', dubber_contact,
+                'dubber_samples', dubber_samples,
+                'dubber_equipment', dubber_equipment,
+                'dubber_conditions', dubber_conditions,
+                'dubber_voice', dubber_voice,
+                'dubber_timbre', dubber_timbre,
+                'last_active', last_active
+            )
+            FROM users 
+            WHERE machine_id = target_id
+        )
+    );
 
     RETURN result;
 END;
