@@ -30,6 +30,7 @@ SUPABASE_URL = "https://mbqerzxljauitvkpvhbu.supabase.co"
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1icWVyenhsamF1aXR2a3B2aGJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwMTY2MTksImV4cCI6MjA5MzU5MjYxOX0.rt-t28aLVZf-WiSggiRtaD95ZihUH-CVp34BJBRTOgQ"
 SUPABASE_FUNCTION = "upsert-user-stats"
 SUPABASE_LEADERBOARD_FUNCTION = "ach-leader-stats"
+SUPABASE_PROFILE_FUNCTION = "get-user-profile"
 
 
 def calculate_md5(content):
@@ -48,6 +49,7 @@ def main():
     parser.add_argument('--get-leaderboard', action='store_true', help='Fetch leaderboard for specific achievement')
     parser.add_argument('--ach-prefix', help='Achievement ID for leaderboard')
     parser.add_argument('--page', type=int, default=1, help='Page number for leaderboard')
+    parser.add_argument('--get-profile', help='Fetch detailed profile for specific machine_id')
     
     args = parser.parse_args()
 
@@ -229,6 +231,48 @@ def main():
                 sys.exit(1)
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
+
+    # --- PROFILE DETAILS MODE ---
+    if args.get_profile:
+        try:
+            supabase_payload = {
+                "machine_id": args.get_profile,
+            }
+            supabase_headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+            }
+            resp_sb = requests.post(
+                f"{SUPABASE_URL}/functions/v1/{SUPABASE_PROFILE_FUNCTION}",
+                json=supabase_payload,
+                headers=supabase_headers,
+                timeout=15
+            )
+            
+            output_path = Path(__file__).parent / "subass_profile_details.json"
+            if resp_sb.status_code == 200:
+                result_data = resp_sb.json()
+                result_data["ok"] = True
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump(result_data, f, indent=4, ensure_ascii=False)
+                print(f"✓ Profile: OK (Saved to {output_path.name})")
+            else:
+                error_msg = f"HTTP {resp_sb.status_code}: {resp_sb.text}"
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump({"ok": False, "error": error_msg}, f, indent=4, ensure_ascii=False)
+                print(f"Error: {error_msg}", file=sys.stderr)
+                sys.exit(1)
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Error: {error_msg}", file=sys.stderr)
+            try:
+                output_path = Path(__file__).parent / "subass_profile_details.json"
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump({"ok": False, "error": error_msg}, f, indent=4, ensure_ascii=False)
+            except:
+                pass
             sys.exit(1)
         sys.exit(0)
     if not args.filepath or not args.project_name:
