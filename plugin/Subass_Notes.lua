@@ -15992,7 +15992,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
 
     local cy = content_y + S(20) - state.scroll_y
     local label_w = S(120)
-    local input_w = math.min(S(500), gfx.w - pad * 2 - label_w - S(20))
+    local input_w = gfx.w - pad * 2 - label_w
     local input_h = S(30)
     local spacing = S(20)
 
