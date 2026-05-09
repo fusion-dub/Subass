@@ -9491,7 +9491,8 @@ end
 --- Register plugin usage on first run (Fire-and-Forget)
 --- @param callback function Optional callback on completion
 --- @param is_silent boolean If true, don't show full-screen loader
-function STATS.register_plugin_usage(callback, is_silent) 
+--- @param profile_override table Optional table with profile fields to send instead of cfg
+function STATS.register_plugin_usage(callback, is_silent, profile_override) 
     if is_silent == nil then is_silent = true end
     -- Build Python script path
     local source = debug.getinfo(1,'S').source
@@ -9508,16 +9509,17 @@ function STATS.register_plugin_usage(callback, is_silent)
     
     -- Serialize ACHIEVEMENTS.stats to a temp JSON file
     local stats_file_path = script_path .. "stats/subass_ach_stats.json"
+    local p = profile_override or cfg
     local stats_json = STATS.json_encode({
         stats=ACHIEVEMENTS.stats,
-        dubber_name=(cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач"),
-        dubber_bio = cfg.dubber_bio or "",
-        dubber_contact = cfg.dubber_contact or "",
-        dubber_samples = cfg.dubber_samples or "",
-        dubber_equipment = cfg.dubber_equipment or "",
-        dubber_conditions = cfg.dubber_conditions or "Ніяких",
-        dubber_voice = cfg.dubber_voice or "Чоловічий",
-        dubber_timbre = cfg.dubber_timbre or "Середній",
+        dubber_name=(p.dubber_name and p.dubber_name ~= "") and p.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач"),
+        dubber_bio = p.dubber_bio or "",
+        dubber_contact = p.dubber_contact or "",
+        dubber_samples = p.dubber_samples or "",
+        dubber_equipment = p.dubber_equipment or "",
+        dubber_conditions = p.dubber_conditions or "Ніяких",
+        dubber_voice = p.dubber_voice or "Чоловічий",
+        dubber_timbre = p.dubber_timbre or "Середній",
     })
 
     local sf = io.open(stats_file_path, "w")
@@ -16026,26 +16028,33 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
         if not is_name_valid then
             show_snackbar("Ім'я не може бути порожнім", "error")
         elseif has_changes then
-            cfg.dubber_name = name_trimmed
-            cfg.dubber_bio = state.bio.text
-            cfg.dubber_contact = state.contact.text
-            cfg.dubber_samples = state.samples.text
-            cfg.dubber_equipment = state.equipment.text
-            cfg.dubber_conditions = state.conditions
-            cfg.dubber_voice = state.voice
-            cfg.dubber_timbre = state.timbre
-            save_settings()
+            local new_profile_data = {
+                dubber_name = name_trimmed,
+                dubber_bio = state.bio.text,
+                dubber_contact = state.contact.text,
+                dubber_samples = state.samples.text,
+                dubber_equipment = state.equipment.text,
+                dubber_conditions = state.conditions,
+                dubber_voice = state.voice,
+                dubber_timbre = state.timbre
+            }
             
             STATS.register_plugin_usage(function(success)
                 if success then
+                    -- Commit changes to local config only on confirmed success
+                    for k, v in pairs(new_profile_data) do
+                        cfg[k] = v
+                    end
+                    save_settings()
+                    
                     show_snackbar("Профіль оновлено", "success")
                     UI_STATE.show_edit_profile = false
                     OTHER.profile_state = nil
                 else
-                    -- Snackbar with error is already shown inside update_rankings_from_disk
-                    -- We just don't close the window
+                    -- If failed, cfg remains unchanged, so has_changes remains true
+                    -- and the "Save" button stays green for another attempt.
                 end
-            end, false) -- is_silent = false to show native loader
+            end, false, new_profile_data) -- is_silent = false, pass override data
         end
     end
 
