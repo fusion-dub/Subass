@@ -387,9 +387,9 @@ cfg.dubber_bio = UTILS.unicode_unescape(get_set("dubber_bio", ""))
 cfg.dubber_contact = UTILS.unicode_unescape(get_set("dubber_contact", ""))
 cfg.dubber_samples = UTILS.unicode_unescape(get_set("dubber_samples", ""))
 cfg.dubber_equipment = UTILS.unicode_unescape(get_set("dubber_equipment", ""))
-cfg.dubber_conditions = UTILS.unicode_unescape(get_set("dubber_conditions", "Ніяких"))
-cfg.dubber_voice = UTILS.unicode_unescape(get_set("dubber_voice", "Чоловічий"))
-cfg.dubber_timbre = UTILS.unicode_unescape(get_set("dubber_timbre", "Середній"))
+cfg.dubber_conditions = UTILS.unicode_unescape(get_set("dubber_conditions", ""))
+cfg.dubber_voice = UTILS.unicode_unescape(get_set("dubber_voice", ""))
+cfg.dubber_timbre = UTILS.unicode_unescape(get_set("dubber_timbre", ""))
 
 local dynamic_director_h = nil
 local dynamic_editor_h = nil
@@ -15906,9 +15906,9 @@ function ACHIEVEMENTS.draw_window(input_queue)
             contact = { text = cfg.dubber_contact or "", cursor = 0, anchor = 0, focus = false },
             samples = { text = cfg.dubber_samples or "", cursor = 0, anchor = 0, focus = false },
             equipment = { text = cfg.dubber_equipment or "", cursor = 0, anchor = 0, focus = false },
-            conditions = cfg.dubber_conditions or "Ніяких",
-            voice = cfg.dubber_voice or "Чоловічий",
-            timbre = cfg.dubber_timbre or "Середній",
+            conditions = cfg.dubber_conditions,
+            voice = cfg.dubber_voice,
+            timbre = cfg.dubber_timbre,
             scroll_y = 0,
             target_scroll_y = 0
         }
@@ -16093,9 +16093,9 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                         (state.contact.text ~= (cfg.dubber_contact or "")) or
                         (state.samples.text ~= (cfg.dubber_samples or "")) or
                         (state.equipment.text ~= (cfg.dubber_equipment or "")) or
-                        (state.conditions ~= (cfg.dubber_conditions or "Ніяких")) or
-                        (state.voice ~= (cfg.dubber_voice or "Чоловічий")) or
-                        (state.timbre ~= (cfg.dubber_timbre or "Середній"))
+                        (state.conditions ~= (cfg.dubber_conditions)) or
+                        (state.voice ~= (cfg.dubber_voice)) or
+                        (state.timbre ~= (cfg.dubber_timbre))
 
     local btn_w = S(140)
     local btn_h = S(36)
@@ -16223,13 +16223,46 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     local width = math.min(S(600), gfx.w - pad * 2)
 
     -- Helper for drawing sections and calculating height
-    local function draw_view_section(title, text, w)
+    local function draw_view_section(title, text, w, tooltip_text)
         gfx.setfont(F.tip_big) -- Explicitly set standard font before text measurements
         local has_txt = text and text ~= ""
-        local lines = wrap_text(has_txt and text or "Не вказано", w, S(16))
+        local actual_text = has_txt and text or "Не вказано"
+        local lines = wrap_text(actual_text, w, S(16))
         local section_h = S(22) + #lines * S(18) + S(25)
         
         if cy + section_h > content_y and cy < content_y + content_h then
+            -- Tooltip
+            if tooltip_text and gfx.mouse_x >= pad and gfx.mouse_x <= pad + w and gfx.mouse_y >= cy and gfx.mouse_y <= cy + section_h then
+                UI_STATE.tooltip_state.text = tooltip_text
+                if UI_STATE.tooltip_state.hover_id ~= title then
+                    UI_STATE.tooltip_state.hover_id = title
+                    UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                end
+            end
+
+            -- Right click to show context menu
+            if gfx.mouse_x >= pad and gfx.mouse_x <= pad + w and gfx.mouse_y >= cy and gfx.mouse_y <= cy + section_h then
+                if (gfx.mouse_cap & 2 == 2) and (UI_STATE.last_mouse_cap & 2 == 0) and not UI_STATE.mouse_handled then
+                    gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                    
+                    local tg_username = actual_text:match("^%s*@([%w_]+)%s*$")
+                    local menu_str = "Копіювати вміст"
+                    if tg_username then
+                        menu_str = menu_str .. "|Відкрити в телеграм"
+                    end
+                    
+                    local ret = gfx.showmenu(menu_str)
+                    if ret == 1 then
+                        set_clipboard(actual_text)
+                        show_snackbar("Скопійовано!", "success")
+                    elseif ret == 2 and tg_username then
+                        UTILS.open_url("https://t.me/" .. tg_username)
+                    end
+                    
+                    UI_STATE.mouse_handled = true
+                end
+            end
+
             gfx.setfont(F.tip)
             set_color(UI.C_TXT, 0.7)
             gfx.x, gfx.y = pad, cy
@@ -16237,11 +16270,65 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
             cy = cy + S(20)
             
             gfx.setfont(F.tip_big)
-            set_color(UI.C_TXT, has_txt and 1.0 or 0.7)
             for _, line in ipairs(lines) do
                 if cy + S(18) > content_y and cy < content_y + content_h then
-                    gfx.x, gfx.y = pad, cy
-                    gfx.drawstr(line)
+                    local has_link = line:match("http[s]?://%S+") or line:match("www%.%S+") or line:match("t%.me/%S+")
+                    if has_link then
+                        local cx = pad
+                        local remaining = line
+                        while remaining and remaining ~= "" do
+                            local link_start, link_end = remaining:find("http[s]?://%S+")
+                            if not link_start then link_start, link_end = remaining:find("www%.%S+") end
+                            if not link_start then link_start, link_end = remaining:find("t%.me/%S+") end
+                            
+                            if link_start then
+                                local before = remaining:sub(1, link_start - 1)
+                                local link = remaining:sub(link_start, link_end)
+                                remaining = remaining:sub(link_end + 1)
+                                
+                                -- Strip trailing punctuation
+                                local trailing = link:match("[%.,;!%?]+$")
+                                if trailing then
+                                    link = link:sub(1, -(#trailing + 1))
+                                    remaining = trailing .. remaining
+                                end
+                                
+                                if before ~= "" then
+                                    set_color(UI.C_TXT, has_txt and 1.0 or 0.7)
+                                    gfx.x, gfx.y = cx, cy
+                                    gfx.drawstr(before)
+                                    cx = cx + gfx.measurestr(before)
+                                end
+                                
+                                set_color(UI.C_BLUE_BRIGHT or UI.C_ACCENT)
+                                gfx.x, gfx.y = cx, cy
+                                gfx.drawstr(link)
+                                local link_w = gfx.measurestr(link)
+                                
+                                -- Hover & Click logic for link
+                                if gfx.mouse_y >= cy and gfx.mouse_y <= cy + S(18) and gfx.mouse_x >= cx and gfx.mouse_x <= cx + link_w then
+                                    gfx.line(cx, cy + S(16), cx + link_w, cy + S(16))
+                                    if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and not UI_STATE.mouse_handled then
+                                        local url = link
+                                        if url:match("^www%.") then url = "http://" .. url end
+                                        if url:match("^t%.me/") then url = "https://" .. url end
+                                        UTILS.open_url(url)
+                                        UI_STATE.mouse_handled = true
+                                    end
+                                end
+                                cx = cx + link_w
+                            else
+                                set_color(UI.C_TXT, has_txt and 1.0 or 0.7)
+                                gfx.x, gfx.y = cx, cy
+                                gfx.drawstr(remaining)
+                                remaining = ""
+                            end
+                        end
+                    else
+                        set_color(UI.C_TXT, has_txt and 1.0 or 0.7)
+                        gfx.x, gfx.y = pad, cy
+                        gfx.drawstr(line)
+                    end
                 end
                 cy = cy + S(18)
             end
@@ -16257,11 +16344,26 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     
     current_total_h = current_total_h + draw_view_section("БІО", p.dubber_bio, width)
 
+    local timbre_map = {
+        ["Низький"] = "Глибокий, низький голос (бас, баритон)",
+        ["Середній"] = "Звичайний голос середнього діапазону",
+        ["Високий"] = "Тонкий, високий голос (тенор, сопрано)"
+    }
+    local timbre_tooltip = p.dubber_timbre and timbre_map[p.dubber_timbre]
+
     local combined_voice = (p.dubber_voice or "Не вказано") .. " (" .. (p.dubber_timbre or "Не вказано") .. ")"
-    current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width)
+    current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip)
+
+    local cond_map = {
+        ["Ніяких"] = "Звичайна житлова кімната без акустичної підготовки (може бути чутно відлуння)",
+        ["Обр. Кімната"] = "Приміщення з частковою підготовкою: наявні штори, килими або поролон (незначне відлуння)",
+        ["Акс. Будка"] = "Спеціалізована вокальна кабіна (Booth), що забезпечує максимально 'сухий' звук",
+        ["Студія"] = "Професійна студія з повним акустичним розрахунком та звукоізоляцією"
+    }
+    local cond_tooltip = p.dubber_conditions and cond_map[p.dubber_conditions]
 
     current_total_h = current_total_h + draw_view_section("ОБЛАДНАННЯ", p.dubber_equipment, width)
-    current_total_h = current_total_h + draw_view_section("УМОВИ ЗАПИСУ", p.dubber_conditions, width)
+    current_total_h = current_total_h + draw_view_section("УМОВИ ЗАПИСУ", p.dubber_conditions, width, cond_tooltip)
     current_total_h = current_total_h + draw_view_section("КОНТАКТИ", p.dubber_contact, width)
     current_total_h = current_total_h + draw_view_section("ПОРТФОЛІО", p.dubber_samples, width)
 
