@@ -16801,68 +16801,142 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
         gfx.drawstr(txt)
     else
         -- Draw List
-        local row_h = S(50)
         local top_pad = S(15)
-        local total_h = #UI_STATE.talents_list * row_h + top_pad * 2
-        ACHIEVEMENTS.talents_max_scroll = math.max(0, total_h - content_h)
-
-        local cy = content_y + top_pad - UI_STATE.talents_scroll_y
+        local badge_gap = S(4)
+        
+        -- Pre-calculate row data
+        local row_data = {}
+        local total_h = 0
+        for i, t in ipairs(UI_STATE.talents_list) do
+            local bio_trimmed = (t.dubber_bio or ""):match("^%s*(.-)%s*$") or ""
+            local has_bio = bio_trimmed ~= ""
+            
+            -- Collect all badges
+            local badges = {}
+            if t.dubber_specialization and t.dubber_specialization ~= "" then
+                for s in t.dubber_specialization:gmatch("([^,]+)") do
+                    s = s:match("^%s*(.-)%s*$")
+                    if s ~= "" then table.insert(badges, {txt = s, clr = UI.C_HILI_BLUE, alpha = 0.25}) end
+                end
+            end
+            local voice_txt = (t.dubber_voice or "") .. ((t.dubber_timbre and t.dubber_timbre ~= "") and (", " .. t.dubber_timbre) or "")
+            if voice_txt ~= "" then table.insert(badges, {txt = voice_txt, clr = UI.C_ORANGE, alpha = 0.15}) end
+            
+            if t.dubber_vocals and t.dubber_vocals ~= "" and t.dubber_vocals ~= "Не співаю" then
+                table.insert(badges, {txt = t.dubber_vocals, clr = UI.C_HILI_GREEN, alpha = 0.15})
+            end
+            
+            if t.dubber_conditions and t.dubber_conditions ~= "" then
+                table.insert(badges, {txt = t.dubber_conditions, clr = UI.C_HILI_PINK, alpha = 0.12})
+            end
+            
+            local gear = t.dubber_equipment or t.dubber_mic or ""
+            if gear ~= "" then
+                for g in gear:gmatch("([^,]+)") do
+                    g = g:match("^%s*(.-)%s*$")
+                    if g ~= "" then table.insert(badges, {txt = g, clr = UI.C_HILI_WHITE_LOW, alpha = 0.08}) end
+                end
+            end
+            
+            -- Simulate wrap to find badge height
+            local badge_lines = 0
+            local badges_total_h = 0
+            if #badges > 0 then
+                gfx.setfont(F.tip)
+                local bh = gfx.texth + S(6)
+                local b_step = bh + badge_gap
+                badge_lines = 1
+                local cur_tx = S(12)
+                local max_tx = width - S(24)
+                for _, b in ipairs(badges) do
+                    local bw = gfx.measurestr(b.txt) + S(12)
+                    if cur_tx + bw > max_tx then
+                        cur_tx = S(12)
+                        badge_lines = badge_lines + 1
+                    end
+                    cur_tx = cur_tx + bw + badge_gap
+                end
+                badges_total_h = badge_lines * b_step - badge_gap -- Total height of the badge block
+            end
+            
+            local text_y_off = badges_total_h > 0 and (badges_total_h + S(17)) or S(12)
+            
+            local rh = text_y_off + S(25) -- Name area
+            if has_bio then rh = rh + S(32) end -- Bio area
+            rh = rh + S(18) -- Bottom pad
+            
+            row_data[i] = {
+                h = rh, 
+                y = total_h, 
+                badges = badges, 
+                has_bio = has_bio, 
+                bio_txt = bio_trimmed,
+                text_y_off = text_y_off
+            }
+            total_h = total_h + rh
+        end
+        
+        ACHIEVEMENTS.talents_max_scroll = math.max(0, total_h + top_pad * 2 - content_h)
+        local cy_base = content_y + top_pad - UI_STATE.talents_scroll_y
         
         for i, t in ipairs(UI_STATE.talents_list) do
-            local rx, ry, rw, rh = pad, cy, width, row_h
+            local rd = row_data[i]
+            local rx, ry, rw, rh = pad, cy_base + rd.y, width, rd.h
             
-            -- Only draw if visible (at least partially)
             if ry + rh > header_h and ry < gfx.h - footer_h then
                 local hover = UI_STATE.window_focused and (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= ry and gfx.mouse_y <= ry + rh)
-                -- Hover only if within content area
                 if hover and (gfx.mouse_y < header_h or gfx.mouse_y > gfx.h - footer_h) then hover = false end
 
                 if hover then
                     set_color(UI.C_BTN, 0.1)
                     gfx.rect(rx, ry, rw, rh, 1)
-                end
-                
-                -- Name
-                gfx.setfont(F.bld)
-                set_color(UI.C_TXT, 1)
-                gfx.x, gfx.y = rx + S(10), ry + S(8)
-                gfx.drawstr(fit_text_width(t.dubber_name or "Анонім", S(200)))
-                
-                -- Voice / Timbre
-                gfx.setfont(F.tip)
-                set_color(UI.C_TXT, 0.5)
-                gfx.x, gfx.y = rx + S(10), ry + S(28)
-                local voice_info = (t.dubber_voice or "") .. ((t.dubber_timbre and t.dubber_timbre ~= "") and (" (" .. t.dubber_timbre .. ")") or "")
-                if voice_info == "" then voice_info = "Голос не вказано" end
-                gfx.drawstr(fit_text_width(voice_info, S(250)))
-                
-                -- Specialization
-                set_color(UI.C_BLUE_BRIGHT, 0.7)
-                local spec = t.dubber_specialization or "-"
-                if spec == "" then spec = "-" end
-                local sw, sh = gfx.measurestr(spec)
-                gfx.x, gfx.y = rx + rw - S(140) - sw, ry + (rh - sh) / 2
-                gfx.drawstr(spec)
-
-                -- View Profile Button
-                local bw, bh = S(120), S(30)
-                local bx, by = rx + rw - bw - S(10), ry + (rh - bh) / 2
-                
-                -- Button logic: clickable if visible and not masked
-                if by + bh > header_h and by < gfx.h - footer_h then
-                    local mouse_over_mask = (gfx.mouse_y < header_h or gfx.mouse_y > gfx.h - footer_h)
-                    if btn(bx, by, bw, bh, "Профіль", UI.C_BTN, UI.C_TXT) then
-                        if not mouse_over_mask then
-                            ACHIEVEMENTS.fetch_profile(t.machine_id)
-                        end
+                    if is_mouse_clicked() then
+                        ACHIEVEMENTS.fetch_profile(t.machine_id)
                     end
+                end
+
+                -- Draw Badges with Wrapping
+                if #rd.badges > 0 then
+                    local bx = rx + S(12)
+                    local by = ry + S(12)
+                    local max_bx = rx + rw - S(12)
+                    gfx.setfont(F.tip)
+                    local bh = gfx.texth + S(6)
+                    local b_step = bh + badge_gap
+                    for _, b in ipairs(rd.badges) do
+                        local tw, th = gfx.measurestr(b.txt)
+                        local bw = tw + S(12)
+                        if bx + bw > max_bx then
+                            bx = rx + S(12)
+                            by = by + b_step
+                        end
+                        set_color(b.clr, b.alpha)
+                        gfx.rect(bx, by, bw, bh, 1)
+                        set_color(UI.C_TXT, 0.8)
+                        gfx.x, gfx.y = bx + S(6), by + S(3)
+                        gfx.drawstr(b.txt)
+                        bx = bx + bw + badge_gap
+                    end
+                end
+
+                -- 2. NAME
+                gfx.setfont(F.title)
+                set_color(UI.C_TXT, 1)
+                gfx.x, gfx.y = rx + S(12), ry + rd.text_y_off
+                gfx.drawstr(fit_text_width(t.dubber_name or "Анонім", rw - S(30)))
+                
+                -- 3. BIO
+                if rd.has_bio then
+                    gfx.setfont(F.std)
+                    set_color(UI.C_TXT, 0.5)
+                    gfx.x, gfx.y = rx + S(12), ry + rd.text_y_off + S(30)
+                    gfx.drawstr(fit_text_width(rd.bio_txt, rw - S(40)))
                 end
                 
                 -- Separator
                 set_color(UI.C_TXT, 0.05)
-                gfx.line(rx, ry + rh - 1, rx + rw, ry + rh - 1)
+                gfx.line(rx + S(12), ry + rh - 1, rx + rw - S(12), ry + rh - 1)
             end
-            cy = cy + row_h
         end
     end
 
@@ -16875,10 +16949,10 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
     gfx.setfont(F.title)
     set_color(UI.C_TXT)
     gfx.x, gfx.y = pad, pad - S(2)
-    gfx.drawstr("Пошук талантів")
+    local close_sz = S(24)
+    gfx.drawstr(fit_text_width("Пошук талантів", gfx.w - pad * 2 - close_sz - S(10)))
 
     -- Close button
-    local close_sz = S(24)
     if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
         UI_STATE.show_talent_search = false
     end
