@@ -16625,13 +16625,15 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     local has_timbre = p.dubber_timbre and p.dubber_timbre ~= ""
     local combined_voice = (has_voice and has_timbre) and (p.dubber_voice .. " (" .. p.dubber_timbre .. ")") or ""
     current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
+    
+    local vocal_tooltip = p.dubber_vocals and PROFILE_META.VOCALS.tips[p.dubber_vocals]
+    current_total_h = current_total_h + draw_view_section("ВОКАЛ", p.dubber_vocals, width, vocal_tooltip)
 
     local cond_tooltip = p.dubber_conditions and PROFILE_META.CONDITIONS.tips[p.dubber_conditions]
     local vocal_tooltip = p.dubber_vocals and PROFILE_META.VOCALS.tips[p.dubber_vocals]
 
     current_total_h = current_total_h + draw_view_section("ОБЛАДНАННЯ", p.dubber_equipment, width)
     current_total_h = current_total_h + draw_view_section("УМОВИ ЗАПИСУ", p.dubber_conditions, width, cond_tooltip)
-    current_total_h = current_total_h + draw_view_section("ВОКАЛ", p.dubber_vocals, width, vocal_tooltip)
     current_total_h = current_total_h + draw_view_section("КОНТАКТИ", p.dubber_contact, width)
     current_total_h = current_total_h + draw_view_section("ПОРТФОЛІО", p.dubber_samples, width)
 
