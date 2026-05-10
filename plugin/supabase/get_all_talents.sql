@@ -56,6 +56,10 @@ BEGIN
                 SELECT 1 FROM unnest(string_to_array(p_filters->>'specialization', ',')) AS f_s
                 WHERE dubber_specialization ILIKE '%' || f_s || '%'
             ))
+            AND (p_filters->>'archetypes' IS NULL OR p_filters->>'archetypes' = '' OR EXISTS (
+                SELECT 1 FROM unnest(string_to_array(p_filters->>'archetypes', ',')) AS f_a
+                WHERE dubber_archetypes ILIKE '%' || f_a || '%'
+            ))
         ORDER BY last_active DESC NULLS LAST, dubber_name ASC
         LIMIT p_limit
         OFFSET p_offset
