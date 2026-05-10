@@ -16136,7 +16136,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
         cy = cy + row_h + spacing
     end
 
-    local function draw_radio(label, state_key, options, tooltips)
+    local function draw_radio(label, state_key, options, tooltips, c_rw)
         local start_cy = cy
         local ry = cy
         if is_narrow then
@@ -16146,7 +16146,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
         -- Pre-calculate height
         local temp_cy = ry
         local temp_rx = pad + label_w
-        local rw = S(100)
+        local rw = c_rw or S(100)
         for i, opt in ipairs(options) do
             if temp_rx + rw > gfx.w - pad then
                 temp_rx = pad + label_w
@@ -16276,7 +16276,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
     draw_radio("Голос:", "voice", {"Чоловічий", "Жіночий"}, {"Чоловічий голос", "Жіночий голос"})
     draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
-    draw_radio("Вокал:", "vocals", PROFILE_META.VOCALS.opts, PROFILE_META.get_tips("VOCALS"))
+    draw_radio("Вокал:", "vocals", PROFILE_META.VOCALS.opts, PROFILE_META.get_tips("VOCALS"), S(150))
 
     -- Store dynamic height for next frame
     state.last_content_h = (cy + state.scroll_y) - content_y + S(20)
@@ -16463,9 +16463,9 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
 
     -- Helper for drawing sections and calculating height
     local function draw_view_section(title, text, w, tooltip_text)
+        if not text or text == "" or text == "Не співаю" then return 0 end
         gfx.setfont(F.tip_big) -- Explicitly set standard font before text measurements
-        local has_txt = text and text ~= ""
-        local actual_text = has_txt and text or "Не вказано"
+        local actual_text = text
         local lines = wrap_text(actual_text, w, S(16))
         local section_h = S(22) + #lines * S(18) + S(25)
         
@@ -16557,14 +16557,14 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
                                 end
                                 cx = cx + link_w
                             else
-                                set_color(UI.C_TXT, has_txt and 1.0 or 0.7)
+                                set_color(UI.C_TXT, 1.0)
                                 gfx.x, gfx.y = cx, cy
                                 gfx.drawstr(remaining)
                                 remaining = ""
                             end
                         end
                     else
-                        set_color(UI.C_TXT, has_txt and 1.0 or 0.7)
+                        set_color(UI.C_TXT, 1.0)
                         gfx.x, gfx.y = pad, cy
                         gfx.drawstr(line)
                     end
@@ -16621,7 +16621,9 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
         end
     end
 
-    local combined_voice = p.dubber_voice and p.dubber_timbre and ((p.dubber_voice or "Не вказано") .. " (" .. (p.dubber_timbre or "Не вказано") .. ")") or ""
+    local has_voice = p.dubber_voice and p.dubber_voice ~= ""
+    local has_timbre = p.dubber_timbre and p.dubber_timbre ~= ""
+    local combined_voice = (has_voice and has_timbre) and (p.dubber_voice .. " (" .. p.dubber_timbre .. ")") or ""
     current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
 
     local cond_tooltip = p.dubber_conditions and PROFILE_META.CONDITIONS.tips[p.dubber_conditions]
@@ -16632,6 +16634,20 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     current_total_h = current_total_h + draw_view_section("ВОКАЛ", p.dubber_vocals, width, vocal_tooltip)
     current_total_h = current_total_h + draw_view_section("КОНТАКТИ", p.dubber_contact, width)
     current_total_h = current_total_h + draw_view_section("ПОРТФОЛІО", p.dubber_samples, width)
+
+    -- If no sections were drawn, show "Profile is empty"
+    if current_total_h <= S(45) then -- S(40) is base padding
+        local empty_txt = "Профіль пустий"
+        gfx.setfont(F.tip_big)
+        local tw, th = gfx.measurestr(empty_txt)
+        local tx = (gfx.w - tw) / 2
+        local ty = content_y + (content_h - th) / 2
+        
+        set_color(UI.C_TXT, 0.3)
+        gfx.x, gfx.y = tx, ty
+        gfx.drawstr(empty_txt)
+        current_total_h = current_total_h + S(40)
+    end
 
     -- Save max_scroll for the next frame
     ACHIEVEMENTS.profile_max_scroll = math.max(0, (current_total_h + S(40)) - content_h)
