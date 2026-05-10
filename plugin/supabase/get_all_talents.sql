@@ -24,6 +24,10 @@ BEGIN
         AND (p_filters->>'archetypes' IS NULL OR p_filters->>'archetypes' = '' OR EXISTS (
             SELECT 1 FROM unnest(string_to_array(p_filters->>'archetypes', ',')) AS f_a
             WHERE dubber_archetypes ILIKE '%' || f_a || '%'
+        ))
+        AND (p_filters->>'status' IS NULL OR p_filters->>'status' = '' OR EXISTS (
+            SELECT 1 FROM unnest(string_to_array(p_filters->>'status', ',')) AS f_stat
+            WHERE dubber_status = f_stat OR (f_stat = 'Звичайни аккаунт' AND (dubber_status IS NULL OR dubber_status = ''))
         ));
 
     SELECT jsonb_build_object(
@@ -62,6 +66,10 @@ BEGIN
             AND (p_filters->>'archetypes' IS NULL OR p_filters->>'archetypes' = '' OR EXISTS (
                 SELECT 1 FROM unnest(string_to_array(p_filters->>'archetypes', ',')) AS f_a
                 WHERE dubber_archetypes ILIKE '%' || f_a || '%'
+            ))
+            AND (p_filters->>'status' IS NULL OR p_filters->>'status' = '' OR EXISTS (
+                SELECT 1 FROM unnest(string_to_array(p_filters->>'status', ',')) AS f_stat
+                WHERE dubber_status = f_stat OR (f_stat = 'Звичайни аккаунт' AND (dubber_status IS NULL OR dubber_status = ''))
             ))
         ORDER BY last_active DESC NULLS LAST, dubber_name ASC
         LIMIT p_limit
