@@ -16449,10 +16449,10 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
 
             local new_profile_data = {
                 dubber_name = name_trimmed,
-                dubber_bio = state.bio.text,
-                dubber_contact = state.contact.text,
-                dubber_samples = state.samples.text,
-                dubber_equipment = state.equipment.text,
+                dubber_bio = state.bio.text:match("^%s*(.-)%s*$") or "",
+                dubber_contact = state.contact.text:match("^%s*(.-)%s*$") or "",
+                dubber_samples = state.samples.text:match("^%s*(.-)%s*$") or "",
+                dubber_equipment = state.equipment.text:match("^%s*(.-)%s*$") or "",
                 dubber_conditions = state.conditions,
                 dubber_voice = state.voice,
                 dubber_timbre = timbre_str,
@@ -16565,7 +16565,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     local function draw_view_section(title, text, w, tooltip_text)
         if not text or text == "" or text == "Не співаю" then return 0 end
         gfx.setfont(F.tip_big) -- Explicitly set standard font before text measurements
-        local actual_text = text
+        local actual_text = text:match("^%s*(.-)%s*$") or ""
         local lines = wrap_text(actual_text, w, S(16))
         local section_h = S(22) + #lines * S(18) + S(25)
         
