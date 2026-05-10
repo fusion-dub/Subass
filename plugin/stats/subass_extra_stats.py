@@ -93,6 +93,7 @@ def main():
                 dubber_voice = stats_raw.get('dubber_voice', '')
                 dubber_timbre = stats_raw.get('dubber_timbre', '')
                 dubber_vocals = stats_raw.get('dubber_vocals', '')
+                dubber_status = stats_raw.get('dubber_status', '')
             except OSError as e:
                 print(f"Warning: Could not read stats file: {e}", file=sys.stderr)
             except json.JSONDecodeError as e:
@@ -130,6 +131,7 @@ def main():
                 "dubber_voice": {"stringValue": dubber_voice},
                 "dubber_timbre": {"stringValue": dubber_timbre},
                 "dubber_vocals": {"stringValue": dubber_vocals},
+                "dubber_status": {"stringValue": dubber_status},
                 "last_active": {"timestampValue": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
                 "os": {"stringValue": sys.platform},
                 "stats": stats_map,
@@ -172,6 +174,7 @@ def main():
                 "dubber_voice": dubber_voice,
                 "dubber_timbre": dubber_timbre,
                 "dubber_vocals": dubber_vocals,
+                "dubber_status": dubber_status,
                 "last_active": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "stats": stats_filtered,
             }
