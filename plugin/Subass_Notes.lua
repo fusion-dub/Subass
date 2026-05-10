@@ -400,58 +400,70 @@ PROFILE_META = {
     ARCHETYPES = {
         opts = {"Герої", "Антагоністи", "Комедійні", "Інтелектуали", "Загадкові", "Ексцентричні", "Брутальні", "Лагідні/Мое", "Наставники", "Аристократи", "Циніки", "Малеча", "Звичайні", "Психопати", "Воїни", "Спокусники", "Монстри"},
         tips = {
-            ["Герої"] = "Протагоністи: рішучі, надихаючі, з емоційним піднесенням",
-            ["Антагоністи"] = "Лиходії: маніпулятивні, владні, підступні або величні тирани",
-            ["Комедійні"] = "Енергійні ролі, талісмани, саркастичні друзі, автори жартів",
-            ["Інтелектуали"] = "Стратеги, вчені, холодні аналітики (тип Кудере)",
-            ["Загадкові"] = "Елегантні, фатальні, пафосні персонажі з прихованими мотивами",
-            ["Ексцентричні"] = "Хаотичні, божевільні або емоційно нестабільні ролі (Яндере)",
-            ["Брутальні"] = "Грубі, агресивні, прямолінійні персонажі або хулігани",
-            ["Лагідні/Мое"] = "Сором'язливі, милі, дитячі або дуже тендітні образи",
-            ["Наставники"] = "Мудреці, вчителі, старші персонажі з досвідом",
-            ["Аристократи"] = "Витончені, манірні, зверхні або благородні персонажі",
-            ["Циніки"] = "Саркастичні, втомлені від життя, похмурі або іронічні ролі",
-            ["Малеча"] = "Діти, немовлята або дуже малі істоти",
-            ["Звичайні"] = "Реалістичні, приземлені герої (сусід, офісний працівник)",
-            ["Психопати"] = "Холодні, лякаючі, позбавлені емпатії або маніакальні лиходії",
-            ["Воїни"] = "Дисципліновані солдати, ветерани, з командним голосом",
-            ["Спокусники"] = "Харизматичні, оксамитові, звабливі або фатальні голоси",
-            ["Монстри"] = "Нелюдські голоси: демони, роботи, потойбічні сили"
+            "Протагоністи: рішучі, надихаючі, з емоційним піднесенням",
+            "Лиходії: маніпулятивні, владні, підступні або величні тирани",
+            "Енергійні ролі, талісмани, саркастичні друзі, автори жартів",
+            "Стратеги, вчені, холодні аналітики (тип Кудере)",
+            "Елегантні, фатальні, пафосні персонажі з прихованими мотивами",
+            "Хаотичні, божевільні або емоційно нестабільні ролі (Яндере)",
+            "Грубі, агресивні, прямолінійні персонажі або хулігани",
+            "Сором'язливі, милі, дитячі або дуже тендітні образи",
+            "Мудреці, вчителі, старші персонажі з досвідом",
+            "Витончені, манірні, зверхні або благородні персонажі",
+            "Саркастичні, втомлені від життя, похмурі або іронічні ролі",
+            "Діти, немовлята або дуже малі істоти",
+            "Реалістичні, приземлені герої (сусід, офісний працівник)",
+            "Холодні, лякаючі, позбавлені емпатії або маніакальні лиходії",
+            "Дисципліновані солдати, ветерани, з командним голосом",
+            "Харизматичні, оксамитові, звабливі або фатальні голоси",
+            "Нелюдські голоси: демони, роботи, потойбічні сили"
         }
     },
     TIMBRE = {
         opts = {"Низький", "Середній", "Високий"},
         tips = {
-            ["Низький"] = "Глибокий та густий голос (бас, баритон, контральто)",
-            ["Середній"] = "Універсальний голос середнього регістру (меццо-сопрано, баритональний тенор)",
-            ["Високий"] = "Дзвінкий та легкий голос (тенор, сопрано)"
+            "Глибокий та густий голос (бас, баритон, контральто)",
+            "Універсальний голос середнього регістру (меццо-сопрано, баритональний тенор)",
+            "Дзвінкий та легкий голос (тенор, сопрано)"
         }
     },
     CONDITIONS = {
         opts = {"Ніяких", "Обр. Кімната", "Акс. Будка", "Студія"},
         tips = {
-            ["Ніяких"] = "Звичайна житлова кімната без акустичної підготовки (може бути чутно відлуння)",
-            ["Обр. Кімната"] = "Приміщення з частковою підготовкою: наявні штори, килими або поролон (незначне відлуння)",
-            ["Акс. Будка"] = "Спеціалізована вокальна кабіна (Booth), що забезпечує максимально 'сухий' звук",
-            ["Студія"] = "Професійна студія з повним акустичним розрахунком та звукоізоляцією"
+            "Звичайна житлова кімната без акустичної підготовки (може бути чутно відлуння)",
+            "Приміщення з частковою підготовкою: наявні штори, килими або поролон (незначне відлуння)",
+            "Спеціалізована вокальна кабіна (Booth), що забезпечує максимально 'сухий' звук",
+            "Професійна студія з повним акустичним розрахунком та звукоізоляцією"
         }
     },
     SPECIALIZATION = {
         opts = {"Дабер", "Перекладач", "Звукорежисер", "Редактор", "Менеджер"},
         tips = {
-            ["Дабер"] = "Актор озвучування, який працює над записом голосів та передачею емоцій персонажів",
-            ["Перекладач"] = "Фахівець, що займається адаптацією тексту та перекладом сценарію",
-            ["Звукорежисер"] = "Спеціаліст з монтажу, зведення аудіодоріжок та фінальної обробки звуку",
-            ["Редактор"] = "Відповідає за перевірку тексту на помилки, стилістику та відповідність ліпсингу",
-            ["Менеджер"] = "Організатор процесів, який координує роботу команди та терміни виконання проєкту"
+            "Актор озвучування, який працює над записом голосів та передачею емоцій персонажів",
+            "Фахівець, що займається адаптацією тексту та перекладом сценарію",
+            "Спеціаліст з монтажу, зведення аудіодоріжок та фінальної обробки звуку",
+            "Відповідає за перевірку тексту на помилки, стилістику та відповідність ліпсингу",
+            "Організатор процесів, який координує роботу команди та терміни виконання проєкту"
         }
     },
     VOCALS = {
         opts = {"Не співаю", "Аматорський вокал", "Професійний вокал"},
+        filter = {"Аматорський вокал", "Професійний вокал"},
         tips = {
-            ["Не співаю"] = "Не займаюся вокалом",
-            ["Аматорський вокал"] = "Можу заспівати прості партії, опенінги або фоновий вокал",
-            ["Професійний вокал"] = "Маю професійну вокальну підготовку, працюю зі складними партіями"
+            "Не займаюся вокалом",
+            "Можу заспівати прості партії, опенінги або фоновий вокал",
+            "Маю професійну вокальну підготовку, працюю зі складними партіями"
+        },
+        filter_tips = {
+            "Можу заспівати прості партії, опенінги або фоновий вокал",
+            "Маю професійну вокальну підготовку, працюю зі складними партіями"
+        }
+    },
+    VOICE = {
+        opts = {"Чоловічий", "Жіночий"},
+        tips = {
+            "Чоловічий голос",
+            "Жіночий голос",
         }
     }
 }
@@ -459,9 +471,7 @@ PROFILE_META = {
 function PROFILE_META.get_tips(key)
     local meta = PROFILE_META[key]
     if not meta then return {} end
-    local res = {}
-    for i, opt in ipairs(meta.opts) do res[i] = meta.tips[opt] end
-    return res
+    return meta.tips
 end
 
 local dynamic_director_h = nil
@@ -16364,7 +16374,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     draw_multi_select("Амплуа:", "archetypes", PROFILE_META.ARCHETYPES.opts, PROFILE_META.get_tips("ARCHETYPES"))
 
     draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
-    draw_radio("Голос:", "voice", {"Чоловічий", "Жіночий"}, {"Чоловічий голос", "Жіночий голос"})
+    draw_radio("Голос:", "voice", PROFILE_META.VOICE.opts, PROFILE_META.get_tips("VOICE"))
     draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
     draw_radio("Вокал:", "vocals", PROFILE_META.VOCALS.opts, PROFILE_META.get_tips("VOCALS"), S(150))
 
@@ -16849,7 +16859,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
         -- Pre-calculate height
         local temp_cy = ry
         local temp_rx = pad + label_w
-        local rw = c_rw or S(100)
+        local rw = c_rw or S(110)
         for i, opt in ipairs(options) do
             if temp_rx + rw > gfx.w - pad then
                 temp_rx = pad + label_w
@@ -16880,6 +16890,17 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
                 local is_sel = f_state[state_key] == opt
                 local bg = is_sel and UI.C_ACCENT_G or UI.C_BTN
                 local txt = is_sel and UI.C_BG or UI.C_TXT
+
+                local hover = (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= ry and gfx.mouse_y <= ry + input_h)
+                if hover and tooltips and tooltips[i] then
+                    local tip_id = "profile_radio_" .. state_key .. "_" .. i
+                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                        UI_STATE.tooltip_state.hover_id = tip_id
+                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    end
+                    UI_STATE.tooltip_state.text = tooltips[i]
+                end
+
                 if btn(rx, ry, rw, input_h, opt, bg, txt) then
                     if f_state[state_key] == opt then f_state[state_key] = nil else f_state[state_key] = opt end
                 end
@@ -16928,6 +16949,17 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
                 local is_sel = f_state[state_key] and f_state[state_key][opt]
                 local bg = is_sel and UI.C_ACCENT_G or UI.C_BTN
                 local txt = is_sel and UI.C_BG or UI.C_TXT
+
+                local hover = (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= ry and gfx.mouse_y <= ry + input_h)
+                if hover and tooltips and tooltips[i] then
+                    local tip_id = "profile_multi_" .. state_key .. "_" .. i
+                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                        UI_STATE.tooltip_state.hover_id = tip_id
+                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    end
+                    UI_STATE.tooltip_state.text = tooltips[i]
+                end
+
                 if btn(rx, ry, rw, input_h, opt, bg, txt) then
                     f_state[state_key] = f_state[state_key] or {}
                     f_state[state_key][opt] = not f_state[state_key][opt]
@@ -16938,11 +16970,11 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
         cy = start_cy + section_h + spacing
     end
 
-    draw_radio("Голос:", "voice", {"Чоловічий", "Жіночий"})
-    draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts)
-    draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts)
-    draw_radio("Вокал:", "vocals", PROFILE_META.VOCALS.opts, S(150))
-    draw_multi_select("Спеціалізація:", "specialization", PROFILE_META.SPECIALIZATION.opts)
+    draw_radio("Голос:", "voice", PROFILE_META.VOICE.opts, PROFILE_META.get_tips("VOICE"))
+    draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
+    draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
+    draw_radio("Вокал:", "vocals", PROFILE_META.VOCALS.filter, PROFILE_META.VOCALS.filter_tips, S(150))
+    draw_multi_select("Спеціалізація:", "specialization", PROFILE_META.SPECIALIZATION.opts, PROFILE_META.get_tips("SPECIALIZATION"))
 
     UI_STATE.talents_filters_last_h = (cy + UI_STATE.talents_filters_scroll_y) - content_y + S(20)
 
