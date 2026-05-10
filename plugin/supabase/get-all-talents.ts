@@ -6,7 +6,7 @@ Deno.serve(async (req: Request) => {
     if (req.method !== "POST") return new Response("expected POST", { status: 405 });
 
     try {
-        const { limit = 20, offset = 0 } = await req.json();
+        const { limit = 20, offset = 0, filters = {} } = await req.json();
 
         const supabaseAdmin = createClient(
             Deno.env.get("SUPABASE_URL") ?? "",
@@ -15,7 +15,11 @@ Deno.serve(async (req: Request) => {
 
         // Викликаємо RPC для отримання списку талантів
         const { data, error } = await supabaseAdmin
-            .rpc("get_all_talents", { p_limit: limit, p_offset: offset });
+            .rpc("get_all_talents", { 
+                p_limit: limit, 
+                p_offset: offset,
+                p_filters: filters
+            });
 
         if (error) throw error;
 
