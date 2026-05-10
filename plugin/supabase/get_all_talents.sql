@@ -4,9 +4,23 @@ RETURNS JSONB AS $$
 DECLARE
     result JSONB;
     v_total_count INT;
+    v_free_talents_count INT;
+    v_looking_for_talents_count INT;
 BEGIN
-    -- Рахуємо загальну кількість з урахуванням фільтрів
-    SELECT count(*) INTO v_total_count
+    -- Рахуємо загальну кількість та кількості за статусами (ігноруючи фільтр статусу для останніх двох)
+    SELECT 
+        COUNT(*) FILTER (WHERE 
+            p_filters->>'status' IS NULL OR p_filters->>'status' = '' OR EXISTS (
+                SELECT 1 FROM unnest(string_to_array(p_filters->>'status', ',')) AS f_stat
+                WHERE dubber_status = f_stat OR (f_stat = 'Звичайни аккаунт' AND (dubber_status IS NULL OR dubber_status = ''))
+            )
+        ),
+        COUNT(*) FILTER (WHERE dubber_status = 'Вільний талант'),
+        COUNT(*) FILTER (WHERE dubber_status = 'Шукаю талант')
+    INTO 
+        v_total_count,
+        v_free_talents_count,
+        v_looking_for_talents_count
     FROM users
     WHERE 
         (dubber_status IS NULL OR dubber_status != 'Приховати талант')
@@ -24,15 +38,13 @@ BEGIN
         AND (p_filters->>'archetypes' IS NULL OR p_filters->>'archetypes' = '' OR EXISTS (
             SELECT 1 FROM unnest(string_to_array(p_filters->>'archetypes', ',')) AS f_a
             WHERE dubber_archetypes ILIKE '%' || f_a || '%'
-        ))
-        AND (p_filters->>'status' IS NULL OR p_filters->>'status' = '' OR EXISTS (
-            SELECT 1 FROM unnest(string_to_array(p_filters->>'status', ',')) AS f_stat
-            WHERE dubber_status = f_stat OR (f_stat = 'Звичайни аккаунт' AND (dubber_status IS NULL OR dubber_status = ''))
         ));
 
     SELECT jsonb_build_object(
         'talents', COALESCE(jsonb_agg(t), '[]'::jsonb),
-        'total_count', v_total_count
+        'total_count', v_total_count,
+        'free_talents_count', COALESCE(v_free_talents_count, 0),
+        'looking_for_talents_count', COALESCE(v_looking_for_talents_count, 0)
     ) INTO result
     FROM (
         SELECT 
