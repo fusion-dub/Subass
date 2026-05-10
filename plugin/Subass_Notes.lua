@@ -17122,8 +17122,43 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
         local row_data = {}
         total_h = 0
         for i, t in ipairs(UI_STATE.talents_list) do
-            local bio_trimmed = (t.dubber_bio or ""):match("^%s*(.-)%s*$") or ""
-            local has_bio = bio_trimmed ~= ""
+            local bio_raw = (t.dubber_bio or ""):match("^%s*(.-)%s*$") or ""
+            local has_bio = bio_raw ~= ""
+            local bio_final = ""
+            local bio_lines = 0
+            
+            if has_bio then
+                gfx.setfont(F.std)
+                local max_w = width - S(40)
+                local words = {}
+                for w in bio_raw:gmatch("%S+") do table.insert(words, w) end
+                
+                local line1 = ""
+                local idx = 1
+                while idx <= #words do
+                    local w = words[idx]
+                    local test = (line1 == "") and w or (line1 .. " " .. w)
+                    if gfx.measurestr(test) <= max_w then
+                        line1 = test
+                        idx = idx + 1
+                    else
+                        break
+                    end
+                end
+                
+                if idx <= #words then
+                    local line2_raw = ""
+                    for i = idx, #words do
+                        line2_raw = (line2_raw == "") and words[i] or (line2_raw .. " " .. words[i])
+                    end
+                    local line2 = fit_text_width(line2_raw, max_w)
+                    bio_final = line1 .. "\n" .. line2
+                    bio_lines = 2
+                else
+                    bio_final = line1
+                    bio_lines = 1
+                end
+            end
             
             -- Collect all badges
             local badges = {}
@@ -17184,8 +17219,12 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             
             local text_y_off = badges_total_h > 0 and (badges_total_h + S(17)) or S(12)
             
-            local rh = text_y_off + S(25) -- Name area
-            if has_bio then rh = rh + S(32) end -- Bio area
+            local bio_h = 0
+            if has_bio then
+                bio_h = (bio_lines == 2) and S(32) or S(18)
+            end
+            
+            local rh = text_y_off + S(25) + bio_h -- Name area + Bio area
             rh = rh + S(18) -- Bottom pad
             
             row_data[i] = {
@@ -17193,7 +17232,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
                 y = total_h, 
                 badges = badges, 
                 has_bio = has_bio, 
-                bio_txt = bio_trimmed,
+                bio_txt = bio_final,
                 text_y_off = text_y_off
             }
             total_h = total_h + rh
@@ -17204,7 +17243,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
         
         for i, t in ipairs(UI_STATE.talents_list) do
             local rd = row_data[i]
-            local rx, ry, rw, rh = pad, cy_base + rd.y, width, rd.h
+            local rx, ry, rw, rh = pad - S(12), cy_base + rd.y, width + S(12), rd.h
             
             if ry + rh > header_h and ry < gfx.h - footer_h then
                 local hover = UI_STATE.window_focused and (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= ry and gfx.mouse_y <= ry + rh)
@@ -17253,7 +17292,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
                     gfx.setfont(F.std)
                     set_color(UI.C_TXT, 0.5)
                     gfx.x, gfx.y = rx + S(12), ry + rd.text_y_off + S(30)
-                    gfx.drawstr(fit_text_width(rd.bio_txt, rw - S(40)))
+                    gfx.drawstr(rd.bio_txt)
                 end
                 
                 -- Separator
