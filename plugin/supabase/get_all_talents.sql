@@ -20,6 +20,7 @@ BEGIN
             dubber_archetypes,
             dubber_contact,
             dubber_vocals,
+            dubber_conditions,
             last_active
         FROM users
         ORDER BY dubber_name ASC, last_active DESC NULLS LAST
