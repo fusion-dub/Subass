@@ -19,6 +19,10 @@ BEGIN
         AND (p_filters->>'specialization' IS NULL OR p_filters->>'specialization' = '' OR EXISTS (
             SELECT 1 FROM unnest(string_to_array(p_filters->>'specialization', ',')) AS f_s
             WHERE dubber_specialization ILIKE '%' || f_s || '%'
+        ))
+        AND (p_filters->>'archetypes' IS NULL OR p_filters->>'archetypes' = '' OR EXISTS (
+            SELECT 1 FROM unnest(string_to_array(p_filters->>'archetypes', ',')) AS f_a
+            WHERE dubber_archetypes ILIKE '%' || f_a || '%'
         ));
 
     SELECT jsonb_build_object(
