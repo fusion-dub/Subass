@@ -899,6 +899,14 @@ local UI_STATE = {
     last_global_proj_state = 0, -- last reaper.GetProjectStateChangeCount(0)
     _markers_is_dirty = true,  -- Forces search index rebuild on first use
     show_edit_profile = false,
+    show_talent_search = false,
+    show_profile_view = false,
+    talents_list = nil,
+    talents_page = 1,
+    talents_total = 0,
+    talents_loading = false,
+    talents_scroll_y = 0,
+    talents_target_scroll_y = 0,
 }
 
 local DEADLINE = {
@@ -2474,6 +2482,7 @@ end
 local UI = {
     -- === 1. Core Interface ===
     C_SEL_BG = {0.3, 0.6, 1.0, 0.15},  -- Subtle selection background (blue tint)
+    C_TAL_BG = {0.7, 0.4, 0.9, 0.15},  -- Subtle selection background (blue tint)
 
     -- === 2. Buttons ===
     C_BTN_DARK = {0.3, 0.4, 0.3, 1},    -- Muted/Dark button background
@@ -7217,6 +7226,7 @@ function UTILS.close_all_modals()
     dict_modal.show = false
     UI_STATE.show_edit_profile = false
     UI_STATE.show_profile_view = false
+    UI_STATE.show_talent_search = false
 end
 
 UTILS.GLOBAL_HOTKEY_ACTIONS = {
@@ -9727,6 +9737,50 @@ function ACHIEVEMENTS.fetch_profile(machine_id)
             UI_STATE.show_profile_view = false
         end
     end, false, "Завантаження...", false)
+end
+
+--- Fetch paginated talents list
+function ACHIEVEMENTS.fetch_talents(page)
+    local page = page or 1
+    local limit = 20
+    local offset = (page - 1) * limit
+    
+    local source = debug.getinfo(1,'S').source
+    local script_path = source:match([[^@?(.*[\\/])]]) or ""
+    local py_path = script_path .. "stats/subass_extra_stats.py"
+    
+    local cmd = string.format('python3 "%s" --get-talents --limit %d --offset %d', py_path, limit, offset)
+    local is_windows = reaper.GetOS():match("Win")
+    if is_windows then
+        local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
+        cmd = string.format('%s "%s" --get-talents --limit %d --offset %d', py_exe, py_path, limit, offset)
+    end
+    
+    UI_STATE.talents_loading = true
+    UI_STATE.talents_scroll_y = 0
+    UI_STATE.talents_target_scroll_y = 0
+    
+    run_async_command(cmd, function(exit_code)
+        UI_STATE.talents_loading = false
+        
+        local talents_path = script_path .. "stats/subass_talents.json"
+        local f = io.open(talents_path, "r")
+        if f then
+            local content = f:read("*a")
+            f:close()
+            local ok, data = pcall(STATS.json_decode, content)
+            if ok and data and data.ok and data.data then
+                UI_STATE.talents_list = data.data.talents
+                UI_STATE.talents_total = data.data.total_count
+                UI_STATE.talents_page = page
+            else
+                show_snackbar("Не вдалося завантажити список талантів", "error")
+            end
+            os.remove(talents_path)
+        else
+            show_snackbar("Помилка з'єднання при пошуку талантів", "error")
+        end
+    end, true, "Пошук талантів...", false)
 end
 
 -- ═══════════════════════════════════════════════════════════════
@@ -15540,6 +15594,34 @@ function ACHIEVEMENTS.draw_dialog()
     UI_STATE.mouse_handled = true
 end
 
+function ACHIEVEMENTS.open_edit_profile()
+    UI_STATE.show_edit_profile = true
+    -- Helper for initialization (temporary local copy until refactored globally)
+    local function s2t(str)
+        local t = {}
+        if str then for i in str:gmatch("[^,]+") do 
+            local tr = i:match("^%s*(.-)%s*$")
+            if tr ~= "" then t[tr:sub(1,1):upper() .. tr:sub(2):lower()] = true end
+        end end
+        return t
+    end
+    OTHER.profile_state = {
+        name = { text = cfg.dubber_name or "", cursor = 0, anchor = 0, focus = false },
+        specialization = s2t(cfg.dubber_specialization),
+        bio = { text = cfg.dubber_bio or "", cursor = 0, anchor = 0, focus = false },
+        contact = { text = cfg.dubber_contact or "", cursor = 0, anchor = 0, focus = false },
+        samples = { text = cfg.dubber_samples or "", cursor = 0, anchor = 0, focus = false },
+        equipment = { text = cfg.dubber_equipment or "", cursor = 0, anchor = 0, focus = false },
+        conditions = cfg.dubber_conditions,
+        voice = cfg.dubber_voice,
+        timbre = s2t(cfg.dubber_timbre),
+        archetypes = s2t(cfg.dubber_archetypes),
+        vocals = cfg.dubber_vocals,
+        scroll_y = 0,
+        target_scroll_y = 0
+    }
+end
+
 function ACHIEVEMENTS.draw_window(input_queue)
     if not ACHIEVEMENTS.show then return end
 
@@ -15988,31 +16070,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
     local edit_h = S(24)
     local edit_x = close_x - edit_w - S(8)
     if btn(edit_x, pad, edit_w, edit_h, "Редагувати профіль", UI.C_BTN, UI.C_TXT) and not ACHIEVEMENTS.show_leaderboard then
-        UI_STATE.show_edit_profile = true
-        -- Helper for initialization (temporary local copy until refactored globally)
-        local function s2t(str)
-            local t = {}
-            if str then for i in str:gmatch("[^,]+") do 
-                local tr = i:match("^%s*(.-)%s*$")
-                if tr ~= "" then t[tr:sub(1,1):upper() .. tr:sub(2):lower()] = true end
-            end end
-            return t
-        end
-        OTHER.profile_state = {
-            name = { text = cfg.dubber_name or "", cursor = 0, anchor = 0, focus = false },
-            specialization = s2t(cfg.dubber_specialization),
-            bio = { text = cfg.dubber_bio or "", cursor = 0, anchor = 0, focus = false },
-            contact = { text = cfg.dubber_contact or "", cursor = 0, anchor = 0, focus = false },
-            samples = { text = cfg.dubber_samples or "", cursor = 0, anchor = 0, focus = false },
-            equipment = { text = cfg.dubber_equipment or "", cursor = 0, anchor = 0, focus = false },
-            conditions = cfg.dubber_conditions,
-            voice = cfg.dubber_voice,
-            timbre = s2t(cfg.dubber_timbre),
-            archetypes = s2t(cfg.dubber_archetypes),
-            vocals = cfg.dubber_vocals,
-            scroll_y = 0,
-            target_scroll_y = 0
-        }
+        ACHIEVEMENTS.open_edit_profile()
         UI_STATE.mouse_handled = true
     end
 
@@ -16697,6 +16755,179 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
         end
     end
     
+    UI_STATE.mouse_handled = true
+end
+
+function DRAW_WINDOW.draw_talent_search(input_queue)
+    if not UI_STATE.show_talent_search then return end
+    
+    local footer_h = S(40)
+    local header_h = S(64)
+    local pad = S(20)
+
+    -- 1. BACKGROUND
+    set_color(UI.C_BG)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+    -- Define content area bounds
+    local content_y = header_h
+    local content_h = gfx.h - header_h - footer_h
+    local width = gfx.w - pad * 2
+
+    -- 2. SCROLL LOGIC
+    local max_scroll = ACHIEVEMENTS.talents_max_scroll or 0
+    if UI_STATE.window_focused and gfx.mouse_x > 0 and gfx.mouse_x < gfx.w and gfx.mouse_y > header_h and gfx.mouse_y < gfx.h - footer_h then
+        if gfx.mouse_wheel ~= 0 then
+            UI_STATE.talents_target_scroll_y = math.max(0, math.min(max_scroll, UI_STATE.talents_target_scroll_y - gfx.mouse_wheel * 0.5))
+            gfx.mouse_wheel = 0
+        end
+    end
+    UI_STATE.talents_scroll_y = UI_STATE.talents_scroll_y + (UI_STATE.talents_target_scroll_y - UI_STATE.talents_scroll_y) * 0.5
+
+    -- 3. DRAW CONTENT (Masked by header/footer rects later)
+    if UI_STATE.talents_loading and not UI_STATE.talents_list then
+        set_color(UI.C_TXT, 0.3)
+        local txt = "Завантаження талантів..."
+        gfx.setfont(F.title)
+        local tw, th = gfx.measurestr(txt)
+        gfx.x, gfx.y = (gfx.w - tw) / 2, content_y + (content_h - th) / 2
+        gfx.drawstr(txt)
+    elseif not UI_STATE.talents_list or #UI_STATE.talents_list == 0 then
+        set_color(UI.C_TXT, 0.3)
+        local txt = UI_STATE.talents_loading and "Оновлення..." or "Нікого не знайдено"
+        gfx.setfont(F.title)
+        local tw, th = gfx.measurestr(txt)
+        gfx.x, gfx.y = (gfx.w - tw) / 2, content_y + (content_h - th) / 2
+        gfx.drawstr(txt)
+    else
+        -- Draw List
+        local row_h = S(50)
+        local top_pad = S(15)
+        local total_h = #UI_STATE.talents_list * row_h + top_pad * 2
+        ACHIEVEMENTS.talents_max_scroll = math.max(0, total_h - content_h)
+
+        local cy = content_y + top_pad - UI_STATE.talents_scroll_y
+        
+        for i, t in ipairs(UI_STATE.talents_list) do
+            local rx, ry, rw, rh = pad, cy, width, row_h
+            
+            -- Only draw if visible (at least partially)
+            if ry + rh > header_h and ry < gfx.h - footer_h then
+                local hover = UI_STATE.window_focused and (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= ry and gfx.mouse_y <= ry + rh)
+                -- Hover only if within content area
+                if hover and (gfx.mouse_y < header_h or gfx.mouse_y > gfx.h - footer_h) then hover = false end
+
+                if hover then
+                    set_color(UI.C_BTN, 0.1)
+                    gfx.rect(rx, ry, rw, rh, 1)
+                end
+                
+                -- Name
+                gfx.setfont(F.bld)
+                set_color(UI.C_TXT, 1)
+                gfx.x, gfx.y = rx + S(10), ry + S(8)
+                gfx.drawstr(fit_text_width(t.dubber_name or "Анонім", S(200)))
+                
+                -- Voice / Timbre
+                gfx.setfont(F.tip)
+                set_color(UI.C_TXT, 0.5)
+                gfx.x, gfx.y = rx + S(10), ry + S(28)
+                local voice_info = (t.dubber_voice or "") .. ((t.dubber_timbre and t.dubber_timbre ~= "") and (" (" .. t.dubber_timbre .. ")") or "")
+                if voice_info == "" then voice_info = "Голос не вказано" end
+                gfx.drawstr(fit_text_width(voice_info, S(250)))
+                
+                -- Specialization
+                set_color(UI.C_BLUE_BRIGHT, 0.7)
+                local spec = t.dubber_specialization or "-"
+                if spec == "" then spec = "-" end
+                local sw, sh = gfx.measurestr(spec)
+                gfx.x, gfx.y = rx + rw - S(140) - sw, ry + (rh - sh) / 2
+                gfx.drawstr(spec)
+
+                -- View Profile Button
+                local bw, bh = S(120), S(30)
+                local bx, by = rx + rw - bw - S(10), ry + (rh - bh) / 2
+                
+                -- Button logic: clickable if visible and not masked
+                if by + bh > header_h and by < gfx.h - footer_h then
+                    local mouse_over_mask = (gfx.mouse_y < header_h or gfx.mouse_y > gfx.h - footer_h)
+                    if btn(bx, by, bw, bh, "Профіль", UI.C_BTN, UI.C_TXT) then
+                        if not mouse_over_mask then
+                            ACHIEVEMENTS.fetch_profile(t.machine_id)
+                        end
+                    end
+                end
+                
+                -- Separator
+                set_color(UI.C_TXT, 0.05)
+                gfx.line(rx, ry + rh - 1, rx + rw, ry + rh - 1)
+            end
+            cy = cy + row_h
+        end
+    end
+
+    -- 4. HEADER (Masking content)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, header_h, 1)
+    set_color(UI.C_TXT, 0.1)
+    gfx.line(0, header_h, gfx.w, header_h)
+    
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT)
+    gfx.x, gfx.y = pad, pad - S(2)
+    gfx.drawstr("Пошук талантів")
+
+    -- Close button
+    local close_sz = S(24)
+    if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+        UI_STATE.show_talent_search = false
+    end
+
+    -- 5. FOOTER (Masking content)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, gfx.h - footer_h, gfx.w, footer_h, 1)
+    set_color(UI.C_TXT, 0.1)
+    gfx.line(0, gfx.h - footer_h, gfx.w, gfx.h - footer_h)
+
+    if UI_STATE.talents_total > 20 then
+        local total_pages = math.ceil(UI_STATE.talents_total / 20)
+        local pag_w = S(220)
+        local pag_x = (gfx.w - pag_w) / 2
+        local pag_y = gfx.h - footer_h + (footer_h - S(26)) / 2
+        
+        -- Prev
+        if UI_STATE.talents_page > 1 then
+            if btn(pag_x, pag_y, S(30), S(26), "<", UI.C_BTN, UI.C_TXT) then
+                ACHIEVEMENTS.fetch_talents(UI_STATE.talents_page - 1)
+            end
+        end
+        
+        -- Info
+        gfx.setfont(F.std)
+        set_color(UI.C_TXT, 0.6)
+        local p_txt = string.format("%d / %d", UI_STATE.talents_page, total_pages)
+        local tw, th = gfx.measurestr(p_txt)
+        gfx.x, gfx.y = (gfx.w - tw) / 2, pag_y + (S(26) - th) / 2
+        gfx.drawstr(p_txt)
+        
+        -- Next
+        if UI_STATE.talents_page < total_pages then
+            if btn(pag_x + pag_w - S(30), pag_y, S(30), S(26), ">", UI.C_BTN, UI.C_TXT) then
+                ACHIEVEMENTS.fetch_talents(UI_STATE.talents_page + 1)
+            end
+        end
+    end
+
+    -- 6. HANDLE ESC
+    if input_queue then
+        for i = #input_queue, 1, -1 do
+            if input_queue[i] == 27 then
+                UI_STATE.show_talent_search = false
+                table.remove(input_queue, i)
+            end
+        end
+    end
+
     UI_STATE.mouse_handled = true
 end
 
@@ -18807,30 +19038,7 @@ function DRAW_TABS.draw_file()
         local by = cur_y + (banner_h - b_btn_h) / 2
         
         if btn(bx, by, b_btn_w, b_btn_h, "Заповнити", {0.8, 0.2, 0.2, 1.0}, UI.C_BG) then
-            ACHIEVEMENTS.show = true
-            UI_STATE.show_edit_profile = true
-            local function s2t(str)
-                local t = {}
-                if str then for i in str:gmatch("[^,]+") do 
-                    local tr = i:match("^%s*(.-)%s*$")
-                    if tr ~= "" then t[tr:sub(1,1):upper() .. tr:sub(2):lower()] = true end
-                end end
-                return t
-            end
-            OTHER.profile_state = {
-                name = { text = cfg.dubber_name or "", cursor = 0, anchor = 0, focus = false },
-                specialization = s2t(cfg.dubber_specialization),
-                bio = { text = cfg.dubber_bio or "", cursor = 0, anchor = 0, focus = false },
-                contact = { text = cfg.dubber_contact or "", cursor = 0, anchor = 0, focus = false },
-                samples = { text = cfg.dubber_samples or "", cursor = 0, anchor = 0, focus = false },
-                equipment = { text = cfg.dubber_equipment or "", cursor = 0, anchor = 0, focus = false },
-                conditions = cfg.dubber_conditions,
-                voice = cfg.dubber_voice,
-                timbre = s2t(cfg.dubber_timbre),
-                archetypes = s2t(cfg.dubber_archetypes),
-                scroll_y = 0,
-                target_scroll_y = 0
-            }
+            ACHIEVEMENTS.open_edit_profile()
             UI_STATE.mouse_handled = true
         end
         
@@ -22904,6 +23112,8 @@ function DRAW_TABS.draw_settings()
     local btn_h = S(40)
     
     local tools = {
+        {name = "Пошук талантів", tip = "Пошук талантів, та перегляд профілів інших користувачів", color = UI.C_TAL_BG, action = function() UI_STATE.show_talent_search = true ACHIEVEMENTS.fetch_talents(1) end},
+        {name = "Редагувати профіль", tip = "Редагування профілю користувача", action = function() ACHIEVEMENTS.open_edit_profile() end},
         {name = "Моя Статистика", tip = "Детальна персональна аналітика: кількість записаних реплік, слів, час роботи та прогрес по проектах у зручному веб-інтерфейсі.", action = function() UTILS.launch_python_script("stats/subass_stats.py") end},
         {name = "Мої Дедлайни", tip = "Календар та список термінів здачі проектів. Допомагає планувати черговість роботи та не пропускати дедлайни.", action = function() DEADLINE.dashboard_show = true end},
         {name = "Розділення по Даберам", tip = "Спеціальний інструмент для автоматичного або ручного розподілу реплік/ролей між даберами. Дозволяє бачити навантаження кожного дабера.", action = function() DUBBERS.show_dashboard = true DUBBERS.load() end},
@@ -30033,6 +30243,8 @@ local function main()
             DRAW_WINDOW.draw_edit_profile(input_queue)
         elseif UI_STATE.show_profile_view then
             DRAW_WINDOW.draw_remote_profile(input_queue)
+        elseif UI_STATE.show_talent_search then
+            DRAW_WINDOW.draw_talent_search(input_queue)
         elseif SEARCH_ITEM.show then
             if SEARCH_ITEM.draw_window then SEARCH_ITEM.draw_window(input_queue) end
         elseif ACHIEVEMENTS.show then
