@@ -394,6 +394,7 @@ cfg.dubber_timbre = UTILS.unicode_unescape(get_set("dubber_timbre", ""))
 cfg.dubber_specialization = UTILS.unicode_unescape(get_set("dubber_specialization", ""))
 cfg.dubber_archetypes = UTILS.unicode_unescape(get_set("dubber_archetypes", ""))
 cfg.dubber_vocals = UTILS.unicode_unescape(get_set("dubber_vocals", ""))
+cfg.dubber_status = UTILS.unicode_unescape(get_set("dubber_status", "Звичайни аккаунт"))
 
 -- Profile Metadata (Options and Tooltips)
 PROFILE_META = {
@@ -464,6 +465,20 @@ PROFILE_META = {
         tips = {
             "Чоловічий голос",
             "Жіночий голос",
+        }
+    },
+    STATUS = {
+        opts = {"Вільний талант", "Шукаю талант", "Звичайни аккаунт", "Приховати талант"},
+        tips = {
+            "В активному пошуку проєкта",
+            "В активному пошуку нових колег",
+            "Звичайний аккаунт",
+            "Приховати мій профіль з публічного пошуку"
+        },
+        filter = {"Вільний талант", "Шукаю талант"},
+        filter_tips = {
+            "В активному пошуку проєкта",
+            "В активному пошуку нових колег",
         }
     }
 }
@@ -2730,6 +2745,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "dubber_specialization", UTILS.unicode_escape(cfg.dubber_specialization or ""), true)
     reaper.SetExtState(section_name, "dubber_archetypes", UTILS.unicode_escape(cfg.dubber_archetypes or ""), true)
     reaper.SetExtState(section_name, "dubber_vocals", UTILS.unicode_escape(cfg.dubber_vocals or ""), true)
+    reaper.SetExtState(section_name, "dubber_status", UTILS.unicode_escape(cfg.dubber_status or "Звичайни аккаунт"), true)
     reaper.SetExtState(section_name, "profile_edit_seen", cfg.profile_edit_seen and "1" or "0", true)
     
     reaper.SetExtState(section_name, "p_fsize", tostring(cfg.p_fsize), true)
@@ -9639,6 +9655,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
         dubber_specialization = p.dubber_specialization or "",
         dubber_archetypes = p.dubber_archetypes or "",
         dubber_vocals = p.dubber_vocals or "",
+        dubber_status = p.dubber_status or "Звичайни аккаунт",
     })
 
     local sf = io.open(stats_file_path, "w")
@@ -9791,6 +9808,7 @@ function ACHIEVEMENTS.fetch_talents(page)
         vocals = f.vocals,
         specialization = t2s(f.specialization or {}),
         archetypes = t2s(f.archetypes or {}),
+        status = f.status,
     }
     
     local filter_file = script_path .. "stats/subass_talents_filter.json"
@@ -15670,6 +15688,7 @@ function ACHIEVEMENTS.open_edit_profile()
         timbre = s2t(cfg.dubber_timbre),
         archetypes = s2t(cfg.dubber_archetypes),
         vocals = cfg.dubber_vocals,
+        status = cfg.dubber_status or "Звичайни аккаунт",
         scroll_y = 0,
         target_scroll_y = 0
     }
@@ -16377,7 +16396,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     end
 
     draw_row("Ім'я:", "name", input_h, false, "Ваше ім'я або нікнейм...", 40)
-    draw_row("Про себе:", "bio", S(100), true, "Коротко про ваш досвід та спеціалізацію...", 1000)
+    draw_row("Опис:", "bio", S(100), true, "Коротко про ваш досвід та спеціалізацію...", 1000)
     draw_row("Зв'язок:", "contact", input_h, false, "Повне посилання на Telegram або інші соц. мережі...", 1000)
     draw_row("Портфоліо:", "samples", input_h, false, "Посилання на ваші роботи (YouTube, Drive)...", 1000)
     draw_row("Обладнання:", "equipment", input_h, false, "Мікрофон, звукова карта, тощо...", 1000)
@@ -16440,12 +16459,27 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                         (timbre_str ~= (cfg.dubber_timbre or "")) or
                         (spec_str ~= (cfg.dubber_specialization or "")) or
                         (arch_str ~= (cfg.dubber_archetypes or "")) or
-                        (state.vocals ~= (cfg.dubber_vocals or ""))
+                        (state.vocals ~= (cfg.dubber_vocals or "")) or
+                        (state.status ~= (cfg.dubber_status or "Звичайни аккаунт"))
 
     local btn_w = S(140)
     local btn_h = S(36)
     local bx = gfx.w - pad - btn_w
     local by = gfx.h - footer_h + (footer_h - btn_h) / 2
+
+    -- Status Button (left side of footer)
+    local status_opts = PROFILE_META.STATUS.opts
+    local status_label = (state.status and state.status ~= "") and state.status or "Статус..."
+    local status_w = S(150)
+    local status_x = pad
+    if btn(status_x, by, status_w, btn_h, status_label, UI.C_BTN, UI.C_TXT) then
+        gfx.x, gfx.y = status_x, by + btn_h
+        local menu_str = table.concat(status_opts, "|")
+        local ret = gfx.showmenu(menu_str)
+        if ret and ret > 0 then
+            state.status = status_opts[ret]
+        end
+    end
 
     -- Save Button
     local can_save = has_changes and is_name_valid
@@ -16469,7 +16503,8 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                 dubber_timbre = timbre_str,
                 dubber_specialization = spec_str,
                 dubber_archetypes = arch_str,
-                dubber_vocals = state.vocals
+                dubber_vocals = state.vocals,
+                dubber_status = state.status,
             }
             
             STATS.register_plugin_usage(function(success)
@@ -16696,63 +16731,65 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
 
     -- Track total height for NEXT frame's scroll limit
     local current_total_h = S(40) -- Start padding
-    
-    current_total_h = current_total_h + draw_view_section("БІО", p.dubber_bio, width)
-    
-    -- Dynamic Specialization Tooltip
-    local spec_tooltip = ""
-    if p.dubber_specialization then
-        for opt in p.dubber_specialization:gmatch("[^,]+") do
-            local clean = opt:match("^%s*(.-)%s*$")
-            local tip_item = PROFILE_META.tip_by_name("SPECIALIZATION", clean)
-            if tip_item then
-                spec_tooltip = spec_tooltip .. (spec_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+
+    if p.dubber_status ~= "Приховати талант" then
+        current_total_h = current_total_h + draw_view_section("ОПИС", p.dubber_bio, width)
+        
+        -- Dynamic Specialization Tooltip
+        local spec_tooltip = ""
+        if p.dubber_specialization then
+            for opt in p.dubber_specialization:gmatch("[^,]+") do
+                local clean = opt:match("^%s*(.-)%s*$")
+                local tip_item = PROFILE_META.tip_by_name("SPECIALIZATION", clean)
+                if tip_item then
+                    spec_tooltip = spec_tooltip .. (spec_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+                end
             end
         end
-    end
-    current_total_h = current_total_h + draw_view_section("СПЕЦІАЛІЗАЦІЯ", p.dubber_specialization, width, spec_tooltip ~= "" and spec_tooltip or nil)
+        current_total_h = current_total_h + draw_view_section("СПЕЦІАЛІЗАЦІЯ", p.dubber_specialization, width, spec_tooltip ~= "" and spec_tooltip or nil)
 
-    -- Dynamic Archetypes Tooltip
-    local arch_tooltip = ""
-    if p.dubber_archetypes then
-        for opt in p.dubber_archetypes:gmatch("[^,]+") do
-            local clean = opt:match("^%s*(.-)%s*$")
-            local tip_item = PROFILE_META.tip_by_name("ARCHETYPES", clean)
-            if tip_item then
-                arch_tooltip = arch_tooltip .. (arch_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+        -- Dynamic Archetypes Tooltip
+        local arch_tooltip = ""
+        if p.dubber_archetypes then
+            for opt in p.dubber_archetypes:gmatch("[^,]+") do
+                local clean = opt:match("^%s*(.-)%s*$")
+                local tip_item = PROFILE_META.tip_by_name("ARCHETYPES", clean)
+                if tip_item then
+                    arch_tooltip = arch_tooltip .. (arch_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+                end
             end
         end
-    end
-    current_total_h = current_total_h + draw_view_section("АМПЛУА", p.dubber_archetypes, width, arch_tooltip ~= "" and arch_tooltip or nil)
+        current_total_h = current_total_h + draw_view_section("АМПЛУА", p.dubber_archetypes, width, arch_tooltip ~= "" and arch_tooltip or nil)
 
-    -- Voice & Timbre Tooltip
-    local timbre_tooltip = ""
-    if p.dubber_timbre then
-        for opt in p.dubber_timbre:gmatch("[^,]+") do
-            local clean = opt:match("^%s*(.-)%s*$")
-            local tip_item = PROFILE_META.tip_by_name("TIMBRE", clean)
-            if tip_item then
-                timbre_tooltip = timbre_tooltip .. (timbre_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+        -- Voice & Timbre Tooltip
+        local timbre_tooltip = ""
+        if p.dubber_timbre then
+            for opt in p.dubber_timbre:gmatch("[^,]+") do
+                local clean = opt:match("^%s*(.-)%s*$")
+                local tip_item = PROFILE_META.tip_by_name("TIMBRE", clean)
+                if tip_item then
+                    timbre_tooltip = timbre_tooltip .. (timbre_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+                end
             end
         end
+
+        local has_voice = p.dubber_voice and p.dubber_voice ~= ""
+        local has_timbre = p.dubber_timbre and p.dubber_timbre ~= ""
+        local combined_voice = (has_voice and has_timbre) and (p.dubber_voice .. " (" .. p.dubber_timbre .. ")") or ""
+        local vocal_tooltip = p.dubber_vocals and PROFILE_META.tip_by_name("VOCALS", p.dubber_vocals)
+        local cond_tooltip = p.dubber_conditions and PROFILE_META.tip_by_name("CONDITIONS", p.dubber_conditions)
+
+        current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
+        current_total_h = current_total_h + draw_view_section("ВОКАЛ", p.dubber_vocals, width, vocal_tooltip)
+        current_total_h = current_total_h + draw_view_section("ОБЛАДНАННЯ", p.dubber_equipment, width)
+        current_total_h = current_total_h + draw_view_section("УМОВИ ЗАПИСУ", p.dubber_conditions, width, cond_tooltip)
+        current_total_h = current_total_h + draw_view_section("КОНТАКТИ", p.dubber_contact, width)
+        current_total_h = current_total_h + draw_view_section("ПОРТФОЛІО", p.dubber_samples, width)
     end
-
-    local has_voice = p.dubber_voice and p.dubber_voice ~= ""
-    local has_timbre = p.dubber_timbre and p.dubber_timbre ~= ""
-    local combined_voice = (has_voice and has_timbre) and (p.dubber_voice .. " (" .. p.dubber_timbre .. ")") or ""
-    local vocal_tooltip = p.dubber_vocals and PROFILE_META.tip_by_name("VOCALS", p.dubber_vocals)
-    local cond_tooltip = p.dubber_conditions and PROFILE_META.tip_by_name("CONDITIONS", p.dubber_conditions)
-
-    current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
-    current_total_h = current_total_h + draw_view_section("ВОКАЛ", p.dubber_vocals, width, vocal_tooltip)
-    current_total_h = current_total_h + draw_view_section("ОБЛАДНАННЯ", p.dubber_equipment, width)
-    current_total_h = current_total_h + draw_view_section("УМОВИ ЗАПИСУ", p.dubber_conditions, width, cond_tooltip)
-    current_total_h = current_total_h + draw_view_section("КОНТАКТИ", p.dubber_contact, width)
-    current_total_h = current_total_h + draw_view_section("ПОРТФОЛІО", p.dubber_samples, width)
 
     -- If no sections were drawn, show "Profile is empty"
     if current_total_h <= S(45) then -- S(40) is base padding
-        local empty_txt = "Профіль пустий"
+        local empty_txt = "Профіль пустий або прихований"
         gfx.setfont(F.tip_big)
         local tw, th = gfx.measurestr(empty_txt)
         local tx = (gfx.w - tw) / 2
@@ -16770,6 +16807,15 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     -- MASK TOP & HEADER (Draw on top of content)
     set_color(UI.C_BG, 1.0)
     gfx.rect(0, 0, gfx.w, header_h, 1)
+    
+    if p.dubber_status == "Шукаю талант" then
+        set_color(UI.C_ORANGE, 0.2)
+        gfx.rect(0, 0, gfx.w, header_h, 1)
+    elseif p.dubber_status == "Вільний талант" then
+        set_color(UI.C_HILI_GREEN, 0.2)
+        gfx.rect(0, 0, gfx.w, header_h, 1)
+    end
+    
     set_color(UI.C_TXT, 0.1)
     gfx.line(0, header_h, gfx.w, header_h)
     
@@ -16782,7 +16828,11 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     gfx.setfont(F.tip)
     set_color(UI.C_TXT, 0.6)
     gfx.x, gfx.y = pad, pad + S(24)
-    gfx.drawstr("Профіль користувача")
+    local sub_txt = "Профіль користувача"
+    if p.dubber_status == "Шукаю талант" or p.dubber_status == "Вільний талант" then
+        sub_txt = p.dubber_status
+    end
+    gfx.drawstr(sub_txt)
 
     -- Close button
     local close_sz = S(24)
@@ -16825,7 +16875,8 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
             conditions = UI_STATE.talents_filters.conditions,
             vocals = UI_STATE.talents_filters.vocals,
             specialization = {},
-            archetypes = {}
+            archetypes = {},
+            status = UI_STATE.talents_filters.status
         }
         -- Deep copy tables
         if UI_STATE.talents_filters.timbre then
@@ -16985,6 +17036,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
         cy = start_cy + section_h + spacing
     end
 
+    draw_radio("Статус:", "status", PROFILE_META.STATUS.filter, PROFILE_META.STATUS.filter_tips)
     draw_radio("Голос:", "voice", PROFILE_META.VOICE.opts, PROFILE_META.get_tips("VOICE"))
     draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
     draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
@@ -17017,7 +17069,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
     
     bx = bx - bw - S(10)
     if btn(bx, gfx.h - footer_h + (footer_h - bh)/2, bw, bh, "Скинути", UI.C_BTN, UI.C_TXT) then
-        UI_STATE.talents_filters_temp = { voice = nil, timbre = {}, conditions = nil, vocals = nil, specialization = {}, archetypes = {} }
+        UI_STATE.talents_filters_temp = { voice = nil, timbre = {}, conditions = nil, vocals = nil, specialization = {}, archetypes = {}, status = nil }
     end
 
     -- HEADER (Draw over content)
@@ -17086,6 +17138,8 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             for k, v in pairs(f.archetypes) do if v then has_arch = true break end end
         end
         if has_arch then count = count + 1 end
+        
+        if f.status then count = count + 1 end
         
         return count
     end
@@ -17184,37 +17238,46 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             
             -- Collect all badges
             local badges = {}
-
-            local v_clr = UI.C_HILI_WHITE
-            if t.dubber_voice and t.dubber_voice == "Жіночий" then
-                v_clr = UI.C_HILI_RED
-            elseif t.dubber_voice and t.dubber_voice == "Чоловічий" then
-                v_clr = UI.C_HILI_BLUE
-            end
+            local show_other_badges = true
             
-            local voice_txt = (t.dubber_voice or "") .. ((t.dubber_timbre and t.dubber_timbre ~= "") and (", " .. t.dubber_timbre) or "")
-            if voice_txt ~= "" then table.insert(badges, {txt = voice_txt, clr = v_clr, alpha = 0.2}) end
+            if t.dubber_status == "Шукаю талант" then
+                table.insert(badges, {txt = t.dubber_status, clr = UI.C_ORANGE, alpha = 0.3})
+            elseif t.dubber_status == "Вільний талант" then
+                table.insert(badges, {txt = t.dubber_status, clr = UI.C_HILI_GREEN, alpha = 0.3})
+            end
 
-            if t.dubber_specialization and t.dubber_specialization ~= "" then
-                for s in t.dubber_specialization:gmatch("([^,]+)") do
-                    s = s:match("^%s*(.-)%s*$")
-                    if s ~= "" then table.insert(badges, {txt = s, clr = UI.C_ORANGE, alpha = 0.2}) end
+            if show_other_badges then
+                local v_clr = UI.C_HILI_WHITE
+                if t.dubber_voice and t.dubber_voice == "Жіночий" then
+                    v_clr = UI.C_HILI_RED
+                elseif t.dubber_voice and t.dubber_voice == "Чоловічий" then
+                    v_clr = UI.C_HILI_BLUE
                 end
-            end
-            
-            if t.dubber_vocals and t.dubber_vocals ~= "" and t.dubber_vocals ~= "Не співаю" then
-                table.insert(badges, {txt = t.dubber_vocals, clr = UI.C_HILI_GREEN, alpha = 0.15})
-            end
-            
-            if t.dubber_conditions and t.dubber_conditions ~= "" then
-                table.insert(badges, {txt = t.dubber_conditions, clr = UI.C_HILI_PINK, alpha = 0.12})
-            end
-            
-            local gear = t.dubber_equipment or t.dubber_mic or ""
-            if gear ~= "" then
-                for g in gear:gmatch("([^,]+)") do
-                    g = g:match("^%s*(.-)%s*$")
-                    if g ~= "" then table.insert(badges, {txt = g, clr = UI.C_HILI_WHITE_LOW, alpha = 0.08}) end
+                
+                local voice_txt = (t.dubber_voice or "") .. ((t.dubber_timbre and t.dubber_timbre ~= "") and (", " .. t.dubber_timbre) or "")
+                if voice_txt ~= "" then table.insert(badges, {txt = voice_txt, clr = v_clr, alpha = 0.2}) end
+
+                if t.dubber_specialization and t.dubber_specialization ~= "" then
+                    for s in t.dubber_specialization:gmatch("([^,]+)") do
+                        s = s:match("^%s*(.-)%s*$")
+                        if s ~= "" then table.insert(badges, {txt = s, clr = UI.C_ORANGE, alpha = 0.2}) end
+                    end
+                end
+                
+                if t.dubber_vocals and t.dubber_vocals ~= "" and t.dubber_vocals ~= "Не співаю" then
+                    table.insert(badges, {txt = t.dubber_vocals, clr = UI.C_HILI_GREEN, alpha = 0.15})
+                end
+                
+                if t.dubber_conditions and t.dubber_conditions ~= "" then
+                    table.insert(badges, {txt = t.dubber_conditions, clr = UI.C_HILI_PINK, alpha = 0.12})
+                end
+                
+                local gear = t.dubber_equipment or t.dubber_mic or ""
+                if gear ~= "" then
+                    for g in gear:gmatch("([^,]+)") do
+                        g = g:match("^%s*(.-)%s*$")
+                        if g ~= "" then table.insert(badges, {txt = g, clr = UI.C_HILI_WHITE_LOW, alpha = 0.08}) end
+                    end
                 end
             end
             
@@ -17271,8 +17334,16 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
                 local hover = UI_STATE.window_focused and (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= ry and gfx.mouse_y <= ry + rh)
                 if hover and (gfx.mouse_y < header_h or gfx.mouse_y > gfx.h - footer_h) then hover = false end
 
+                if t.dubber_status == "Шукаю талант" then
+                    set_color(UI.C_ORANGE, 0.2)
+                    gfx.rect(rx, ry, rw, rh, 1)
+                elseif t.dubber_status == "Вільний талант" then
+                    set_color(UI.C_HILI_GREEN, 0.2)
+                    gfx.rect(rx, ry, rw, rh, 1)
+                end
+
                 if hover then
-                    set_color(UI.C_BTN, 0.1)
+                    set_color(UI.C_BTN, 0.15)
                     gfx.rect(rx, ry, rw, rh, 1)
                     if is_mouse_clicked() then
                         ACHIEVEMENTS.fetch_profile(t.machine_id)
