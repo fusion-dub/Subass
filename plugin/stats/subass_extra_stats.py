@@ -54,6 +54,7 @@ def main():
     parser.add_argument('--get-talents', action='store_true', help='Fetch all talents list')
     parser.add_argument('--limit', type=int, default=20, help='Limit for talents fetch')
     parser.add_argument('--offset', type=int, default=0, help='Offset for talents fetch')
+    parser.add_argument('--filters-file', help='Path to JSON file with filters')
     
     args = parser.parse_args()
 
@@ -304,9 +305,19 @@ def main():
     # --- TALENT SEARCH MODE ---
     if args.get_talents:
         try:
+            # Load filters from JSON file (safer for encoding)
+            filters = {}
+            if args.filters_file and os.path.exists(args.filters_file):
+                try:
+                    with open(args.filters_file, 'r', encoding='utf-8') as ff:
+                        filters = json.load(ff)
+                except Exception as e:
+                    print(f"Warning: Could not read filters file: {e}", file=sys.stderr)
+
             supabase_payload = {
                 "limit": args.limit,
                 "offset": args.offset,
+                "filters": filters
             }
             supabase_headers = {
                 "Content-Type": "application/json",
