@@ -918,6 +918,7 @@ local UI_STATE = {
         conditions = nil,
         vocals = nil,
         specialization = {},
+        archetypes = {},
     },
     talents_list = nil,
     talents_page = 1,
@@ -9780,6 +9781,7 @@ function ACHIEVEMENTS.fetch_talents(page)
         conditions = f.conditions,
         vocals = f.vocals,
         specialization = t2s(f.specialization or {}),
+        archetypes = t2s(f.archetypes or {}),
     }
     
     local filter_file = script_path .. "stats/subass_talents_filter.json"
@@ -16813,7 +16815,8 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
             timbre = {},
             conditions = UI_STATE.talents_filters.conditions,
             vocals = UI_STATE.talents_filters.vocals,
-            specialization = {}
+            specialization = {},
+            archetypes = {}
         }
         -- Deep copy tables
         if UI_STATE.talents_filters.timbre then
@@ -16821,6 +16824,9 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
         end
         if UI_STATE.talents_filters.specialization then
             for k, v in pairs(UI_STATE.talents_filters.specialization) do UI_STATE.talents_filters_temp.specialization[k] = v end
+        end
+        if UI_STATE.talents_filters.archetypes then
+            for k, v in pairs(UI_STATE.talents_filters.archetypes) do UI_STATE.talents_filters_temp.archetypes[k] = v end
         end
     end
     
@@ -16975,6 +16981,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
     draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
     draw_radio("Вокал:", "vocals", PROFILE_META.VOCALS.filter, PROFILE_META.VOCALS.filter_tips, S(150))
     draw_multi_select("Спеціалізація:", "specialization", PROFILE_META.SPECIALIZATION.opts, PROFILE_META.get_tips("SPECIALIZATION"))
+    draw_multi_select("Амплуа:", "archetypes", PROFILE_META.ARCHETYPES.opts, PROFILE_META.get_tips("ARCHETYPES"))
 
     UI_STATE.talents_filters_last_h = (cy + UI_STATE.talents_filters_scroll_y) - content_y + S(20)
 
@@ -17001,7 +17008,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
     
     bx = bx - bw - S(10)
     if btn(bx, gfx.h - footer_h + (footer_h - bh)/2, bw, bh, "Скинути", UI.C_BTN, UI.C_TXT) then
-        UI_STATE.talents_filters_temp = { voice = nil, timbre = {}, conditions = nil, vocals = nil, specialization = {} }
+        UI_STATE.talents_filters_temp = { voice = nil, timbre = {}, conditions = nil, vocals = nil, specialization = {}, archetypes = {} }
     end
 
     -- HEADER (Draw over content)
@@ -17064,6 +17071,12 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             for k, v in pairs(f.specialization) do if v then has_spec = true break end end
         end
         if has_spec then count = count + 1 end
+        
+        local has_arch = false
+        if f.archetypes then
+            for k, v in pairs(f.archetypes) do if v then has_arch = true break end end
+        end
+        if has_arch then count = count + 1 end
         
         return count
     end
