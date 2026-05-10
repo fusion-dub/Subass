@@ -19,9 +19,10 @@ BEGIN
             dubber_equipment,
             dubber_archetypes,
             dubber_contact,
+            dubber_vocals,
             last_active
         FROM users
-        ORDER BY last_active DESC NULLS LAST, dubber_name ASC
+        ORDER BY dubber_name ASC, last_active DESC NULLS LAST
         LIMIT p_limit
         OFFSET p_offset
     ) t;
