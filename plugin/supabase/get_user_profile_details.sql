@@ -15,6 +15,7 @@ BEGIN
         'dubber_archetypes', dubber_archetypes,
         'dubber_voice', dubber_voice,
         'dubber_timbre', dubber_timbre,
+        'dubber_vocals', dubber_vocals,
         'last_active', last_active
     ) INTO result
     FROM users
