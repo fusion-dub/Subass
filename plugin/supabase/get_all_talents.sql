@@ -9,7 +9,8 @@ BEGIN
     SELECT count(*) INTO v_total_count
     FROM users
     WHERE 
-        (p_filters->>'voice' IS NULL OR dubber_voice = p_filters->>'voice')
+        (dubber_status IS NULL OR dubber_status != 'Приховати талант')
+        AND (p_filters->>'voice' IS NULL OR dubber_voice = p_filters->>'voice')
         AND (p_filters->>'conditions' IS NULL OR dubber_conditions = p_filters->>'conditions')
         AND (p_filters->>'vocals' IS NULL OR dubber_vocals = p_filters->>'vocals')
         AND (p_filters->>'timbre' IS NULL OR p_filters->>'timbre' = '' OR EXISTS (
@@ -42,10 +43,12 @@ BEGIN
             dubber_contact,
             dubber_vocals,
             dubber_conditions,
+            dubber_status,
             last_active
         FROM users
         WHERE 
-            (p_filters->>'voice' IS NULL OR dubber_voice = p_filters->>'voice')
+            (dubber_status IS NULL OR dubber_status != 'Приховати талант')
+            AND (p_filters->>'voice' IS NULL OR dubber_voice = p_filters->>'voice')
             AND (p_filters->>'conditions' IS NULL OR dubber_conditions = p_filters->>'conditions')
             AND (p_filters->>'vocals' IS NULL OR dubber_vocals = p_filters->>'vocals')
             AND (p_filters->>'timbre' IS NULL OR p_filters->>'timbre' = '' OR EXISTS (
