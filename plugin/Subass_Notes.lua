@@ -3918,11 +3918,13 @@ end
 --- @param text string Button label
 --- @param bg_col RGB color array
 --- @return boolean True if clicked
-local function btn(x, y, w, h, text, bg_col, txt_col, ignore_header)
+local function btn(x, y, w, h, text, bg_col, txt_col, ignore_header, min_y, max_y)
     local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x+w and gfx.mouse_y >= y and gfx.mouse_y <= y+h)
     
     -- Safety check: ignore hover/click if under the tab header (if requested)
     if hover and ignore_header and gfx.mouse_y < S(26) then hover = false end
+    if hover and min_y and gfx.mouse_y < min_y then hover = false end
+    if hover and max_y and gfx.mouse_y > max_y then hover = false end
     
     set_color(hover and UI.C_BTN_H or (bg_col or UI.C_BTN))
     gfx.rect(x, y, w, h, 1)
@@ -9843,6 +9845,8 @@ function ACHIEVEMENTS.fetch_talents(page)
             if ok and data and data.ok and data.data then
                 UI_STATE.talents_list = data.data.talents
                 UI_STATE.talents_total = data.data.total_count
+                UI_STATE.talents_free_count = data.data.free_talents_count or 0
+                UI_STATE.talents_looking_count = data.data.looking_for_talents_count or 0
                 UI_STATE.talents_page = page
             else
                 show_snackbar("Не вдалося завантажити список талантів", "error")
@@ -16842,7 +16846,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
         set_color(UI.C_ORANGE, 0.2)
         gfx.rect(0, 0, gfx.w, header_h, 1)
     elseif p.dubber_status == "Вільний талант" then
-        set_color(UI.C_HILI_GREEN, 0.2)
+        set_color(UI.C_ACCENT_G, 0.2)
         gfx.rect(0, 0, gfx.w, header_h, 1)
     end
     
@@ -16997,7 +17001,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
                     UI_STATE.tooltip_state.text = tooltips[i]
                 end
 
-                if btn(rx, ry, rw, input_h, opt, bg, txt) then
+                if btn(rx, ry, rw, input_h, opt, bg, txt, false, content_y, content_y + content_h) then
                     if f_state[state_key] == opt then f_state[state_key] = nil else f_state[state_key] = opt end
                 end
                 rx = rx + rw + S(5)
@@ -17056,7 +17060,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
                     UI_STATE.tooltip_state.text = tooltips[i]
                 end
 
-                if btn(rx, ry, rw, input_h, opt, bg, txt) then
+                if btn(rx, ry, rw, input_h, opt, bg, txt, false, content_y, content_y + content_h) then
                     f_state[state_key] = f_state[state_key] or {}
                     f_state[state_key][opt] = not f_state[state_key][opt]
                 end
@@ -17066,7 +17070,6 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
         cy = start_cy + section_h + spacing
     end
 
-    draw_radio("Статус:", "status", PROFILE_META.STATUS.filter, PROFILE_META.STATUS.filter_tips)
     draw_radio("Голос:", "voice", PROFILE_META.VOICE.opts, PROFILE_META.get_tips("VOICE"))
     draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
     draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
@@ -17168,8 +17171,6 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             for k, v in pairs(f.archetypes) do if v then has_arch = true break end end
         end
         if has_arch then count = count + 1 end
-        
-        if f.status then count = count + 1 end
         
         return count
     end
@@ -17273,7 +17274,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             if t.dubber_status == "Шукаю талант" then
                 table.insert(badges, {txt = t.dubber_status, clr = UI.C_ORANGE, alpha = 0.3})
             elseif t.dubber_status == "Вільний талант" then
-                table.insert(badges, {txt = t.dubber_status, clr = UI.C_HILI_GREEN, alpha = 0.3})
+                table.insert(badges, {txt = t.dubber_status, clr = UI.C_ACCENT_G, alpha = 0.3})
             end
 
             if show_other_badges then
@@ -17368,7 +17369,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
                     set_color(UI.C_ORANGE, 0.2)
                     gfx.rect(rx, ry, rw, rh, 1)
                 elseif t.dubber_status == "Вільний талант" then
-                    set_color(UI.C_HILI_GREEN, 0.2)
+                    set_color(UI.C_ACCENT_G, 0.2)
                     gfx.rect(rx, ry, rw, rh, 1)
                 end
 
@@ -17459,15 +17460,62 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
     local btn_txt = UI.C_TXT
     
     if not UI_STATE.talents_show_filters and f_count > 0 then
-        btn_bg = UI.C_ORANGE
+        btn_bg = UI.C_RED
         btn_txt = UI.C_BG -- Dark text on orange background
     end
 
-    if btn(gfx.w - pad - close_sz - filter_btn_w - S(10), pad, filter_btn_w, close_sz, UI_STATE.talents_show_filters and "Назад" or filter_text, btn_bg, btn_txt) then
+    local current_x = gfx.w - pad - close_sz - filter_btn_w - S(10)
+    if btn(current_x, pad, filter_btn_w, close_sz, UI_STATE.talents_show_filters and "Назад" or filter_text, btn_bg, btn_txt) then
         UI_STATE.talents_show_filters = not UI_STATE.talents_show_filters
         if not UI_STATE.talents_show_filters then
             ACHIEVEMENTS.fetch_talents(1) -- Refresh when closing filters
         end
+    end
+    current_x = current_x - S(10)
+
+    -- "Шукаю талант" button
+    local look_count = UI_STATE.talents_looking_count or 0
+    local is_look_sel = UI_STATE.talents_filters and UI_STATE.talents_filters.status == "Шукаю талант"
+    if look_count > 0 or is_look_sel then
+        local look_text = "Шукаю талант (" .. look_count .. ")"
+        gfx.setfont(F.std)
+        local look_w = gfx.measurestr(look_text) + S(20)
+        current_x = current_x - look_w
+        
+        local look_bg = is_look_sel and UI.C_ORANGE or UI.C_BTN
+        local look_txt = is_look_sel and UI.C_BG or UI.C_TXT
+        if btn(current_x, pad, look_w, close_sz, look_text, look_bg, look_txt) then
+            UI_STATE.talents_filters = UI_STATE.talents_filters or {}
+            if is_look_sel then
+                UI_STATE.talents_filters.status = nil
+            else
+                UI_STATE.talents_filters.status = "Шукаю талант"
+            end
+            ACHIEVEMENTS.fetch_talents(1)
+        end
+        current_x = current_x - S(10)
+    end
+
+    -- "Вільний талант" button
+    local free_count = UI_STATE.talents_free_count or 0
+    local is_free_sel = UI_STATE.talents_filters and UI_STATE.talents_filters.status == "Вільний талант"
+    if free_count > 0 or is_free_sel then
+        local free_text = "Вільні таланти (" .. free_count .. ")"
+        local free_w = gfx.measurestr(free_text) + S(20)
+        current_x = current_x - free_w
+
+        local free_bg = is_free_sel and UI.C_ACCENT_G or UI.C_BTN
+        local free_txt = is_free_sel and UI.C_BG or UI.C_TXT
+        if btn(current_x, pad, free_w, close_sz, free_text, free_bg, free_txt) then
+            UI_STATE.talents_filters = UI_STATE.talents_filters or {}
+            if is_free_sel then
+                UI_STATE.talents_filters.status = nil
+            else
+                UI_STATE.talents_filters.status = "Вільний талант"
+            end
+            ACHIEVEMENTS.fetch_talents(1)
+        end
+        current_x = current_x - S(10)
     end
 
     -- Close button
