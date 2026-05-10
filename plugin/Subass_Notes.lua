@@ -16506,7 +16506,19 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     local current_total_h = S(40) -- Start padding
     
     current_total_h = current_total_h + draw_view_section("БІО", p.dubber_bio, width)
-    current_total_h = current_total_h + draw_view_section("СПЕЦІАЛІЗАЦІЯ", p.dubber_specialization, width)
+    
+    -- Dynamic Specialization Tooltip
+    local spec_tooltip = ""
+    if p.dubber_specialization then
+        for opt in p.dubber_specialization:gmatch("[^,]+") do
+            local clean = opt:match("^%s*(.-)%s*$")
+            local tip_item = PROFILE_META.SPECIALIZATION.tips[clean]
+            if tip_item then
+                spec_tooltip = spec_tooltip .. (spec_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+            end
+        end
+    end
+    current_total_h = current_total_h + draw_view_section("СПЕЦІАЛІЗАЦІЯ", p.dubber_specialization, width, spec_tooltip ~= "" and spec_tooltip or nil)
 
     -- Dynamic Archetypes Tooltip
     local arch_tooltip = ""
