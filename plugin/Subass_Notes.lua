@@ -16459,7 +16459,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     ACHIEVEMENTS.profile_scroll_y = ACHIEVEMENTS.profile_scroll_y + (ACHIEVEMENTS.profile_target_scroll_y - ACHIEVEMENTS.profile_scroll_y) * 0.5
 
     local cy = content_y + S(20) - ACHIEVEMENTS.profile_scroll_y
-    local width = math.min(S(600), gfx.w - pad * 2)
+    local width = gfx.w - pad * 2
 
     -- Helper for drawing sections and calculating height
     local function draw_view_section(title, text, w, tooltip_text)
@@ -16571,6 +16571,11 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
                 end
                 cy = cy + S(18)
             end
+            
+            -- Separator line
+            set_color(UI.C_TXT, 0.05)
+            gfx.line(pad, cy + S(15), pad + w, cy + S(15))
+            
             cy = cy + S(30)
         else
             cy = cy + section_h
@@ -16624,14 +16629,11 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     local has_voice = p.dubber_voice and p.dubber_voice ~= ""
     local has_timbre = p.dubber_timbre and p.dubber_timbre ~= ""
     local combined_voice = (has_voice and has_timbre) and (p.dubber_voice .. " (" .. p.dubber_timbre .. ")") or ""
-    current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
-    
     local vocal_tooltip = p.dubber_vocals and PROFILE_META.VOCALS.tips[p.dubber_vocals]
-    current_total_h = current_total_h + draw_view_section("ВОКАЛ", p.dubber_vocals, width, vocal_tooltip)
-
     local cond_tooltip = p.dubber_conditions and PROFILE_META.CONDITIONS.tips[p.dubber_conditions]
-    local vocal_tooltip = p.dubber_vocals and PROFILE_META.VOCALS.tips[p.dubber_vocals]
 
+    current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
+    current_total_h = current_total_h + draw_view_section("ВОКАЛ", p.dubber_vocals, width, vocal_tooltip)
     current_total_h = current_total_h + draw_view_section("ОБЛАДНАННЯ", p.dubber_equipment, width)
     current_total_h = current_total_h + draw_view_section("УМОВИ ЗАПИСУ", p.dubber_conditions, width, cond_tooltip)
     current_total_h = current_total_h + draw_view_section("КОНТАКТИ", p.dubber_contact, width)
