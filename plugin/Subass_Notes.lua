@@ -393,6 +393,7 @@ cfg.dubber_voice = UTILS.unicode_unescape(get_set("dubber_voice", ""))
 cfg.dubber_timbre = UTILS.unicode_unescape(get_set("dubber_timbre", ""))
 cfg.dubber_specialization = UTILS.unicode_unescape(get_set("dubber_specialization", ""))
 cfg.dubber_archetypes = UTILS.unicode_unescape(get_set("dubber_archetypes", ""))
+cfg.dubber_vocals = UTILS.unicode_unescape(get_set("dubber_vocals", ""))
 
 -- Profile Metadata (Options and Tooltips)
 PROFILE_META = {
@@ -443,6 +444,14 @@ PROFILE_META = {
             ["Звукорежисер"] = "Спеціаліст з монтажу, зведення аудіодоріжок та фінальної обробки звуку",
             ["Редактор"] = "Відповідає за перевірку тексту на помилки, стилістику та відповідність ліпсингу",
             ["Менеджер"] = "Організатор процесів, який координує роботу команди та терміни виконання проєкту"
+        }
+    },
+    VOCALS = {
+        opts = {"Не співаю", "Аматорський вокал", "Професійний вокал"},
+        tips = {
+            ["Не співаю"] = "Не займаюся вокалом",
+            ["Аматорський вокал"] = "Можу заспівати прості партії, опенінги або фоновий вокал",
+            ["Професійний вокал"] = "Маю професійну вокальну підготовку, працюю зі складними партіями"
         }
     }
 }
@@ -2683,6 +2692,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "dubber_timbre", UTILS.unicode_escape(cfg.dubber_timbre or ""), true)
     reaper.SetExtState(section_name, "dubber_specialization", UTILS.unicode_escape(cfg.dubber_specialization or ""), true)
     reaper.SetExtState(section_name, "dubber_archetypes", UTILS.unicode_escape(cfg.dubber_archetypes or ""), true)
+    reaper.SetExtState(section_name, "dubber_vocals", UTILS.unicode_escape(cfg.dubber_vocals or ""), true)
     reaper.SetExtState(section_name, "profile_edit_seen", cfg.profile_edit_seen and "1" or "0", true)
     
     reaper.SetExtState(section_name, "p_fsize", tostring(cfg.p_fsize), true)
@@ -9590,6 +9600,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
         dubber_timbre = p.dubber_timbre or "",
         dubber_specialization = p.dubber_specialization or "",
         dubber_archetypes = p.dubber_archetypes or "",
+        dubber_vocals = p.dubber_vocals or "",
     })
 
     local sf = io.open(stats_file_path, "w")
@@ -15998,6 +16009,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
             voice = cfg.dubber_voice,
             timbre = s2t(cfg.dubber_timbre),
             archetypes = s2t(cfg.dubber_archetypes),
+            vocals = cfg.dubber_vocals,
             scroll_y = 0,
             target_scroll_y = 0
         }
@@ -16080,7 +16092,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     -- SCROLLABLE CONTENT AREA
     local content_y = header_h
     local content_h = gfx.h - header_h - footer_h
-    local total_content_h = S(650) -- Total height of all inputs + spacing
+    local total_content_h = state.last_content_h or S(700)
     local max_scroll = math.max(0, total_content_h - content_h)
 
     -- Handle mouse wheel
@@ -16093,40 +16105,83 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     state.scroll_y = state.scroll_y + (state.target_scroll_y - state.scroll_y) * 0.5
 
     local cy = content_y + S(20) - state.scroll_y
-    local label_w = S(120)
+    local is_narrow = gfx.w < S(450)
+    local label_w = is_narrow and 0 or S(120)
     local input_w = gfx.w - pad * 2 - label_w
     local input_h = S(30)
     local spacing = S(20)
 
     local function draw_row(label, state_key, h, is_multi, placeholder, max_len)
-        -- Only draw if within content bounds (with some margin for partial visibility)
-        if cy + h > content_y and cy < content_y + content_h then
+        local row_h = h
+        if is_narrow then
+            row_h = h + S(20) -- Extra space for label on top
+        end
+
+        if cy + row_h > content_y and cy < content_y + content_h then
             gfx.setfont(F.std)
             set_color(UI.C_TXT, 0.7)
-            gfx.x, gfx.y = pad, cy + (is_multi and 0 or (h - gfx.texth) / 2)
-            gfx.drawstr(label)
             
-            ui_text_input("profile_" .. state_key, pad + label_w, cy, input_w, h, state[state_key], placeholder or "", input_queue, is_multi, nil, nil, max_len)
+            local ix, iy, iw = pad + label_w, cy, input_w
+            if is_narrow then
+                gfx.x, gfx.y = pad, cy
+                gfx.drawstr(label)
+                iy = cy + S(20)
+            else
+                gfx.x, gfx.y = pad, cy + (is_multi and 0 or (h - gfx.texth) / 2)
+                gfx.drawstr(label)
+            end
+            
+            ui_text_input("profile_" .. state_key, ix, iy, iw, h, state[state_key], placeholder or "", input_queue, is_multi, nil, nil, max_len)
         end
-        cy = cy + h + spacing
+        cy = cy + row_h + spacing
     end
 
     local function draw_radio(label, state_key, options, tooltips)
-        if cy + input_h > content_y and cy < content_y + content_h then
+        local start_cy = cy
+        local ry = cy
+        if is_narrow then
+            ry = cy + S(20)
+        end
+
+        -- Pre-calculate height
+        local temp_cy = ry
+        local temp_rx = pad + label_w
+        local rw = S(100)
+        for i, opt in ipairs(options) do
+            if temp_rx + rw > gfx.w - pad then
+                temp_rx = pad + label_w
+                temp_cy = temp_cy + input_h + S(5)
+            end
+            temp_rx = temp_rx + rw + S(5)
+        end
+        local section_h = temp_cy - start_cy + input_h
+
+        if cy + section_h > content_y and cy < content_y + content_h then
             gfx.setfont(F.std)
             set_color(UI.C_TXT, 0.7)
-            gfx.x, gfx.y = pad, cy + (input_h - gfx.texth) / 2
-            gfx.drawstr(label)
+            
+            if is_narrow then
+                gfx.x, gfx.y = pad, cy
+                gfx.drawstr(label)
+            else
+                gfx.x, gfx.y = pad, cy + (input_h - gfx.texth) / 2
+                gfx.drawstr(label)
+            end
             
             local rx = pad + label_w
-            local rw = S(100)
+            local ry = is_narrow and cy + S(20) or cy
+            
             for i, opt in ipairs(options) do
+                if rx + rw > gfx.w - pad then
+                    rx = pad + label_w
+                    ry = ry + input_h + S(5)
+                end
+
                 local is_sel = state[state_key] == opt
                 local bg = is_sel and UI.C_ACCENT_G or UI.C_BTN
                 local txt = is_sel and UI.C_BG or UI.C_TXT
                 
-                -- Tooltip handling
-                local hover = (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= cy and gfx.mouse_y <= cy + input_h)
+                local hover = (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= ry and gfx.mouse_y <= ry + input_h)
                 if hover and tooltips and tooltips[i] then
                     local tip_id = "profile_radio_" .. state_key .. "_" .. i
                     if UI_STATE.tooltip_state.hover_id ~= tip_id then
@@ -16136,38 +16191,61 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                     UI_STATE.tooltip_state.text = tooltips[i]
                 end
 
-                if btn(rx, cy, rw, input_h, opt, bg, txt) then
+                if btn(rx, ry, rw, input_h, opt, bg, txt) then
                     state[state_key] = opt
                 end
                 rx = rx + rw + S(5)
             end
         end
-        cy = cy + input_h + spacing
+        cy = start_cy + section_h + spacing
     end
 
     local function draw_multi_select(label, state_key, options, tooltips)
-        if cy + input_h > content_y and cy < content_y + content_h then
+        local start_cy = cy
+        local ry = cy
+        if is_narrow then
+            ry = cy + S(20)
+        end
+
+        -- Pre-calculate height even if not drawing
+        local temp_cy = ry
+        local temp_rx = pad + label_w
+        local rw = S(110)
+        for i, opt in ipairs(options) do
+            if temp_rx + rw > gfx.w - pad then
+                temp_rx = pad + label_w
+                temp_cy = temp_cy + input_h + S(5)
+            end
+            temp_rx = temp_rx + rw + S(5)
+        end
+        local section_h = temp_cy - start_cy + input_h
+
+        if cy + section_h > content_y and cy < content_y + content_h then
             gfx.setfont(F.std)
             set_color(UI.C_TXT, 0.7)
-            gfx.x, gfx.y = pad, cy + (input_h - gfx.texth) / 2
-            gfx.drawstr(label)
+            
+            if is_narrow then
+                gfx.x, gfx.y = pad, cy
+                gfx.drawstr(label)
+            else
+                gfx.x, gfx.y = pad, cy + (input_h - gfx.texth) / 2
+                gfx.drawstr(label)
+            end
             
             local rx = pad + label_w
-            local rw = S(110)
-            local start_cy = cy
+            local ry = is_narrow and cy + S(20) or cy
+            
             for i, opt in ipairs(options) do
-                -- Wrap to next line if needed
                 if rx + rw > gfx.w - pad then
                     rx = pad + label_w
-                    cy = cy + input_h + S(5)
+                    ry = ry + input_h + S(5)
                 end
 
                 local is_sel = state[state_key] and state[state_key][opt]
                 local bg = is_sel and UI.C_ACCENT_G or UI.C_BTN
                 local txt = is_sel and UI.C_BG or UI.C_TXT
                 
-                -- Tooltip handling
-                local hover = (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= cy and gfx.mouse_y <= cy + input_h)
+                local hover = (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= ry and gfx.mouse_y <= ry + input_h)
                 if hover and tooltips and tooltips[i] then
                     local tip_id = "profile_multi_" .. state_key .. "_" .. i
                     if UI_STATE.tooltip_state.hover_id ~= tip_id then
@@ -16177,19 +16255,14 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                     UI_STATE.tooltip_state.text = tooltips[i]
                 end
 
-                if btn(rx, cy, rw, input_h, opt, bg, txt) then
+                if btn(rx, ry, rw, input_h, opt, bg, txt) then
                     state[state_key] = state[state_key] or {}
                     state[state_key][opt] = not state[state_key][opt]
                 end
                 rx = rx + rw + S(5)
             end
-            -- Final height depends on how many rows we wrapped
-            local section_h = cy - start_cy + input_h
-            cy = start_cy 
-            cy = cy + section_h + spacing
-        else
-            cy = cy + input_h + spacing
         end
+        cy = start_cy + section_h + spacing
     end
 
     draw_row("Ім'я:", "name", input_h, false, "Ваше ім'я або нікнейм...", 40)
@@ -16201,11 +16274,12 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     draw_multi_select("Амплуа:", "archetypes", PROFILE_META.ARCHETYPES.opts, PROFILE_META.get_tips("ARCHETYPES"))
 
     draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
-    draw_radio("Голос:", "voice", {"Чоловічий", "Жіночий"}, {
-        "Чоловічий голос",
-        "Жіночий голос"
-    })
+    draw_radio("Голос:", "voice", {"Чоловічий", "Жіночий"}, {"Чоловічий голос", "Жіночий голос"})
     draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
+    draw_radio("Вокал:", "vocals", PROFILE_META.VOCALS.opts, PROFILE_META.get_tips("VOCALS"))
+
+    -- Store dynamic height for next frame
+    state.last_content_h = (cy + state.scroll_y) - content_y + S(20)
 
     -- Draw scrollbar
     if max_scroll > 0 then
@@ -16254,7 +16328,8 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                         (state.voice ~= (cfg.dubber_voice)) or
                         (timbre_str ~= (cfg.dubber_timbre or "")) or
                         (spec_str ~= (cfg.dubber_specialization or "")) or
-                        (arch_str ~= (cfg.dubber_archetypes or ""))
+                        (arch_str ~= (cfg.dubber_archetypes or "")) or
+                        (state.vocals ~= (cfg.dubber_vocals or ""))
 
     local btn_w = S(140)
     local btn_h = S(36)
@@ -16282,7 +16357,8 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                 dubber_voice = state.voice,
                 dubber_timbre = timbre_str,
                 dubber_specialization = spec_str,
-                dubber_archetypes = arch_str
+                dubber_archetypes = arch_str,
+                dubber_vocals = state.vocals
             }
             
             STATS.register_plugin_usage(function(success)
@@ -16549,9 +16625,11 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
 
     local cond_tooltip = p.dubber_conditions and PROFILE_META.CONDITIONS.tips[p.dubber_conditions]
+    local vocal_tooltip = p.dubber_vocals and PROFILE_META.VOCALS.tips[p.dubber_vocals]
 
     current_total_h = current_total_h + draw_view_section("ОБЛАДНАННЯ", p.dubber_equipment, width)
     current_total_h = current_total_h + draw_view_section("УМОВИ ЗАПИСУ", p.dubber_conditions, width, cond_tooltip)
+    current_total_h = current_total_h + draw_view_section("ВОКАЛ", p.dubber_vocals, width, vocal_tooltip)
     current_total_h = current_total_h + draw_view_section("КОНТАКТИ", p.dubber_contact, width)
     current_total_h = current_total_h + draw_view_section("ПОРТФОЛІО", p.dubber_samples, width)
 
