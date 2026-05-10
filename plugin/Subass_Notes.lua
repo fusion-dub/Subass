@@ -9757,6 +9757,7 @@ function ACHIEVEMENTS.fetch_talents(page)
     end
     
     UI_STATE.talents_loading = true
+    UI_STATE.talents_list = nil -- Clear existing list to show loading text
     UI_STATE.talents_scroll_y = 0
     UI_STATE.talents_target_scroll_y = 0
     
@@ -16965,7 +16966,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
 
     if UI_STATE.talents_total > 20 then
         local total_pages = math.ceil(UI_STATE.talents_total / 20)
-        local pag_w = S(220)
+        local pag_w = S(120)
         local pag_x = (gfx.w - pag_w) / 2
         local pag_y = gfx.h - footer_h + (footer_h - S(26)) / 2
         
