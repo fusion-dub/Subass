@@ -344,7 +344,7 @@ function UTILS.unicode_escape(s)
     if type(s) ~= "string" then return s end
     local result = {}
     for p, c in utf8.codes(s) do
-        if c > 127 then
+        if c > 127 or c < 32 or c == 92 then
             table.insert(result, string.format("\\u%04x", c))
         else
             table.insert(result, string.char(c))
@@ -16325,7 +16325,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                     UI_STATE.tooltip_state.text = tooltips[i]
                 end
 
-                if btn(rx, ry, rw, input_h, opt, bg, txt) then
+                if btn(rx, ry, rw, input_h, opt, bg, txt, false, content_y, content_y + content_h) then
                     state[state_key] = opt
                 end
                 rx = rx + rw + S(5)
@@ -16389,7 +16389,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                     UI_STATE.tooltip_state.text = tooltips[i]
                 end
 
-                if btn(rx, ry, rw, input_h, opt, bg, txt) then
+                if btn(rx, ry, rw, input_h, opt, bg, txt, false, content_y, content_y + content_h) then
                     state[state_key] = state[state_key] or {}
                     state[state_key][opt] = not state[state_key][opt]
                 end
