@@ -313,6 +313,13 @@ def main():
                         filters = json.load(ff)
                 except Exception as e:
                     print(f"Warning: Could not read filters file: {e}", file=sys.stderr)
+                finally:
+                    # Delete the filters file after reading
+                    if args.filters_file and os.path.exists(args.filters_file):
+                        try:
+                            os.remove(args.filters_file)
+                        except:
+                            pass
 
             supabase_payload = {
                 "limit": args.limit,
