@@ -16499,7 +16499,11 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
         local ret = gfx.showmenu(menu_str)
         if ret and ret > 0 then
             local selected_opt = status_opts[ret]
-            if selected_opt == "Приховати талант" then
+            local contact_trimmed = state.contact.text:match("^%s*(.-)%s*$") or ""
+            
+            if (selected_opt == "Шукаю талант" or selected_opt == "Вільний талант") and contact_trimmed == "" then
+                reaper.MB("Спочатку заповніть поле 'Зв'язок' (Telegram, тощо), щоб з вами могли зв'язатися.", "Потрібні контакти", 0)
+            elseif selected_opt == "Приховати талант" then
                 local res1 = reaper.MB("Ви впевнені, що хочете приховати свій профіль? Вас більше не зможуть знайти інші користувачі.", "Приховати талант?", 4)
                 if res1 == 6 then -- Yes
                     local res2 = reaper.MB("Точно приховати? Давайте краще оберем статус 'Звичайний аккаунт'?", "Останнє попередження", 4)
@@ -16516,12 +16520,16 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     end
 
     -- Save Button
-    local can_save = has_changes and is_name_valid
+    local contact_trimmed = state.contact.text:match("^%s*(.-)%s*$") or ""
+    local is_contact_valid = not ((state.status == "Шукаю талант" or state.status == "Вільний талант") and contact_trimmed == "")
+    local can_save = has_changes and is_name_valid and is_contact_valid
     local save_bg = can_save and UI.C_ACCENT_G or UI.C_BTN
     local save_txt = can_save and UI.C_BG or UI.C_TXT
     if btn(bx, by, btn_w, btn_h, "Зберегти", save_bg, save_txt) then
         if not is_name_valid then
             show_snackbar("Ім'я не може бути порожнім", "error")
+        elseif not is_contact_valid then
+            show_snackbar("Заповніть поле 'Зв'язок'", "error")
         elseif has_changes then
             cfg.profile_edit_seen = true
             save_settings()
