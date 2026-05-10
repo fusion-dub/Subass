@@ -16472,12 +16472,42 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     local status_label = (state.status and state.status ~= "") and state.status or "Статус..."
     local status_w = S(150)
     local status_x = pad
-    if btn(status_x, by, status_w, btn_h, status_label, UI.C_BTN, UI.C_TXT) then
+    
+    local sb_bg = UI.C_BTN
+    local sb_txt = UI.C_TXT
+    if state.status == "Шукаю талант" then
+        sb_bg = UI.C_ORANGE
+        sb_txt = UI.C_BG
+    elseif state.status == "Вільний талант" then
+        sb_bg = UI.C_ACCENT_G
+        sb_txt = UI.C_BG
+    elseif state.status == "Приховати талант" then
+        sb_bg = UI.C_RED
+        sb_txt = UI.C_BG
+    elseif state.status == "Звичайни аккаунт" then
+        sb_bg = UI.C_BTN
+        sb_txt = UI.C_TXT
+    end
+    
+    if btn(status_x, by, status_w, btn_h, status_label, sb_bg, sb_txt) then
         gfx.x, gfx.y = status_x, by + btn_h
         local menu_str = table.concat(status_opts, "|")
         local ret = gfx.showmenu(menu_str)
         if ret and ret > 0 then
-            state.status = status_opts[ret]
+            local selected_opt = status_opts[ret]
+            if selected_opt == "Приховати талант" then
+                local res1 = reaper.MB("Ви впевнені, що хочете приховати свій профіль? Вас більше не зможуть знайти інші користувачі.", "Приховати талант?", 4)
+                if res1 == 6 then -- Yes
+                    local res2 = reaper.MB("Точно приховати? Давайте краще оберем статус 'Звичайний аккаунт'?", "Останнє попередження", 4)
+                    if res2 == 6 then -- Yes (User agreed that it's better to choose simple account)
+                        state.status = "Звичайни аккаунт"
+                    else -- No (User wants to hide anyway)
+                        state.status = selected_opt
+                    end
+                end
+            else
+                state.status = selected_opt
+            end
         end
     end
 
