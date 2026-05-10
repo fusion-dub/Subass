@@ -391,6 +391,69 @@ cfg.dubber_equipment = UTILS.unicode_unescape(get_set("dubber_equipment", ""))
 cfg.dubber_conditions = UTILS.unicode_unescape(get_set("dubber_conditions", ""))
 cfg.dubber_voice = UTILS.unicode_unescape(get_set("dubber_voice", ""))
 cfg.dubber_timbre = UTILS.unicode_unescape(get_set("dubber_timbre", ""))
+cfg.dubber_specialization = UTILS.unicode_unescape(get_set("dubber_specialization", ""))
+cfg.dubber_archetypes = UTILS.unicode_unescape(get_set("dubber_archetypes", ""))
+
+-- Profile Metadata (Options and Tooltips)
+PROFILE_META = {
+    ARCHETYPES = {
+        opts = {"Герої", "Антагоністи", "Комедійні", "Інтелектуали", "Загадкові", "Ексцентричні", "Брутальні", "Лагідні/Мое", "Наставники", "Аристократи", "Циніки", "Малеча", "Звичайні", "Психопати", "Воїни", "Спокусники", "Монстри"},
+        tips = {
+            ["Герої"] = "Протагоністи: рішучі, надихаючі, з емоційним піднесенням",
+            ["Антагоністи"] = "Лиходії: маніпулятивні, владні, підступні або величні тирани",
+            ["Комедійні"] = "Енергійні ролі, талісмани, саркастичні друзі, автори жартів",
+            ["Інтелектуали"] = "Стратеги, вчені, холодні аналітики (тип Кудере)",
+            ["Загадкові"] = "Елегантні, фатальні, пафосні персонажі з прихованими мотивами",
+            ["Ексцентричні"] = "Хаотичні, божевільні або емоційно нестабільні ролі (Яндере)",
+            ["Брутальні"] = "Грубі, агресивні, прямолінійні персонажі або хулігани",
+            ["Лагідні/Мое"] = "Сором'язливі, милі, дитячі або дуже тендітні образи",
+            ["Наставники"] = "Мудреці, вчителі, старші персонажі з досвідом",
+            ["Аристократи"] = "Витончені, манірні, зверхні або благородні персонажі",
+            ["Циніки"] = "Саркастичні, втомлені від життя, похмурі або іронічні ролі",
+            ["Малеча"] = "Діти, немовлята або дуже малі істоти",
+            ["Звичайні"] = "Реалістичні, приземлені герої (сусід, офісний працівник)",
+            ["Психопати"] = "Холодні, лякаючі, позбавлені емпатії або маніакальні лиходії",
+            ["Воїни"] = "Дисципліновані солдати, ветерани, з командним голосом",
+            ["Спокусники"] = "Харизматичні, оксамитові, звабливі або фатальні голоси",
+            ["Монстри"] = "Нелюдські голоси: демони, роботи, потойбічні сили"
+        }
+    },
+    TIMBRE = {
+        opts = {"Низький", "Середній", "Високий"},
+        tips = {
+            ["Низький"] = "Глибокий та густий голос (бас, баритон, контральто)",
+            ["Середній"] = "Універсальний голос середнього регістру (меццо-сопрано, баритональний тенор)",
+            ["Високий"] = "Дзвінкий та легкий голос (тенор, сопрано)"
+        }
+    },
+    CONDITIONS = {
+        opts = {"Ніяких", "Обр. Кімната", "Акс. Будка", "Студія"},
+        tips = {
+            ["Ніяких"] = "Звичайна житлова кімната без акустичної підготовки (може бути чутно відлуння)",
+            ["Обр. Кімната"] = "Приміщення з частковою підготовкою: наявні штори, килими або поролон (незначне відлуння)",
+            ["Акс. Будка"] = "Спеціалізована вокальна кабіна (Booth), що забезпечує максимально 'сухий' звук",
+            ["Студія"] = "Професійна студія з повним акустичним розрахунком та звукоізоляцією"
+        }
+    },
+    SPECIALIZATION = {
+        opts = {"Дабер", "Перекладач", "Звукорежисер", "Редактор", "Менеджер"},
+        tips = {
+            ["Дабер"] = "Актор озвучування, який працює над записом голосів та передачею емоцій персонажів",
+            ["Перекладач"] = "Фахівець, що займається адаптацією тексту та перекладом сценарію",
+            ["Звукорежисер"] = "Спеціаліст з монтажу, зведення аудіодоріжок та фінальної обробки звуку",
+            ["Редактор"] = "Відповідає за перевірку тексту на помилки, стилістику та відповідність ліпсингу",
+            ["Менеджер"] = "Організатор процесів, який координує роботу команди та терміни виконання проєкту"
+        }
+    }
+}
+
+function PROFILE_META.get_tips(key)
+    local meta = PROFILE_META[key]
+    if not meta then return {} end
+    local res = {}
+    for i, opt in ipairs(meta.opts) do res[i] = meta.tips[opt] end
+    return res
+end
 
 local dynamic_director_h = nil
 local dynamic_editor_h = nil
@@ -2615,9 +2678,11 @@ local function save_settings()
     reaper.SetExtState(section_name, "dubber_contact", UTILS.unicode_escape(cfg.dubber_contact or ""), true)
     reaper.SetExtState(section_name, "dubber_samples", UTILS.unicode_escape(cfg.dubber_samples or ""), true)
     reaper.SetExtState(section_name, "dubber_equipment", UTILS.unicode_escape(cfg.dubber_equipment or ""), true)
-    reaper.SetExtState(section_name, "dubber_conditions", UTILS.unicode_escape(cfg.dubber_conditions or "Ніяких"), true)
-    reaper.SetExtState(section_name, "dubber_voice", UTILS.unicode_escape(cfg.dubber_voice or "Чоловічий"), true)
-    reaper.SetExtState(section_name, "dubber_timbre", UTILS.unicode_escape(cfg.dubber_timbre or "Середній"), true)
+    reaper.SetExtState(section_name, "dubber_conditions", UTILS.unicode_escape(cfg.dubber_conditions or ""), true)
+    reaper.SetExtState(section_name, "dubber_voice", UTILS.unicode_escape(cfg.dubber_voice or ""), true)
+    reaper.SetExtState(section_name, "dubber_timbre", UTILS.unicode_escape(cfg.dubber_timbre or ""), true)
+    reaper.SetExtState(section_name, "dubber_specialization", UTILS.unicode_escape(cfg.dubber_specialization or ""), true)
+    reaper.SetExtState(section_name, "dubber_archetypes", UTILS.unicode_escape(cfg.dubber_archetypes or ""), true)
     reaper.SetExtState(section_name, "profile_edit_seen", cfg.profile_edit_seen and "1" or "0", true)
     
     reaper.SetExtState(section_name, "p_fsize", tostring(cfg.p_fsize), true)
@@ -9520,9 +9585,11 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
         dubber_contact = p.dubber_contact or "",
         dubber_samples = p.dubber_samples or "",
         dubber_equipment = p.dubber_equipment or "",
-        dubber_conditions = p.dubber_conditions or "Ніяких",
-        dubber_voice = p.dubber_voice or "Чоловічий",
-        dubber_timbre = p.dubber_timbre or "Середній",
+        dubber_conditions = p.dubber_conditions or "",
+        dubber_voice = p.dubber_voice or "",
+        dubber_timbre = p.dubber_timbre or "",
+        dubber_specialization = p.dubber_specialization or "",
+        dubber_archetypes = p.dubber_archetypes or "",
     })
 
     local sf = io.open(stats_file_path, "w")
@@ -9574,7 +9641,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
                             local fields = {
                                 "dubber_name", "dubber_bio", "dubber_contact", 
                                 "dubber_samples", "dubber_equipment", "dubber_conditions",
-                                "dubber_voice", "dubber_timbre"
+                                "dubber_voice", "dubber_timbre", "dubber_specialization", "dubber_archetypes"
                             }
                             
                             for _, field in ipairs(fields) do
@@ -15911,15 +15978,26 @@ function ACHIEVEMENTS.draw_window(input_queue)
     local edit_x = close_x - edit_w - S(8)
     if btn(edit_x, pad, edit_w, edit_h, "Редагувати профіль", UI.C_BTN, UI.C_TXT) and not ACHIEVEMENTS.show_leaderboard then
         UI_STATE.show_edit_profile = true
+        -- Helper for initialization (temporary local copy until refactored globally)
+        local function s2t(str)
+            local t = {}
+            if str then for i in str:gmatch("[^,]+") do 
+                local tr = i:match("^%s*(.-)%s*$")
+                if tr ~= "" then t[tr:sub(1,1):upper() .. tr:sub(2):lower()] = true end
+            end end
+            return t
+        end
         OTHER.profile_state = {
             name = { text = cfg.dubber_name or "", cursor = 0, anchor = 0, focus = false },
+            specialization = s2t(cfg.dubber_specialization),
             bio = { text = cfg.dubber_bio or "", cursor = 0, anchor = 0, focus = false },
             contact = { text = cfg.dubber_contact or "", cursor = 0, anchor = 0, focus = false },
             samples = { text = cfg.dubber_samples or "", cursor = 0, anchor = 0, focus = false },
             equipment = { text = cfg.dubber_equipment or "", cursor = 0, anchor = 0, focus = false },
             conditions = cfg.dubber_conditions,
             voice = cfg.dubber_voice,
-            timbre = cfg.dubber_timbre,
+            timbre = s2t(cfg.dubber_timbre),
+            archetypes = s2t(cfg.dubber_archetypes),
             scroll_y = 0,
             target_scroll_y = 0
         }
@@ -15966,6 +16044,30 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     if not UI_STATE.show_edit_profile then return end
     if not OTHER.profile_state then return end
 
+    local function str_to_table(str)
+        local t = {}
+        if str then 
+            for item in str:gmatch("[^,]+") do 
+                local trimmed = item:match("^%s*(.-)%s*$")
+                if trimmed ~= "" then
+                    -- Store with first letter capitalized to match UI options
+                    local formatted = trimmed:sub(1,1):upper() .. trimmed:sub(2):lower()
+                    t[formatted] = true 
+                end
+            end 
+        end
+        return t
+    end
+
+    local function t_to_str(t, options)
+        local items = {}
+        if not t then return "" end
+        for _, opt in ipairs(options) do
+            if t[opt] then table.insert(items, opt) end
+        end
+        return table.concat(items, ", ")
+    end
+
     local state = OTHER.profile_state
     local pad = S(20)
     local header_h = S(65)
@@ -15978,7 +16080,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     -- SCROLLABLE CONTENT AREA
     local content_y = header_h
     local content_h = gfx.h - header_h - footer_h
-    local total_content_h = S(500) -- Total height of all inputs + spacing
+    local total_content_h = S(650) -- Total height of all inputs + spacing
     local max_scroll = math.max(0, total_content_h - content_h)
 
     -- Handle mouse wheel
@@ -16043,27 +16145,67 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
         cy = cy + input_h + spacing
     end
 
+    local function draw_multi_select(label, state_key, options, tooltips)
+        if cy + input_h > content_y and cy < content_y + content_h then
+            gfx.setfont(F.std)
+            set_color(UI.C_TXT, 0.7)
+            gfx.x, gfx.y = pad, cy + (input_h - gfx.texth) / 2
+            gfx.drawstr(label)
+            
+            local rx = pad + label_w
+            local rw = S(110)
+            local start_cy = cy
+            for i, opt in ipairs(options) do
+                -- Wrap to next line if needed
+                if rx + rw > gfx.w - pad then
+                    rx = pad + label_w
+                    cy = cy + input_h + S(5)
+                end
+
+                local is_sel = state[state_key] and state[state_key][opt]
+                local bg = is_sel and UI.C_ACCENT_G or UI.C_BTN
+                local txt = is_sel and UI.C_BG or UI.C_TXT
+                
+                -- Tooltip handling
+                local hover = (gfx.mouse_x >= rx and gfx.mouse_x <= rx + rw and gfx.mouse_y >= cy and gfx.mouse_y <= cy + input_h)
+                if hover and tooltips and tooltips[i] then
+                    local tip_id = "profile_multi_" .. state_key .. "_" .. i
+                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                        UI_STATE.tooltip_state.hover_id = tip_id
+                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    end
+                    UI_STATE.tooltip_state.text = tooltips[i]
+                end
+
+                if btn(rx, cy, rw, input_h, opt, bg, txt) then
+                    state[state_key] = state[state_key] or {}
+                    state[state_key][opt] = not state[state_key][opt]
+                end
+                rx = rx + rw + S(5)
+            end
+            -- Final height depends on how many rows we wrapped
+            local section_h = cy - start_cy + input_h
+            cy = start_cy 
+            cy = cy + section_h + spacing
+        else
+            cy = cy + input_h + spacing
+        end
+    end
+
     draw_row("Ім'я:", "name", input_h, false, "Ваше ім'я або нікнейм...", 40)
     draw_row("Про себе:", "bio", S(100), true, "Коротко про ваш досвід та спеціалізацію...", 1000)
     draw_row("Зв'язок:", "contact", input_h, false, "Повне посилання на Telegram або інші соц. мережі...", 1000)
     draw_row("Портфоліо:", "samples", input_h, false, "Посилання на ваші роботи (YouTube, Drive)...", 1000)
     draw_row("Обладнання:", "equipment", input_h, false, "Мікрофон, звукова карта, тощо...", 1000)
+    draw_multi_select("Спеціалізація:", "specialization", PROFILE_META.SPECIALIZATION.opts, PROFILE_META.get_tips("SPECIALIZATION"))
+    draw_multi_select("Амплуа:", "archetypes", PROFILE_META.ARCHETYPES.opts, PROFILE_META.get_tips("ARCHETYPES"))
 
-    draw_radio("Умови запису:", "conditions", {"Ніяких", "Обр. Кімната", "Акс. Будка", "Студія"}, {
-        "Звичайна житлова кімната без акустичної підготовки (може бути чутно відлуння)",
-        "Приміщення з частковою підготовкою: наявні штори, килими або поролон (незначне відлуння)",
-        "Спеціалізована вокальна кабіна (Booth), що забезпечує максимально 'сухий' звук",
-        "Професійна студія з повним акустичним розрахунком та звукоізоляцією"
-    })
+    draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
     draw_radio("Голос:", "voice", {"Чоловічий", "Жіночий"}, {
         "Чоловічий голос",
         "Жіночий голос"
     })
-    draw_radio("Тембр:", "timbre", {"Низький", "Середній", "Високий"}, {
-        "Глибокий, низький голос (бас, баритон)",
-        "Звичайний голос середнього діапазону",
-        "Тонкий, високий голос (тенор, сопрано)"
-    })
+    draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
 
     -- Draw scrollbar
     if max_scroll > 0 then
@@ -16099,6 +16241,10 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     -- Check for changes and validation
     local name_trimmed = state.name.text:match("^%s*(.-)%s*$") or ""
     local is_name_valid = name_trimmed ~= ""
+    local spec_str = t_to_str(state.specialization, PROFILE_META.SPECIALIZATION.opts)
+    local timbre_str = t_to_str(state.timbre, PROFILE_META.TIMBRE.opts)
+    local arch_str = t_to_str(state.archetypes, PROFILE_META.ARCHETYPES.opts)
+    
     local has_changes = (state.name.text ~= (cfg.dubber_name or "")) or
                         (state.bio.text ~= (cfg.dubber_bio or "")) or
                         (state.contact.text ~= (cfg.dubber_contact or "")) or
@@ -16106,7 +16252,9 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                         (state.equipment.text ~= (cfg.dubber_equipment or "")) or
                         (state.conditions ~= (cfg.dubber_conditions)) or
                         (state.voice ~= (cfg.dubber_voice)) or
-                        (state.timbre ~= (cfg.dubber_timbre))
+                        (timbre_str ~= (cfg.dubber_timbre or "")) or
+                        (spec_str ~= (cfg.dubber_specialization or "")) or
+                        (arch_str ~= (cfg.dubber_archetypes or ""))
 
     local btn_w = S(140)
     local btn_h = S(36)
@@ -16132,7 +16280,9 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                 dubber_equipment = state.equipment.text,
                 dubber_conditions = state.conditions,
                 dubber_voice = state.voice,
-                dubber_timbre = state.timbre
+                dubber_timbre = timbre_str,
+                dubber_specialization = spec_str,
+                dubber_archetypes = arch_str
             }
             
             STATS.register_plugin_usage(function(success)
@@ -16356,24 +16506,37 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     local current_total_h = S(40) -- Start padding
     
     current_total_h = current_total_h + draw_view_section("БІО", p.dubber_bio, width)
+    current_total_h = current_total_h + draw_view_section("СПЕЦІАЛІЗАЦІЯ", p.dubber_specialization, width)
 
-    local timbre_map = {
-        ["Низький"] = "Глибокий, низький голос (бас, баритон)",
-        ["Середній"] = "Звичайний голос середнього діапазону",
-        ["Високий"] = "Тонкий, високий голос (тенор, сопрано)"
-    }
-    local timbre_tooltip = p.dubber_timbre and timbre_map[p.dubber_timbre]
+    -- Dynamic Archetypes Tooltip
+    local arch_tooltip = ""
+    if p.dubber_archetypes then
+        for opt in p.dubber_archetypes:gmatch("[^,]+") do
+            local clean = opt:match("^%s*(.-)%s*$")
+            local tip_item = PROFILE_META.ARCHETYPES.tips[clean]
+            if tip_item then
+                arch_tooltip = arch_tooltip .. (arch_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+            end
+        end
+    end
+    current_total_h = current_total_h + draw_view_section("АМПЛУА", p.dubber_archetypes, width, arch_tooltip ~= "" and arch_tooltip or nil)
+
+    -- Voice & Timbre Tooltip
+    local timbre_tooltip = ""
+    if p.dubber_timbre then
+        for opt in p.dubber_timbre:gmatch("[^,]+") do
+            local clean = opt:match("^%s*(.-)%s*$")
+            local tip_item = PROFILE_META.TIMBRE.tips[clean]
+            if tip_item then
+                timbre_tooltip = timbre_tooltip .. (timbre_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+            end
+        end
+    end
 
     local combined_voice = p.dubber_voice and p.dubber_timbre and ((p.dubber_voice or "Не вказано") .. " (" .. (p.dubber_timbre or "Не вказано") .. ")") or ""
-    current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip)
+    current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
 
-    local cond_map = {
-        ["Ніяких"] = "Звичайна житлова кімната без акустичної підготовки (може бути чутно відлуння)",
-        ["Обр. Кімната"] = "Приміщення з частковою підготовкою: наявні штори, килими або поролон (незначне відлуння)",
-        ["Акс. Будка"] = "Спеціалізована вокальна кабіна (Booth), що забезпечує максимально 'сухий' звук",
-        ["Студія"] = "Професійна студія з повним акустичним розрахунком та звукоізоляцією"
-    }
-    local cond_tooltip = p.dubber_conditions and cond_map[p.dubber_conditions]
+    local cond_tooltip = p.dubber_conditions and PROFILE_META.CONDITIONS.tips[p.dubber_conditions]
 
     current_total_h = current_total_h + draw_view_section("ОБЛАДНАННЯ", p.dubber_equipment, width)
     current_total_h = current_total_h + draw_view_section("УМОВИ ЗАПИСУ", p.dubber_conditions, width, cond_tooltip)
@@ -18536,15 +18699,25 @@ function DRAW_TABS.draw_file()
         if btn(bx, by, b_btn_w, b_btn_h, "Заповнити", {0.8, 0.2, 0.2, 1.0}, UI.C_BG) then
             ACHIEVEMENTS.show = true
             UI_STATE.show_edit_profile = true
+            local function s2t(str)
+                local t = {}
+                if str then for i in str:gmatch("[^,]+") do 
+                    local tr = i:match("^%s*(.-)%s*$")
+                    if tr ~= "" then t[tr:sub(1,1):upper() .. tr:sub(2):lower()] = true end
+                end end
+                return t
+            end
             OTHER.profile_state = {
                 name = { text = cfg.dubber_name or "", cursor = 0, anchor = 0, focus = false },
+                specialization = s2t(cfg.dubber_specialization),
                 bio = { text = cfg.dubber_bio or "", cursor = 0, anchor = 0, focus = false },
                 contact = { text = cfg.dubber_contact or "", cursor = 0, anchor = 0, focus = false },
                 samples = { text = cfg.dubber_samples or "", cursor = 0, anchor = 0, focus = false },
                 equipment = { text = cfg.dubber_equipment or "", cursor = 0, anchor = 0, focus = false },
                 conditions = cfg.dubber_conditions,
                 voice = cfg.dubber_voice,
-                timbre = cfg.dubber_timbre,
+                timbre = s2t(cfg.dubber_timbre),
+                archetypes = s2t(cfg.dubber_archetypes),
                 scroll_y = 0,
                 target_scroll_y = 0
             }
