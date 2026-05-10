@@ -16,6 +16,7 @@ BEGIN
         'dubber_voice', dubber_voice,
         'dubber_timbre', dubber_timbre,
         'dubber_vocals', dubber_vocals,
+        'dubber_status', dubber_status,
         'last_active', last_active
     ) INTO result
     FROM users
