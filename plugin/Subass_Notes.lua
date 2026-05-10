@@ -474,6 +474,15 @@ function PROFILE_META.get_tips(key)
     return meta.tips
 end
 
+--- Returns tooltip text for a specific option name within a PROFILE_META key
+function PROFILE_META.tip_by_name(key, name)
+    local meta = PROFILE_META[key]
+    if not meta or not meta.opts or not meta.tips then return nil end
+    for i, opt in ipairs(meta.opts) do
+        if opt == name then return meta.tips[i] end
+    end
+end
+
 local dynamic_director_h = nil
 local dynamic_editor_h = nil
 
@@ -16695,7 +16704,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     if p.dubber_specialization then
         for opt in p.dubber_specialization:gmatch("[^,]+") do
             local clean = opt:match("^%s*(.-)%s*$")
-            local tip_item = PROFILE_META.SPECIALIZATION.tips[clean]
+            local tip_item = PROFILE_META.tip_by_name("SPECIALIZATION", clean)
             if tip_item then
                 spec_tooltip = spec_tooltip .. (spec_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
             end
@@ -16708,7 +16717,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     if p.dubber_archetypes then
         for opt in p.dubber_archetypes:gmatch("[^,]+") do
             local clean = opt:match("^%s*(.-)%s*$")
-            local tip_item = PROFILE_META.ARCHETYPES.tips[clean]
+            local tip_item = PROFILE_META.tip_by_name("ARCHETYPES", clean)
             if tip_item then
                 arch_tooltip = arch_tooltip .. (arch_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
             end
@@ -16721,7 +16730,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     if p.dubber_timbre then
         for opt in p.dubber_timbre:gmatch("[^,]+") do
             local clean = opt:match("^%s*(.-)%s*$")
-            local tip_item = PROFILE_META.TIMBRE.tips[clean]
+            local tip_item = PROFILE_META.tip_by_name("TIMBRE", clean)
             if tip_item then
                 timbre_tooltip = timbre_tooltip .. (timbre_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
             end
@@ -16731,8 +16740,8 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     local has_voice = p.dubber_voice and p.dubber_voice ~= ""
     local has_timbre = p.dubber_timbre and p.dubber_timbre ~= ""
     local combined_voice = (has_voice and has_timbre) and (p.dubber_voice .. " (" .. p.dubber_timbre .. ")") or ""
-    local vocal_tooltip = p.dubber_vocals and PROFILE_META.VOCALS.tips[p.dubber_vocals]
-    local cond_tooltip = p.dubber_conditions and PROFILE_META.CONDITIONS.tips[p.dubber_conditions]
+    local vocal_tooltip = p.dubber_vocals and PROFILE_META.tip_by_name("VOCALS", p.dubber_vocals)
+    local cond_tooltip = p.dubber_conditions and PROFILE_META.tip_by_name("CONDITIONS", p.dubber_conditions)
 
     current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
     current_total_h = current_total_h + draw_view_section("ВОКАЛ", p.dubber_vocals, width, vocal_tooltip)
