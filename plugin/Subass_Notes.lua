@@ -16814,14 +16814,23 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             
             -- Collect all badges
             local badges = {}
+
+            local v_clr = UI.C_HILI_WHITE
+            if t.dubber_voice and t.dubber_voice == "Жіночий" then
+                v_clr = UI.C_HILI_RED
+            elseif t.dubber_voice and t.dubber_voice == "Чоловічий" then
+                v_clr = UI.C_HILI_BLUE
+            end
+            
+            local voice_txt = (t.dubber_voice or "") .. ((t.dubber_timbre and t.dubber_timbre ~= "") and (", " .. t.dubber_timbre) or "")
+            if voice_txt ~= "" then table.insert(badges, {txt = voice_txt, clr = v_clr, alpha = 0.2}) end
+
             if t.dubber_specialization and t.dubber_specialization ~= "" then
                 for s in t.dubber_specialization:gmatch("([^,]+)") do
                     s = s:match("^%s*(.-)%s*$")
-                    if s ~= "" then table.insert(badges, {txt = s, clr = UI.C_HILI_BLUE, alpha = 0.25}) end
+                    if s ~= "" then table.insert(badges, {txt = s, clr = UI.C_ORANGE, alpha = 0.2}) end
                 end
             end
-            local voice_txt = (t.dubber_voice or "") .. ((t.dubber_timbre and t.dubber_timbre ~= "") and (", " .. t.dubber_timbre) or "")
-            if voice_txt ~= "" then table.insert(badges, {txt = voice_txt, clr = UI.C_ORANGE, alpha = 0.15}) end
             
             if t.dubber_vocals and t.dubber_vocals ~= "" and t.dubber_vocals ~= "Не співаю" then
                 table.insert(badges, {txt = t.dubber_vocals, clr = UI.C_HILI_GREEN, alpha = 0.15})
