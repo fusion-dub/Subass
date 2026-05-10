@@ -84,9 +84,10 @@ def main():
                 dubber_archetypes = stats_raw.get('dubber_archetypes', '')
                 dubber_samples = stats_raw.get('dubber_samples', '')
                 dubber_equipment = stats_raw.get('dubber_equipment', '')
-                dubber_conditions = stats_raw.get('dubber_conditions', 'Ніяких')
-                dubber_voice = stats_raw.get('dubber_voice', 'Чоловічий')
-                dubber_timbre = stats_raw.get('dubber_timbre', 'Середній')
+                dubber_conditions = stats_raw.get('dubber_conditions', '')
+                dubber_voice = stats_raw.get('dubber_voice', '')
+                dubber_timbre = stats_raw.get('dubber_timbre', '')
+                dubber_vocals = stats_raw.get('dubber_vocals', '')
             except OSError as e:
                 print(f"Warning: Could not read stats file: {e}", file=sys.stderr)
             except json.JSONDecodeError as e:
@@ -123,6 +124,7 @@ def main():
                 "dubber_conditions": {"stringValue": dubber_conditions},
                 "dubber_voice": {"stringValue": dubber_voice},
                 "dubber_timbre": {"stringValue": dubber_timbre},
+                "dubber_vocals": {"stringValue": dubber_vocals},
                 "last_active": {"timestampValue": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")},
                 "os": {"stringValue": sys.platform},
                 "stats": stats_map,
@@ -164,6 +166,7 @@ def main():
                 "dubber_conditions": dubber_conditions,
                 "dubber_voice": dubber_voice,
                 "dubber_timbre": dubber_timbre,
+                "dubber_vocals": dubber_vocals,
                 "last_active": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "stats": stats_filtered,
             }
