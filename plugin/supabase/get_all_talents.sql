@@ -15,6 +15,10 @@ BEGIN
             dubber_voice,
             dubber_timbre,
             dubber_specialization,
+            dubber_bio,
+            dubber_equipment,
+            dubber_archetypes,
+            dubber_contact,
             last_active
         FROM users
         ORDER BY last_active DESC NULLS LAST, dubber_name ASC
