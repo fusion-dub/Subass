@@ -901,6 +901,14 @@ local UI_STATE = {
     show_edit_profile = false,
     show_talent_search = false,
     show_profile_view = false,
+    talents_show_filters = false,
+    talents_filters = {
+        voice = nil,
+        timbre = {},
+        conditions = nil,
+        vocals = nil,
+        specialization = {},
+    },
     talents_list = nil,
     talents_page = 1,
     talents_total = 0,
@@ -9749,11 +9757,34 @@ function ACHIEVEMENTS.fetch_talents(page)
     local script_path = source:match([[^@?(.*[\\/])]]) or ""
     local py_path = script_path .. "stats/subass_extra_stats.py"
     
-    local cmd = string.format('python3 "%s" --get-talents --limit %d --offset %d', py_path, limit, offset)
+    local f = UI_STATE.talents_filters or {}
+    local function t2s(t)
+        local items = {}
+        for k, v in pairs(t) do if v then table.insert(items, k) end end
+        return #items > 0 and table.concat(items, ",") or nil
+    end
+    
+    local f_data = {
+        voice = f.voice,
+        timbre = t2s(f.timbre or {}),
+        conditions = f.conditions,
+        vocals = f.vocals,
+        specialization = t2s(f.specialization or {}),
+    }
+    
+    local filter_file = script_path .. "stats/subass_talents_filter.json"
+    local json_str = STATS.json_encode(f_data)
+    local ff = io.open(filter_file, "w")
+    if ff then
+        ff:write(json_str)
+        ff:close()
+    end
+
+    local cmd = string.format('python3 "%s" --get-talents --limit %d --offset %d --filters-file "%s"', py_path, limit, offset, filter_file)
     local is_windows = reaper.GetOS():match("Win")
     if is_windows then
         local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
-        cmd = string.format('%s "%s" --get-talents --limit %d --offset %d', py_exe, py_path, limit, offset)
+        cmd = string.format('%s "%s" --get-talents --limit %d --offset %d --filters-file "%s"', py_exe, py_path, limit, offset, filter_file)
     end
     
     UI_STATE.talents_loading = true
@@ -16759,8 +16790,256 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     UI_STATE.mouse_handled = true
 end
 
+--- Draw talent filters UI
+function DRAW_WINDOW.draw_talent_filters(input_queue)
+    local pad = S(20)
+    local header_h = S(65)
+    local footer_h = S(55)
+    
+    -- Ensure we have a temporary state for editing
+    if not UI_STATE.talents_filters_temp then
+        UI_STATE.talents_filters_temp = {
+            voice = UI_STATE.talents_filters.voice,
+            timbre = {},
+            conditions = UI_STATE.talents_filters.conditions,
+            vocals = UI_STATE.talents_filters.vocals,
+            specialization = {}
+        }
+        -- Deep copy tables
+        if UI_STATE.talents_filters.timbre then
+            for k, v in pairs(UI_STATE.talents_filters.timbre) do UI_STATE.talents_filters_temp.timbre[k] = v end
+        end
+        if UI_STATE.talents_filters.specialization then
+            for k, v in pairs(UI_STATE.talents_filters.specialization) do UI_STATE.talents_filters_temp.specialization[k] = v end
+        end
+    end
+    
+    local f_state = UI_STATE.talents_filters_temp
+
+    -- Background overlay (Full Screen)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+    -- SCROLLABLE CONTENT AREA
+    local content_y = header_h
+    local content_h = gfx.h - header_h - footer_h
+    local total_content_h = UI_STATE.talents_filters_last_h or S(600)
+    local max_scroll = math.max(0, total_content_h - content_h)
+
+    -- Handle mouse wheel
+    if gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and gfx.mouse_y >= content_y and gfx.mouse_y <= content_y + content_h then
+        if gfx.mouse_wheel ~= 0 then
+            UI_STATE.talents_filters_target_scroll_y = math.max(0, math.min(max_scroll, (UI_STATE.talents_filters_target_scroll_y or 0) - gfx.mouse_wheel * 0.5))
+            gfx.mouse_wheel = 0
+        end
+    end
+    UI_STATE.talents_filters_scroll_y = (UI_STATE.talents_filters_scroll_y or 0) + ((UI_STATE.talents_filters_target_scroll_y or 0) - (UI_STATE.talents_filters_scroll_y or 0)) * 0.5
+
+    local cy = content_y + S(20) - UI_STATE.talents_filters_scroll_y
+    local is_narrow = gfx.w < S(450)
+    local label_w = is_narrow and 0 or S(120)
+    local input_h = S(30)
+    local spacing = S(20)
+
+    local function draw_radio(label, state_key, options, tooltips, c_rw)
+        local start_cy = cy
+        local ry = cy
+        if is_narrow then ry = cy + S(20) end
+
+        -- Pre-calculate height
+        local temp_cy = ry
+        local temp_rx = pad + label_w
+        local rw = c_rw or S(100)
+        for i, opt in ipairs(options) do
+            if temp_rx + rw > gfx.w - pad then
+                temp_rx = pad + label_w
+                temp_cy = temp_cy + input_h + S(5)
+            end
+            temp_rx = temp_rx + rw + S(5)
+        end
+        local section_h = temp_cy - start_cy + input_h
+
+        if cy + section_h > content_y and cy < content_y + content_h then
+            gfx.setfont(F.std)
+            set_color(UI.C_TXT, 0.7)
+            if is_narrow then
+                gfx.x, gfx.y = pad, cy
+                gfx.drawstr(label)
+            else
+                gfx.x, gfx.y = pad, cy + (input_h - gfx.texth) / 2
+                gfx.drawstr(label)
+            end
+            
+            local rx = pad + label_w
+            local ry = is_narrow and cy + S(20) or cy
+            for i, opt in ipairs(options) do
+                if rx + rw > gfx.w - pad then
+                    rx = pad + label_w
+                    ry = ry + input_h + S(5)
+                end
+                local is_sel = f_state[state_key] == opt
+                local bg = is_sel and UI.C_ACCENT_G or UI.C_BTN
+                local txt = is_sel and UI.C_BG or UI.C_TXT
+                if btn(rx, ry, rw, input_h, opt, bg, txt) then
+                    if f_state[state_key] == opt then f_state[state_key] = nil else f_state[state_key] = opt end
+                end
+                rx = rx + rw + S(5)
+            end
+        end
+        cy = start_cy + section_h + spacing
+    end
+
+    local function draw_multi_select(label, state_key, options, tooltips)
+        local start_cy = cy
+        local ry = cy
+        if is_narrow then ry = cy + S(20) end
+
+        -- Pre-calculate height
+        local temp_cy = ry
+        local temp_rx = pad + label_w
+        local rw = S(110)
+        for i, opt in ipairs(options) do
+            if temp_rx + rw > gfx.w - pad then
+                temp_rx = pad + label_w
+                temp_cy = temp_cy + input_h + S(5)
+            end
+            temp_rx = temp_rx + rw + S(5)
+        end
+        local section_h = temp_cy - start_cy + input_h
+
+        if cy + section_h > content_y and cy < content_y + content_h then
+            gfx.setfont(F.std)
+            set_color(UI.C_TXT, 0.7)
+            if is_narrow then
+                gfx.x, gfx.y = pad, cy
+                gfx.drawstr(label)
+            else
+                gfx.x, gfx.y = pad, cy + (input_h - gfx.texth) / 2
+                gfx.drawstr(label)
+            end
+            
+            local rx = pad + label_w
+            local ry = is_narrow and cy + S(20) or cy
+            for i, opt in ipairs(options) do
+                if rx + rw > gfx.w - pad then
+                    rx = pad + label_w
+                    ry = ry + input_h + S(5)
+                end
+                local is_sel = f_state[state_key] and f_state[state_key][opt]
+                local bg = is_sel and UI.C_ACCENT_G or UI.C_BTN
+                local txt = is_sel and UI.C_BG or UI.C_TXT
+                if btn(rx, ry, rw, input_h, opt, bg, txt) then
+                    f_state[state_key] = f_state[state_key] or {}
+                    f_state[state_key][opt] = not f_state[state_key][opt]
+                end
+                rx = rx + rw + S(5)
+            end
+        end
+        cy = start_cy + section_h + spacing
+    end
+
+    draw_radio("Голос:", "voice", {"Чоловічий", "Жіночий"})
+    draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts)
+    draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts)
+    draw_radio("Вокал:", "vocals", PROFILE_META.VOCALS.opts, S(150))
+    draw_multi_select("Спеціалізація:", "specialization", PROFILE_META.SPECIALIZATION.opts)
+
+    UI_STATE.talents_filters_last_h = (cy + UI_STATE.talents_filters_scroll_y) - content_y + S(20)
+
+    -- Scrollbar
+    if max_scroll > 0 then
+        UI_STATE.talents_filters_target_scroll_y = draw_scrollbar(gfx.w - S(10), content_y, S(10), content_h, total_content_h, content_h, UI_STATE.talents_filters_target_scroll_y or 0)
+    end
+
+    -- FOOTER
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, gfx.h - footer_h, gfx.w, footer_h, 1)
+    set_color(UI.C_TXT, 0.1)
+    gfx.line(0, gfx.h - footer_h, gfx.w, gfx.h - footer_h)
+
+    local bw, bh = S(120), S(34)
+    local bx = gfx.w - pad - bw
+    if btn(bx, gfx.h - footer_h + (footer_h - bh)/2, bw, bh, "Застосувати", UI.C_ACCENT_G, UI.C_BG) then
+        -- Commit temp filters to main state
+        UI_STATE.talents_filters = UI_STATE.talents_filters_temp
+        UI_STATE.talents_filters_temp = nil
+        UI_STATE.talents_show_filters = false
+        ACHIEVEMENTS.fetch_talents(1)
+    end
+    
+    bx = bx - bw - S(10)
+    if btn(bx, gfx.h - footer_h + (footer_h - bh)/2, bw, bh, "Скинути", UI.C_BTN, UI.C_TXT) then
+        UI_STATE.talents_filters_temp = { voice = nil, timbre = {}, conditions = nil, vocals = nil, specialization = {} }
+    end
+
+    -- HEADER (Draw over content)
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, header_h, 1)
+    set_color(UI.C_TXT, 0.1)
+    gfx.line(0, header_h, gfx.w, header_h)
+    
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT)
+    gfx.x, gfx.y = pad, pad - S(2)
+    local close_sz = S(24)
+    gfx.drawstr(fit_text_width("Фільтри", gfx.w - pad * 2 - close_sz - S(100)))
+
+    -- Back button
+    local filter_btn_w = S(80)
+    if btn(gfx.w - pad - close_sz - filter_btn_w - S(10), pad, filter_btn_w, close_sz, "Назад", UI.C_TAB_ACT, UI.C_TXT) then
+        UI_STATE.talents_filters_temp = nil
+        UI_STATE.talents_show_filters = false
+    end
+
+    -- Close button
+    if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+        UI_STATE.talents_filters_temp = nil
+        UI_STATE.talents_show_filters = false
+        UI_STATE.show_talent_search = false
+    end
+
+    -- Handle Esc key
+    if input_queue then
+        for i = #input_queue, 1, -1 do
+            if input_queue[i] == 27 then
+                UI_STATE.talents_filters_temp = nil
+                UI_STATE.talents_show_filters = false
+                table.remove(input_queue, i)
+            end
+        end
+    end
+end
+
 function DRAW_WINDOW.draw_talent_search(input_queue)
     if not UI_STATE.show_talent_search then return end
+
+    local function get_active_filters_count()
+        local count = 0
+        local f = UI_STATE.talents_filters
+        if not f then return 0 end
+        if f.voice then count = count + 1 end
+        if f.conditions then count = count + 1 end
+        if f.vocals then count = count + 1 end
+        
+        local has_timbre = false
+        if f.timbre then
+            for k, v in pairs(f.timbre) do if v then has_timbre = true break end end
+        end
+        if has_timbre then count = count + 1 end
+        
+        local has_spec = false
+        if f.specialization then
+            for k, v in pairs(f.specialization) do if v then has_spec = true break end end
+        end
+        if has_spec then count = count + 1 end
+        
+        return count
+    end
+
+    if UI_STATE.talents_show_filters then
+        DRAW_WINDOW.draw_talent_filters(input_queue)
+        return
+    end
     
     local footer_h = S(40)
     local header_h = S(64)
@@ -16774,6 +17053,8 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
     local content_y = header_h
     local content_h = gfx.h - header_h - footer_h
     local width = gfx.w - pad * 2
+    local total_h = 0
+    local top_pad = 0
 
     -- 2. SCROLL LOGIC
     local max_scroll = ACHIEVEMENTS.talents_max_scroll or 0
@@ -16802,12 +17083,12 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
         gfx.drawstr(txt)
     else
         -- Draw List
-        local top_pad = S(15)
+        top_pad = S(15)
         local badge_gap = S(4)
         
         -- Pre-calculate row data
         local row_data = {}
-        local total_h = 0
+        total_h = 0
         for i, t in ipairs(UI_STATE.talents_list) do
             local bio_trimmed = (t.dubber_bio or ""):match("^%s*(.-)%s*$") or ""
             local has_bio = bio_trimmed ~= ""
@@ -16949,6 +17230,19 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             end
         end
     end
+    
+    -- Draw Scrollbar
+    if total_h and total_h + top_pad * 2 > content_h then
+        local sb_w = S(10)
+        local sb_h = content_h - S(10)
+        local sb_x = gfx.w - sb_w - S(2)
+        local sb_y = content_y + S(5)
+        local new_scroll = draw_scrollbar(sb_x, sb_y, sb_w, sb_h, total_h + top_pad * 2, content_h, UI_STATE.talents_scroll_y)
+        if new_scroll and new_scroll ~= UI_STATE.talents_scroll_y then
+            UI_STATE.talents_target_scroll_y = new_scroll
+            UI_STATE.talents_scroll_y = new_scroll
+        end
+    end
 
     -- 4. HEADER (Masking content)
     set_color(UI.C_BG, 1.0)
@@ -16960,7 +17254,27 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
     set_color(UI.C_TXT)
     gfx.x, gfx.y = pad, pad - S(2)
     local close_sz = S(24)
-    gfx.drawstr(fit_text_width("Пошук талантів", gfx.w - pad * 2 - close_sz - S(10)))
+    gfx.drawstr(fit_text_width("Пошук талантів", gfx.w - pad * 2 - close_sz - S(100)))
+
+    -- Filter button
+    local f_count = get_active_filters_count()
+    local filter_text = "Фільтр" .. (f_count > 0 and (" (" .. f_count .. ")") or "")
+    local filter_btn_w = S(80)
+    
+    local btn_bg = UI_STATE.talents_show_filters and UI.C_TAB_ACT or UI.C_BTN
+    local btn_txt = UI.C_TXT
+    
+    if not UI_STATE.talents_show_filters and f_count > 0 then
+        btn_bg = UI.C_ORANGE
+        btn_txt = UI.C_BG -- Dark text on orange background
+    end
+
+    if btn(gfx.w - pad - close_sz - filter_btn_w - S(10), pad, filter_btn_w, close_sz, UI_STATE.talents_show_filters and "Назад" or filter_text, btn_bg, btn_txt) then
+        UI_STATE.talents_show_filters = not UI_STATE.talents_show_filters
+        if not UI_STATE.talents_show_filters then
+            ACHIEVEMENTS.fetch_talents(1) -- Refresh when closing filters
+        end
+    end
 
     -- Close button
     if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
@@ -16973,14 +17287,14 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
     set_color(UI.C_TXT, 0.1)
     gfx.line(0, gfx.h - footer_h, gfx.w, gfx.h - footer_h)
 
-    if UI_STATE.talents_total > 20 then
+    if UI_STATE.talents_total and UI_STATE.talents_total > 0 then
         local total_pages = math.ceil(UI_STATE.talents_total / 20)
         local pag_w = S(120)
         local pag_x = (gfx.w - pag_w) / 2
         local pag_y = gfx.h - footer_h + (footer_h - S(26)) / 2
         
         -- Prev
-        if UI_STATE.talents_page > 1 then
+        if total_pages > 1 and (UI_STATE.talents_page or 1) > 1 then
             if btn(pag_x, pag_y, S(30), S(26), "<", UI.C_BTN, UI.C_TXT) then
                 ACHIEVEMENTS.fetch_talents(UI_STATE.talents_page - 1)
             end
@@ -16989,13 +17303,13 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
         -- Info
         gfx.setfont(F.std)
         set_color(UI.C_TXT, 0.6)
-        local p_txt = string.format("%d / %d", UI_STATE.talents_page, total_pages)
+        local p_txt = string.format("%d / %d", UI_STATE.talents_page or 1, total_pages)
         local tw, th = gfx.measurestr(p_txt)
         gfx.x, gfx.y = (gfx.w - tw) / 2, pag_y + (S(26) - th) / 2
         gfx.drawstr(p_txt)
         
         -- Next
-        if UI_STATE.talents_page < total_pages then
+        if total_pages > 1 and (UI_STATE.talents_page or 1) < total_pages then
             if btn(pag_x + pag_w - S(30), pag_y, S(30), S(26), ">", UI.C_BTN, UI.C_TXT) then
                 ACHIEVEMENTS.fetch_talents(UI_STATE.talents_page + 1)
             end
