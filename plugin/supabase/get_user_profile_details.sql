@@ -11,6 +11,7 @@ BEGIN
         'dubber_samples', dubber_samples,
         'dubber_equipment', dubber_equipment,
         'dubber_conditions', dubber_conditions,
+        'dubber_specialization', dubber_specialization,
         'dubber_voice', dubber_voice,
         'dubber_timbre', dubber_timbre,
         'last_active', last_active
