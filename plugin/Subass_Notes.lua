@@ -469,7 +469,7 @@ PROFILE_META = {
         }
     },
     STATUS = {
-        opts = {"Вільний талант", "Шукаю талант", "Звичайни аккаунт", "Приховати талант"},
+        opts = {"Вільний талант", "Шукаю талант", "Звичайни аккаунт", "Приховати аккаунт"},
         tips = {
             "В активному пошуку проєкта",
             "В активному пошуку нових колег",
@@ -16500,10 +16500,10 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
         sb_bg = UI.C_ACCENT_G
         sb_txt = UI.C_BG
         tp_text = "• Ви вільні для роботи. Інші користувачі зможуть знайти вас в каталозі талантів. Заповніть максимально свій профайл аби вас могли швидше найняти."
-    elseif state.status == "Приховати талант" then
+    elseif state.status == "Приховати аккаунт" then
         sb_bg = UI.C_RED
         sb_txt = UI.C_BG
-        tp_text = "• Вас більше ніхто не знайде в каталозі талантів. Ви не будете отримувати пропозиції по роботі."
+        tp_text = "• Вас більше ніхто не знайде в каталозі талантів. Ви не будете отримувати пропозиції по роботі а також ви будете приховані з таблиці лідерів досягнень."
     elseif state.status == "Звичайни аккаунт" then
         sb_bg = UI.C_BTN
         sb_txt = UI.C_TXT
@@ -16524,8 +16524,8 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
             
             if (selected_opt == "Шукаю талант" or selected_opt == "Вільний талант") and contact_trimmed == "" then
                 reaper.MB("Спочатку заповніть поле 'Зв'язок' (Telegram, тощо), щоб з вами могли зв'язатися.", "Потрібні контакти", 0)
-            elseif selected_opt == "Приховати талант" then
-                local res1 = reaper.MB("Ви впевнені, що хочете приховати свій профіль? Вас більше не зможуть знайти інші користувачі.", "Приховати талант?", 4)
+            elseif selected_opt == "Приховати аккаунт" then
+                local res1 = reaper.MB("Ви впевнені, що хочете приховати свій профіль? Вас більше не зможуть знайти інші користувачі в пошуку талантів та таблиці лідерів.", "Приховати аккаунт?", 4)
                 if res1 == 6 then -- Yes
                     local res2 = reaper.MB("Точно приховати? Давайте краще оберем статус 'Звичайний аккаунт'?", "Останнє попередження", 4)
                     if res2 == 6 then -- Yes (User agreed that it's better to choose simple account)
@@ -16795,7 +16795,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     -- Track total height for NEXT frame's scroll limit
     local current_total_h = S(40) -- Start padding
 
-    if p.dubber_status ~= "Приховати талант" then
+    if p.dubber_status ~= "Приховати аккаунт" then
         current_total_h = current_total_h + draw_view_section("ОПИС", p.dubber_bio, width)
         
         -- Dynamic Specialization Tooltip
