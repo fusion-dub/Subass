@@ -25629,7 +25629,6 @@ size > 0 ? (
     reaper.UpdateArrange()
 end
 
-
 local function show_panel_preset_dialog(panel_type, idx)
     local is_new = (idx == nil)
     local target_presets = (panel_type == "director") and cfg.director_presets or cfg.fmt_presets
@@ -27390,6 +27389,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     end
                     ass_lines = new_lines
                     editor_state.last_region_id = -1
+                    editor_state.last_state_count = -1
                     UI_STATE._markers_is_dirty = true
                     cleanup_actors()
                     rebuild_regions()
