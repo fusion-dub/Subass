@@ -27357,6 +27357,23 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             local txt = editor_state.input.text
             
             if is_editing and current_region then
+                if txt == "" then
+                    push_undo("Видалення репліки")
+                    local to_delete_id = current_region.id
+                    local new_lines = {}
+                    for _, line in ipairs(ass_lines or {}) do
+                        if line.rgn_idx ~= to_delete_id then
+                            table.insert(new_lines, line)
+                        end
+                    end
+                    ass_lines = new_lines
+                    editor_state.last_region_id = -1
+                    UI_STATE._markers_is_dirty = true
+                    cleanup_actors()
+                    rebuild_regions()
+                    show_snackbar("Репліку видалено", "error")
+                    return
+                end
                 if not current_region.id then
                     show_snackbar("Помилка: ID регіону не знайдено", "error")
                     return
@@ -27718,8 +27735,14 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         end
         
         local has_changes = (editor_state.input.text ~= editor_state.original_text)
+        local is_empty = (editor_state.input.text == "")
         local save_col = is_disabled and UI.C_TAB_INA or (is_creating and UI.C_ACCENT_G or (has_changes and UI.C_BTN_UPDATE or UI.C_BTN))
         local save_label = is_editing and "Оновити" or (is_disabled and "Не в ділянці" or "Створити")
+
+        if is_editing and is_empty then
+            save_label = "Видалити"
+            save_col = UI.C_BTN_ERROR
+        end
 
         -- Column 1: Row 2 (Input)
         ui_text_input("editor_panel", input_draw_x, input_draw_y, left_w, input_row_h, editor_state.input, is_disabled and "Виділіть та перейдіть до ділянки..." or "Редагування репліки...", input_queue, true, false, corr_font)
