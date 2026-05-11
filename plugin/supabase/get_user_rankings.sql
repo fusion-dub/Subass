@@ -9,7 +9,7 @@ DECLARE
     overall_percentile FLOAT;
 BEGIN
     -- 1. Отримуємо загальну кількість користувачів
-    SELECT count(*) INTO total_count FROM users;
+    SELECT count(*) INTO total_count FROM users WHERE (dubber_status IS NULL OR dubber_status != 'Приховати аккаунт');
 
     WITH 
     -- 2. Розгортаємо stats у пласку таблицю з агрегацією для ach_4_
@@ -23,7 +23,8 @@ BEGIN
             END as key, 
             SUM((value#>>'{}')::float8) as val
         FROM users, jsonb_each(stats::jsonb)
-        WHERE key NOT LIKE '%_tracking'
+        WHERE (dubber_status IS NULL OR dubber_status != 'Приховати аккаунт')
+          AND key NOT LIKE '%_tracking'
           AND jsonb_typeof(value) = 'number'
         GROUP BY 1, 2
     ),
@@ -79,7 +80,8 @@ BEGIN
             END AS key,
             SUM((value#>>'{}'  )::float8) AS val
         FROM users, jsonb_each(stats::jsonb)
-        WHERE key NOT LIKE '%_tracking'
+        WHERE (dubber_status IS NULL OR dubber_status != 'Приховати аккаунт')
+          AND key NOT LIKE '%_tracking'
           AND jsonb_typeof(value) = 'number'
         GROUP BY 1, 2
     )
