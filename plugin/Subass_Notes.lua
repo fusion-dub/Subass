@@ -26483,8 +26483,14 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
             has_changes = true
         end
 
+        local is_empty = (director_state.input.text == "")
         local save_col = has_changes and (director_state.last_marker_id and UI.C_BTN_UPDATE or UI.C_BTN_MEDIUM) or UI.C_BTN
         local save_label = director_state.last_marker_id and "Оновити" or "Зберегти"
+        
+        if director_state.last_marker_id and is_empty then
+            save_label = "Видалити"
+            save_col = UI.C_BTN_ERROR
+        end
         
         -- Position save button: vertical stack for Right mode, horizontal for Bottom mode
         local save_x = is_right_layout and input_draw_x or (input_draw_x + input_w + S(10))
@@ -26497,6 +26503,22 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
 
         local function save_director_changes()
             local txt = director_state.input.text
+            if txt == "" and director_state.last_marker_id then
+                push_undo("Видалити правку (Режисер)")
+                reaper.DeleteProjectMarker(0, director_state.last_marker_id, false)
+                ass_markers = capture_project_markers()
+                update_regions_cache()
+                
+                -- Force table refresh
+                table_data_cache.state_count = -1
+                last_layout_state.state_count = -1
+                prompter_drawer.marker_cache.count = -1
+                
+                director_state.last_marker_id = nil
+                director_state.input.text = ""
+                show_snackbar("Правку видалено", "error")
+                return
+            end
             if txt ~= "" then
                 -- --- LEARNING (Mapping Update on Save) ---
                 if #current_ass_actors == 1 then
