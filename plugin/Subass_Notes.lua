@@ -27527,7 +27527,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                 end
                 inp.anchor = inp.cursor
             else
-                local new_txt = txt:sub(1, s_idx) .. val .. txt:sub(s_idx + 1)
+                local new_txt = txt:sub(1, s_idx) .. val .. txt:sub(e_idx + 1)
                 inp.text = new_txt
                 inp.cursor = s_idx + #val
                 inp.anchor = inp.cursor
