@@ -27391,6 +27391,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     editor_state.last_region_id = -1
                     editor_state.last_state_count = -1
                     UI_STATE._markers_is_dirty = true
+                    editor_state.needs_sync = true
                     cleanup_actors()
                     rebuild_regions()
                     show_snackbar("Репліку видалено", "error")
