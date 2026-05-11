@@ -300,6 +300,7 @@ local OTHER = {
 
         CATS=29,
         ACH_PLACE=28,
+        COPA_INACTIVE=27,
     },
     QWERTY_TO_UA = {
         [113] = 1081, [119] = 1094, [101] = 1091, [114] = 1082, [116] = 1077, [121] = 1085, [117] = 1075, [105] = 1096, [111] = 1097, [112] = 1079, [91] = 1093, [93] = 1111,
@@ -517,6 +518,8 @@ OTHER.ACH_PLACE_CFG = { path = "media" .. OTHER.SEPARATOR .. "ach_place.png",  b
 OTHER.CATS_CFG = { path = "media" .. OTHER.SEPARATOR .. "cats.png",  buf = OTHER.BUF.CATS, frames = 6, fps = 6, frame_w = 500 }
 OTHER.DEADLINE_GIF_CFG = { path = "media" .. OTHER.SEPARATOR .. "deadline.png",  buf = OTHER.BUF.IMG_5, frames = 10, fps = 8, frame_w = 512, zoom = 0.85 }
 OTHER.COPA_GIF_CFG = { path = "media" .. OTHER.SEPARATOR .. "copa.png",  buf = OTHER.BUF.IMG_6, frames = 9, fps = 8, frame_w = 200, zoom = 0.75 }
+OTHER.COPA_INACTIVE_CFG = { path = "media" .. OTHER.SEPARATOR .. "copa_inactive.png",  buf = OTHER.BUF.COPA_INACTIVE, frame_w = 200, zoom = 0.75 }
+
 OTHER.ACH_CFG = {
     {
         id = "ach_11",
@@ -775,6 +778,14 @@ function OTHER.load_assets()
         local df_path = script_path .. OTHER.COPA_GIF_CFG.path
         if reaper.file_exists(df_path) then
             gfx.loadimg(OTHER.COPA_GIF_CFG.buf, df_path)
+        end
+    end
+
+    -- Load Copa GIF
+    if OTHER.COPA_INACTIVE_CFG then
+        local df_path = script_path .. OTHER.COPA_INACTIVE_CFG.path
+        if reaper.file_exists(df_path) then
+            gfx.loadimg(OTHER.COPA_INACTIVE_CFG.buf, df_path)
         end
     end
 end
@@ -16479,18 +16490,28 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     
     local sb_bg = UI.C_BTN
     local sb_txt = UI.C_TXT
+    local tp_text = ""
+
     if state.status == "Шукаю талант" then
         sb_bg = UI.C_ORANGE
         sb_txt = UI.C_BG
+        tp_text = "• Ви будете отримувати пропозиції від інших користувачів, аби ви їх найняли. Датально опишіть в описі кого ви шукаєте."
     elseif state.status == "Вільний талант" then
         sb_bg = UI.C_ACCENT_G
         sb_txt = UI.C_BG
+        tp_text = "• Ви вільні для роботи. Інші користувачі зможуть знайти вас в каталозі талантів. Заповніть максимально свій профайл аби вас могли швидше найняти."
     elseif state.status == "Приховати талант" then
         sb_bg = UI.C_RED
         sb_txt = UI.C_BG
+        tp_text = "• Вас більше ніхто не знайде в каталозі талантів. Ви не будете отримувати пропозиції по роботі."
     elseif state.status == "Звичайни аккаунт" then
         sb_bg = UI.C_BTN
         sb_txt = UI.C_TXT
+        tp_text = "• Ви не берете участь в гонці талантів. Ви просто користувач який наразі нікого не шукає."
+    end
+
+    if UI_STATE.window_focused and (gfx.mouse_x >= status_x and gfx.mouse_x <= status_x + status_w and gfx.mouse_y >= by and gfx.mouse_y <= by + btn_h) then
+        UI_STATE.tooltip_state.text = "Змінити ваш публічний статус доступності:\n" .. tp_text
     end
     
     if btn(status_x, by, status_w, btn_h, status_label, sb_bg, sb_txt) then
@@ -19498,16 +19519,17 @@ function DRAW_TABS.draw_tabs()
 
     -- Achievement Logic: Animation and dot notification
     local animation_drawn = false
-    if OTHER.COPA_GIF_CFG then
-        local cfg = OTHER.COPA_GIF_CFG
+    local cfg = (ACHIEVEMENTS.has_new and OTHER.COPA_GIF_CFG) or OTHER.COPA_INACTIVE_CFG
+
+    if cfg then
         local img_w, img_h = gfx.getimgdim(cfg.buf)
         if img_w > 0 then
             animation_drawn = true
-            local frame_w = cfg.frame_w or (img_w / cfg.frames)
+            local frame_w = cfg.frames and (cfg.frame_w or (img_w / cfg.frames)) or img_w
             local frame_h = img_h
             local frame_idx = 0 -- Default to frozen first frame
             
-            if ACHIEVEMENTS.has_new then
+            if ACHIEVEMENTS.has_new and cfg.frames then
                 local elapsed = reaper.time_precise()
                 local total_cycle = cfg.frames * 7
                 local cycle_idx = math.floor(elapsed * (cfg.fps or 8)) % total_cycle
