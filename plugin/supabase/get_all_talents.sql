@@ -23,7 +23,7 @@ BEGIN
         v_looking_for_talents_count
     FROM users
     WHERE 
-        (dubber_status IS NULL OR dubber_status != 'Приховати талант')
+        (dubber_status IS NULL OR dubber_status != 'Приховати аккаунт')
         AND (p_filters->>'voice' IS NULL OR dubber_voice = p_filters->>'voice')
         AND (p_filters->>'conditions' IS NULL OR dubber_conditions = p_filters->>'conditions')
         AND (p_filters->>'vocals' IS NULL OR dubber_vocals = p_filters->>'vocals')
@@ -63,7 +63,7 @@ BEGIN
             last_active
         FROM users
         WHERE 
-            (dubber_status IS NULL OR dubber_status != 'Приховати талант')
+            (dubber_status IS NULL OR dubber_status != 'Приховати аккаунт')
             AND (p_filters->>'voice' IS NULL OR dubber_voice = p_filters->>'voice')
             AND (p_filters->>'conditions' IS NULL OR dubber_conditions = p_filters->>'conditions')
             AND (p_filters->>'vocals' IS NULL OR dubber_vocals = p_filters->>'vocals')
