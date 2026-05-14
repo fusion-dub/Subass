@@ -17480,43 +17480,69 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
     set_color(UI.C_TXT, 0.1)
     gfx.line(0, header_h, gfx.w, header_h)
     
-    gfx.setfont(F.title)
-    set_color(UI.C_TXT)
-    gfx.x, gfx.y = pad, pad - S(2)
     local close_sz = S(24)
-    gfx.drawstr(fit_text_width("Пошук талантів", gfx.w - pad * 2 - close_sz - S(100)))
-
-    -- Filter button
     local f_count = get_active_filters_count()
     local filter_text = "Фільтр" .. (f_count > 0 and (" (" .. f_count .. ")") or "")
     local filter_btn_w = S(80)
+
+    -- Prepare quick filters info for width calculation
+    local look_count = UI_STATE.talents_looking_count or 0
+    local is_look_sel = UI_STATE.talents_filters and UI_STATE.talents_filters.status == "Шукаю талант"
+    local free_count = UI_STATE.talents_free_count or 0
+    local is_free_sel = UI_STATE.talents_filters and UI_STATE.talents_filters.status == "Вільний талант"
+
+    local show_look = look_count > 0 or is_look_sel
+    local show_free = free_count > 0 or is_free_sel
     
-    local btn_bg = UI_STATE.talents_show_filters and UI.C_TAB_ACT or UI.C_BTN
-    local btn_txt = UI.C_TXT
-    
-    if not UI_STATE.talents_show_filters and f_count > 0 then
-        btn_bg = UI.C_RED
-        btn_txt = UI.C_BG -- Dark text on orange background
+    -- Adaptive labels for narrow windows
+    local look_text = "Шукаю талант (" .. look_count .. ")"
+    local free_text = "Вільні таланти (" .. free_count .. ")"
+    if gfx.w < S(550) then
+        look_text = "Шукаю (" .. look_count .. ")"
+        free_text = "Вільні (" .. free_count .. ")"
     end
 
-    local current_x = gfx.w - pad - close_sz - filter_btn_w - S(10)
+    -- 1. Calculate total buttons width to truncate title properly
+    gfx.setfont(F.std)
+    local look_w = show_look and (gfx.measurestr(look_text) + S(20)) or 0
+    local free_w = show_free and (gfx.measurestr(free_text) + S(20)) or 0
+    
+    local buttons_w = close_sz + S(10) + filter_btn_w + S(10)
+    if show_look then buttons_w = buttons_w + look_w + S(10) end
+    if show_free then buttons_w = buttons_w + free_w + S(10) end
+
+    -- 2. Draw Title
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT)
+    gfx.x, gfx.y = pad, pad - S(2)
+    gfx.drawstr(fit_text_width("Пошук талантів", gfx.w - pad * 2 - buttons_w - S(10)))
+
+    -- 3. Draw Buttons (Right to Left)
+    local current_x = gfx.w - pad - close_sz
+    
+    -- Close
+    if btn(current_x, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
+        UI_STATE.show_talent_search = false
+    end
+    current_x = current_x - S(10)
+    
+    -- Filter
+    current_x = current_x - filter_btn_w
+    local btn_bg = UI_STATE.talents_show_filters and UI.C_TAB_ACT or UI.C_BTN
+    local btn_txt = UI.C_TXT
+    if not UI_STATE.talents_show_filters and f_count > 0 then
+        btn_bg = UI.C_RED
+        btn_txt = UI.C_BG
+    end
     if btn(current_x, pad, filter_btn_w, close_sz, UI_STATE.talents_show_filters and "Назад" or filter_text, btn_bg, btn_txt) then
         UI_STATE.talents_show_filters = not UI_STATE.talents_show_filters
-        if not UI_STATE.talents_show_filters then
-            ACHIEVEMENTS.fetch_talents(1) -- Refresh when closing filters
-        end
+        if not UI_STATE.talents_show_filters then ACHIEVEMENTS.fetch_talents(1) end
     end
     current_x = current_x - S(10)
 
-    -- "Шукаю талант" button
-    local look_count = UI_STATE.talents_looking_count or 0
-    local is_look_sel = UI_STATE.talents_filters and UI_STATE.talents_filters.status == "Шукаю талант"
-    if look_count > 0 or is_look_sel then
-        local look_text = "Шукаю талант (" .. look_count .. ")"
-        gfx.setfont(F.std)
-        local look_w = gfx.measurestr(look_text) + S(20)
+    -- Look for talent
+    if show_look then
         current_x = current_x - look_w
-        
         local look_bg = is_look_sel and UI.C_ORANGE or UI.C_BTN
         local look_txt = is_look_sel and UI.C_BG or UI.C_TXT
         if btn(current_x, pad, look_w, close_sz, look_text, look_bg, look_txt) then
@@ -17531,14 +17557,9 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
         current_x = current_x - S(10)
     end
 
-    -- "Вільний талант" button
-    local free_count = UI_STATE.talents_free_count or 0
-    local is_free_sel = UI_STATE.talents_filters and UI_STATE.talents_filters.status == "Вільний талант"
-    if free_count > 0 or is_free_sel then
-        local free_text = "Вільні таланти (" .. free_count .. ")"
-        local free_w = gfx.measurestr(free_text) + S(20)
+    -- Free talents
+    if show_free then
         current_x = current_x - free_w
-
         local free_bg = is_free_sel and UI.C_ACCENT_G or UI.C_BTN
         local free_txt = is_free_sel and UI.C_BG or UI.C_TXT
         if btn(current_x, pad, free_w, close_sz, free_text, free_bg, free_txt) then
@@ -17550,12 +17571,6 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             end
             ACHIEVEMENTS.fetch_talents(1)
         end
-        current_x = current_x - S(10)
-    end
-
-    -- Close button
-    if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then
-        UI_STATE.show_talent_search = false
     end
 
     -- 5. FOOTER (Masking content)
