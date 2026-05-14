@@ -17354,12 +17354,12 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
                 local bh = gfx.texth + S(6)
                 local b_step = bh + badge_gap
                 badge_lines = 1
-                local cur_tx = S(12)
-                local max_tx = width - S(24)
+                local cur_tx = 0
+                local max_tx = width - S(12)
                 for _, b in ipairs(badges) do
                     local bw = gfx.measurestr(b.txt) + S(12)
                     if cur_tx + bw > max_tx then
-                        cur_tx = S(12)
+                        cur_tx = 0
                         badge_lines = badge_lines + 1
                     end
                     cur_tx = cur_tx + bw + badge_gap
@@ -17367,7 +17367,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
                 badges_total_h = badge_lines * b_step - badge_gap -- Total height of the badge block
             end
             
-            local text_y_off = badges_total_h > 0 and (badges_total_h + S(17)) or S(12)
+            local text_y_off = badges_total_h > 0 and (badges_total_h + S(14)) or S(12)
             
             local bio_h = 0
             if has_bio then
@@ -17419,23 +17419,24 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
                 if #rd.badges > 0 then
                     local bx = rx + S(12)
                     local by = ry + S(12)
-                    local max_bx = rx + rw - S(12)
+                    local max_bx = bx + (width - S(12))
                     gfx.setfont(F.tip)
                     local bh = gfx.texth + S(6)
                     local b_step = bh + badge_gap
+                    local cur_rel_x = 0
                     for _, b in ipairs(rd.badges) do
                         local tw, th = gfx.measurestr(b.txt)
                         local bw = tw + S(12)
-                        if bx + bw > max_bx then
-                            bx = rx + S(12)
+                        if cur_rel_x + bw > (width - S(12)) then
+                            cur_rel_x = 0
                             by = by + b_step
                         end
                         set_color(b.clr, b.alpha)
-                        gfx.rect(bx, by, bw, bh, 1)
+                        gfx.rect(bx + cur_rel_x, by, bw, bh, 1)
                         set_color(UI.C_TXT, 0.8)
-                        gfx.x, gfx.y = bx + S(6), by + S(3)
+                        gfx.x, gfx.y = bx + cur_rel_x + S(6), by + S(3)
                         gfx.drawstr(b.txt)
-                        bx = bx + bw + badge_gap
+                        cur_rel_x = cur_rel_x + bw + badge_gap
                     end
                 end
 
