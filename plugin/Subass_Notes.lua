@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.4
+-- @version 7.5
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.4",
+    script_title = "Subass Notes v7.5",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -9700,42 +9700,47 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
             f:close()
             if STATS and STATS.json_decode then
                 local ok, data = pcall(STATS.json_decode, content)
-                if ok and data then
-                    if data.ok == false then
-                        if not silent_mode then
-                            show_snackbar("Помилка синхронізації: " .. (data.error or "невідома"), "error")
-                        end
-                        os.remove(rankings_path) -- Delete error file so it doesn't persist
-                        return false
-                    end
+                
+                -- Check for corrupted data or non-table result
+                if not ok or type(data) ~= "table" then
+                    os.remove(rankings_path)
+                    return false
+                end
 
-                    if data.rankings then
-                        ACHIEVEMENTS.rankings = data.rankings
+                if data.ok == false then
+                    if not silent_mode then
+                        show_snackbar("Помилка синхронізації: " .. (data.error or "невідома"), "error")
+                    end
+                    os.remove(rankings_path) -- Delete error file so it doesn't persist
+                    return false
+                end
+
+                if data.rankings then
+                    ACHIEVEMENTS.rankings = data.rankings
+                    
+                    -- Sync profile from server if available
+                    if data.rankings.profile then
+                        local p = data.rankings.profile
+                        local updated = false
                         
-                        -- Sync profile from server if available
-                        if data.rankings.profile then
-                            local p = data.rankings.profile
-                            local updated = false
-                            
-                            local fields = {
-                                "dubber_name", "dubber_bio", "dubber_contact", 
-                                "dubber_samples", "dubber_equipment", "dubber_conditions",
-                                "dubber_voice", "dubber_timbre", "dubber_specialization", "dubber_archetypes"
-                            }
-                            
-                            for _, field in ipairs(fields) do
-                                if p[field] and p[field] ~= "" and p[field] ~= cfg[field] then
-                                    cfg[field] = p[field]
-                                    updated = true
-                                end
-                            end
-                            
-                            if updated then
-                                save_settings() -- Persist synced profile to ExtState
+                        local fields = {
+                            "dubber_name", "dubber_bio", "dubber_contact", 
+                            "dubber_samples", "dubber_equipment", "dubber_conditions",
+                            "dubber_voice", "dubber_timbre", "dubber_specialization", "dubber_archetypes"
+                        }
+                        
+                        for _, field in ipairs(fields) do
+                            if p[field] and p[field] ~= "" and p[field] ~= cfg[field] then
+                                cfg[field] = p[field]
+                                updated = true
                             end
                         end
-                        return true
+                        
+                        if updated then
+                            save_settings() -- Persist synced profile to ExtState
+                        end
                     end
+                    return true
                 end
             end
         end
@@ -9782,7 +9787,7 @@ function ACHIEVEMENTS.fetch_profile(machine_id)
             local content = f:read("*a")
             f:close()
             local ok, data = pcall(STATS.json_decode, content)
-            if ok and data and data.ok then
+            if ok and type(data) == "table" and data.ok then
                 UI_STATE.selected_profile = data.profile
                 UI_STATE.show_profile_view = true
             else
@@ -9853,7 +9858,7 @@ function ACHIEVEMENTS.fetch_talents(page)
             local content = f:read("*a")
             f:close()
             local ok, data = pcall(STATS.json_decode, content)
-            if ok and data and data.ok and data.data then
+            if ok and type(data) == "table" and data.ok and data.data then
                 UI_STATE.talents_list = data.data.talents
                 UI_STATE.talents_total = data.data.total_count
                 UI_STATE.talents_free_count = data.data.free_talents_count or 0
@@ -15416,7 +15421,7 @@ function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key, page)
             f:close()
             if STATS and STATS.json_decode then
                 local ok, data = pcall(STATS.json_decode, content)
-                if ok and data and data.ok then
+                if ok and type(data) == "table" and data.ok then
                     if current_page == 1 then
                         ACHIEVEMENTS.leaderboard_data = data
                         ACHIEVEMENTS.leaderboard_data.ach_name = ach_id
