@@ -27464,6 +27464,8 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                         end
                     end
                     if next_r_start < math.huge then
+                        editor_state.needs_sync = true
+                        editor_state.last_region_id = -1
                         reaper.SetEditCurPos(next_r_start, true, false)
                         -- editor_state.input.focus = true
                     end
