@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.5
+-- @version 7.5.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.5",
+    script_title = "Subass Notes v7.5.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -20610,7 +20610,8 @@ local function get_audio_energy_map(start_time, end_time)
         mapping[i+1] = {
             t = start_time + (i * step_size),
             e = 0, 
-            cum = 0
+            cum = 0,
+            raw_e = 0
         }
     end
     
@@ -20632,17 +20633,19 @@ local function get_audio_energy_map(start_time, end_time)
                 local num_channels = reaper.GetMediaSourceNumChannels(src)
                 
                 -- Rate mapping
+                -- NOTE: CreateTakeAudioAccessor time=0 already maps to D_STARTOFFS in source.
+                -- So we only need the offset within the item (time_in_item), NOT start_offs + time_in_item.
                 local play_rate = reaper.GetMediaItemTakeInfo_Value(take, "D_PLAYRATE")
-                local start_offs = reaper.GetMediaItemTakeInfo_Value(take, "D_STARTOFFS")
                 
                 -- Iterate our sample points
                 for k, point in ipairs(mapping) do
                     if point.t >= i_pos and point.t < i_end then
                         local time_in_item = point.t - i_pos
-                        local time_in_take = start_offs + (time_in_item * play_rate)
+                        local time_in_take = time_in_item * play_rate
                         
                         -- Read a small chunk (approx step_size)
-                        local buf_size = math.ceil(step_size * src_sr) 
+                        local buf_size = math.ceil(step_size * src_sr)
+
                         -- Limit buffer for performance (don't read massive chunks if step is huge)
                         if buf_size > 2048 then buf_size = 2048 end
                         
@@ -20659,7 +20662,8 @@ local function get_audio_energy_map(start_time, end_time)
                             end
                             if count_s > 0 then
                                 local rms = math.sqrt(sum_sq / count_s)
-                                point.e = point.e + rms -- Accumulate if overlapping items? rare but ok
+                                point.e = point.e + rms
+                                point.raw_e = point.e
                             end
                         end
                     end
@@ -20812,12 +20816,13 @@ local function draw_waveform_bg(map, x, y, w, h, progress)
 
     local points = map.points
     local n_points = #points
-    local step_x = w / n_points
+    local step_x = w / (n_points - 1)
     
-    -- Find max energy to normalize
+    -- Find max energy to normalize dynamically for this specific region
     local max_e = 0.0001
     for i = 1, n_points do
-        if points[i].e > max_e then max_e = points[i].e end
+        local r_val = (points[i].raw_e and points[i].raw_e > 0) and points[i].raw_e or points[i].e
+        if r_val > max_e then max_e = r_val end
     end
     
     local center_y = y + h / 2
@@ -20833,8 +20838,12 @@ local function draw_waveform_bg(map, x, y, w, h, progress)
         end
         gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, alpha)
 
-        local e1 = points[i].e / max_e
-        local e2 = points[i+1].e / max_e
+        -- Use raw_e for visuals, fallback to a tiny amount so it doesn't just disappear
+        local raw1 = (points[i].raw_e and points[i].raw_e > 0) and points[i].raw_e or (points[i].e > 0 and points[i].e or 0.001)
+        local raw2 = (points[i+1].raw_e and points[i+1].raw_e > 0) and points[i+1].raw_e or (points[i+1].e > 0 and points[i+1].e or 0.001)
+        
+        local e1 = math.min(1.0, raw1 / max_e)
+        local e2 = math.min(1.0, raw2 / max_e)
         
         local px1 = 1 + x + (i-1) * step_x
         local px2 = x + i * step_x
@@ -23209,23 +23218,51 @@ function DRAW_TABS.draw_prompter(input_queue)
             
             -- Draw Waveform Background FIRST (behind text, centered on screen)
             if cfg.wave_bg and #active_regions > 0 then
-                local rgn = active_regions[1]
-                local cache_key = tostring(rgn.pos) .. "_" .. tostring(rgn.rgnend)
-                local map = karaoke_cache[cache_key]
+                -- 1. KEEP ORIGINAL BEHAVIOR: Trigger analysis for active_regions[1] to not break karaoke mode
+                local main_rgn = active_regions[1]
+                local main_key = tostring(main_rgn.pos) .. "_" .. tostring(main_rgn.rgnend)
+                local main_map = karaoke_cache[main_key]
                 
-                if not map then
+                if not main_map then
                     -- Trigger analysis if not in cache (Decoupled from Karaoke Logic)
-                    map = get_audio_energy_map(rgn.pos, rgn.rgnend)
-                    if map then
-                       karaoke_cache[cache_key] = map
+                    main_map = get_audio_energy_map(main_rgn.pos, main_rgn.rgnend)
+                    if main_map then
+                       karaoke_cache[main_key] = main_map
                     else
-                       karaoke_cache[cache_key] = { empty = true }
+                       karaoke_cache[main_key] = { empty = true }
                     end
-                elseif not map.empty then
-                    -- Draw centered on screen (accounting for drawer offset)
-                    local wave_h = gfx.h * 0.5 
-                    local progress = (cur_pos - rgn.pos) / (rgn.rgnend - rgn.pos)
-                    draw_waveform_bg(map, content_offset_left + 20, (gfx.h - wave_h) / 2, available_w - 40, wave_h, progress)
+                end
+
+                -- 2. WAVEFORM DRAWING LOGIC: Find best region to draw (<= 60s)
+                local target_rgn = nil
+                for _, r in ipairs(active_regions) do
+                    local duration = r.rgnend - r.pos
+                    if duration <= 60 then
+                        if not target_rgn or duration < (target_rgn.rgnend - target_rgn.pos) then
+                            target_rgn = r
+                        end
+                    end
+                end
+
+                if target_rgn then
+                    local target_key = tostring(target_rgn.pos) .. "_" .. tostring(target_rgn.rgnend)
+                    local target_map = karaoke_cache[target_key]
+                    
+                    if not target_map then
+                        target_map = get_audio_energy_map(target_rgn.pos, target_rgn.rgnend)
+                        if target_map then
+                           karaoke_cache[target_key] = target_map
+                        else
+                           karaoke_cache[target_key] = { empty = true }
+                        end
+                    end
+                    
+                    if target_map and not target_map.empty then
+                        -- Draw centered on screen (accounting for drawer offset)
+                        local wave_h = gfx.h * 0.5
+                        local progress = (cur_pos - target_rgn.pos) / (target_rgn.rgnend - target_rgn.pos)
+                        draw_waveform_bg(target_map, content_offset_left + 20, (gfx.h - wave_h) / 2, available_w - 40, wave_h, progress)
+                    end
                 end
             end
  
