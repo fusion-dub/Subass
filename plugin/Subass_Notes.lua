@@ -141,6 +141,7 @@ local cfg = {
     auto_trim = (get_set("auto_trim", "0") == "1" or get_set("auto_trim", 0) == 1),
     trim_start = get_set("trim_start", 40),
     trim_end = get_set("trim_end", 80),
+    show_confetti = (get_set("show_confetti", "1") == "1" or get_set("show_confetti", 1) == 1),
     check_clipping = (get_set("check_clipping", "1") == "1" or get_set("check_clipping", 1) == 1),
     director_autofill = (get_set("director_autofill", "1") == "1" or get_set("director_autofill", 1) == 1),
     director_ignore_green = (get_set("director_ignore_green", "0") == "1" or get_set("director_ignore_green", 0) == 1),
@@ -2887,6 +2888,8 @@ local function save_settings()
     reaper.SetExtState(section_name, "trim_start", tostring(cfg.trim_start), true)
     reaper.SetExtState(section_name, "trim_end", tostring(cfg.trim_end), true)
     reaper.SetExtState(section_name, "check_clipping", cfg.check_clipping and "1" or "0", true)
+    reaper.SetExtState(section_name, "show_confetti", cfg.show_confetti and "1" or "0", true)
+
     reaper.SetExtState(section_name, "hotkeys", cfg.hotkeys, true)
     reaper.SetExtState(section_name, "fmt_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.fmt_presets or {})), true)
     reaper.SetExtState(section_name, "dir_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.director_presets or {})), true)
@@ -9747,7 +9750,8 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
                         local fields = {
                             "dubber_name", "dubber_bio", "dubber_contact", 
                             "dubber_samples", "dubber_equipment", "dubber_conditions",
-                            "dubber_voice", "dubber_timbre", "dubber_specialization", "dubber_archetypes"
+                            "dubber_voice", "dubber_timbre", "dubber_specialization",
+                            "dubber_archetypes", "dubber_force_hide"
                         }
                         
                         for _, field in ipairs(fields) do
@@ -19751,6 +19755,7 @@ function DRAW_TABS.draw_file()
         
         if btn(bx, by, b_btn_w, b_btn_h, "Заповнити", {0.8, 0.2, 0.2, 1.0}, UI.C_BG) then
             ACHIEVEMENTS.open_edit_profile()
+            UI_STATE.current_tab = 4
             UI_STATE.mouse_handled = true
         end
         
@@ -22230,6 +22235,8 @@ UI_STATE.confetti_finished = false
 --- Update, draw or clear the falling confetti particles
 --- @param active boolean Whether the confetti effect is currently active
 function UI_STATE.draw_confetti(active)
+    if not cfg.show_confetti then return end
+
     if not active then
         UI_STATE.confetti_particles = nil
         UI_STATE.confetti_finished = false
@@ -23945,7 +23952,7 @@ function DRAW_TABS.draw_settings()
         
         return box_sz + 10
     end
-    
+
     -- ═══════════════════════════════════════════
     -- 0. ІНСТРУМЕНТИ (Tools)
     -- ═══════════════════════════════════════════
@@ -23958,7 +23965,7 @@ function DRAW_TABS.draw_settings()
     
     local tools = {
         {name = "• Пошук талантів •", tip = "Пошук талантів, та перегляд профілів інших користувачів", color = UI.C_TAL_BG, action = function() UI_STATE.show_talent_search = true ACHIEVEMENTS.fetch_talents(1) end},
-        {name = "Редагувати профіль", tip = "Редагування профілю користувача", action = function() ACHIEVEMENTS.open_edit_profile() end},
+        {name = cfg.dubber_force_hide and "Редагувати профіль (у вас БАН)" or "Редагувати профіль", tip = "Редагування профілю користувача", action = function() ACHIEVEMENTS.open_edit_profile() end},
         {name = "Моя Статистика", tip = "Детальна персональна аналітика: кількість записаних реплік, слів, час роботи та прогрес по проектах у зручному веб-інтерфейсі.", action = function() UTILS.launch_python_script("stats/subass_stats.py") end},
         {name = "Мої Дедлайни", tip = "Календар та список термінів здачі проектів. Допомагає планувати черговість роботи та не пропускати дедлайни.", action = function() DEADLINE.dashboard_show = true end},
         {name = "Розділення по Даберам", tip = "Спеціальний інструмент для автоматичного або ручного розподілу реплік/ролей між даберами. Дозволяє бачити навантаження кожного дабера.", action = function() DUBBERS.show_dashboard = true DUBBERS.load() end},
@@ -24252,6 +24259,11 @@ function DRAW_TABS.draw_settings()
 
     if checkbox(x_start, y_cursor, "Попередження про швидкість (CPS)", cfg.cps_warning, "Червона смуга при занадто високій швидкості читання.") then
         cfg.cps_warning = not cfg.cps_warning
+        save_settings()
+    end
+    y_cursor = y_cursor + S(35)
+    if checkbox(x_start, y_cursor, "Відображати конфеті", cfg.show_confetti, "Відображати анімацію конфеті на заключному екрані статистики суфлера при 100% запису реплік.") then
+        cfg.show_confetti = not cfg.show_confetti
         save_settings()
     end
     y_cursor = y_cursor + S(35)
