@@ -22222,7 +22222,7 @@ function UI_STATE.draw_confetti(active)
     -- Initialize/Reset confetti particles if not already initialized
     if not UI_STATE.confetti_particles or #UI_STATE.confetti_particles == 0 then
         UI_STATE.confetti_particles = {}
-        for i = 1, 30 do
+        for i = 1, 50 do
             table.insert(UI_STATE.confetti_particles, {
                 x = math.random() * gfx.w,
                 y = -math.random() * S(300), -- Compact burst above the screen
