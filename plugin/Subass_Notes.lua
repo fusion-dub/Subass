@@ -2536,7 +2536,7 @@ end
 local UI = {
     -- === 1. Core Interface ===
     C_SEL_BG = {0.3, 0.6, 1.0, 0.15},  -- Subtle selection background (blue tint)
-    C_TAL_BG = {0.7, 0.4, 0.9, 0.15},  -- Subtle selection background (blue tint)
+    C_TAL_BG = {0.9, 0.5, 0.0, 0.35},  -- Subtle selection background (blue tint)
 
     -- === 2. Buttons ===
     C_BTN_DARK = {0.3, 0.4, 0.3, 1},    -- Muted/Dark button background
@@ -17367,7 +17367,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
                 badges_total_h = badge_lines * b_step - badge_gap -- Total height of the badge block
             end
             
-            local text_y_off = badges_total_h > 0 and (badges_total_h + S(14)) or S(12)
+            local text_y_off = badges_total_h > 0 and (badges_total_h + S(18)) or S(16)
             
             local bio_h = 0
             if has_bio then
@@ -23840,7 +23840,7 @@ function DRAW_TABS.draw_settings()
     local btn_h = S(40)
     
     local tools = {
-        {name = "Пошук талантів", tip = "Пошук талантів, та перегляд профілів інших користувачів", color = UI.C_TAL_BG, action = function() UI_STATE.show_talent_search = true ACHIEVEMENTS.fetch_talents(1) end},
+        {name = "• Пошук талантів •", tip = "Пошук талантів, та перегляд профілів інших користувачів", color = UI.C_TAL_BG, action = function() UI_STATE.show_talent_search = true ACHIEVEMENTS.fetch_talents(1) end},
         {name = "Редагувати профіль", tip = "Редагування профілю користувача", action = function() ACHIEVEMENTS.open_edit_profile() end},
         {name = "Моя Статистика", tip = "Детальна персональна аналітика: кількість записаних реплік, слів, час роботи та прогрес по проектах у зручному веб-інтерфейсі.", action = function() UTILS.launch_python_script("stats/subass_stats.py") end},
         {name = "Мої Дедлайни", tip = "Календар та список термінів здачі проектів. Допомагає планувати черговість роботи та не пропускати дедлайни.", action = function() DEADLINE.dashboard_show = true end},
