@@ -22203,6 +22203,98 @@ function DRAW_WINDOW.draw_info_overlay_graphics(content_offset_left, content_off
     gfx.set(cfg.p_cr, cfg.p_cg, cfg.p_cb, 1)
 end
 
+UI_STATE.confetti_particles = nil
+UI_STATE.confetti_finished = false
+
+--- Update, draw or clear the falling confetti particles
+--- @param active boolean Whether the confetti effect is currently active
+function UI_STATE.draw_confetti(active)
+    if not active then
+        UI_STATE.confetti_particles = nil
+        UI_STATE.confetti_finished = false
+        return
+    end
+
+    if UI_STATE.confetti_finished then
+        return
+    end
+
+    -- Initialize/Reset confetti particles if not already initialized
+    if not UI_STATE.confetti_particles or #UI_STATE.confetti_particles == 0 then
+        UI_STATE.confetti_particles = {}
+        for i = 1, 30 do
+            table.insert(UI_STATE.confetti_particles, {
+                x = math.random() * gfx.w,
+                y = -math.random() * S(300), -- Compact burst above the screen
+                speed_y = S(1.5) + math.random() * S(3),
+                speed_x = -S(0.5) + math.random() * S(1),
+                size_w = S(5) + math.random() * S(8),
+                size_h = S(3) + math.random() * S(5),
+                angle = math.random() * 360,
+                spin = -6 + math.random() * 12,
+                color = {
+                    math.random(120, 255) / 255, -- Bright, festive colors!
+                    math.random(120, 255) / 255,
+                    math.random(120, 255) / 255,
+                    0.5 + math.random() * 0.5
+                }
+            })
+        end
+    end
+
+    -- Draw and Update Confetti
+    local orig_r, orig_g, orig_b, orig_a = gfx.r, gfx.g, gfx.b, gfx.a
+    local has_active = false
+    
+    for _, p in ipairs(UI_STATE.confetti_particles) do
+        -- Only update and draw if it hasn't fallen off the bottom of the screen yet
+        if p.y < gfx.h + S(15) then
+            has_active = true
+            
+            -- Update position
+            p.y = p.y + p.speed_y
+            p.x = p.x + p.speed_x + math.sin(os.clock() * 3 + p.y * 0.02) * S(0.3)
+            p.angle = p.angle + p.spin
+            
+            -- Horizontal wrap (keep them within screen sides)
+            if p.x < -S(15) then p.x = gfx.w + S(15)
+            elseif p.x > gfx.w + S(15) then p.x = -S(15) end
+            
+            -- Only draw if visible on screen
+            if p.y > -p.size_h and p.y < gfx.h then
+                -- Set color
+                gfx.set(p.color[1], p.color[2], p.color[3], p.color[4])
+                
+                -- Draw rotated rectangle
+                local rad = math.rad(p.angle)
+                local cos_a = math.cos(rad)
+                local sin_a = math.sin(rad)
+                local hw = p.size_w / 2
+                local hh = p.size_h / 2
+                
+                local x1 = p.x - hw * cos_a + hh * sin_a
+                local y1 = p.y - hw * sin_a - hh * cos_a
+                local x2 = p.x + hw * cos_a + hh * sin_a
+                local y2 = p.y + hw * sin_a - hh * cos_a
+                local x3 = p.x + hw * cos_a - hh * sin_a
+                local y3 = p.y + hw * sin_a + hh * cos_a
+                local x4 = p.x - hw * cos_a - hh * sin_a
+                local y4 = p.y - hw * sin_a + hh * cos_a
+                
+                gfx.triangle(x1, y1, x2, y2, x3, y3)
+                gfx.triangle(x1, y1, x3, y3, x4, y4)
+            end
+        end
+    end
+    gfx.set(orig_r, orig_g, orig_b, orig_a)
+    
+    -- If there are no more active particles, finish the animation and clear the list
+    if not has_active then
+        UI_STATE.confetti_finished = true
+        UI_STATE.confetti_particles = nil
+    end
+end
+
 --- Render statistics summary when prompter is idle
 function STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
     local takes, dur = STATS.get_session_summary()
@@ -22210,6 +22302,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
     local is_recording = (play_state & 4) == 4
 
     if not UI_STATE.ass_file_loaded or not ass_lines or #ass_lines == 0 then
+        UI_STATE.draw_confetti(false)
         -- Need to import subtitles
         set_color(UI.GET_P_COLOR(0.3))
         gfx.setfont(F.std)
@@ -22222,11 +22315,13 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         elseif cfg.p_valign == "bottom" then gfx.y = gfx.h - th - S(50) end
         gfx.drawstr(txt)
     elseif (takes > 0 or dur > 0) and not is_recording and cfg.show_final_stats then
-        -- Concept Pro: SUCCESS SCREEN
         local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
         local title = "Чудова робота, " .. name .. "!"
         local progress = UTILS.get_recording_progress() or 0
         local speed = (dur > 0) and math.floor(takes / (dur / 3600)) or 0
+
+        -- Concept Pro: SUCCESS SCREEN with Confetti!
+        UI_STATE.draw_confetti(progress == 100)
         
         -- Center and Base Y
         local cx = content_offset_left + available_w / 2
@@ -22317,6 +22412,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
 
         return true
     else
+        UI_STATE.draw_confetti(false)
         -- Simplified message: always "End of Subtitles"
         set_color(UI.GET_P_COLOR(0.3))
         gfx.setfont(F.std)
@@ -30764,6 +30860,7 @@ local function main()
         ACHIEVEMENTS.check_high_take_count_ach_20()
         ACHIEVEMENTS.check_perfect_accuracy_ach_23()
         DUBBERS.load() -- Load dubber data for initial project
+        UI_STATE.confetti_particles = nil
 
         DUBBERS.last_project_id = UI_STATE.last_project_id
     end
@@ -30823,6 +30920,7 @@ local function main()
         DUBBERS.last_project_id = current_project_id
         DUBBERS.conflicts = {} 
         DUBBERS.dashboard_initialized = false
+        UI_STATE.confetti_particles = nil
         
         -- Immediate cache update after loading
         update_regions_cache()
