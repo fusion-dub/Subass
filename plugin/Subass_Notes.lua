@@ -5092,6 +5092,7 @@ function UTILS.get_recording_progress()
     
     -- OPTIMIZATION: Collect all item ranges ONCE to avoid thousands of API calls in the nested loop
     local items_ranges = {}
+    local proj_len = reaper.GetProjectLength(0)
     for _, tr in ipairs(tracks_to_check) do
         local item_count = reaper.CountTrackMediaItems(tr)
         for i = 0, item_count - 1 do
@@ -5099,7 +5100,27 @@ function UTILS.get_recording_progress()
             if item and reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
                 local i_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
                 local i_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
-                table.insert(items_ranges, {s = i_pos, e = i_pos + i_len})
+                
+                -- Check if it is a video file
+                local is_video = false
+                local take = reaper.GetActiveTake(item)
+                if take then
+                    local source = reaper.GetMediaItemTake_Source(take)
+                    if source then
+                        local src_type = reaper.GetMediaSourceType(source, "")
+                        if src_type == "VIDEO" then
+                            is_video = true
+                        end
+                    end
+                end
+                
+                -- Ignore items that occupy the entire project duration, are videos, or exceed 10 minutes (600s)
+                local is_full_proj = (proj_len > 15 and i_len >= proj_len - 2.0)
+                local is_too_long = (i_len > 600)
+                
+                if not is_full_proj and not is_video and not is_too_long then
+                    table.insert(items_ranges, {s = i_pos, e = i_pos + i_len})
+                end
             end
         end
     end
