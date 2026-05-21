@@ -396,7 +396,12 @@ cfg.dubber_timbre = UTILS.unicode_unescape(get_set("dubber_timbre", ""))
 cfg.dubber_specialization = UTILS.unicode_unescape(get_set("dubber_specialization", ""))
 cfg.dubber_archetypes = UTILS.unicode_unescape(get_set("dubber_archetypes", ""))
 cfg.dubber_vocals = UTILS.unicode_unescape(get_set("dubber_vocals", ""))
-cfg.dubber_status = UTILS.unicode_unescape(get_set("dubber_status", "Звичайни аккаунт"))
+cfg.dubber_status = UTILS.unicode_unescape(get_set("dubber_status", "Звичайний аккаунт"))
+
+-- typo fix
+if cfg.dubber_status == "Звичайни аккаунт" then
+    cfg.dubber_status = "Звичайний аккаунт"
+end
 
 -- Profile Metadata (Options and Tooltips)
 PROFILE_META = {
@@ -470,7 +475,7 @@ PROFILE_META = {
         }
     },
     STATUS = {
-        opts = {"Вільний талант", "Шукаю талант", "Звичайни аккаунт", "Приховати аккаунт"},
+        opts = {"Вільний талант", "Шукаю талант", "Звичайний аккаунт", "Приховати аккаунт"},
         tips = {
             "В активному пошуку проєкта",
             "В активному пошуку нових колег",
@@ -2757,7 +2762,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "dubber_specialization", UTILS.unicode_escape(cfg.dubber_specialization or ""), true)
     reaper.SetExtState(section_name, "dubber_archetypes", UTILS.unicode_escape(cfg.dubber_archetypes or ""), true)
     reaper.SetExtState(section_name, "dubber_vocals", UTILS.unicode_escape(cfg.dubber_vocals or ""), true)
-    reaper.SetExtState(section_name, "dubber_status", UTILS.unicode_escape(cfg.dubber_status or "Звичайни аккаунт"), true)
+    reaper.SetExtState(section_name, "dubber_status", UTILS.unicode_escape(cfg.dubber_status or "Звичайний аккаунт"), true)
     reaper.SetExtState(section_name, "profile_edit_seen", cfg.profile_edit_seen and "1" or "0", true)
     
     reaper.SetExtState(section_name, "p_fsize", tostring(cfg.p_fsize), true)
@@ -8921,6 +8926,492 @@ function UTILS.remove_all_acute_for_selected_actors()
     end
 end
 
+--- Compact render for selected tracks
+--- Packs all items from the selected track one after another onto a new
+--- SUBASS_RENDER track (no gaps), copies FX, sets Time Selection, solos the track,
+--- renders immediately to a WAV file chosen by the user, and embeds iXML metadata
+--- with the original item positions for restoration on import.
+function UTILS.compact_render()
+    local sel_count = reaper.CountSelectedTracks(0)
+
+    if sel_count == 0 then
+        reaper.MB("Будь ласка, оберіть трек для компактного рендеру.", "Компактний рендер", 0)
+        return
+    end
+    if sel_count > 1 then
+        reaper.MB(
+            "Компактний рендер підтримує лише один трек за раз.\nОберіть тільки один трек.",
+            "Компактний рендер", 0)
+        return
+    end
+
+    local src_track  = reaper.GetSelectedTrack(0, 0)
+    local _, trk_name = reaper.GetTrackName(src_track)
+    if trk_name == "SUBASS_RENDER" then
+        reaper.MB("Не можна запускати компактний рендер для службового треку SUBASS_RENDER.\nБудь ласка, оберіть робочий трек актора.", "Компактний рендер", 0)
+        return
+    end
+    local item_count = reaper.CountTrackMediaItems(src_track)
+
+    if item_count == 0 then
+        reaper.MB("На обраному треку немає медіа-елементів.", "Компактний рендер", 0)
+        return
+    end
+
+    -- ── 1. Determine Default Filename and Directory ──────────────────────
+    local display_name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
+    local _, proj_path = reaper.EnumProjects(-1)
+    local proj_name = "Project"
+    local default_dir = "/Users"
+    if proj_path and proj_path ~= "" then
+        default_dir = proj_path:match("(.*)[/\\]") or "/Users"
+        local filename = proj_path:match("([^/\\]+)$") or "Project"
+        proj_name = filename:gsub("%.[Rr][Pp][Pp]$", ""):gsub("%.rpp$", ""):gsub("%.%w+$", "")
+    end
+
+    -- Clean names for safety in filenames
+    local clean_user = display_name:gsub('[\\/:*?"<>|]', "_")
+    local clean_proj = proj_name:gsub('[\\/:*?"<>|]', "_")
+    local default_filename = clean_user .. "_" .. clean_proj .. "_compact.wav"
+    local default_path = default_dir .. "/" .. default_filename
+
+    -- ── 2. Ask user where to save the rendered WAV file ───────────────────
+    local retval, file_path = reaper.JS_Dialog_BrowseForSaveFile("Зберегти компактний рендер", default_dir, default_filename, "WAV files (.wav)\0*.wav\0All Files (*.*)\0*.*\0")
+    if retval ~= 1 or file_path == "" then
+        return -- User cancelled
+    end
+    if not file_path:match("%.wav$") then file_path = file_path .. ".wav" end
+
+    reaper.Undo_BeginBlock()
+    reaper.PreventUIRefresh(1)
+
+    -- ── 3. Collect & sort items by position ───────────────────────────────
+    local entries = {}
+    for i = 0, item_count - 1 do
+        local item = reaper.GetTrackMediaItem(src_track, i)
+        table.insert(entries, {
+            item = item,
+            pos  = reaper.GetMediaItemInfo_Value(item, "D_POSITION"),
+            len  = reaper.GetMediaItemInfo_Value(item, "D_LENGTH"),
+        })
+    end
+    table.sort(entries, function(a, b) return a.pos < b.pos end)
+
+    -- ── 4. Remove old SUBASS_RENDER track if it exists ────────────────────
+    for i = reaper.CountTracks(0) - 1, 0, -1 do
+        local t = reaper.GetTrack(0, i)
+        local _, n = reaper.GetTrackName(t)
+        if n == "SUBASS_RENDER" then
+            reaper.DeleteTrack(t)
+            break
+        end
+    end
+
+    -- ── 5. Create SUBASS_RENDER track at the end ──────────────────────────
+    local new_idx = reaper.CountTracks(0)
+    reaper.InsertTrackAtIndex(new_idx, true)
+    local dest_track = reaper.GetTrack(0, new_idx)
+    reaper.GetSetMediaTrackInfo_String(dest_track, "P_NAME", "SUBASS_RENDER", true)
+
+    -- ── 6. Copy FX from source track ──────────────────────────────────────
+    local fx_count = reaper.TrackFX_GetCount(src_track)
+    for i = 0, fx_count - 1 do
+        reaper.TrackFX_CopyToTrack(src_track, i, dest_track, i, false)
+    end
+
+    -- ── 7. Copy items compactly (no gaps) and log metadata ────────────────
+    local cursor = 0.0
+    local metadata_items = {}
+    
+    for idx, e in ipairs(entries) do
+        local src_item = e.item
+        local src_take = reaper.GetActiveTake(src_item)
+        local take_name = "Item"
+
+        -- Determine full underlying audio length (before any trim)
+        local src_startoffs = 0.0
+        local full_len = e.len  -- fallback: use visible length
+        if src_take then
+            local playrate = reaper.GetMediaItemTakeInfo_Value(src_take, "D_PLAYRATE")
+            if playrate <= 0 then playrate = 1.0 end
+            src_startoffs = reaper.GetMediaItemTakeInfo_Value(src_take, "D_STARTOFFS")
+            local src_source = reaper.GetMediaItemTake_Source(src_take)
+            if src_source then
+                local _, src_duration = reaper.GetMediaSourceLength(src_source)
+                -- src_duration is in seconds (GetMediaSourceLength returns len, is_qn)
+                -- actual duration in project time = source_length / playrate
+                local source_len_sec = reaper.GetMediaSourceLength(src_source)
+                full_len = source_len_sec / playrate
+            end
+        end
+
+        local new_item = reaper.AddMediaItemToTrack(dest_track)
+        reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor)
+        reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH",   full_len)  -- render full audio
+        reaper.SetMediaItemInfo_Value(new_item, "D_VOL",      reaper.GetMediaItemInfo_Value(src_item, "D_VOL"))
+        -- No fades on render track — we render the full uncut audio
+        reaper.SetMediaItemInfo_Value(new_item, "D_FADEINLEN",  0)
+        reaper.SetMediaItemInfo_Value(new_item, "D_FADEOUTLEN", 0)
+
+        if src_take then
+            local new_take = reaper.AddTakeToMediaItem(new_item)
+            reaper.SetMediaItemTake_Source(new_take, reaper.GetMediaItemTake_Source(src_take))
+            reaper.SetMediaItemTakeInfo_Value(new_take, "D_STARTOFFS", 0)  -- start from the very beginning
+            reaper.SetMediaItemTakeInfo_Value(new_take, "D_PLAYRATE",  reaper.GetMediaItemTakeInfo_Value(src_take, "D_PLAYRATE"))
+            reaper.SetMediaItemTakeInfo_Value(new_take, "D_VOL",       reaper.GetMediaItemTakeInfo_Value(src_take, "D_VOL"))
+            reaper.SetMediaItemTakeInfo_Value(new_take, "D_PAN",       reaper.GetMediaItemTakeInfo_Value(src_take, "D_PAN"))
+
+            local _, tname = reaper.GetSetMediaItemTakeInfo_String(src_take, "P_NAME", "", false)
+            if tname and tname ~= "" then take_name = tname end
+            reaper.GetSetMediaItemTakeInfo_String(new_take, "P_NAME", take_name, true)
+        end
+
+        -- Record mapping: compact_pos points to full audio start;
+        -- start_offset/full_length let reconstruct restore the original trim
+        table.insert(metadata_items, {
+            index        = idx,
+            name         = take_name,
+            compact_pos  = cursor,
+            original_pos = e.pos,
+            length       = e.len,          -- visible (trimmed) length
+            start_offset = src_startoffs,  -- how much was cut from the start
+            full_length  = full_len        -- full underlying audio duration
+        })
+
+        cursor = cursor + full_len
+    end
+
+    -- ── 8. Set Time Selection from 0 to end of last item ──────────────────
+    reaper.GetSet_LoopTimeRange(true, false, 0.0, cursor, false)
+
+    -- ── 9. Select only the render track ───────────────────────────────────
+    reaper.SetOnlyTrackSelected(dest_track)
+
+    -- ── 10. Solo: clear all tracks, solo only the render track ────────────
+    for i = 0, reaper.CountTracks(0) - 1 do
+        reaper.SetMediaTrackInfo_Value(reaper.GetTrack(0, i), "I_SOLO", 0)
+    end
+    reaper.SetMediaTrackInfo_Value(dest_track, "I_SOLO", 1)
+
+    -- ── 11. Render settings: Time Selection + WAV format + 48000Hz mono ───
+    reaper.GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", 2, true) -- Time Selection
+    reaper.GetSetProjectInfo(0, "RENDER_SRATE", 48000, true)  -- 48000 Hz
+    reaper.GetSetProjectInfo(0, "RENDER_CHANNELS", 1, true)   -- Mono
+    
+    -- Extract directory and filename to set RENDER_FILE (directory) and RENDER_PATTERN (filename) correctly
+    local out_dir = file_path:match("(.*)[/\\]") or ""
+    local out_file = file_path:match("([^/\\]+)$") or "compact"
+    local out_file_no_ext = out_file:gsub("%.[Ww][Aa][Vv]$", "")
+
+    reaper.GetSetProjectInfo_String(0, "RENDER_FILE", out_dir, true)
+    reaper.GetSetProjectInfo_String(0, "RENDER_PATTERN", out_file_no_ext, true)
+
+    -- WAV PCM 24-bit format chunk
+    reaper.GetSetProjectInfo_String(0, "RENDER_FORMAT", "evaw\1\0\0\0\255\0\0\0", true)
+
+    -- ── 12. Scroll arrange view to position 0 + reveal the new track ──────
+    reaper.SetEditCurPos(0, true, false)       -- move edit cursor to 0, scroll view
+    reaper.Main_OnCommand(40913, 0)            -- Track: Scroll to selected track
+
+    reaper.PreventUIRefresh(-1)
+    reaper.TrackList_AdjustWindows(false)
+    reaper.UpdateArrange()
+
+    reaper.Undo_EndBlock("Компактний рендер: " .. trk_name, -1)
+
+    -- ── 13. Perform Render ────────────────────────────────────────────────
+    -- File: Render project, using the most recent render settings (silent/immediate)
+    reaper.Main_OnCommand(41824, 0)
+
+    -- ── 14. Embed iXML metadata into the rendered WAV file ────────────────
+    -- Prepare XML payload
+    local xml_parts = {
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<SUBASS_METADATA>',
+        '  <SOURCE_TRACK>' .. trk_name:gsub("[<&>]", {["<"]="&lt;", [">"]="&gt;", ["&"]="&amp;"}) .. '</SOURCE_TRACK>',
+        '  <ITEMS_COUNT>' .. #metadata_items .. '</ITEMS_COUNT>',
+        '  <ITEMS>'
+    }
+    for _, item in ipairs(metadata_items) do
+        table.insert(xml_parts, '    <ITEM>')
+        table.insert(xml_parts, '      <INDEX>' .. item.index .. '</INDEX>')
+        table.insert(xml_parts, '      <NAME>' .. item.name:gsub("[<&>]", {["<"]="&lt;", [">"]="&gt;", ["&"]="&amp;"}) .. '</NAME>')
+        table.insert(xml_parts, '      <COMPACT_POS>' .. string.format("%.6f", item.compact_pos) .. '</COMPACT_POS>')
+        table.insert(xml_parts, '      <ORIGINAL_POS>' .. string.format("%.6f", item.original_pos) .. '</ORIGINAL_POS>')
+        table.insert(xml_parts, '      <LENGTH>' .. string.format("%.6f", item.length) .. '</LENGTH>')
+        table.insert(xml_parts, '      <START_OFFSET>' .. string.format("%.6f", item.start_offset or 0) .. '</START_OFFSET>')
+        table.insert(xml_parts, '      <FULL_LENGTH>' .. string.format("%.6f", item.full_length or item.length) .. '</FULL_LENGTH>')
+        table.insert(xml_parts, '    </ITEM>')
+    end
+    table.insert(xml_parts, '  </ITEMS>')
+    table.insert(xml_parts, '</SUBASS_METADATA>')
+    local xml_data = table.concat(xml_parts, "\n")
+
+    -- Define the iXML WAV embedding function
+    local function append_ixml_to_wav(filepath, xml_str)
+        local f, err = io.open(filepath, "r+b")
+        if not f then
+            return false, "Не вдалося відкрити файл для запису метаданих: " .. tostring(err)
+        end
+
+        local header = f:read(12)
+        if not header or #header < 12 then
+            f:close()
+            return false, "Некоректний формат WAV файлу (занадто короткий)"
+        end
+
+        local riff_sig = header:sub(1, 4)
+        local wave_sig = header:sub(9, 12)
+        if riff_sig ~= "RIFF" or wave_sig ~= "WAVE" then
+            f:close()
+            return false, "Файл не є валідною WAVE-аудіозаписом"
+        end
+
+        -- Get current RIFF payload size (bytes 5-8, little-endian)
+        local b1, b2, b3, b4 = header:byte(5, 8)
+        local old_riff_size = b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+
+        f:seek("end")
+        local file_size = f:seek()
+
+        local xml_len = #xml_str
+        local chunk_id = "iXML"
+
+        -- Convert length to 4 bytes little-endian
+        local temp = xml_len
+        local cb1 = temp % 256
+        temp = (temp - cb1) / 256
+        local cb2 = temp % 256
+        temp = (temp - cb2) / 256
+        local cb3 = temp % 256
+        temp = (temp - cb3) / 256
+        local cb4 = temp % 256
+        local size_bytes = string.char(cb1, cb2, cb3, cb4)
+
+        f:write(chunk_id)
+        f:write(size_bytes)
+        f:write(xml_str)
+
+        local pad = 0
+        if xml_len % 2 ~= 0 then
+            f:write("\0")
+            pad = 1
+        end
+
+        -- Update RIFF payload size (new size = old_size + 8 bytes for chunk header + xml_len + pad)
+        local new_riff_size = old_riff_size + 8 + xml_len + pad
+        f:seek("set", 4)
+        local rb1 = new_riff_size % 256
+        new_riff_size = (new_riff_size - rb1) / 256
+        local rb2 = new_riff_size % 256
+        new_riff_size = (new_riff_size - rb2) / 256
+        local rb3 = new_riff_size % 256
+        new_riff_size = (new_riff_size - rb3) / 256
+        local rb4 = new_riff_size % 256
+        local new_size_bytes = string.char(rb1, rb2, rb3, rb4)
+        f:write(new_size_bytes)
+
+        f:close()
+        return true
+    end
+
+    -- ── 15. Delete the technical render track ─────────────────────────────
+    reaper.DeleteTrack(dest_track)
+
+    -- Run embedding
+    local ok, err = append_ixml_to_wav(file_path, xml_data)
+    if ok then
+        show_snackbar("Компактний рендер успішно завершено! Метадані збережено в WAV.", "success")
+    else
+        reaper.MB("Рендеринг завершено, але не вдалося записати метадані:\n" .. tostring(err), "Компактний рендер", 0)
+    end
+end
+
+-- ── Helpers for parsing/reading compact render iXML metadata ─────────────
+
+function UTILS.read_ixml_from_wav(filepath)
+    local f, err = io.open(filepath, "rb")
+    if not f then
+        return nil, "Не вдалося відкрити файл: " .. tostring(err)
+    end
+
+    local header = f:read(12)
+    if not header or #header < 12 then
+        f:close()
+        return nil, "Некоректний формат WAV файлу (занадто короткий)"
+    end
+
+    local riff_sig = header:sub(1, 4)
+    local wave_sig = header:sub(9, 12)
+    if riff_sig ~= "RIFF" or wave_sig ~= "WAVE" then
+        f:close()
+        return nil, "Файл не є валідним WAV файлом"
+    end
+
+    while true do
+        local chunk_header = f:read(8)
+        if not chunk_header or #chunk_header < 8 then
+            break
+        end
+
+        local chunk_id = chunk_header:sub(1, 4)
+        local cb1, cb2, cb3, cb4 = chunk_header:byte(5, 8)
+        local chunk_size = cb1 + cb2 * 256 + cb3 * 65536 + cb4 * 16777216
+
+        if chunk_id == "iXML" then
+            local xml_data = f:read(chunk_size)
+            f:close()
+            if not xml_data or #xml_data < chunk_size then
+                return nil, "Помилка читання iXML даних"
+            end
+            return xml_data
+        else
+            local seek_offset = chunk_size
+            if chunk_size % 2 ~= 0 then
+                seek_offset = seek_offset + 1
+            end
+            local current = f:seek("cur", seek_offset)
+            if not current then
+                break
+            end
+        end
+    end
+
+    f:close()
+    return nil, "iXML метадані не знайдені в цьому WAV файлі."
+end
+
+function UTILS.parse_subass_xml(xml_str)
+    if not xml_str:find("<SUBASS_METADATA>") then
+        return nil, nil, "Файл не містить метаданих Subass."
+    end
+    local items = {}
+    local trk_name = xml_str:match("<SOURCE_TRACK>(.-)</SOURCE_TRACK>") or "Restored Track"
+    trk_name = trk_name:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&")
+
+    for item_xml in xml_str:gmatch("<ITEM>(.-)</ITEM>") do
+        local index = tonumber(item_xml:match("<INDEX>(.-)</INDEX>")) or 0
+        local name = item_xml:match("<NAME>(.-)</NAME>") or "Item"
+        name = name:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&")
+        local compact_pos  = tonumber(item_xml:match("<COMPACT_POS>(.-)</COMPACT_POS>"))   or 0.0
+        local original_pos = tonumber(item_xml:match("<ORIGINAL_POS>(.-)</ORIGINAL_POS>")) or 0.0
+        local length       = tonumber(item_xml:match("<LENGTH>(.-)</LENGTH>"))             or 0.0
+        local start_offset = tonumber(item_xml:match("<START_OFFSET>(.-)</START_OFFSET>")) or 0.0
+        local full_length  = tonumber(item_xml:match("<FULL_LENGTH>(.-)</FULL_LENGTH>"))   or length
+        table.insert(items, {
+            index        = index,
+            name         = name,
+            compact_pos  = compact_pos,
+            original_pos = original_pos,
+            length       = length,
+            start_offset = start_offset,
+            full_length  = full_length
+        })
+    end
+    return trk_name, items
+end
+
+function UTILS.reconstruct_compact_render(file_path, parent_track)
+    local xml_data, err = UTILS.read_ixml_from_wav(file_path)
+    if not xml_data then
+        return false, err
+    end
+
+    local trk_name, metadata_items = UTILS.parse_subass_xml(xml_data)
+    if not metadata_items then
+        return false, trk_name or "Не вдалося розпарсити метадані."
+    end
+
+    if #metadata_items == 0 then
+        return false, "В метаданих не знайдено записів про айтеми."
+    end
+
+    -- Sort items chronologically by original position
+    table.sort(metadata_items, function(a, b) return a.original_pos < b.original_pos end)
+
+    reaper.PreventUIRefresh(1)
+
+    -- Determine where to insert the track
+    local dest_idx = reaper.CountTracks(0)
+    local parent_color = 0
+    if parent_track then
+        local parent_idx = reaper.GetMediaTrackInfo_Value(parent_track, "IP_TRACKNUMBER") -- 1-based
+        reaper.InsertTrackAtIndex(parent_idx, true)
+        dest_idx = parent_idx
+        parent_color = reaper.GetTrackColor(parent_track)
+    else
+        reaper.InsertTrackAtIndex(dest_idx, true)
+    end
+
+    local filename = file_path:match("([^/\\]+)$") or "compact"
+    local track_name = filename:gsub("%.[Ww][Aa][Vv]$", "")
+
+    local dest_track = reaper.GetTrack(0, dest_idx)
+    reaper.GetSetMediaTrackInfo_String(dest_track, "P_NAME", track_name, true)
+    if parent_color ~= 0 then
+        reaper.SetTrackColor(dest_track, parent_color)
+    end
+
+    local source = reaper.PCM_Source_CreateFromFile(file_path)
+    local created_items = {}
+    for _, info in ipairs(metadata_items) do
+        local new_item = reaper.AddMediaItemToTrack(dest_track)
+        reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", info.original_pos)
+        -- Restore original visible (trimmed) length
+        reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH", info.length)
+
+        local new_take = reaper.AddTakeToMediaItem(new_item)
+        reaper.SetMediaItemTake_Source(new_take, source)
+        -- D_STARTOFFS points past the pre-trim silence in the compact WAV
+        -- so the item plays exactly the originally-visible audio.
+        -- The engineer can drag item edges to reveal the trimmed parts.
+        local start_offset = info.start_offset or 0.0
+        reaper.SetMediaItemTakeInfo_Value(new_take, "D_STARTOFFS", info.compact_pos + start_offset)
+        reaper.GetSetMediaItemTakeInfo_String(new_take, "P_NAME", info.name, true)
+
+        table.insert(created_items, {
+            media_item = new_item,
+            pos = info.original_pos,
+            len = info.length
+        })
+    end
+
+    -- Release UI lock so REAPER can see the items before running the crossfade action
+    reaper.PreventUIRefresh(-1)
+
+    -- Apply crossfades equal to the exact overlap between items
+    for i = 2, #created_items do
+        local prev = created_items[i-1]
+        local curr = created_items[i]
+        local overlap = (prev.pos + prev.len) - curr.pos
+        if overlap > 0 then
+            reaper.SetMediaItemInfo_Value(prev.media_item, "D_FADEOUTLEN", math.min(overlap, prev.len))
+            reaper.SetMediaItemInfo_Value(curr.media_item, "D_FADEINLEN",  math.min(overlap, curr.len))
+            reaper.UpdateItemInProject(prev.media_item)
+            reaper.UpdateItemInProject(curr.media_item)
+        end
+    end
+
+    reaper.SetOnlyTrackSelected(dest_track)
+    reaper.TrackList_AdjustWindows(false)
+    reaper.UpdateArrange()
+
+    return true, "Розпаковано " .. #metadata_items .. " реплік на новий трек '" .. track_name .. "'!"
+end
+
+function UTILS.import_compact_wav(dropped_file)
+    reaper.Undo_BeginBlock()
+    local ok, msg = UTILS.reconstruct_compact_render(dropped_file, nil)
+    if ok then
+        reaper.Undo_EndBlock("Імпорт компактного рендеру (Drag & Drop)", -1)
+        show_snackbar(msg, "success")
+        return true
+    else
+        reaper.Undo_EndBlock("Імпорт компактного рендеру (Drag & Drop)", -1)
+        return false, msg
+    end
+end
+
 --- LUFS Normalization (ITU-R BS.1770-4 via SWS Extension)
 --- Uses true LUFS measurement with K-weighting and integrated gating.
 --- Includes "De-Boomer" spectral correction (cuts only) for muddy voices.
@@ -9692,7 +10183,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
         dubber_specialization = p.dubber_specialization or "",
         dubber_archetypes = p.dubber_archetypes or "",
         dubber_vocals = p.dubber_vocals or "",
-        dubber_status = p.dubber_status or "Звичайни аккаунт",
+        dubber_status = p.dubber_status or "Звичайний аккаунт",
     })
 
     local sf = io.open(stats_file_path, "w")
@@ -12518,6 +13009,11 @@ local function handle_drag_drop()
                 imported_count = imported_count + 1
             elseif ext == "csv" then
                 import_notes_from_csv(dropped_file)
+            elseif ext == "wav" then
+                local ok, err_msg = UTILS.import_compact_wav(dropped_file)
+                if not ok then
+                    show_snackbar("Помилка імпорту WAV: " .. tostring(err_msg), "error")
+                end
             else
                 show_snackbar("Формат ." .. ext:upper() .. " не підтримується", "error")
             end
@@ -15733,7 +16229,7 @@ function ACHIEVEMENTS.open_edit_profile()
         timbre = s2t(cfg.dubber_timbre),
         archetypes = s2t(cfg.dubber_archetypes),
         vocals = cfg.dubber_vocals,
-        status = cfg.dubber_status or "Звичайни аккаунт",
+        status = cfg.dubber_status or "Звичайний аккаунт",
         scroll_y = 0,
         target_scroll_y = 0
     }
@@ -16505,7 +17001,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                         (spec_str ~= (cfg.dubber_specialization or "")) or
                         (arch_str ~= (cfg.dubber_archetypes or "")) or
                         (state.vocals ~= (cfg.dubber_vocals or "")) or
-                        (state.status ~= (cfg.dubber_status or "Звичайни аккаунт"))
+                        (state.status ~= (cfg.dubber_status or "Звичайний аккаунт"))
 
     local btn_w = S(140)
     local btn_h = S(36)
@@ -16534,7 +17030,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
         sb_bg = UI.C_RED
         sb_txt = UI.C_BG
         tp_text = "• Вас більше ніхто не знайде в каталозі талантів. Ви не будете отримувати пропозиції по роботі а також ви будете приховані з таблиці лідерів досягнень."
-    elseif state.status == "Звичайни аккаунт" then
+    elseif state.status == "Звичайний аккаунт" then
         sb_bg = UI.C_BTN
         sb_txt = UI.C_TXT
         tp_text = "• Ви не берете участь в гонці талантів. Ви просто користувач який наразі нікого не шукає."
@@ -16559,7 +17055,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                 if res1 == 6 then -- Yes
                     local res2 = reaper.MB("Точно приховати? Давайте краще оберем статус 'Звичайний аккаунт'?", "Останнє попередження", 4)
                     if res2 == 6 then -- Yes (User agreed that it's better to choose simple account)
-                        state.status = "Звичайни аккаунт"
+                        state.status = "Звичайний аккаунт"
                     else -- No (User wants to hide anyway)
                         state.status = selected_opt
                     end
@@ -19778,12 +20274,12 @@ function DRAW_TABS.draw_file()
     
     -- 1. Import Button
     if cur_y + btn_h > start_y - S(50) and cur_y < gfx.h + S(50) then
-        if btn(padding, cur_y, import_w, btn_h, fit_text_width("Імпорт субтитрів (.srt/.ass/.vtt)", import_w - S(10)), nil, nil, true) then
+        if btn(padding, cur_y, import_w, btn_h, fit_text_width("Імпорт файлу (.srt/.ass/.vtt/.wav)", import_w - S(10)), nil, nil, true) then
             local retval, file_list
             if reaper.JS_Dialog_BrowseForOpenFiles then
-                retval, file_list = reaper.JS_Dialog_BrowseForOpenFiles("Імпорт субтитрів", "", "", "Subtitle files (*.srt;*.ass;*.vtt)\0*.srt;*.ass;*.vtt\0All files\0*\0", true)
+                retval, file_list = reaper.JS_Dialog_BrowseForOpenFiles("Імпорт файлу", "", "", "Supported files (*.srt;*.ass;*.vtt;*.wav)\0*.srt;*.ass;*.vtt;*.wav\0All files\0*\0", true)
             else
-                retval, file_list = reaper.GetUserFileNameForRead("", "Імпорт субтитрів", "*.srt;*.ass;*.vtt")
+                retval, file_list = reaper.GetUserFileNameForRead("", "Імпорт файлу", "*.srt;*.ass;*.vtt;*.wav")
             end
             
             if retval and file_list ~= "" then
@@ -19819,6 +20315,9 @@ function DRAW_TABS.draw_file()
                             imported_count = imported_count + 1
                         elseif ext == "vtt" then
                             total_duplicates = total_duplicates + import_vtt(file, true)
+                            imported_count = imported_count + 1
+                        elseif ext == "wav" then
+                            UTILS.import_compact_wav(file)
                             imported_count = imported_count + 1
                         else
                             show_snackbar("Формат ." .. ext:upper() .. " не підтримується", "error")
@@ -20490,7 +20989,7 @@ function DRAW_TABS.draw_file()
         
         local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
         local dubbers_ass = has_dubbers and "||Експортувати як ASS (розділено по даберам)" or ""
-        local menu = "|>Особливі дії|Видалити ВСІ регіони||Розрахувати репліки по акторам|Очистити репліки від наголосів|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS" .. dubbers_ass .. "|<"
+        local menu = "|>Особливі дії|Видалити ВСІ регіони||Розрахувати репліки по акторам|Очистити репліки від наголосів||Компактний рендер|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS" .. dubbers_ass .. "|<"
 
         -- Add "Change Dubber" submenu if dubbers exist
         if has_dubbers then
@@ -20524,12 +21023,12 @@ function DRAW_TABS.draw_file()
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
         
         -- Mapping logic for dynamic menu
-        -- Fixed items: 1=delete regions, 2=calc replicas, 3=remove accents, 4=dubbers dashboard, 5=deadlines, 6=export SRT, 7=export ASS, 8=export ASS (dubbers) if has_dubbers
+        -- Fixed items: 1=delete regions, 2=calc replicas, 3=remove accents, 4=compact render, 5=dubbers dashboard, 6=deadlines, 7=export SRT, 8=export ASS, 9=export ASS (dubbers) if has_dubbers
         local dubber_count = has_dubbers and #DUBBERS.data.names or 0
-        local base_items = has_dubbers and 8 or 7
+        local base_items = has_dubbers and 9 or 8
         -- After fixed items come dubber selection items (if any), then dict items, then dock
-        local dict_start = base_items + dubber_count + (dict_count > 0 and 1 or 0) -- first dict item ret value (1-indexed menu)
-        local dock_ret = dict_start + dict_count + (dict_count > 0 and 0 or 1)
+        local dict_start = base_items + dubber_count + 1 -- +1: submenu header ">Словники" doesn't count as a clickable item
+        local dock_ret = dict_start + (dict_count > 0 and dict_count or 1) -- skip dict items or the disabled placeholder
         
         if ret == 1 then
             delete_all_regions()
@@ -20538,19 +21037,21 @@ function DRAW_TABS.draw_file()
         elseif ret == 3 then
             UTILS.remove_all_acute_for_selected_actors()
         elseif ret == 4 then
+            UTILS.compact_render()
+        elseif ret == 5 then
             DUBBERS.show_dashboard = true
             DUBBERS.load()
-        elseif ret == 5 then
-            DEADLINE.dashboard_show = true
         elseif ret == 6 then
-            export_as_srt()
+            DEADLINE.dashboard_show = true
         elseif ret == 7 then
+            export_as_srt()
+        elseif ret == 8 then
             export_as_ass()
-        elseif has_dubbers and ret == 8 then
+        elseif has_dubbers and ret == 9 then
             DUBBERS.export_as_ass()
-        elseif has_dubbers and ret >= (has_dubbers and 9 or 8) and ret <= base_items + dubber_count then
+        elseif has_dubbers and ret >= (has_dubbers and 10 or 9) and ret <= base_items + dubber_count then
             -- Handle Dubber Selection
-            local offset = has_dubbers and 8 or 7
+            local offset = has_dubbers and 9 or 8
             local selected_name = DUBBERS.data.names[ret - offset]
             DUBBERS.select_dubber(selected_name)
         elseif dict_count > 0 and ret >= dict_start and ret < dict_start + dict_count then
