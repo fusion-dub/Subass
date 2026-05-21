@@ -9032,34 +9032,41 @@ function UTILS.compact_render()
 
         -- Determine full underlying audio length (before any trim)
         local src_startoffs = 0.0
+        local playrate = 1.0
         local full_len = e.len  -- fallback: use visible length
+        local source_file = "(no source)"
         if src_take then
-            local playrate = reaper.GetMediaItemTakeInfo_Value(src_take, "D_PLAYRATE")
+            playrate = reaper.GetMediaItemTakeInfo_Value(src_take, "D_PLAYRATE")
             if playrate <= 0 then playrate = 1.0 end
             src_startoffs = reaper.GetMediaItemTakeInfo_Value(src_take, "D_STARTOFFS")
             local src_source = reaper.GetMediaItemTake_Source(src_take)
             if src_source then
                 local _, src_duration = reaper.GetMediaSourceLength(src_source)
-                -- src_duration is in seconds (GetMediaSourceLength returns len, is_qn)
-                -- actual duration in project time = source_length / playrate
                 local source_len_sec = reaper.GetMediaSourceLength(src_source)
                 full_len = source_len_sec / playrate
+                local _, sf = reaper.GetMediaSourceFileName(src_source)
+                source_file = sf or "?"
             end
         end
 
+        -- Calculate how much length we actually need to render to avoid overlapping next items.
+        -- If user stretched/looped the item beyond source duration, needed_len might be larger than full_len.
+        local start_offset_project = src_startoffs / playrate
+        local needed_len = start_offset_project + e.len
+        local render_len = math.max(full_len, needed_len)
+
         local new_item = reaper.AddMediaItemToTrack(dest_track)
         reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor)
-        reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH",   full_len)  -- render full audio
+        reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH",   render_len)
         reaper.SetMediaItemInfo_Value(new_item, "D_VOL",      reaper.GetMediaItemInfo_Value(src_item, "D_VOL"))
-        -- No fades on render track — we render the full uncut audio
         reaper.SetMediaItemInfo_Value(new_item, "D_FADEINLEN",  0)
         reaper.SetMediaItemInfo_Value(new_item, "D_FADEOUTLEN", 0)
 
         if src_take then
             local new_take = reaper.AddTakeToMediaItem(new_item)
             reaper.SetMediaItemTake_Source(new_take, reaper.GetMediaItemTake_Source(src_take))
-            reaper.SetMediaItemTakeInfo_Value(new_take, "D_STARTOFFS", 0)  -- start from the very beginning
-            reaper.SetMediaItemTakeInfo_Value(new_take, "D_PLAYRATE",  reaper.GetMediaItemTakeInfo_Value(src_take, "D_PLAYRATE"))
+            reaper.SetMediaItemTakeInfo_Value(new_take, "D_STARTOFFS", 0)
+            reaper.SetMediaItemTakeInfo_Value(new_take, "D_PLAYRATE",  playrate)
             reaper.SetMediaItemTakeInfo_Value(new_take, "D_VOL",       reaper.GetMediaItemTakeInfo_Value(src_take, "D_VOL"))
             reaper.SetMediaItemTakeInfo_Value(new_take, "D_PAN",       reaper.GetMediaItemTakeInfo_Value(src_take, "D_PAN"))
 
@@ -9068,19 +9075,17 @@ function UTILS.compact_render()
             reaper.GetSetMediaItemTakeInfo_String(new_take, "P_NAME", take_name, true)
         end
 
-        -- Record mapping: compact_pos points to full audio start;
-        -- start_offset/full_length let reconstruct restore the original trim
         table.insert(metadata_items, {
             index        = idx,
             name         = take_name,
             compact_pos  = cursor,
             original_pos = e.pos,
-            length       = e.len,          -- visible (trimmed) length
-            start_offset = src_startoffs,  -- how much was cut from the start
-            full_length  = full_len        -- full underlying audio duration
+            length       = e.len,
+            start_offset = start_offset_project, -- Save project space start offset
+            full_length  = render_len
         })
 
-        cursor = cursor + full_len
+        cursor = cursor + render_len
     end
 
     -- ── 8. Set Time Selection from 0 to end of last item ──────────────────
@@ -9355,20 +9360,18 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
     end
 
     local source = reaper.PCM_Source_CreateFromFile(file_path)
+
     local created_items = {}
     for _, info in ipairs(metadata_items) do
         local new_item = reaper.AddMediaItemToTrack(dest_track)
         reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", info.original_pos)
-        -- Restore original visible (trimmed) length
         reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH", info.length)
 
         local new_take = reaper.AddTakeToMediaItem(new_item)
         reaper.SetMediaItemTake_Source(new_take, source)
-        -- D_STARTOFFS points past the pre-trim silence in the compact WAV
-        -- so the item plays exactly the originally-visible audio.
-        -- The engineer can drag item edges to reveal the trimmed parts.
         local start_offset = info.start_offset or 0.0
-        reaper.SetMediaItemTakeInfo_Value(new_take, "D_STARTOFFS", info.compact_pos + start_offset)
+        local d_startoffs = info.compact_pos + start_offset
+        reaper.SetMediaItemTakeInfo_Value(new_take, "D_STARTOFFS", d_startoffs)
         reaper.GetSetMediaItemTakeInfo_String(new_take, "P_NAME", info.name, true)
 
         table.insert(created_items, {
