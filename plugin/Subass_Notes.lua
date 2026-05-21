@@ -8989,11 +8989,13 @@ function UTILS.compact_render()
     local entries = {}
     for i = 0, item_count - 1 do
         local item = reaper.GetTrackMediaItem(src_track, i)
-        table.insert(entries, {
-            item = item,
-            pos  = reaper.GetMediaItemInfo_Value(item, "D_POSITION"),
-            len  = reaper.GetMediaItemInfo_Value(item, "D_LENGTH"),
-        })
+        if reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
+            table.insert(entries, {
+                item = item,
+                pos  = reaper.GetMediaItemInfo_Value(item, "D_POSITION"),
+                len  = reaper.GetMediaItemInfo_Value(item, "D_LENGTH"),
+            })
+        end
     end
     table.sort(entries, function(a, b) return a.pos < b.pos end)
 
