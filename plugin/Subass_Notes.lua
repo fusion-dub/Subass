@@ -8982,6 +8982,13 @@ function UTILS.compact_render()
     end
     if not file_path:match("%.wav$") then file_path = file_path .. ".wav" end
 
+    -- Видаляємо існуючий файл перед рендером, якщо він є
+    local f = io.open(file_path, "r")
+    if f then
+        f:close()
+        os.remove(file_path)
+    end
+
     reaper.Undo_BeginBlock()
     reaper.PreventUIRefresh(1)
 
@@ -9116,10 +9123,7 @@ function UTILS.compact_render()
     -- WAV PCM 24-bit format chunk
     reaper.GetSetProjectInfo_String(0, "RENDER_FORMAT", "evaw\1\0\0\0\255\0\0\0", true)
 
-    -- ── 12. Scroll arrange view to position 0 + reveal the new track ──────
-    reaper.SetEditCurPos(0, true, false)       -- move edit cursor to 0, scroll view
-    reaper.Main_OnCommand(40913, 0)            -- Track: Scroll to selected track
-
+    -- ── 12. reveal the new track ──────
     reaper.PreventUIRefresh(-1)
     reaper.TrackList_AdjustWindows(false)
     reaper.UpdateArrange()
@@ -20994,7 +20998,7 @@ function DRAW_TABS.draw_file()
         
         local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
         local dubbers_ass = has_dubbers and "||Експортувати як ASS (розділено по даберам)" or ""
-        local menu = "|>Особливі дії|Видалити ВСІ регіони||Розрахувати репліки по акторам|Очистити репліки від наголосів||Компактний рендер|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS" .. dubbers_ass .. "|<"
+        local menu = "|>Особливі дії|Видалити ВСІ регіони||Розрахувати репліки по акторам|Очистити репліки від наголосів||Компактний рендер (WAV)|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS" .. dubbers_ass .. "|<"
 
         -- Add "Change Dubber" submenu if dubbers exist
         if has_dubbers then
