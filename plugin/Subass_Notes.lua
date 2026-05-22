@@ -8978,7 +8978,11 @@ function UTILS.compact_render()
     -- Clean names for safety in filenames
     local clean_user = display_name:gsub('[\\/:*?"<>|]', "_")
     local clean_proj = proj_name:gsub('[\\/:*?"<>|]', "_")
-    local default_filename = clean_user .. "_" .. clean_proj .. "_compact.wav"
+    local clean_trk = ""
+    if trk_name and trk_name ~= "" and not trk_name:match("^Track %d+$") then
+        clean_trk = "_" .. trk_name:gsub('[\\/:*?"<>|]', "_")
+    end
+    local default_filename = clean_user .. "_" .. clean_proj .. clean_trk .. "_compact.wav"
     local default_path = default_dir .. "/" .. default_filename
 
     -- ── 2. Ask user where to save the rendered WAV file ───────────────────
