@@ -9022,29 +9022,13 @@ function UTILS.compact_render()
     end
     table.sort(entries, function(a, b) return a.pos < b.pos end)
 
-    -- ── 4. Remove old SUBASS_RENDER track if it exists ────────────────────
-    for i = reaper.CountTracks(0) - 1, 0, -1 do
-        local t = reaper.GetTrack(0, i)
-        local _, n = reaper.GetTrackName(t)
-        if n == "SUBASS_RENDER" then
-            reaper.DeleteTrack(t)
-            break
-        end
+    -- ── 4. Зберігаємо стан кросфейдів та вимикаємо їх ─────────────────────
+    local auto_xfade = reaper.GetToggleCommandState(40041) == 1
+    if auto_xfade then
+        reaper.Main_OnCommand(40041, 0) -- Toggle off
     end
 
-    -- ── 5. Create SUBASS_RENDER track at the end ──────────────────────────
-    local new_idx = reaper.CountTracks(0)
-    reaper.InsertTrackAtIndex(new_idx, true)
-    local dest_track = reaper.GetTrack(0, new_idx)
-    reaper.GetSetMediaTrackInfo_String(dest_track, "P_NAME", "SUBASS_RENDER", true)
-
-    -- ── 6. Copy FX from source track ──────────────────────────────────────
-    local fx_count = reaper.TrackFX_GetCount(src_track)
-    for i = 0, fx_count - 1 do
-        reaper.TrackFX_CopyToTrack(src_track, i, dest_track, i, false)
-    end
-
-    -- ── 7. Copy items compactly (no gaps) and log metadata ────────────────
+    -- ── 5. Compact items on the source track ──────────────────────────────────
     local cursor = 0.0
     local metadata_items = {}
     
@@ -9053,49 +9037,41 @@ function UTILS.compact_render()
         local src_take = reaper.GetActiveTake(src_item)
         local take_name = "Item"
 
-        -- Determine full underlying audio length (before any trim)
         local src_startoffs = 0.0
         local playrate = 1.0
-        local full_len = e.len  -- fallback: use visible length
-        local source_file = "(no source)"
+        local full_len = e.len
         if src_take then
             playrate = reaper.GetMediaItemTakeInfo_Value(src_take, "D_PLAYRATE")
             if playrate <= 0 then playrate = 1.0 end
             src_startoffs = reaper.GetMediaItemTakeInfo_Value(src_take, "D_STARTOFFS")
             local src_source = reaper.GetMediaItemTake_Source(src_take)
             if src_source then
-                local _, src_duration = reaper.GetMediaSourceLength(src_source)
                 local source_len_sec = reaper.GetMediaSourceLength(src_source)
                 full_len = source_len_sec / playrate
-                local _, sf = reaper.GetMediaSourceFileName(src_source)
-                source_file = sf or "?"
             end
-        end
-
-        -- Calculate how much length we actually need to render to avoid overlapping next items.
-        -- If user stretched/looped the item beyond source duration, needed_len might be larger than full_len.
-        local start_offset_project = src_startoffs / playrate
-        local needed_len = start_offset_project + e.len
-        local render_len = math.max(full_len, needed_len)
-
-        local new_item = reaper.AddMediaItemToTrack(dest_track)
-        reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor)
-        reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH",   render_len)
-        reaper.SetMediaItemInfo_Value(new_item, "D_VOL",      reaper.GetMediaItemInfo_Value(src_item, "D_VOL"))
-        reaper.SetMediaItemInfo_Value(new_item, "D_FADEINLEN",  0)
-        reaper.SetMediaItemInfo_Value(new_item, "D_FADEOUTLEN", 0)
-
-        if src_take then
-            local new_take = reaper.AddTakeToMediaItem(new_item)
-            reaper.SetMediaItemTake_Source(new_take, reaper.GetMediaItemTake_Source(src_take))
-            reaper.SetMediaItemTakeInfo_Value(new_take, "D_STARTOFFS", 0)
-            reaper.SetMediaItemTakeInfo_Value(new_take, "D_PLAYRATE",  playrate)
-            reaper.SetMediaItemTakeInfo_Value(new_take, "D_VOL",       reaper.GetMediaItemTakeInfo_Value(src_take, "D_VOL"))
-            reaper.SetMediaItemTakeInfo_Value(new_take, "D_PAN",       reaper.GetMediaItemTakeInfo_Value(src_take, "D_PAN"))
-
             local _, tname = reaper.GetSetMediaItemTakeInfo_String(src_take, "P_NAME", "", false)
             if tname and tname ~= "" then take_name = tname end
-            reaper.GetSetMediaItemTakeInfo_String(new_take, "P_NAME", take_name, true)
+        end
+
+        local start_offset_project = src_startoffs / playrate
+        local render_len = full_len  -- full source length from offset 0
+
+        -- Capture fade values BEFORE zeroing them for metadata preservation
+        local fade_in      = reaper.GetMediaItemInfo_Value(src_item, "D_FADEINLEN")
+        local fade_out     = reaper.GetMediaItemInfo_Value(src_item, "D_FADEOUTLEN")
+        local fade_in_auto = reaper.GetMediaItemInfo_Value(src_item, "D_FADEINLEN_AUTO")
+        local fade_out_auto= reaper.GetMediaItemInfo_Value(src_item, "D_FADEOUTLEN_AUTO")
+
+        reaper.SetMediaItemInfo_Value(src_item, "D_POSITION",       cursor)
+        reaper.SetMediaItemInfo_Value(src_item, "D_LENGTH",         render_len)
+        reaper.SetMediaItemInfo_Value(src_item, "D_FADEINLEN",      0)
+        reaper.SetMediaItemInfo_Value(src_item, "D_FADEOUTLEN",     0)
+        reaper.SetMediaItemInfo_Value(src_item, "D_FADEINLEN_AUTO", 0)
+        reaper.SetMediaItemInfo_Value(src_item, "D_FADEOUTLEN_AUTO",0)
+        -- Reset start offset to 0 so REAPER renders full source from the beginning.
+        -- The original offset is preserved in metadata for restoration.
+        if src_take then
+            reaper.SetMediaItemTakeInfo_Value(src_take, "D_STARTOFFS", 0)
         end
 
         table.insert(metadata_items, {
@@ -9104,24 +9080,25 @@ function UTILS.compact_render()
             compact_pos  = cursor,
             original_pos = e.pos,
             length       = e.len,
-            start_offset = start_offset_project, -- Save project space start offset
-            full_length  = render_len
+            start_offset = start_offset_project,
+            full_length     = render_len,
+            fade_in         = fade_in,
+            fade_out        = fade_out,
+            fade_in_auto    = fade_in_auto,
+            fade_out_auto   = fade_out_auto
         })
 
         cursor = cursor + render_len
     end
 
-    -- ── 8. Set Time Selection from 0 to end of last item ──────────────────
+    -- ── 6. Set Time Selection from 0 to end of last item ──────────────────
     reaper.GetSet_LoopTimeRange(true, false, 0.0, cursor, false)
 
-    -- ── 9. Select only the render track ───────────────────────────────────
-    reaper.SetOnlyTrackSelected(dest_track)
-
-    -- ── 10. Solo: clear all tracks, solo only the render track ────────────
+    -- ── 7. Solo: clear all tracks, solo only the source track ────────────
     for i = 0, reaper.CountTracks(0) - 1 do
         reaper.SetMediaTrackInfo_Value(reaper.GetTrack(0, i), "I_SOLO", 0)
     end
-    reaper.SetMediaTrackInfo_Value(dest_track, "I_SOLO", 1)
+    reaper.SetMediaTrackInfo_Value(src_track, "I_SOLO", 1)
 
     -- ── 11. Render settings: Time Selection + WAV format + 48000Hz mono ───
     reaper.GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", 2, true) -- Time Selection
@@ -9139,7 +9116,7 @@ function UTILS.compact_render()
     -- WAV PCM 24-bit format chunk
     reaper.GetSetProjectInfo_String(0, "RENDER_FORMAT", "evaw\1\0\0\0\255\0\0\0", true)
 
-    -- ── 12. reveal the new track ──────
+    -- ── 12. Refresh UI ──────
     reaper.PreventUIRefresh(-1)
     reaper.TrackList_AdjustWindows(false)
     reaper.UpdateArrange()
@@ -9168,6 +9145,10 @@ function UTILS.compact_render()
         table.insert(xml_parts, '      <LENGTH>' .. string.format("%.6f", item.length) .. '</LENGTH>')
         table.insert(xml_parts, '      <START_OFFSET>' .. string.format("%.6f", item.start_offset or 0) .. '</START_OFFSET>')
         table.insert(xml_parts, '      <FULL_LENGTH>' .. string.format("%.6f", item.full_length or item.length) .. '</FULL_LENGTH>')
+        table.insert(xml_parts, '      <FADE_IN>'       .. string.format("%.6f", item.fade_in       or 0.0) .. '</FADE_IN>')
+        table.insert(xml_parts, '      <FADE_OUT>'      .. string.format("%.6f", item.fade_out      or 0.0) .. '</FADE_OUT>')
+        table.insert(xml_parts, '      <FADE_IN_AUTO>'  .. string.format("%.6f", item.fade_in_auto  or 0.0) .. '</FADE_IN_AUTO>')
+        table.insert(xml_parts, '      <FADE_OUT_AUTO>' .. string.format("%.6f", item.fade_out_auto or 0.0) .. '</FADE_OUT_AUTO>')
         table.insert(xml_parts, '    </ITEM>')
     end
     table.insert(xml_parts, '  </ITEMS>')
@@ -9242,8 +9223,19 @@ function UTILS.compact_render()
         return true
     end
 
-    -- ── 15. Delete the technical render track ─────────────────────────────
-    reaper.DeleteTrack(dest_track)
+    -- ── 15. Restore original item positions via Undo ────────────────────────
+    -- Undo the item-shift block so all items return to their original positions
+    reaper.Main_OnCommand(40029, 0) -- Edit: Undo
+    
+    -- Restore global auto-crossfade toggle if it was on
+    if auto_xfade and reaper.GetToggleCommandState(40041) == 0 then
+        reaper.Main_OnCommand(40041, 0) -- Toggle back on
+    end
+
+    -- Force REAPER to redraw the arrange view after undo, prevents UI freeze
+    reaper.PreventUIRefresh(-1)
+    reaper.TrackList_AdjustWindows(false)
+    reaper.UpdateArrange()
 
     -- Run embedding
     local ok, err = append_ixml_to_wav(file_path, xml_data)
@@ -9325,14 +9317,22 @@ function UTILS.parse_subass_xml(xml_str)
         local length       = tonumber(item_xml:match("<LENGTH>(.-)</LENGTH>"))             or 0.0
         local start_offset = tonumber(item_xml:match("<START_OFFSET>(.-)</START_OFFSET>")) or 0.0
         local full_length  = tonumber(item_xml:match("<FULL_LENGTH>(.-)</FULL_LENGTH>"))   or length
+        local fade_in      = tonumber(item_xml:match("<FADE_IN>(.-)</FADE_IN>"))           or 0.0
+        local fade_out     = tonumber(item_xml:match("<FADE_OUT>(.-)</FADE_OUT>"))          or 0.0
+        local fade_in_auto = tonumber(item_xml:match("<FADE_IN_AUTO>(.-)</FADE_IN_AUTO>"))  or 0.0
+        local fade_out_auto= tonumber(item_xml:match("<FADE_OUT_AUTO>(.-)</FADE_OUT_AUTO>"))or 0.0
         table.insert(items, {
-            index        = index,
-            name         = name,
-            compact_pos  = compact_pos,
-            original_pos = original_pos,
-            length       = length,
-            start_offset = start_offset,
-            full_length  = full_length
+            index         = index,
+            name          = name,
+            compact_pos   = compact_pos,
+            original_pos  = original_pos,
+            length        = length,
+            start_offset  = start_offset,
+            full_length   = full_length,
+            fade_in       = fade_in,
+            fade_out      = fade_out,
+            fade_in_auto  = fade_in_auto,
+            fade_out_auto = fade_out_auto
         })
     end
     return trk_name, items
@@ -9385,7 +9385,21 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
     for _, info in ipairs(metadata_items) do
         local new_item = reaper.AddMediaItemToTrack(dest_track)
         reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", info.original_pos)
-        reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH", info.length)
+        reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH",   info.length)
+        -- Restore original manual fade-in / fade-out values
+        if (info.fade_in or 0) > 0 then
+            reaper.SetMediaItemInfo_Value(new_item, "D_FADEINLEN",      info.fade_in)
+        end
+        if (info.fade_out or 0) > 0 then
+            reaper.SetMediaItemInfo_Value(new_item, "D_FADEOUTLEN",     info.fade_out)
+        end
+        -- Restore automatic crossfade lengths
+        if (info.fade_in_auto or 0) > 0 then
+            reaper.SetMediaItemInfo_Value(new_item, "D_FADEINLEN_AUTO",  info.fade_in_auto)
+        end
+        if (info.fade_out_auto or 0) > 0 then
+            reaper.SetMediaItemInfo_Value(new_item, "D_FADEOUTLEN_AUTO", info.fade_out_auto)
+        end
 
         local new_take = reaper.AddTakeToMediaItem(new_item)
         reaper.SetMediaItemTake_Source(new_take, source)
@@ -9394,28 +9408,10 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
         reaper.SetMediaItemTakeInfo_Value(new_take, "D_STARTOFFS", d_startoffs)
         reaper.GetSetMediaItemTakeInfo_String(new_take, "P_NAME", info.name, true)
 
-        table.insert(created_items, {
-            media_item = new_item,
-            pos = info.original_pos,
-            len = info.length
-        })
+        reaper.UpdateItemInProject(new_item)
     end
 
-    -- Release UI lock so REAPER can see the items before running the crossfade action
     reaper.PreventUIRefresh(-1)
-
-    -- Apply crossfades equal to the exact overlap between items
-    for i = 2, #created_items do
-        local prev = created_items[i-1]
-        local curr = created_items[i]
-        local overlap = (prev.pos + prev.len) - curr.pos
-        if overlap > 0 then
-            reaper.SetMediaItemInfo_Value(prev.media_item, "D_FADEOUTLEN", math.min(overlap, prev.len))
-            reaper.SetMediaItemInfo_Value(curr.media_item, "D_FADEINLEN",  math.min(overlap, curr.len))
-            reaper.UpdateItemInProject(prev.media_item)
-            reaper.UpdateItemInProject(curr.media_item)
-        end
-    end
 
     reaper.SetOnlyTrackSelected(dest_track)
     reaper.TrackList_AdjustWindows(false)
