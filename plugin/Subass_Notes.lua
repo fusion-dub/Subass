@@ -8962,9 +8962,15 @@ function UTILS.compact_render()
     local display_name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
     local _, proj_path = reaper.EnumProjects(-1)
     local proj_name = "Project"
-    local default_dir = "/Users"
+    local default_dir = UTILS.compact_render_dir_path
+    if not default_dir then
+        default_dir = "/Users"
+        if proj_path and proj_path ~= "" then
+            default_dir = proj_path:match("(.*)[/\\]") or "/Users"
+        end
+    end
+
     if proj_path and proj_path ~= "" then
-        default_dir = proj_path:match("(.*)[/\\]") or "/Users"
         local filename = proj_path:match("([^/\\]+)$") or "Project"
         proj_name = filename:gsub("%.[Rr][Pp][Pp]$", ""):gsub("%.rpp$", ""):gsub("%.%w+$", "")
     end
@@ -8981,6 +8987,9 @@ function UTILS.compact_render()
         return -- User cancelled
     end
     if not file_path:match("%.wav$") then file_path = file_path .. ".wav" end
+
+    -- Зберігаємо шлях до папки для наступного рендеру
+    UTILS.compact_render_dir_path = file_path:match("(.*)[/\\]")
 
     -- Видаляємо існуючий файл перед рендером, якщо він є
     local f = io.open(file_path, "r")
