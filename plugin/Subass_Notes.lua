@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.6
+-- @version 7.7
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.6",
+    script_title = "Subass Notes v7.7",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -20974,7 +20974,7 @@ function DRAW_TABS.draw_file()
         -- Text
         set_color(UI.C_HILI_GREY_MID)
         gfx.setfont(F.std)
-        local str = fit_text_width("Перетягніть .SRT, .ASS, .VTT або .CSV (правки) файл сюди для імпорту", dw - S(20))
+        local str = fit_text_width("Перетягніть .SRT, .ASS, .VTT, .CSV (правки) або .WAV (компактний рендер) файл сюди для імпорту", dw - S(20))
         local sw, sh = gfx.measurestr(str)
         gfx.x, gfx.y = dx + (dw - sw) / 2, drop_y + (dh - sh) / 2
         gfx.drawstr(str)
