@@ -22960,6 +22960,12 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         set_color(UI.GET_P_COLOR(0.4))
         gfx.drawstr(attempts_txt)
 
+        local r_btn_w = S(140)
+        local r_btn_y = pb_y + pb_h + S(18) + sph + S(36)
+        if btn(cx - r_btn_w/2, r_btn_y, r_btn_w, S(24), fit_text_width("Компактний рендер", r_btn_w - S(5)), UI.C_ROW, nil, true) then
+            UTILS.compact_render()
+        end
+
         return true
     else
         UI_STATE.draw_confetti(false)
@@ -31661,6 +31667,8 @@ local function main()
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
     
     if not OTHER.rec_state.show then
+        if UI_STATE.inside_window then handle_drag_drop() end
+
         -- Main Drawing Logic
         if DEADLINE.modal.show then 
             DEADLINE.draw_picker(input_queue)
@@ -31687,7 +31695,6 @@ local function main()
                 if UI_STATE.last_tab ~= 1 then
                     DICT.load()
                 end
-                if UI_STATE.inside_window then handle_drag_drop() end
                 DRAW_TABS.draw_file()
             elseif UI_STATE.current_tab == 2 then DRAW_TABS.draw_table(input_queue)
             elseif UI_STATE.current_tab == 3 then DRAW_TABS.draw_prompter(input_queue) 
