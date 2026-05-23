@@ -23398,6 +23398,17 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
         end
     end
 
+    -- Compact render button pinned after all slider items
+    if #prompter_slider_cache.items > 0 then
+        local last_item = prompter_slider_cache.items[#prompter_slider_cache.items]
+        local btn_y = last_item.y + last_item.h + draw_y_offset + S(36)
+        local r_btn_w = S(140)
+        local btn_x = content_offset_left + (available_w - r_btn_w) / 2
+        if btn(btn_x, btn_y, r_btn_w, S(24), fit_text_width("Компактний рендер", r_btn_w - S(5)), UI.C_ROW, nil, true) then
+            UTILS.compact_render()
+        end
+    end
+
     local is_show_final_stats = false
     if #prompter_slider_cache.items == 0 then
         is_show_final_stats = STATS.render_prompter_idle(available_w, content_offset_left, content_offset_right)
