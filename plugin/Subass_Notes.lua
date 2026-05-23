@@ -9339,6 +9339,30 @@ function UTILS.parse_subass_xml(xml_str)
 end
 
 function UTILS.reconstruct_compact_render(file_path, parent_track)
+    local proj_path = reaper.GetProjectPath("")
+    if proj_path and proj_path ~= "" then
+        local filename = file_path:match("([^/\\]+)$")
+        if filename then
+            local new_path = proj_path .. "/" .. filename
+            if file_path:gsub("\\", "/") ~= new_path:gsub("\\", "/") then
+                local in_file = io.open(file_path, "rb")
+                if in_file then
+                    local out_file = io.open(new_path, "wb")
+                    if out_file then
+                        while true do
+                            local block = in_file:read(65536)
+                            if not block then break end
+                            out_file:write(block)
+                        end
+                        out_file:close()
+                        file_path = new_path
+                    end
+                    in_file:close()
+                end
+            end
+        end
+    end
+
     local xml_data, err = UTILS.read_ixml_from_wav(file_path)
     if not xml_data then
         return false, err
