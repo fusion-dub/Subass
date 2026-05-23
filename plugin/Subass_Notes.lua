@@ -9379,8 +9379,6 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
         reaper.SetTrackColor(dest_track, parent_color)
     end
 
-    local source = reaper.PCM_Source_CreateFromFile(file_path)
-
     local created_items = {}
     for _, info in ipairs(metadata_items) do
         local new_item = reaper.AddMediaItemToTrack(dest_track)
@@ -9402,6 +9400,7 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
         end
 
         local new_take = reaper.AddTakeToMediaItem(new_item)
+        local source = reaper.PCM_Source_CreateFromFile(file_path)
         reaper.SetMediaItemTake_Source(new_take, source)
         
         -- Обмежуємо джерело до розмірів оригінального айтема (Section Source)
