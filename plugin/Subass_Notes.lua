@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.7
+-- @version 7.7.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.7",
+    script_title = "Subass Notes v7.7.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -20323,7 +20323,8 @@ function DRAW_TABS.draw_file()
         notes_w = S(80)
         deadline_w = S(105)
     end
-    
+
+    gfx.setfont(F.std)
     -- 1. Import Button
     if cur_y + btn_h > start_y - S(50) and cur_y < gfx.h + S(50) then
         if btn(padding, cur_y, import_w, btn_h, fit_text_width("Імпорт файлу (.srt/.ass/.vtt/.wav)", import_w - S(10)), nil, nil, true) then
@@ -23404,6 +23405,7 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
         local btn_y = last_item.y + last_item.h + draw_y_offset + S(36)
         local r_btn_w = S(140)
         local btn_x = content_offset_left + (available_w - r_btn_w) / 2
+        gfx.setfont(F.std) -- ensure correct font before fit_text_width measurement
         if btn(btn_x, btn_y, r_btn_w, S(24), fit_text_width("Компактний рендер", r_btn_w - S(5)), UI.C_ROW, nil, true) then
             UTILS.compact_render()
         end
