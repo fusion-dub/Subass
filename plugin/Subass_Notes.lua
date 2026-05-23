@@ -9403,9 +9403,17 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
 
         local new_take = reaper.AddTakeToMediaItem(new_item)
         reaper.SetMediaItemTake_Source(new_take, source)
+        
+        -- Обмежуємо джерело до розмірів оригінального айтема (Section Source)
+        local _, chunk = reaper.GetItemStateChunk(new_item, "", false)
+        local pattern = "(<SOURCE WAVE.->)"
+        local replacement = string.format("<SOURCE SECTION\nLENGTH %.6f\nSTARTPOS %.6f\nOVERLAP 0\n%%1\n>", info.full_length, info.compact_pos)
+        chunk = string.gsub(chunk, pattern, replacement, 1)
+        reaper.SetItemStateChunk(new_item, chunk, false)
+
         local start_offset = info.start_offset or 0.0
-        local d_startoffs = info.compact_pos + start_offset
-        reaper.SetMediaItemTakeInfo_Value(new_take, "D_STARTOFFS", d_startoffs)
+        -- Тепер D_STARTOFFS рахується відносно початку нашої секції
+        reaper.SetMediaItemTakeInfo_Value(new_take, "D_STARTOFFS", start_offset)
         reaper.GetSetMediaItemTakeInfo_String(new_take, "P_NAME", info.name, true)
 
         reaper.UpdateItemInProject(new_item)
