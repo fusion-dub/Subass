@@ -22909,11 +22909,40 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         local cy = gfx.h / 2
         
         -- Base position logic (centering the whole block)
-        local block_h = S(220)
-        local ty = cy - block_h / 2
+        local block_h = S(270) -- Орієнтовна повна висота
+        local base_ty = cy - block_h / 2
         
-        if cfg.p_valign == "top" then ty = S(80)
-        elseif cfg.p_valign == "bottom" then ty = gfx.h - block_h - S(100) end
+        if cfg.p_valign == "top" then base_ty = S(36)
+        elseif cfg.p_valign == "bottom" then base_ty = gfx.h - block_h - S(36) end
+        
+        local min_top_pad = S(20)
+        if base_ty < min_top_pad then base_ty = min_top_pad end
+        
+        UI_STATE.prompter_idle_target_scroll_y = UI_STATE.prompter_idle_target_scroll_y or 0
+        UI_STATE.prompter_idle_scroll_y = UI_STATE.prompter_idle_scroll_y or 0
+        UI_STATE.prompter_idle_total_h = UI_STATE.prompter_idle_total_h or gfx.h
+        
+        local max_scroll = math.max(0, UI_STATE.prompter_idle_total_h - gfx.h)
+        
+        if gfx.mouse_wheel ~= 0 then
+            UI_STATE.prompter_idle_target_scroll_y = UI_STATE.prompter_idle_target_scroll_y - (gfx.mouse_wheel * 0.3)
+            gfx.mouse_wheel = 0
+        end
+        
+        if UI_STATE.prompter_idle_target_scroll_y < 0 then UI_STATE.prompter_idle_target_scroll_y = 0 end
+        if UI_STATE.prompter_idle_target_scroll_y > max_scroll then UI_STATE.prompter_idle_target_scroll_y = max_scroll end
+        
+        local diff = UI_STATE.prompter_idle_target_scroll_y - UI_STATE.prompter_idle_scroll_y
+        if math.abs(diff) > 0.5 then
+            UI_STATE.prompter_idle_scroll_y = UI_STATE.prompter_idle_scroll_y + (diff * 0.8)
+        else
+            UI_STATE.prompter_idle_scroll_y = UI_STATE.prompter_idle_target_scroll_y
+        end
+        
+        if UI_STATE.prompter_idle_scroll_y < 0 then UI_STATE.prompter_idle_scroll_y = 0 end
+        if UI_STATE.prompter_idle_scroll_y > max_scroll then UI_STATE.prompter_idle_scroll_y = max_scroll end
+        
+        local ty = math.floor(base_ty - UI_STATE.prompter_idle_scroll_y)
 
         -- 1. Title
         gfx.setfont(F.title)
@@ -22996,6 +23025,10 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         if btn(cx - r_btn_w/2, r_btn_y, r_btn_w, S(24), fit_text_width("Компактний рендер", r_btn_w - S(5)), UI.C_ROW, nil, true) then
             UTILS.compact_render()
         end
+
+        local un_scrolled_bottom = r_btn_y + S(48) + UI_STATE.prompter_idle_scroll_y
+        UI_STATE.prompter_idle_total_h = un_scrolled_bottom + S(20) - base_ty
+        UI_STATE.prompter_idle_target_scroll_y = draw_scrollbar(gfx.w - S(10), 0, S(10), gfx.h, UI_STATE.prompter_idle_total_h, gfx.h, UI_STATE.prompter_idle_target_scroll_y)
 
         return true
     else
@@ -24250,7 +24283,7 @@ end
 local last_settings_h = 0 -- Persistent storage for Settings height
 
 -- Helper to draw a custom color picker square
-local function draw_custom_color_box(bx, screen_y, box_sz, r, g, b, on_change, is_selected)
+function UI_STATE.draw_custom_color_box(bx, screen_y, box_sz, r, g, b, on_change, is_selected)
     -- Background
     if is_selected then
         set_color({r, g, b})
@@ -24282,7 +24315,7 @@ local function draw_custom_color_box(bx, screen_y, box_sz, r, g, b, on_change, i
     gfx.y = screen_y + (box_sz - th) / 2
     gfx.drawstr("＋")
     
-    if is_mouse_clicked() then
+    if is_mouse_clicked() and gfx.mouse_y > S(25) then
         if gfx.mouse_x >= bx and gfx.mouse_x <= bx + box_sz and gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + box_sz then
             local initial_color = reaper.ColorToNative(math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
             local retval, selected_color = reaper.GR_SelectColor(reaper.GetMainHwnd(), initial_color)
@@ -24504,7 +24537,7 @@ function DRAW_TABS.draw_settings()
         local custom_bx = x + (#palette * (box_sz + gap))
         local custom_y = get_y(y_cursor)
         if custom_y + box_sz > start_y - S(50) and custom_y < gfx.h + S(50) then
-            draw_custom_color_box(custom_bx, custom_y, box_sz, cur_r / scale, cur_g / scale, cur_b / scale, function(r, g, b)
+            UI_STATE.draw_custom_color_box(custom_bx, custom_y, box_sz, cur_r / scale, cur_g / scale, cur_b / scale, function(r, g, b)
                 on_change(r * scale, g * scale, b * scale)
             end, not pal_sel)
         end
