@@ -1,5 +1,5 @@
 -- @description Subass Dictionary
--- @version 1.9
+-- @version 2.0
 -- @author Fusion (Fusion Dub)
 -- @about Dictionary of slang, idioms and terminology for dubbing.
 
@@ -601,6 +601,8 @@ function UTILS.import_dict_csv()
         for part in string.gmatch(line .. sep, "(.-)" .. sep) do
             -- Remove surrounding quotes if they exist
             part = part:match('^"(.*)"$') or part
+            -- Strip \r\n and trim surrounding whitespace
+            part = part:gsub("[\r\n]", ""):match("^%s*(.-)%s*$")
             table.insert(parts, part)
         end
         
@@ -672,11 +674,14 @@ function UTILS.export_dict_csv(dict)
     
     local f = io.open(path, "w")
     if f then
+        local function clean(s)
+            return (s or ""):gsub("[\r\n]", ""):match("^%s*(.-)%s*$")
+        end
         f:write("Слово,Заміна,Коментар\n")
         for _, entry in ipairs(dict.entries) do
-            local w = (entry.word or ""):gsub('"', '""')
-            local r = (entry.replacement or ""):gsub('"', '""')
-            local c = (entry.comment or ""):gsub('"', '""')
+            local w = clean(entry.word):gsub('"', '""')
+            local r = clean(entry.replacement):gsub('"', '""')
+            local c = clean(entry.comment):gsub('"', '""')
             f:write(string.format('"%s","%s","%s"\n', w, r, c))
         end
         f:close()
