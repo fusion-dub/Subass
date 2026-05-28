@@ -167,6 +167,7 @@ local cfg = {
     director_presets = {}, -- Loaded below after STATS module
     dict_auto_rules = {},
     dubber_char_rules = {},
+    dubber_project_selected = nil,
 }
 
 local OTHER = {
@@ -1642,6 +1643,50 @@ function OTHER.load_other_exts()
     else
         cfg.dubber_char_rules = {}
     end
+
+    -- Legacy migration check: if cfg.dubber_char_rules is a flat array, wrap it in a default project
+    local is_old_format = false
+    if type(cfg.dubber_char_rules) == "table" and #cfg.dubber_char_rules > 0 then
+        local first = cfg.dubber_char_rules[1]
+        if type(first) == "table" and (first.dubber_name or first.chars) then
+            is_old_format = true
+        end
+    end
+    
+    if is_old_format then
+        local old_rules = cfg.dubber_char_rules
+        cfg.dubber_char_rules = {}
+        cfg.dubber_char_rules["Проєкт 1"] = old_rules
+        cfg.dubber_project_selected = "Проєкт 1"
+    else
+        -- Load selected project name
+        local sel_p = UTILS.unicode_unescape(reaper.GetExtState(section_name, "dubber_project_selected"))
+        if sel_p ~= "" then
+            cfg.dubber_project_selected = sel_p
+        end
+    end
+
+    -- Ensure we have a selected project if projects exist
+    if type(cfg.dubber_char_rules) == "table" then
+        local has_projects = false
+        local first_proj = nil
+        for p_name in pairs(cfg.dubber_char_rules) do
+            has_projects = true
+            if not first_proj or p_name < first_proj then
+                first_proj = p_name
+            end
+        end
+        if has_projects then
+            if not cfg.dubber_project_selected or not cfg.dubber_char_rules[cfg.dubber_project_selected] then
+                cfg.dubber_project_selected = first_proj
+            end
+        else
+            cfg.dubber_project_selected = nil
+        end
+    else
+        cfg.dubber_char_rules = {}
+        cfg.dubber_project_selected = nil
+    end
 end
 
 OTHER.load_other_exts()
@@ -2916,6 +2961,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "dir_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.director_presets or {})), true)
     reaper.SetExtState(section_name, "dict_auto_rules", UTILS.unicode_escape(STATS.json_encode(cfg.dict_auto_rules or {})), true)
     reaper.SetExtState(section_name, "dubber_char_rules", UTILS.unicode_escape(STATS.json_encode(cfg.dubber_char_rules or {})), true)
+    reaper.SetExtState(section_name, "dubber_project_selected", UTILS.unicode_escape(cfg.dubber_project_selected or ""), true)
 
     update_prompter_fonts()
 end
@@ -11124,103 +11170,128 @@ function DUBBERS.draw_dashboard(input_queue)
 
         -- Auto Distribution
         if btn(pad + add_w + S(10), dy, auto_w, S(25), "Автоматичний розподіл", UI.C_BTN, UI.C_TXT) then
-            local added_dubs_count = 0
-            local assigned_chars_count = 0
-            
             cfg.dubber_char_rules = cfg.dubber_char_rules or {}
-            DUBBERS.data.assignments = DUBBERS.data.assignments or {}
             
-            -- Snapshot state BEFORE any changes (so a single Ctrl+Z restores fully)
-            push_undo("Автоматичний розподіл персонажів")
-            
-            -- Keep track of existing names (for quick check and case-insensitivity)
-            local existing_names_map = {}
-            for _, dname in ipairs(DUBBERS.data.names) do
-                existing_names_map[utf8_lower(dname)] = dname
+            -- Get all project names
+            local project_names = {}
+            for p_name in pairs(cfg.dubber_char_rules) do
+                table.insert(project_names, p_name)
             end
+            table.sort(project_names)
             
-            -- Separate <all> rules from normal rules
-            local all_rules = {}
-            local normal_rules = {}
-            for _, rule in ipairs(cfg.dubber_char_rules) do
-                if rule.dubber_name and utf8_lower(rule.dubber_name) == "<all>" then
-                    table.insert(all_rules, rule)
-                else
-                    table.insert(normal_rules, rule)
+            if #project_names == 0 then
+                reaper.ShowMessageBox("Спочатку створіть хоча б один проєкт в Налаштуваннях (вкладка 'Налаштування' -> 'ДАБЕРИ')", "Немає проєктів", 0)
+            else
+                -- Show context menu with projects list
+                local menu_parts = {}
+                for _, p_name in ipairs(project_names) do
+                    table.insert(menu_parts, p_name)
                 end
-            end
-            
-            -- Pass 1: normal rules — each actor may match multiple specific dubbers
-            if ass_actors then
-                for act in pairs(ass_actors) do
-                    local matched_dubbers = {}
-                    for _, rule in ipairs(normal_rules) do
-                        if rule.dubber_name and rule.dubber_name ~= "" and rule.chars and rule.chars ~= "" then
-                            for char in rule.chars:gmatch("[^,]+") do
-                                char = char:match("^%s*(.-)%s*$")
-                                if utf8_lower(char) == utf8_lower(act) then
-                                    table.insert(matched_dubbers, rule.dubber_name)
-                                    break -- inner break: stop scanning chars for THIS rule
+                
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local ret = gfx.showmenu(table.concat(menu_parts, "|"))
+                if ret > 0 then
+                    local selected_project = project_names[ret]
+                    local selected_rules = cfg.dubber_char_rules[selected_project] or {}
+                    
+                    local added_dubs_count = 0
+                    local assigned_chars_count = 0
+                    
+                    DUBBERS.data.assignments = DUBBERS.data.assignments or {}
+                    
+                    -- Snapshot state BEFORE any changes (so a single Ctrl+Z restores fully)
+                    push_undo("Автоматичний розподіл персонажів")
+                    
+                    -- Keep track of existing names (for quick check and case-insensitivity)
+                    local existing_names_map = {}
+                    for _, dname in ipairs(DUBBERS.data.names) do
+                        existing_names_map[utf8_lower(dname)] = dname
+                    end
+                    
+                    -- Separate <all> rules from normal rules
+                    local all_rules = {}
+                    local normal_rules = {}
+                    for _, rule in ipairs(selected_rules) do
+                        if rule.dubber_name and utf8_lower(rule.dubber_name) == "<all>" then
+                            table.insert(all_rules, rule)
+                        else
+                            table.insert(normal_rules, rule)
+                        end
+                    end
+                    
+                    -- Pass 1: normal rules — each actor may match multiple specific dubbers
+                    if ass_actors then
+                        for act in pairs(ass_actors) do
+                            local matched_dubbers = {}
+                            for _, rule in ipairs(normal_rules) do
+                                if rule.dubber_name and rule.dubber_name ~= "" and rule.chars and rule.chars ~= "" then
+                                    for char in rule.chars:gmatch("[^,]+") do
+                                        char = char:match("^%s*(.-)%s*$")
+                                        if utf8_lower(char) == utf8_lower(act) then
+                                            table.insert(matched_dubbers, rule.dubber_name)
+                                            break -- inner break: stop scanning chars for THIS rule
+                                        end
+                                    end
+                                end
+                            end
+                            
+                            for _, matched_dubber_name in ipairs(matched_dubbers) do
+                                local norm_dubber_name = matched_dubber_name
+                                local lower_norm = utf8_lower(norm_dubber_name)
+                                if not existing_names_map[lower_norm] then
+                                    local is_valid, res = DUBBERS.validate_name(norm_dubber_name)
+                                    if is_valid then
+                                        table.insert(DUBBERS.data.names, res)
+                                        existing_names_map[lower_norm] = res
+                                        added_dubs_count = added_dubs_count + 1
+                                    end
+                                else
+                                    norm_dubber_name = existing_names_map[lower_norm]
+                                end
+                                
+                                if not DUBBERS.data.assignments[norm_dubber_name] then
+                                    DUBBERS.data.assignments[norm_dubber_name] = {}
+                                end
+                                if not DUBBERS.data.assignments[norm_dubber_name][act] then
+                                    DUBBERS.data.assignments[norm_dubber_name][act] = true
+                                    assigned_chars_count = assigned_chars_count + 1
                                 end
                             end
                         end
                     end
                     
-                    for _, matched_dubber_name in ipairs(matched_dubbers) do
-                        local norm_dubber_name = matched_dubber_name
-                        local lower_norm = utf8_lower(norm_dubber_name)
-                        if not existing_names_map[lower_norm] then
-                            local is_valid, res = DUBBERS.validate_name(norm_dubber_name)
-                            if is_valid then
-                                table.insert(DUBBERS.data.names, res)
-                                existing_names_map[lower_norm] = res
-                                added_dubs_count = added_dubs_count + 1
-                            end
-                        else
-                            norm_dubber_name = existing_names_map[lower_norm]
-                        end
-                        
-                        if not DUBBERS.data.assignments[norm_dubber_name] then
-                            DUBBERS.data.assignments[norm_dubber_name] = {}
-                        end
-                        if not DUBBERS.data.assignments[norm_dubber_name][act] then
-                            DUBBERS.data.assignments[norm_dubber_name][act] = true
-                            assigned_chars_count = assigned_chars_count + 1
-                        end
-                    end
-                end
-            end
-            
-            -- Pass 2: <all> rules — assign listed chars to EVERY existing dubber
-            if #all_rules > 0 then
-                for _, rule in ipairs(all_rules) do
-                    if rule.chars and rule.chars ~= "" then
-                        for char in rule.chars:gmatch("[^,]+") do
-                            local act = char:match("^%s*(.-)%s*$")
-                            -- Only assign if this actor actually exists in the project
-                            if act ~= "" and ass_actors and ass_actors[act] then
-                                for _, dname in ipairs(DUBBERS.data.names) do
-                                    if not DUBBERS.data.assignments[dname] then
-                                        DUBBERS.data.assignments[dname] = {}
-                                    end
-                                    if not DUBBERS.data.assignments[dname][act] then
-                                        DUBBERS.data.assignments[dname][act] = true
-                                        assigned_chars_count = assigned_chars_count + 1
+                    -- Pass 2: <all> rules — assign listed chars to EVERY existing dubber
+                    if #all_rules > 0 then
+                        for _, rule in ipairs(all_rules) do
+                            if rule.chars and rule.chars ~= "" then
+                                for char in rule.chars:gmatch("[^,]+") do
+                                    local act = char:match("^%s*(.-)%s*$")
+                                    -- Only assign if this actor actually exists in the project
+                                    if act ~= "" and ass_actors and ass_actors[act] then
+                                        for _, dname in ipairs(DUBBERS.data.names) do
+                                            if not DUBBERS.data.assignments[dname] then
+                                                DUBBERS.data.assignments[dname] = {}
+                                            end
+                                            if not DUBBERS.data.assignments[dname][act] then
+                                                DUBBERS.data.assignments[dname][act] = true
+                                                assigned_chars_count = assigned_chars_count + 1
+                                            end
+                                        end
                                     end
                                 end
                             end
                         end
                     end
+                    
+                    if added_dubs_count > 0 or assigned_chars_count > 0 then
+                        DUBBERS.save()
+                        show_snackbar("Розподіл завершено! Додано даберів: " .. added_dubs_count .. ", призначено персонажів: " .. assigned_chars_count, "success")
+                    else
+                        -- No changes were made — pop the undo we just pushed to avoid a phantom entry
+                        table.remove(undo_stack)
+                        show_snackbar("Збігів не знайдено або все вже розподілено", "info")
+                    end
                 end
-            end
-            
-            if added_dubs_count > 0 or assigned_chars_count > 0 then
-                DUBBERS.save()
-                show_snackbar("Розподіл завершено! Додано даберів: " .. added_dubs_count .. ", призначено персонажів: " .. assigned_chars_count, "success")
-            else
-                -- No changes were made — pop the undo we just pushed to avoid a phantom entry
-                table.remove(undo_stack)
-                show_snackbar("Збігів не знайдено або все вже розподілено", "info")
             end
         end
 
@@ -25656,100 +25727,262 @@ function DRAW_TABS.draw_settings()
     s_section(y_cursor, "ДАБЕРИ")
     y_cursor = y_cursor + S(35)
     
-    local table_w = gfx.w - x_start - S(20)
-    local dubber_w = S(180)
-    local del_w = S(28)
-    local chars_w = table_w - dubber_w - del_w - S(20)
-    if chars_w < S(100) then chars_w = S(100) end
+    cfg.dubber_char_rules = cfg.dubber_char_rules or {}
     
-    local col1_x = x_start
-    local col2_x = col1_x + dubber_w + S(10)
-    local col3_x = col2_x + chars_w + S(10)
+    -- Sort and render projects list
+    local project_names = {}
+    for p_name in pairs(cfg.dubber_char_rules) do
+        table.insert(project_names, p_name)
+    end
+    table.sort(project_names)
     
-    -- Draw headers
-    set_color(UI.C_TXT)
-    gfx.setfont(F.std)
-    s_text(col1_x, y_cursor, "Імʼя дабера")
-    s_text(col2_x, y_cursor, "Закріплені персонажі / актори")
+    s_text(x_start, y_cursor, "Проєкти:")
     y_cursor = y_cursor + S(25)
     
-    cfg.dubber_char_rules = cfg.dubber_char_rules or {}
-
-    -- Clean up empty rules and ensure exactly one empty rule exists at the end
-    local cleaned_dubs = {}
-    for _, r in ipairs(cfg.dubber_char_rules) do
-        if (r.dubber_name and r.dubber_name ~= "") or (r.chars and r.chars ~= "") then
-            table.insert(cleaned_dubs, { dubber_name = r.dubber_name, chars = r.chars or "" })
-        end
-    end
-    table.insert(cleaned_dubs, { dubber_name = "", chars = "" })
-
-    local changed_dubs = (#cleaned_dubs ~= #cfg.dubber_char_rules)
-    if not changed_dubs then
-        for i = 1, #cleaned_dubs do
-            if cleaned_dubs[i].dubber_name ~= cfg.dubber_char_rules[i].dubber_name or cleaned_dubs[i].chars ~= cfg.dubber_char_rules[i].chars then
-                changed_dubs = true
-                break
-            end
-        end
-    end
-    if changed_dubs then
-        cfg.dubber_char_rules = cleaned_dubs
-        save_settings()
-    end
-
-    local row_h = S(34)
-    local dub_to_delete = nil
+    local start_x = x_start
+    local current_x = start_x
+    local table_w = gfx.w - x_start - S(20)
+    local max_w = table_w
+    local gap = S(10)
     
-    for idx, rule in ipairs(cfg.dubber_char_rules) do
-        local row_y = y_cursor
+    for idx, p_name in ipairs(project_names) do
+        gfx.setfont(F.std)
+        local btn_w = gfx.measurestr(p_name) + S(20)
+        if btn_w < S(60) then btn_w = S(60) end
         
-        -- Column 1: Dubber Name input
-        local display_dubber = (rule.dubber_name and rule.dubber_name ~= "") and rule.dubber_name or "Натисніть, щоб ввести..."
-        display_dubber = fit_text_width(display_dubber, dubber_w - S(20))
-        
-        if s_btn(col1_x, row_y, dubber_w, S(28), display_dubber, "Введіть ім'я дабера або \"<all>\" (для всіх даберів)") then
-            local current_name = rule.dubber_name or ""
-            local ret, text = reaper.GetUserInputs("Ім'я дабера", 1, "Ім'я дабера:,extrawidth=200", current_name)
-            if ret then
-                rule.dubber_name = text:match("^%s*(.-)%s*$")
-                save_settings()
-            end
+        if current_x + btn_w > start_x + max_w and current_x > start_x then
+            current_x = start_x
+            y_cursor = y_cursor + S(40)
         end
         
-        -- Column 2: Characters selection button
-        local display_chars = (rule.chars and rule.chars ~= "") and rule.chars or "Натисніть, щоб ввести персонажів..."
-        display_chars = fit_text_width(display_chars, chars_w - S(20))
+        local is_sel = (cfg.dubber_project_selected == p_name)
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
         
-        if s_btn(col2_x, row_y, chars_w, S(28), display_chars, "Введіть персонажів які закріплені за дабером, щоб одним кліком їх назначити в вікні \"Розподіл по даберам\"") then
-            local current_chars = (rule.chars or ""):gsub(",", "; ")
-            current_chars = current_chars:gsub(";%s+", "; "):gsub("^%s+", ""):gsub("%s+$", "")
-            local ret, csv = reaper.GetUserInputs("Персонажі закріплені за дабером", 1, "Список персонажів (через ; або ,):,extrawidth=500", current_chars)
-            if ret then
-                local clean_csv = csv:gsub(";", ","):gsub(",+", ","):gsub("%s*,%s*", ",")
-                clean_csv = clean_csv:gsub("^,", ""):gsub(",$", "")
-                rule.chars = clean_csv
-                save_settings()
-            end
+        if s_btn(current_x, y_cursor, btn_w, S(30), p_name, "Натисніть, щоб вибрати проєкт. Правий клік для перейменування/видалення.", btn_bg) then
+            cfg.dubber_project_selected = p_name
+            save_settings()
         end
         
-        -- Column 3: Delete button
-        local is_placeholder = (rule.dubber_name == "" and rule.chars == "")
-        if not is_placeholder then
-            if s_btn(col3_x, row_y, del_w, S(28), "X", "Видалити це правило", UI.C_FR_CLOSE) then
-                if reaper.ShowMessageBox("Ви дійсно хочете видалити це правило закріплення персонажів?", "Підтвердження", 4) == 6 then
-                    dub_to_delete = idx
+        -- Right-click on project button
+        local screen_y = get_y(y_cursor)
+        local hover = UI_STATE.window_focused and (gfx.mouse_x >= current_x and gfx.mouse_x <= current_x + btn_w and gfx.mouse_y >= screen_y and gfx.mouse_y <= screen_y + S(30))
+        if hover and gfx.mouse_y < S(26) then hover = false end
+        
+        if hover and is_mouse_clicked(2) then
+            UI_STATE.mouse_handled = true
+            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+            
+            -- Build other-projects list for "Імпортувати з" submenu
+            local other_projects = {}
+            for _, op_name in ipairs(project_names) do
+                if op_name ~= p_name then
+                    table.insert(other_projects, op_name)
+                end
+            end
+            
+            local import_prefix = #other_projects > 0 and ">Імпортувати з" or "#>Імпортувати з"
+            local import_items = ""
+            for _, op_name in ipairs(other_projects) do
+                import_items = import_items .. "|" .. op_name
+            end
+            
+            -- ret index mapping:
+            --   1        = Перейменувати проєкт
+            --   (>Імпортувати з is structural — NOT counted in ret)
+            --   2..1+N   = source project names (N = #other_projects)
+            --   2+N      = Видалити проєкт
+            local menu_str = "Перейменувати проєкт|" .. import_prefix .. import_items .. "|<|Видалити проєкт"
+            local ret = gfx.showmenu(menu_str)
+            
+            if ret == 1 then
+                local ok, new_name = reaper.GetUserInputs("Перейменувати проєкт", 1, "Нова назва проєкта:", p_name)
+                if ok and new_name ~= "" then
+                    new_name = new_name:match("^%s*(.-)%s*$")
+                    if cfg.dubber_char_rules[new_name] then
+                        reaper.ShowMessageBox("Проєкт з такою назвою вже існує!", "Помилка", 0)
+                    else
+                        cfg.dubber_char_rules[new_name] = cfg.dubber_char_rules[p_name]
+                        cfg.dubber_char_rules[p_name] = nil
+                        if cfg.dubber_project_selected == p_name then
+                            cfg.dubber_project_selected = new_name
+                        end
+                        save_settings()
+                    end
+                end
+            elseif ret >= 2 and ret <= 1 + #other_projects then
+                local src_name = other_projects[ret - 1]
+                local src_rules = cfg.dubber_char_rules[src_name] or {}
+                local dst_rules = cfg.dubber_char_rules[p_name] or {}
+                
+                -- Build set of existing dubber names in destination
+                local existing_dubbers = {}
+                for _, r in ipairs(dst_rules) do
+                    if r.dubber_name and r.dubber_name ~= "" then
+                        existing_dubbers[r.dubber_name] = true
+                    end
+                end
+                
+                local added = 0
+                for _, r in ipairs(src_rules) do
+                    if r.dubber_name and r.dubber_name ~= "" and not existing_dubbers[r.dubber_name] then
+                        table.insert(dst_rules, { dubber_name = r.dubber_name, chars = r.chars or "" })
+                        existing_dubbers[r.dubber_name] = true
+                        added = added + 1
+                    end
+                end
+                cfg.dubber_char_rules[p_name] = dst_rules
+                save_settings()
+                if added > 0 then
+                    show_snackbar("Імпортовано " .. added .. " правил з '" .. src_name .. "'", "success")
+                else
+                    show_snackbar("Немає нових правил для імпорту з '" .. src_name .. "'", "info")
+                end
+            elseif ret == 2 + #other_projects then
+                if reaper.ShowMessageBox("Ви дійсно хочете видалити проєкт '" .. p_name .. "'?", "Підтвердження", 4) == 6 then
+                    cfg.dubber_char_rules[p_name] = nil
+                    if cfg.dubber_project_selected == p_name then
+                        local next_proj = nil
+                        for next_name in pairs(cfg.dubber_char_rules) do
+                            if not next_proj or next_name < next_proj then
+                                next_proj = next_name
+                            end
+                        end
+                        cfg.dubber_project_selected = next_proj
+                    end
+                    save_settings()
                 end
             end
         end
         
-        y_cursor = y_cursor + row_h
+        current_x = current_x + btn_w + gap
     end
     
-    -- Handle rule deletion
-    if dub_to_delete then
-        table.remove(cfg.dubber_char_rules, dub_to_delete)
-        save_settings()
+    -- Plus button to add a project
+    local add_btn_w = S(30)
+    if current_x + add_btn_w > start_x + max_w and current_x > start_x then
+        current_x = start_x
+        y_cursor = y_cursor + S(40)
+    end
+    
+    if s_btn(current_x, y_cursor, add_btn_w, S(30), "＋", "Додати новий проєкт") then
+        local ok, p_name = reaper.GetUserInputs("Новий проєкт", 1, "Назва проєкта:", "")
+        if ok and p_name ~= "" then
+            p_name = p_name:match("^%s*(.-)%s*$")
+            if cfg.dubber_char_rules[p_name] then
+                reaper.ShowMessageBox("Проєкт з такою назвою вже існує!", "Помилка", 0)
+            else
+                cfg.dubber_char_rules[p_name] = {}
+                cfg.dubber_project_selected = p_name
+                save_settings()
+            end
+        end
+    end
+    
+    y_cursor = y_cursor + S(50)
+    
+    -- Selected project rules table
+    if cfg.dubber_project_selected and cfg.dubber_char_rules[cfg.dubber_project_selected] then
+        -- Now render the rules table for the active project
+        local dubber_w = S(180)
+        local del_w = S(28)
+        local chars_w = table_w - dubber_w - del_w - S(20)
+        if chars_w < S(100) then chars_w = S(100) end
+        
+        local col1_x = x_start
+        local col2_x = col1_x + dubber_w + S(10)
+        local col3_x = col2_x + chars_w + S(10)
+        
+        -- Draw headers
+        set_color(UI.C_TXT)
+        gfx.setfont(F.std)
+        s_text(col1_x, y_cursor, "Імʼя дабера")
+        s_text(col2_x, y_cursor, "Закріплені персонажі / актори")
+        y_cursor = y_cursor + S(25)
+        
+        -- Clean up empty rules and ensure exactly one empty rule exists at the end
+        local active_rules = cfg.dubber_char_rules[cfg.dubber_project_selected] or {}
+        local cleaned_dubs = {}
+        for _, r in ipairs(active_rules) do
+            if (r.dubber_name and r.dubber_name ~= "") or (r.chars and r.chars ~= "") then
+                table.insert(cleaned_dubs, { dubber_name = r.dubber_name, chars = r.chars or "" })
+            end
+        end
+        table.insert(cleaned_dubs, { dubber_name = "", chars = "" })
+        
+        local changed_dubs = (#cleaned_dubs ~= #active_rules)
+        if not changed_dubs then
+            for i = 1, #cleaned_dubs do
+                if cleaned_dubs[i].dubber_name ~= active_rules[i].dubber_name or cleaned_dubs[i].chars ~= active_rules[i].chars then
+                    changed_dubs = true
+                    break
+                end
+            end
+        end
+        if changed_dubs then
+            cfg.dubber_char_rules[cfg.dubber_project_selected] = cleaned_dubs
+            save_settings()
+            active_rules = cleaned_dubs
+        end
+        
+        local row_h = S(34)
+        local dub_to_delete = nil
+        
+        for idx, rule in ipairs(active_rules) do
+            local row_y = y_cursor
+            
+            -- Column 1: Dubber Name input
+            local display_dubber = (rule.dubber_name and rule.dubber_name ~= "") and rule.dubber_name or "Натисніть, щоб ввести..."
+            display_dubber = fit_text_width(display_dubber, dubber_w - S(20))
+            
+            if s_btn(col1_x, row_y, dubber_w, S(28), display_dubber, "Введіть ім'я дабера або \"<all>\" (для всіх даберів)") then
+                local current_name = rule.dubber_name or ""
+                local ret, text = reaper.GetUserInputs("Ім'я дабера", 1, "Ім'я дабера:,extrawidth=200", current_name)
+                if ret then
+                    rule.dubber_name = text:match("^%s*(.-)%s*$")
+                    save_settings()
+                end
+            end
+            
+            -- Column 2: Characters selection button
+            local display_chars = (rule.chars and rule.chars ~= "") and rule.chars or "Натисніть, щоб ввести персонажів..."
+            display_chars = fit_text_width(display_chars, chars_w - S(20))
+            
+            if s_btn(col2_x, row_y, chars_w, S(28), display_chars, "Введіть персонажів які закріплені за дабером, щоб одним кліком їх назначити в вікні \"Розподіл по даберам\"") then
+                local current_chars = (rule.chars or ""):gsub(",", "; ")
+                current_chars = current_chars:gsub(";%s+", "; "):gsub("^%s+", ""):gsub("%s+$", "")
+                local ret, csv = reaper.GetUserInputs("Персонажі закріплені за дабером", 1, "Список персонажів (через ; або ,):,extrawidth=500", current_chars)
+                if ret then
+                    local clean_csv = csv:gsub(";", ","):gsub(",+", ","):gsub("%s*,%s*", ",")
+                    clean_csv = clean_csv:gsub("^,", ""):gsub(",$", "")
+                    rule.chars = clean_csv
+                    save_settings()
+                end
+            end
+            
+            -- Column 3: Delete button
+            local is_placeholder = (rule.dubber_name == "" and rule.chars == "")
+            if not is_placeholder then
+                if s_btn(col3_x, row_y, del_w, S(28), "X", "Видалити це правило", UI.C_FR_CLOSE) then
+                    if reaper.ShowMessageBox("Ви дійсно хочете видалити це правило закріплення персонажів?", "Підтвердження", 4) == 6 then
+                        dub_to_delete = idx
+                    end
+                end
+            end
+            
+            y_cursor = y_cursor + row_h
+        end
+        
+        -- Handle rule deletion
+        if dub_to_delete then
+            table.remove(active_rules, dub_to_delete)
+            save_settings()
+        end
+    else
+        -- Draw placeholder if no active project exists
+        set_color(UI.C_TXT)
+        gfx.setfont(F.std)
+        s_text(x_start, y_cursor, "Немає активного проєкту. Створіть проєкт за допомогою кнопки '+' вище.")
+        y_cursor = y_cursor + S(35)
     end
     y_cursor = y_cursor + S(25)
     
