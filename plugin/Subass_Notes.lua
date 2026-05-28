@@ -10904,6 +10904,7 @@ end
 --- Select a dubber and filter the project to their assigned actors
 --- @param name string Name of the dubber to select
 function DUBBERS.select_dubber(name)
+    push_undo("Змінити дабера: " .. (name or ""))
     local assigned_actors = DUBBERS.data.assignments[name] or {}
     
     -- Reset all filters
