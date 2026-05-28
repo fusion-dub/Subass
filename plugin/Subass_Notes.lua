@@ -166,6 +166,7 @@ local cfg = {
     fmt_presets = {}, -- Loaded below after STATS module
     director_presets = {}, -- Loaded below after STATS module
     dict_auto_rules = {},
+    dubber_char_rules = {},
 }
 
 local OTHER = {
@@ -1634,6 +1635,13 @@ function OTHER.load_other_exts()
     else
         cfg.dict_auto_rules = {}
     end
+
+    local raw_dubber_rules = reaper.GetExtState(section_name, "dubber_char_rules")
+    if raw_dubber_rules ~= "" then
+        cfg.dubber_char_rules = STATS.json_decode(UTILS.unicode_unescape(raw_dubber_rules)) or {}
+    else
+        cfg.dubber_char_rules = {}
+    end
 end
 
 OTHER.load_other_exts()
@@ -2907,6 +2915,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "fmt_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.fmt_presets or {})), true)
     reaper.SetExtState(section_name, "dir_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.director_presets or {})), true)
     reaper.SetExtState(section_name, "dict_auto_rules", UTILS.unicode_escape(STATS.json_encode(cfg.dict_auto_rules or {})), true)
+    reaper.SetExtState(section_name, "dubber_char_rules", UTILS.unicode_escape(STATS.json_encode(cfg.dubber_char_rules or {})), true)
 
     update_prompter_fonts()
 end
@@ -11092,9 +11101,11 @@ function DUBBERS.draw_dashboard(input_queue)
     
     dy = dy + S(25)
     
-    -- Add Dubber Button
+    -- Add Dubber Button & Auto Distribution Button
     local add_w = S(120)
+    local auto_w = S(170)
     if dy + S(25) > header_h and dy < gfx.h then
+        -- Add Dubber
         if btn(pad, dy, add_w, S(25), "+ Додати дабера", UI.C_BTN, UI.C_TXT) then
             local ok, name = reaper.GetUserInputs("Новий дабер", 1, "Ім'я дабера:", "")
             if ok then
@@ -11105,6 +11116,74 @@ function DUBBERS.draw_dashboard(input_queue)
                     table.insert(DUBBERS.data.names, res)
                     DUBBERS.save()
                 end
+            end
+        end
+
+        -- Auto Distribution
+        if btn(pad + add_w + S(10), dy, auto_w, S(25), "Автоматичний розподіл", UI.C_BTN, UI.C_TXT) then
+            local added_dubs_count = 0
+            local assigned_chars_count = 0
+            
+            cfg.dubber_char_rules = cfg.dubber_char_rules or {}
+            DUBBERS.data.assignments = DUBBERS.data.assignments or {}
+            
+            -- Keep track of existing names (for quick check and case-insensitivity)
+            local existing_names_map = {}
+            for _, dname in ipairs(DUBBERS.data.names) do
+                existing_names_map[utf8_lower(dname)] = dname
+            end
+            
+            -- We iterate over all active actors (characters)
+            if ass_actors then
+                for act in pairs(ass_actors) do
+                    -- Find if there is a rule matching this actor
+                    local matched_dubber_name = nil
+                    for _, rule in ipairs(cfg.dubber_char_rules) do
+                        if rule.dubber_name and rule.dubber_name ~= "" and rule.chars and rule.chars ~= "" then
+                            for char in rule.chars:gmatch("[^,]+") do
+                                char = char:match("^%s*(.-)%s*$")
+                                if utf8_lower(char) == utf8_lower(act) then
+                                    matched_dubber_name = rule.dubber_name
+                                    break
+                                end
+                            end
+                        end
+                        if matched_dubber_name then break end
+                    end
+                    
+                    if matched_dubber_name then
+                        -- 1. Ensure the voice actor is in DUBBERS list
+                        local norm_dubber_name = matched_dubber_name
+                        local lower_norm = utf8_lower(norm_dubber_name)
+                        if not existing_names_map[lower_norm] then
+                            -- Validate the name before adding
+                            local is_valid, res = DUBBERS.validate_name(norm_dubber_name)
+                            if is_valid then
+                                table.insert(DUBBERS.data.names, res)
+                                existing_names_map[lower_norm] = res
+                                added_dubs_count = added_dubs_count + 1
+                            end
+                        else
+                            norm_dubber_name = existing_names_map[lower_norm]
+                        end
+                        
+                        -- 2. Assign the character to the voice actor
+                        if not DUBBERS.data.assignments[norm_dubber_name] then
+                            DUBBERS.data.assignments[norm_dubber_name] = {}
+                        end
+                        if not DUBBERS.data.assignments[norm_dubber_name][act] then
+                            DUBBERS.data.assignments[norm_dubber_name][act] = true
+                            assigned_chars_count = assigned_chars_count + 1
+                        end
+                    end
+                end
+            end
+            
+            if added_dubs_count > 0 or assigned_chars_count > 0 then
+                DUBBERS.save()
+                show_snackbar("Розподіл завершено! Додано даберів: " .. added_dubs_count .. ", призначено персонажів: " .. assigned_chars_count, "success")
+            else
+                show_snackbar("Збігів не знайдено або все вже розподілено", "info")
             end
         end
     end
@@ -25511,9 +25590,112 @@ function DRAW_TABS.draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + S(25)
+
+    -- ═══════════════════════════════════════════
+    -- 13. НАЛАШТУВАННЯ ДАБЕРІВ
+    -- ═══════════════════════════════════════════
+    s_section(y_cursor, "ДАБЕРИ")
+    y_cursor = y_cursor + S(35)
+    
+    local table_w = gfx.w - x_start - S(20)
+    local dubber_w = S(180)
+    local del_w = S(28)
+    local chars_w = table_w - dubber_w - del_w - S(20)
+    if chars_w < S(100) then chars_w = S(100) end
+    
+    local col1_x = x_start
+    local col2_x = col1_x + dubber_w + S(10)
+    local col3_x = col2_x + chars_w + S(10)
+    
+    -- Draw headers
+    set_color(UI.C_TXT)
+    gfx.setfont(F.std)
+    s_text(col1_x, y_cursor, "Дабер")
+    s_text(col2_x, y_cursor, "Закріплені персонажі")
+    y_cursor = y_cursor + S(25)
+    
+    cfg.dubber_char_rules = cfg.dubber_char_rules or {}
+
+    -- Clean up empty rules and ensure exactly one empty rule exists at the end
+    local cleaned_dubs = {}
+    for _, r in ipairs(cfg.dubber_char_rules) do
+        if (r.dubber_name and r.dubber_name ~= "") or (r.chars and r.chars ~= "") then
+            table.insert(cleaned_dubs, { dubber_name = r.dubber_name, chars = r.chars or "" })
+        end
+    end
+    table.insert(cleaned_dubs, { dubber_name = "", chars = "" })
+
+    local changed_dubs = (#cleaned_dubs ~= #cfg.dubber_char_rules)
+    if not changed_dubs then
+        for i = 1, #cleaned_dubs do
+            if cleaned_dubs[i].dubber_name ~= cfg.dubber_char_rules[i].dubber_name or cleaned_dubs[i].chars ~= cfg.dubber_char_rules[i].chars then
+                changed_dubs = true
+                break
+            end
+        end
+    end
+    if changed_dubs then
+        cfg.dubber_char_rules = cleaned_dubs
+        save_settings()
+    end
+
+    local row_h = S(34)
+    local dub_to_delete = nil
+    
+    for idx, rule in ipairs(cfg.dubber_char_rules) do
+        local row_y = y_cursor
+        
+        -- Column 1: Dubber Name input
+        local display_dubber = (rule.dubber_name and rule.dubber_name ~= "") and rule.dubber_name or "Натисніть, щоб ввести..."
+        display_dubber = fit_text_width(display_dubber, dubber_w - S(20))
+        
+        if s_btn(col1_x, row_y, dubber_w, S(28), display_dubber, "Введіть ім'я дабера") then
+            local current_name = rule.dubber_name or ""
+            local ret, text = reaper.GetUserInputs("Ім'я дабера", 1, "Ім'я дабера:,extrawidth=200", current_name)
+            if ret then
+                rule.dubber_name = text:match("^%s*(.-)%s*$")
+                save_settings()
+            end
+        end
+        
+        -- Column 2: Characters selection button
+        local display_chars = (rule.chars and rule.chars ~= "") and rule.chars or "Натисніть, щоб ввести персонажів..."
+        display_chars = fit_text_width(display_chars, chars_w - S(20))
+        
+        if s_btn(col2_x, row_y, chars_w, S(28), display_chars, "Введіть персонажів які закріплені за дабером, щоб одним кліком їх назначити в вікні \"Розподіл по даберам\"") then
+            local current_chars = (rule.chars or ""):gsub(",", "; ")
+            current_chars = current_chars:gsub(";%s+", "; "):gsub("^%s+", ""):gsub("%s+$", "")
+            local ret, csv = reaper.GetUserInputs("Персонажі закріплені за дабером", 1, "Список персонажів (через ; або ,):,extrawidth=260", current_chars)
+            if ret then
+                local clean_csv = csv:gsub(";", ","):gsub(",+", ","):gsub("%s*,%s*", ",")
+                clean_csv = clean_csv:gsub("^,", ""):gsub(",$", "")
+                rule.chars = clean_csv
+                save_settings()
+            end
+        end
+        
+        -- Column 3: Delete button
+        local is_placeholder = (rule.dubber_name == "" and rule.chars == "")
+        if not is_placeholder then
+            if s_btn(col3_x, row_y, del_w, S(28), "X", "Видалити це правило", UI.C_FR_CLOSE) then
+                if reaper.ShowMessageBox("Ви дійсно хочете видалити це правило закріплення персонажів?", "Підтвердження", 4) == 6 then
+                    dub_to_delete = idx
+                end
+            end
+        end
+        
+        y_cursor = y_cursor + row_h
+    end
+    
+    -- Handle rule deletion
+    if dub_to_delete then
+        table.remove(cfg.dubber_char_rules, dub_to_delete)
+        save_settings()
+    end
+    y_cursor = y_cursor + S(25)
     
     -- ═══════════════════════════════════════════
-    -- 13. ІНШЕ
+    -- 14. ІНШЕ
     -- ═══════════════════════════════════════════
     s_section(y_cursor, "ІНШЕ")
     y_cursor = y_cursor + S(35)
