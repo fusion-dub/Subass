@@ -25665,7 +25665,7 @@ function DRAW_TABS.draw_settings()
     set_color(UI.C_TXT)
     gfx.setfont(F.std)
     s_text(col1_x, y_cursor, "Імʼя дабера")
-    s_text(col2_x, y_cursor, "Закріплені персонажі")
+    s_text(col2_x, y_cursor, "Закріплені персонажі / актори")
     y_cursor = y_cursor + S(25)
     
     cfg.dubber_char_rules = cfg.dubber_char_rules or {}
