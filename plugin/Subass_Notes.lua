@@ -165,6 +165,7 @@ local cfg = {
     hotkeys = get_set("hotkeys", "1,2,3,4,5,6,7,8,9,0,-,="),
     fmt_presets = {}, -- Loaded below after STATS module
     director_presets = {}, -- Loaded below after STATS module
+    dict_auto_rules = {},
 }
 
 local OTHER = {
@@ -1599,7 +1600,7 @@ function STATS.json_decode(str)
     return res
 end
 
-function OTHER.load_panel_presets()
+function OTHER.load_other_exts()
     -- Load presets now that STATS is ready
     local raw_presets = reaper.GetExtState(section_name, "fmt_presets_ext")
     if raw_presets ~= "" then
@@ -1626,9 +1627,16 @@ function OTHER.load_panel_presets()
             {label = "ПЗД", val = "Потрібно завершити думку, поставити крапку."},
         }
     end
+
+    local raw_rules = reaper.GetExtState(section_name, "dict_auto_rules")
+    if raw_rules ~= "" then
+        cfg.dict_auto_rules = STATS.json_decode(UTILS.unicode_unescape(raw_rules)) or {}
+    else
+        cfg.dict_auto_rules = {}
+    end
 end
 
-OTHER.load_panel_presets()
+OTHER.load_other_exts()
 
 --- Perform a global audit of all projects in the registry to count unique deadline failures
 function ACHIEVEMENTS.global_deadline_sweep()
@@ -2898,6 +2906,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "hotkeys", cfg.hotkeys, true)
     reaper.SetExtState(section_name, "fmt_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.fmt_presets or {})), true)
     reaper.SetExtState(section_name, "dir_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.director_presets or {})), true)
+    reaper.SetExtState(section_name, "dict_auto_rules", UTILS.unicode_escape(STATS.json_encode(cfg.dict_auto_rules or {})), true)
 
     update_prompter_fonts()
 end
@@ -5683,6 +5692,34 @@ function DICT.toggle(id)
         DICT.selected_ids[id] = true
     end
     DICT.save_selected()
+end
+
+function DICT.auto_toggle_by_rules(filename)
+    if not cfg.dict_auto_rules or #cfg.dict_auto_rules == 0 or not filename then return end
+    local file_name = filename:match("[^\\/]+$") or filename
+    file_name = utf8_lower(file_name)
+    
+    local changed = false
+    for _, rule in ipairs(cfg.dict_auto_rules) do
+        if rule.dict_id and rule.dict_id ~= "" and rule.terms and rule.terms ~= "" then
+            -- Split terms by comma
+            for term in rule.terms:gmatch("[^,]+") do
+                -- Trim spaces
+                term = term:match("^%s*(.-)%s*$")
+                if term and term ~= "" then
+                    if file_name:find(utf8_lower(term), 1, true) then
+                        if not DICT.selected_ids[rule.dict_id] then
+                            DICT.selected_ids[rule.dict_id] = true
+                            changed = true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if changed then
+        DICT.save_selected()
+    end
 end
 
 function DICT.load(dont_push)
@@ -11361,6 +11398,9 @@ local function import_srt(file_path, dont_rebuild, forced_actor)
     UI_STATE.current_file_name = file:match("([^/\\]+)$")
     UI_STATE.current_file_path = file
     
+    -- Auto-toggle dictionaries by rules based on filename
+    DICT.auto_toggle_by_rules(file)
+    
     local content = fix_encoding(f:read("*all"))
     f:close()
     content = content:gsub("\r\n", "\n")
@@ -11593,6 +11633,9 @@ local function import_vtt(file_path, dont_rebuild)
     if not f then return end
     UI_STATE.current_file_name = file:match("([^/\\]+)$")
     UI_STATE.current_file_path = file
+    
+    -- Auto-toggle dictionaries by rules based on filename
+    DICT.auto_toggle_by_rules(file)
     
     -- Check for deadline in filename
     local dl = DEADLINE.parse_from_name(UI_STATE.current_file_name)
@@ -12435,6 +12478,9 @@ local function import_ass(file_path, dont_rebuild)
     if not f then return end
     UI_STATE.current_file_name = file:match("([^/\\]+)$")
     UI_STATE.current_file_path = file
+    
+    -- Auto-toggle dictionaries by rules based on filename
+    DICT.auto_toggle_by_rules(file)
     
     -- Check for deadline in filename
     local dl = DEADLINE.parse_from_name(UI_STATE.current_file_name)
@@ -21055,7 +21101,7 @@ function DRAW_TABS.draw_file()
         end
         
         -- Add "Словники" submenu from user_dictionaries.json
-        DICT.check_sync() -- refresh from file if updated externally
+        DICT.load(true) -- always reload from disk on context menu open
         local dict_count = #DICT.dicts
         if dict_count > 0 then
             local dict_menu_items = {}
@@ -25340,9 +25386,134 @@ function DRAW_TABS.draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + S(65)
+
+    -- ═══════════════════════════════════════════
+    -- 12. НАЛАШТУВАННЯ СЛОВНИКІВ
+    -- ═══════════════════════════════════════════
+    s_section(y_cursor, "СЛОВНИКИ")
+    y_cursor = y_cursor + S(35)
+    
+    local table_w = gfx.w - x_start - S(20)
+    local dict_w = S(180)
+    local del_w = S(28)
+    local terms_w = table_w - dict_w - del_w - S(20)
+    if terms_w < S(100) then terms_w = S(100) end
+    
+    local col1_x = x_start
+    local col2_x = col1_x + dict_w + S(10)
+    local col3_x = col2_x + terms_w + S(10)
+    
+    -- Draw headers
+    set_color(UI.C_TXT)
+    gfx.setfont(F.std)
+    s_text(col1_x, y_cursor, "Словник")
+    s_text(col2_x, y_cursor, "Ключові слова активації")
+    y_cursor = y_cursor + S(25)
+    
+    cfg.dict_auto_rules = cfg.dict_auto_rules or {}
+
+    -- Clean up empty rules and ensure exactly one empty rule exists at the end
+    local cleaned = {}
+    for _, r in ipairs(cfg.dict_auto_rules) do
+        if (r.dict_id and r.dict_id ~= "") or (r.terms and r.terms ~= "") then
+            table.insert(cleaned, { dict_id = r.dict_id, terms = r.terms or "" })
+        end
+    end
+    table.insert(cleaned, { dict_id = "", terms = "" })
+
+    local changed = (#cleaned ~= #cfg.dict_auto_rules)
+    if not changed then
+        for i = 1, #cleaned do
+            if cleaned[i].dict_id ~= cfg.dict_auto_rules[i].dict_id or cleaned[i].terms ~= cfg.dict_auto_rules[i].terms then
+                changed = true
+                break
+            end
+        end
+    end
+    if changed then
+        cfg.dict_auto_rules = cleaned
+        save_settings()
+    end
+
+    local row_h = S(34)
+    local rule_to_delete = nil
+    
+    for idx, rule in ipairs(cfg.dict_auto_rules) do
+        local row_y = y_cursor
+        
+        -- Column 1: Dictionary selection (dropdown menu via gfx.showmenu)
+        local dict_name = "Виберіть словник..."
+        if rule.dict_id and rule.dict_id ~= "" then
+            for _, d in ipairs(DICT.dicts) do
+                if d.id == rule.dict_id then
+                    dict_name = d.name
+                    break
+                end
+            end
+        end
+        
+        -- Truncate dict name if too long for the button
+        dict_name = fit_text_width(dict_name, dict_w - S(30))
+        
+        if s_btn(col1_x, row_y, dict_w, S(28), dict_name .. "  ▿") then
+            DICT.load(true)
+
+            local menu_parts = {}
+            for _, d in ipairs(DICT.dicts) do
+                local mark = (d.id == rule.dict_id) and "!" or ""
+                table.insert(menu_parts, mark .. d.name)
+            end
+            if #menu_parts == 0 then
+                reaper.ShowMessageBox("Немає доступних користувацьких словників. Спочатку додайте їх Subass: Dictionary.", "Помилка", 0)
+            else
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local ret = gfx.showmenu(table.concat(menu_parts, "|"))
+                if ret > 0 then
+                    rule.dict_id = DICT.dicts[ret].id
+                    save_settings()
+                end
+            end
+        end
+        
+        -- Column 2: Keywords selection button (opens reaper.GetUserInputs)
+        local display_terms = (rule.terms and rule.terms ~= "") and rule.terms or "Натисніть, щоб ввести умову активації..."
+        display_terms = fit_text_width(display_terms, terms_w - S(20))
+        
+        if s_btn(col2_x, row_y, terms_w, S(28), display_terms, "Введіть ключові слова які має мати імя файлу аби даний словник автоматично активувався") then
+            local current_terms = (rule.terms or ""):gsub(",", "; ")
+            current_terms = current_terms:gsub(";%s+", "; "):gsub("^%s+", ""):gsub("%s+$", "")
+            local ret, csv = reaper.GetUserInputs("Ключові слова в імені файлу для автоактивації", 1, "Список слів (через ; або ,):,extrawidth=260", current_terms)
+            if ret then
+                -- Convert semicolons back to commas and trim spaces
+                local clean_csv = csv:gsub(";", ","):gsub(",+", ","):gsub("%s*,%s*", ",")
+                clean_csv = clean_csv:gsub("^,", ""):gsub(",$", "")
+                rule.terms = clean_csv
+                save_settings()
+            end
+        end
+        
+        -- Column 3: Delete button (only show for active rules, hide for the placeholder row)
+        local is_placeholder = (rule.dict_id == "" and rule.terms == "")
+        if not is_placeholder then
+            if s_btn(col3_x, row_y, del_w, S(28), "X", "Видалити це правило", UI.C_FR_CLOSE) then
+                if reaper.ShowMessageBox("Ви дійсно хочете видалити це правило автоактивації словника?", "Підтвердження", 4) == 6 then
+                    rule_to_delete = idx
+                end
+            end
+        end
+        
+        y_cursor = y_cursor + row_h
+    end
+    
+    -- Handle rule deletion
+    if rule_to_delete then
+        table.remove(cfg.dict_auto_rules, rule_to_delete)
+        save_settings()
+    end
+    y_cursor = y_cursor + S(25)
     
     -- ═══════════════════════════════════════════
-    -- 12. ІНШЕ
+    -- 13. ІНШЕ
     -- ═══════════════════════════════════════════
     s_section(y_cursor, "ІНШЕ")
     y_cursor = y_cursor + S(35)
