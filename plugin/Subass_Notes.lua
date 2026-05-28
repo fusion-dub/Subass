@@ -5787,8 +5787,9 @@ function DICT.get_lookup_table()
             for _, entry in ipairs(d.entries or {}) do
                 local w = entry.word
                 if w and w ~= "" then
-                    local comment = (entry.comment and entry.comment ~= "")
-                        and entry.comment
+                    local raw_comment = entry.comment and entry.comment:gsub("[\r\n]", ""):match("^%s*(.-)%s*$") or ""
+                    local comment = (raw_comment ~= "")
+                        and raw_comment
                         or ("Слово з \"" .. d.name .. "\" словника, початкове слово було: " .. w)
                     local repl = (entry.replacement and entry.replacement ~= "") and entry.replacement or w
                     local key = utf8_lower(w):gsub(acute, "")
@@ -13296,6 +13297,8 @@ local function delete_all_regions()
     UI_STATE.current_file_name = nil
     UI_STATE.current_file_path = nil
 
+    DICT.selected_ids = {}
+
     -- Clear undo/redo history
     undo_stack = {}
     redo_stack = {}
@@ -13303,6 +13306,7 @@ local function delete_all_regions()
     rebuild_regions()
     save_project_data()
     DUBBERS.save() -- SAVE ON CHANGE
+    DICT.save_selected()
 
     if show_snackbar then
         show_snackbar("Всі дані та регіони видалено", "error")
@@ -21222,7 +21226,7 @@ function DRAW_TABS.draw_file()
         
         local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
         local dubbers_ass = has_dubbers and "||Експортувати як ASS (розділено по даберам)" or ""
-        local menu = "|>Особливі дії|Видалити ВСІ регіони||Розрахувати репліки по акторам|Очистити репліки від наголосів||Компактний рендер (WAV)|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS" .. dubbers_ass .. "|<"
+        local menu = "|>Особливі дії|Видалити ВСІ дані||Розрахувати репліки по акторам|Очистити репліки від наголосів||Компактний рендер (WAV)|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS" .. dubbers_ass .. "|<"
 
         -- Add "Change Dubber" submenu if dubbers exist
         if has_dubbers then
@@ -24786,7 +24790,7 @@ function DRAW_TABS.draw_settings()
             cfg.director_mode = false
             save_settings() 
         end},
-        {name = "Видалити ВСІ регіони", tip = "Видаляє всі регіони з проекту REAPER. Дія незворотна!", color = UI.C_BTN_ERROR, action = function() delete_all_regions() end},
+        {name = "Видалити ВСІ дані", tip = "Видаляє всі дані з проекту REAPER. Дія незворотна!", color = UI.C_BTN_ERROR, action = function() delete_all_regions() end},
         {name = "Перевірити оновлення", tip = "Перевірити наявність нових версій Subass на сервері.", color = UI.C_SEL_BG, action = function() check_for_updates() end}
     }
     
@@ -25589,7 +25593,7 @@ function DRAW_TABS.draw_settings()
         -- Truncate dict name if too long for the button
         dict_name = fit_text_width(dict_name, dict_w - S(30))
         
-        if s_btn(col1_x, row_y, dict_w, S(28), dict_name .. "  ▿") then
+        if s_btn(col1_x, row_y, dict_w, S(28), dict_name) then
             DICT.load(true)
 
             local menu_parts = {}
@@ -25791,7 +25795,7 @@ function DRAW_TABS.draw_settings()
     local tts_btn_w = S(240)
     local cur_voice = cfg.tts_voice or "Горох: Оксана (Wavenet)"
     
-    if s_btn(x_start, y_cursor, tts_btn_w, S(30), cur_voice .. "  ▿") then        
+    if s_btn(x_start, y_cursor, tts_btn_w, S(30), cur_voice) then        
         local menu_parts = {}
         for i, opt in ipairs(cfg.tts_voices_order) do
             local mark = (opt == cur_voice) and "!" or ""
@@ -27617,7 +27621,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                         UI_STATE.tooltip_state.hover_id = tip_id
                         UI_STATE.tooltip_state.start_time = reaper.time_precise()
                     end
-                    UI_STATE.tooltip_state.text = "Пресет: " .. p.val
+                    UI_STATE.tooltip_state.text = p.val
                     
                     if is_right_mouse_clicked() then
                         UI_STATE.mouse_handled = true
@@ -28865,7 +28869,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                             UI_STATE.tooltip_state.hover_id = tip_id
                             UI_STATE.tooltip_state.start_time = reaper.time_precise()
                         end
-                        UI_STATE.tooltip_state.text = "Пресет: " .. p.val
+                        UI_STATE.tooltip_state.text = p.val
                         
                         if is_mouse_clicked(2) then
                             UI_STATE.mouse_handled = true
