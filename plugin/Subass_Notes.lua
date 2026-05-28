@@ -11137,12 +11137,22 @@ function DUBBERS.draw_dashboard(input_queue)
                 existing_names_map[utf8_lower(dname)] = dname
             end
             
-            -- We iterate over all active actors (characters)
+            -- Separate <all> rules from normal rules
+            local all_rules = {}
+            local normal_rules = {}
+            for _, rule in ipairs(cfg.dubber_char_rules) do
+                if rule.dubber_name and utf8_lower(rule.dubber_name) == "<all>" then
+                    table.insert(all_rules, rule)
+                else
+                    table.insert(normal_rules, rule)
+                end
+            end
+            
+            -- Pass 1: normal rules — each actor may match multiple specific dubbers
             if ass_actors then
                 for act in pairs(ass_actors) do
-                    -- Collect ALL dubbers whose rules mention this actor
                     local matched_dubbers = {}
-                    for _, rule in ipairs(cfg.dubber_char_rules) do
+                    for _, rule in ipairs(normal_rules) do
                         if rule.dubber_name and rule.dubber_name ~= "" and rule.chars and rule.chars ~= "" then
                             for char in rule.chars:gmatch("[^,]+") do
                                 char = char:match("^%s*(.-)%s*$")
@@ -11155,7 +11165,6 @@ function DUBBERS.draw_dashboard(input_queue)
                     end
                     
                     for _, matched_dubber_name in ipairs(matched_dubbers) do
-                        -- 1. Ensure the voice actor is in DUBBERS list
                         local norm_dubber_name = matched_dubber_name
                         local lower_norm = utf8_lower(norm_dubber_name)
                         if not existing_names_map[lower_norm] then
@@ -11169,13 +11178,35 @@ function DUBBERS.draw_dashboard(input_queue)
                             norm_dubber_name = existing_names_map[lower_norm]
                         end
                         
-                        -- 2. Assign the character to the voice actor
                         if not DUBBERS.data.assignments[norm_dubber_name] then
                             DUBBERS.data.assignments[norm_dubber_name] = {}
                         end
                         if not DUBBERS.data.assignments[norm_dubber_name][act] then
                             DUBBERS.data.assignments[norm_dubber_name][act] = true
                             assigned_chars_count = assigned_chars_count + 1
+                        end
+                    end
+                end
+            end
+            
+            -- Pass 2: <all> rules — assign listed chars to EVERY existing dubber
+            if #all_rules > 0 then
+                for _, rule in ipairs(all_rules) do
+                    if rule.chars and rule.chars ~= "" then
+                        for char in rule.chars:gmatch("[^,]+") do
+                            local act = char:match("^%s*(.-)%s*$")
+                            -- Only assign if this actor actually exists in the project
+                            if act ~= "" and ass_actors and ass_actors[act] then
+                                for _, dname in ipairs(DUBBERS.data.names) do
+                                    if not DUBBERS.data.assignments[dname] then
+                                        DUBBERS.data.assignments[dname] = {}
+                                    end
+                                    if not DUBBERS.data.assignments[dname][act] then
+                                        DUBBERS.data.assignments[dname][act] = true
+                                        assigned_chars_count = assigned_chars_count + 1
+                                    end
+                                end
+                            end
                         end
                     end
                 end
@@ -25672,7 +25703,7 @@ function DRAW_TABS.draw_settings()
         local display_dubber = (rule.dubber_name and rule.dubber_name ~= "") and rule.dubber_name or "Натисніть, щоб ввести..."
         display_dubber = fit_text_width(display_dubber, dubber_w - S(20))
         
-        if s_btn(col1_x, row_y, dubber_w, S(28), display_dubber, "Введіть ім'я дабера") then
+        if s_btn(col1_x, row_y, dubber_w, S(28), display_dubber, "Введіть ім'я дабера або \"<all>\" (для всіх даберів)") then
             local current_name = rule.dubber_name or ""
             local ret, text = reaper.GetUserInputs("Ім'я дабера", 1, "Ім'я дабера:,extrawidth=200", current_name)
             if ret then
