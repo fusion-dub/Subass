@@ -11113,6 +11113,7 @@ function DUBBERS.draw_dashboard(input_queue)
                 if not is_valid then
                     if res then show_snackbar(res, "error") end
                 else
+                    push_undo("Додати дабера")
                     table.insert(DUBBERS.data.names, res)
                     DUBBERS.save()
                 end
@@ -11126,6 +11127,9 @@ function DUBBERS.draw_dashboard(input_queue)
             
             cfg.dubber_char_rules = cfg.dubber_char_rules or {}
             DUBBERS.data.assignments = DUBBERS.data.assignments or {}
+            
+            -- Snapshot state BEFORE any changes (so a single Ctrl+Z restores fully)
+            push_undo("Автоматичний розподіл персонажів")
             
             -- Keep track of existing names (for quick check and case-insensitivity)
             local existing_names_map = {}
@@ -11156,7 +11160,6 @@ function DUBBERS.draw_dashboard(input_queue)
                         local norm_dubber_name = matched_dubber_name
                         local lower_norm = utf8_lower(norm_dubber_name)
                         if not existing_names_map[lower_norm] then
-                            -- Validate the name before adding
                             local is_valid, res = DUBBERS.validate_name(norm_dubber_name)
                             if is_valid then
                                 table.insert(DUBBERS.data.names, res)
@@ -11183,6 +11186,8 @@ function DUBBERS.draw_dashboard(input_queue)
                 DUBBERS.save()
                 show_snackbar("Розподіл завершено! Додано даберів: " .. added_dubs_count .. ", призначено персонажів: " .. assigned_chars_count, "success")
             else
+                -- No changes were made — pop the undo we just pushed to avoid a phantom entry
+                table.remove(undo_stack)
                 show_snackbar("Збігів не знайдено або все вже розподілено", "info")
             end
         end
@@ -11240,6 +11245,7 @@ function DUBBERS.draw_dashboard(input_queue)
                         if not is_valid then
                             if res then show_snackbar(res, "error") end
                         else
+                            push_undo("Перейменувати дабера")
                             DUBBERS.data.assignments[res] = DUBBERS.data.assignments[name]
                             DUBBERS.data.assignments[name] = nil
                             DUBBERS.data.names[i] = res
@@ -11248,6 +11254,7 @@ function DUBBERS.draw_dashboard(input_queue)
                     end
                 elseif ret == 3 then
                     if reaper.MB("Видалити '"..name.."'?", "Confirm", 4) == 6 then
+                        push_undo("Видалити дабера")
                         table.remove(DUBBERS.data.names, i); DUBBERS.data.assignments[name] = nil
                         DUBBERS.active_dubber_idx = math.max(1, math.min(DUBBERS.active_dubber_idx, #DUBBERS.data.names))
                         DUBBERS.save()
@@ -11378,6 +11385,7 @@ function DUBBERS.draw_dashboard(input_queue)
                         local ret = gfx.showmenu(table.concat(menu_items, "|"))
                         if ret > 0 then
                             local selected_dubber = DUBBERS.data.names[ret]
+                            push_undo("Зміна призначення актора")
                             if not DUBBERS.data.assignments[selected_dubber] then DUBBERS.data.assignments[selected_dubber] = {} end
                             DUBBERS.data.assignments[selected_dubber][act] = not (DUBBERS.data.assignments[selected_dubber][act])
                             DUBBERS.save()
@@ -11390,6 +11398,7 @@ function DUBBERS.draw_dashboard(input_queue)
                 -- Left Click: Toggle for Active Dubber
                 else
                     if active_dubber then
+                        push_undo("Зміна призначення актора")
                         if not DUBBERS.data.assignments[active_dubber] then DUBBERS.data.assignments[active_dubber] = {} end
                         DUBBERS.data.assignments[active_dubber][act] = not is_assigned
                         DUBBERS.save()
@@ -25485,7 +25494,7 @@ function DRAW_TABS.draw_settings()
     -- Draw headers
     set_color(UI.C_TXT)
     gfx.setfont(F.std)
-    s_text(col1_x, y_cursor, "Словник")
+    s_text(col1_x, y_cursor, "Імʼя словника")
     s_text(col2_x, y_cursor, "Ключові слова активації")
     y_cursor = y_cursor + S(25)
     
@@ -25561,7 +25570,7 @@ function DRAW_TABS.draw_settings()
         if s_btn(col2_x, row_y, terms_w, S(28), display_terms, "Введіть ключові слова які має мати імя файлу аби даний словник автоматично активувався") then
             local current_terms = (rule.terms or ""):gsub(",", "; ")
             current_terms = current_terms:gsub(";%s+", "; "):gsub("^%s+", ""):gsub("%s+$", "")
-            local ret, csv = reaper.GetUserInputs("Ключові слова в імені файлу для автоактивації", 1, "Список слів (через ; або ,):,extrawidth=260", current_terms)
+            local ret, csv = reaper.GetUserInputs("Ключові слова в імені файлу для автоактивації", 1, "Список слів (через ; або ,):,extrawidth=500", current_terms)
             if ret then
                 -- Convert semicolons back to commas and trim spaces
                 local clean_csv = csv:gsub(";", ","):gsub(",+", ","):gsub("%s*,%s*", ",")
@@ -25610,7 +25619,7 @@ function DRAW_TABS.draw_settings()
     -- Draw headers
     set_color(UI.C_TXT)
     gfx.setfont(F.std)
-    s_text(col1_x, y_cursor, "Дабер")
+    s_text(col1_x, y_cursor, "Імʼя дабера")
     s_text(col2_x, y_cursor, "Закріплені персонажі")
     y_cursor = y_cursor + S(25)
     
@@ -25665,7 +25674,7 @@ function DRAW_TABS.draw_settings()
         if s_btn(col2_x, row_y, chars_w, S(28), display_chars, "Введіть персонажів які закріплені за дабером, щоб одним кліком їх назначити в вікні \"Розподіл по даберам\"") then
             local current_chars = (rule.chars or ""):gsub(",", "; ")
             current_chars = current_chars:gsub(";%s+", "; "):gsub("^%s+", ""):gsub("%s+$", "")
-            local ret, csv = reaper.GetUserInputs("Персонажі закріплені за дабером", 1, "Список персонажів (через ; або ,):,extrawidth=260", current_chars)
+            local ret, csv = reaper.GetUserInputs("Персонажі закріплені за дабером", 1, "Список персонажів (через ; або ,):,extrawidth=500", current_chars)
             if ret then
                 local clean_csv = csv:gsub(";", ","):gsub(",+", ","):gsub("%s*,%s*", ",")
                 clean_csv = clean_csv:gsub("^,", ""):gsub(",$", "")
