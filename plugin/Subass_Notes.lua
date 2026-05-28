@@ -11140,22 +11140,21 @@ function DUBBERS.draw_dashboard(input_queue)
             -- We iterate over all active actors (characters)
             if ass_actors then
                 for act in pairs(ass_actors) do
-                    -- Find if there is a rule matching this actor
-                    local matched_dubber_name = nil
+                    -- Collect ALL dubbers whose rules mention this actor
+                    local matched_dubbers = {}
                     for _, rule in ipairs(cfg.dubber_char_rules) do
                         if rule.dubber_name and rule.dubber_name ~= "" and rule.chars and rule.chars ~= "" then
                             for char in rule.chars:gmatch("[^,]+") do
                                 char = char:match("^%s*(.-)%s*$")
                                 if utf8_lower(char) == utf8_lower(act) then
-                                    matched_dubber_name = rule.dubber_name
-                                    break
+                                    table.insert(matched_dubbers, rule.dubber_name)
+                                    break -- inner break: stop scanning chars for THIS rule
                                 end
                             end
                         end
-                        if matched_dubber_name then break end
                     end
                     
-                    if matched_dubber_name then
+                    for _, matched_dubber_name in ipairs(matched_dubbers) do
                         -- 1. Ensure the voice actor is in DUBBERS list
                         local norm_dubber_name = matched_dubber_name
                         local lower_norm = utf8_lower(norm_dubber_name)
@@ -11189,6 +11188,21 @@ function DUBBERS.draw_dashboard(input_queue)
                 -- No changes were made — pop the undo we just pushed to avoid a phantom entry
                 table.remove(undo_stack)
                 show_snackbar("Збігів не знайдено або все вже розподілено", "info")
+            end
+        end
+
+        -- Right-click anywhere in the button row: context menu
+        if is_mouse_clicked(2) and gfx.mouse_y >= dy and gfx.mouse_y <= dy + S(25) and gfx.mouse_y > header_h then
+            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+            local ret = gfx.showmenu("Очистити всі призначення")
+            if ret == 1 then
+                if reaper.MB("Очистити всі призначення даберів?", "Підтвердження", 4) == 6 then
+                    push_undo("Очистити всі призначення")
+                    DUBBERS.data.assignments = {}
+                    DUBBERS.save()
+                    DUBBERS.refresh_conflicts()
+                    show_snackbar("Всі призначення очищено", "info")
+                end
             end
         end
     end
