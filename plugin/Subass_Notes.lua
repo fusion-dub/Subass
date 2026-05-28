@@ -5780,7 +5780,7 @@ function DICT.get_lookup_table()
                 if w and w ~= "" then
                     local comment = (entry.comment and entry.comment ~= "")
                         and entry.comment
-                        or ("Слово з \"" .. d.name .. "\" словника")
+                        or ("Слово з \"" .. d.name .. "\" словника, початкове слово було: " .. w)
                     local repl = (entry.replacement and entry.replacement ~= "") and entry.replacement or w
                     local key = utf8_lower(w):gsub(acute, "")
                     lookup[key] = { replacement = repl, comment = comment }
