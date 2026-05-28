@@ -11281,7 +11281,7 @@ function DUBBERS.draw_dashboard(input_queue)
             if is_mouse_clicked(2) and gfx.mouse_x >= dx and gfx.mouse_x <= dx + d_col_w and
                gfx.mouse_y >= item_y and gfx.mouse_y <= item_y + dubber_item_h and gfx.mouse_y > header_h then
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local ret = gfx.showmenu("Вибрати цього дабера||Перейменувати|Видалити")
+                local ret = gfx.showmenu("Активувати авторів цього дабера в табі файл||Перейменувати|Видалити")
                 if ret == 1 then
                     DUBBERS.select_dubber(name)
                 elseif ret == 2 then
