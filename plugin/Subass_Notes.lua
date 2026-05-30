@@ -29635,7 +29635,33 @@ function OTHER.speech_to_text_from_item()
     local effective_start = start_offs           -- старт у source-файлі
     local effective_dur   = item_len * play_rate -- тривалість у source-файлі
 
-    -- 3. Перевіряємо чи встановлений Whisper (без відкриття вікна консолі)
+    -- 3. Обираємо мову оригіналу (gfx menu)
+    local menu_str = "#Оберіть мову оригіналу||Автовизначення|Українська|Англійська|Японська||Польська|Німецька|Французька|Іспанська|Італійська|Португальська|Китайська|Корейська"
+    gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+    local ret = gfx.showmenu(menu_str)
+    if ret <= 0 then
+        return
+    end
+
+    local lang_map = {
+        [2] = "auto",
+        [3] = "uk",
+        [4] = "en",
+        [5] = "ja",
+        [6] = "pl",
+        [7] = "de",
+        [8] = "fr",
+        [9] = "es",
+        [10] = "it",
+        [11] = "pt",
+        [12] = "zh",
+        [13] = "ko"
+    }
+    
+    local selected_lang = lang_map[ret]
+    if not selected_lang then return end
+
+    -- 4. Перевіряємо чи встановлений Whisper (без відкриття вікна консолі)
     local is_win = reaper.GetOS():match("Win")
     local py_exe
     if is_win then
@@ -29672,7 +29698,7 @@ function OTHER.speech_to_text_from_item()
         check_out:find("not recognized")
     )
 
-    -- 4. Whisper not installed -- ask user
+    -- 5. Whisper не встановлений -- пропонуємо користувачеві встановити
     if not whisper_installed then
         local msg = "Whisper AI (Speech to Text) не знайдено.\n\n" ..
                     "Необхідно:\n" ..
@@ -29705,32 +29731,6 @@ function OTHER.speech_to_text_from_item()
         show_snackbar("Почалося встановлення — перевірте термінал", "info")
         return
     end
-
-    -- 5. Whisper is installed -- ask user to select language
-    local menu_str = "#Оберіть мову оригіналу||Автовизначення|Українська|Англійська|Японська||Польська|Німецька|Французька|Іспанська|Італійська|Португальська|Китайська|Корейська"
-    gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-    local ret = gfx.showmenu(menu_str)
-    if ret <= 0 then
-        return
-    end
-    
-    local lang_map = {
-        [2] = "auto",
-        [3] = "uk",
-        [4] = "en",
-        [5] = "ja",
-        [6] = "pl",
-        [7] = "de",
-        [8] = "fr",
-        [9] = "es",
-        [10] = "it",
-        [11] = "pt",
-        [12] = "zh",
-        [13] = "ko"
-    }
-    
-    local selected_lang = lang_map[ret]
-    if not selected_lang then return end
 
     local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
     local src_info = debug.getinfo(1, 'S').source
