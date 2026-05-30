@@ -9020,6 +9020,69 @@ function UTILS.remove_all_acute_for_selected_actors()
     end
 end
 
+--- Creates empty "Text Items" on a dedicated SUBASS_ITEMS track from all project regions.
+--- If the track already exists its items are cleared first.
+function UTILS.create_text_items_from_regions()
+    -- Collect all regions from project
+    local rgns = {}
+    local i = 0
+    while true do
+        local retval, isrgn, pos, rgnend, name = reaper.EnumProjectMarkers3(0, i)
+        if retval == 0 then break end
+        if isrgn then
+            table.insert(rgns, {pos = pos, rgnend = rgnend, name = name})
+        end
+        i = i + 1
+    end
+
+    if #rgns == 0 then
+        show_snackbar("У проєкті немає регіонів", "warning")
+        return
+    end
+
+    -- Find or create SUBASS_ITEMS track
+    local track_name = "SUBASS_ITEMS"
+    local target_track = nil
+    local tc = reaper.CountTracks(0)
+    for t = 0, tc - 1 do
+        local tr = reaper.GetTrack(0, t)
+        local _, tn = reaper.GetTrackName(tr)
+        if tn == track_name then
+            target_track = tr
+            break
+        end
+    end
+
+    reaper.Undo_BeginBlock()
+
+    if not target_track then
+        reaper.InsertTrackAtIndex(0, true)
+        target_track = reaper.GetTrack(0, 0)
+        reaper.GetSetMediaTrackInfo_String(target_track, "P_NAME", track_name, true)
+    else
+        -- Clear all existing items from this track
+        local item_count = reaper.CountTrackMediaItems(target_track)
+        for k = item_count - 1, 0, -1 do
+            local it = reaper.GetTrackMediaItem(target_track, k)
+            reaper.DeleteTrackMediaItem(target_track, it)
+        end
+    end
+
+    -- Create one text item per region
+    for _, rgn in ipairs(rgns) do
+        local item = reaper.AddMediaItemToTrack(target_track)
+        reaper.SetMediaItemPosition(item, rgn.pos, false)
+        reaper.SetMediaItemLength(item, math.max(rgn.rgnend - rgn.pos, 0.001), false)
+        local take = reaper.AddTakeToMediaItem(item)
+        reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", rgn.name, true)
+        reaper.GetSetMediaItemInfo_String(item, "P_NOTES", rgn.name, true)
+    end
+
+    reaper.UpdateArrange()
+    reaper.Undo_EndBlock("Create text items from regions", -1)
+    show_snackbar(string.format("Створено %d Text Items на треку '%s'", #rgns, track_name), "success")
+end
+
 --- Compact render for selected tracks
 --- Packs all items from the selected track one after another onto a new
 --- SUBASS_RENDER track (no gaps), copies FX, sets Time Selection, solos the track,
@@ -21303,7 +21366,7 @@ function DRAW_TABS.draw_file()
         
         local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
         local dubbers_ass = has_dubbers and "||Експортувати як ASS (розділено по даберам)" or ""
-        local menu = "|>Особливі дії|Видалити ВСІ дані||Розрахувати репліки по акторам|Очистити репліки від наголосів||Компактний рендер (WAV)|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS" .. dubbers_ass .. "|<"
+        local menu = "|>Особливі дії|Видалити ВСІ дані||Створити Text Items з регіонів||Розрахувати репліки по акторам|Очистити репліки від наголосів||Компактний рендер (WAV)|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS" .. dubbers_ass .. "|<"
 
         -- Add "Change Dubber" submenu if dubbers exist
         if has_dubbers then
@@ -21337,9 +21400,9 @@ function DRAW_TABS.draw_file()
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
         
         -- Mapping logic for dynamic menu
-        -- Fixed items: 1=delete regions, 2=calc replicas, 3=remove accents, 4=compact render, 5=dubbers dashboard, 6=deadlines, 7=export SRT, 8=export ASS, 9=export ASS (dubbers) if has_dubbers
+        -- Fixed items: 1=delete regions, 2=create text items, 3=calc replicas, 4=remove accents, 5=compact render, 6=dubbers dashboard, 7=deadlines, 8=export SRT, 9=export ASS, 10=export ASS (dubbers) if has_dubbers
         local dubber_count = has_dubbers and #DUBBERS.data.names or 0
-        local base_items = has_dubbers and 9 or 8
+        local base_items = has_dubbers and 10 or 9
         -- After fixed items come dubber selection items (if any), then dict items, then dock
         local dict_start = base_items + dubber_count + 1 -- +1: submenu header ">Словники" doesn't count as a clickable item
         local dock_ret = dict_start + (dict_count > 0 and dict_count or 1) -- skip dict items or the disabled placeholder
@@ -21347,25 +21410,27 @@ function DRAW_TABS.draw_file()
         if ret == 1 then
             delete_all_regions()
         elseif ret == 2 then
-            UTILS.calc_track_items_by_actor()
+            UTILS.create_text_items_from_regions()
         elseif ret == 3 then
-            UTILS.remove_all_acute_for_selected_actors()
+            UTILS.calc_track_items_by_actor()
         elseif ret == 4 then
-            UTILS.compact_render()
+            UTILS.remove_all_acute_for_selected_actors()
         elseif ret == 5 then
+            UTILS.compact_render()
+        elseif ret == 6 then
             DUBBERS.show_dashboard = true
             DUBBERS.load()
-        elseif ret == 6 then
-            DEADLINE.dashboard_show = true
         elseif ret == 7 then
-            export_as_srt()
+            DEADLINE.dashboard_show = true
         elseif ret == 8 then
+            export_as_srt()
+        elseif ret == 9 then
             export_as_ass()
-        elseif has_dubbers and ret == 9 then
+        elseif has_dubbers and ret == 10 then
             DUBBERS.export_as_ass()
-        elseif has_dubbers and ret >= (has_dubbers and 10 or 9) and ret <= base_items + dubber_count then
+        elseif has_dubbers and ret >= (has_dubbers and 11 or 10) and ret <= base_items + dubber_count then
             -- Handle Dubber Selection
-            local offset = has_dubbers and 9 or 8
+            local offset = has_dubbers and 10 or 9
             local selected_name = DUBBERS.data.names[ret - offset]
             DUBBERS.select_dubber(selected_name)
         elseif dict_count > 0 and ret >= dict_start and ret < dict_start + dict_count then
