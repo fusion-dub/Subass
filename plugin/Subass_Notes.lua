@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.7.1
+-- @version 7.8
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.7.1",
+    script_title = "Subass Notes v7.8",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -13150,6 +13150,8 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
         show_snackbar("Наголоси не потрібні або не знайдені", "info")
         ACHIEVEMENTS.add_stat("ach_2_run_count", 1)
     end
+
+    UI_STATE.show_cats = UI_STATE.tmp_show_cats
 end
 
 --- Apply stress marks asynchronously
@@ -13194,6 +13196,9 @@ apply_stress_marks_async = function()
         return dir .. "stress" .. separator
     end
     local script_path = get_actual_script_path()
+
+    UI_STATE.tmp_show_cats = UI_STATE.show_cats
+    UI_STATE.show_cats = true
 
     -- Use global coroutine for setup phase to allow yielding (fix initial freeze)
     global_coroutine = coroutine.create(function()
