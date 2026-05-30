@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 7.8
+-- @version 7.9.1
 -- @author Fusion (Fusion Dub)
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v7.8",
+    script_title = "Subass Notes v7.9.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -29693,26 +29693,26 @@ function OTHER.speech_to_text_from_item()
         end
     end
 
-    local check_out
+    local check_cmd
     if is_win then
         -- На Windows ExecProcess запускає процес повністю приховано (без вікна cmd.exe)
-        local check_cmd = py_exe .. ' -c "import whisper"'
-        local _, out = reaper.ExecProcess(check_cmd, 3000)
-        check_out = out or "error"
+        -- Використовуємо find_spec для миттєвої перевірки за 50мс (запобігає таймауту у 3 секунди)
+        -- та ASCII-коди символів chr(), щоб уникнути будь-яких вкладених лапок на Windows.
+        check_cmd = py_exe .. ' -c "import importlib.util; print(chr(79)+chr(75) if importlib.util.find_spec(chr(119)+chr(104)+chr(105)+chr(115)+chr(112)+chr(101)+chr(114)) else chr(101)+chr(114)+chr(114))"'
     else
-        -- На macOS/Linux запускаємо через sh, щоб врахувати PATH та redirections
-        local check_cmd = '/bin/sh -c "' .. py_exe .. ' -c \\"import whisper\\" 2>&1"'
-        local _, out = reaper.ExecProcess(check_cmd, 3000)
-        check_out = out or "error"
+        -- На macOS/Linux запускаємо python напряму без обгортки /bin/sh -c, оскільки
+        -- reaper.ExecProcess на macOS не вміє парсити екрановані подвійні лапки всередині інших лапок.
+        -- Використовуємо простий рядок з одинарними лапками всередині подвійних.
+        local clean_py = py_exe
+        if clean_py:find("PATH=") then
+            clean_py = clean_py:match(" ([^ ]+)$") or "python3"
+        end
+        check_cmd = clean_py .. ' -c "import sys; sys.stderr = sys.stdout; import importlib.util; print(\'OK\' if importlib.util.find_spec(\'whisper\') else \'not found\')"'
     end
 
-    local whisper_installed = not (
-        check_out:find("No module") or
-        check_out:find("ModuleNotFoundError") or
-        check_out:find("ImportError") or
-        check_out:find("not found") or
-        check_out:find("not recognized")
-    )
+    local r1 = reaper.ExecProcess(check_cmd, 3000)
+    local check_out = r1 or ""
+    local whisper_installed = (check_out:find("OK") ~= nil)
 
     -- 5. Whisper не встановлений -- пропонуємо користувачеві встановити
     if not whisper_installed then
