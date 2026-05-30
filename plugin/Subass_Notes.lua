@@ -29563,15 +29563,30 @@ function OTHER.import_whisper_srt(file_path, timeline_offset, play_rate)
         
         local clean_text = text:gsub("\r", ""):gsub("\n", " "):match("^%s*(.-)%s*$")
         if clean_text ~= "" then
-            table.insert(ass_lines, {
-                t1 = adjusted_t1,
-                t2 = adjusted_t2,
-                text = clean_text,
-                actor = default_actor,
-                enabled = true,
-                index = line_idx_counter
-            })
-            line_idx_counter = line_idx_counter + 1
+            local found = false
+            for _, existing in ipairs(ass_lines) do
+                if math.abs(existing.t1 - adjusted_t1) < 0.001 and
+                   math.abs(existing.t2 - adjusted_t2) < 0.001 and
+                   existing.text == clean_text then
+                    found = true
+                    if not existing.enabled then
+                        existing.enabled = true
+                    end
+                    break
+                end
+            end
+            
+            if not found then
+                table.insert(ass_lines, {
+                    t1 = adjusted_t1,
+                    t2 = adjusted_t2,
+                    text = clean_text,
+                    actor = default_actor,
+                    enabled = true,
+                    index = line_idx_counter
+                })
+                line_idx_counter = line_idx_counter + 1
+            end
         end
     end
 
