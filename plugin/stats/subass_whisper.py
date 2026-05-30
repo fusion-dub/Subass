@@ -122,7 +122,7 @@ except ImportError:
 
 # Check for ffmpeg (Required by Whisper)
 if not shutil.which("ffmpeg"):
-    print("\n[WI] Error: 'ffmpeg' not found.")
+    print("\nError: 'ffmpeg' not found.")
     print("Whisper requires ffmpeg to process audio.")
     print("Please install ffmpeg manually (e.g., 'brew install ffmpeg' on macOS or download from ffmpeg.org).")
     sys.exit(1)
@@ -151,7 +151,7 @@ def extract_audio(input_path, start=None, duration=None):
     """Extracts audio to a temporary WAV file for faster processing, optionally trimming it."""
     temp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     temp_wav.close()
-    print(f"[WI] Optimization: extracting audio to a temporary file...")
+    print(f"Optimization: extracting audio to a temporary file...")
     try:
         cmd = ["ffmpeg", "-y"]
         if start is not None:
@@ -164,7 +164,7 @@ def extract_audio(input_path, start=None, duration=None):
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return temp_wav.name
     except Exception as e:
-        print(f"[WI] Warning: Failed to extract or trim audio ({e}). Attempting to load as is.")
+        print(f"Warning: Failed to extract or trim audio ({e}). Attempting to load as is.")
         return input_path
 
 def main():
@@ -186,7 +186,7 @@ def main():
         language = None
 
     if not os.path.exists(input_path):
-        print(f"\n[WI] Error: File not found: {input_path}")
+        print(f"\nError: File not found: {input_path}")
         sys.exit(1)
 
     # If output_path is a directory, use the input filename (with .srt extension)
@@ -199,7 +199,7 @@ def main():
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    print(f"\n[WI] Initializing Whisper AI (model: {target_model})...")
+    print(f"\nInitializing Whisper AI (model: {target_model})...")
     
     # Determine device
     device = "cpu"
@@ -208,18 +208,18 @@ def main():
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         device = "mps"
     
-    print(f"[WI] Active device: {device.upper()}")
+    print(f"Active device: {device.upper()}")
 
     try:
         model = whisper.load_model(target_model, device=device)
     except Exception as e:
-        print(f"\n[WI] Error loading model: {e}")
+        print(f"\nError loading model: {e}")
         sys.exit(1)
 
     # Pre-extract audio to speed up processing
     audio_file = extract_audio(input_path, args.start, args.duration)
 
-    print(f"[WI] Language: {language}")
+    print(f"Language: {language}")
 
     try:
         # Transcribe
@@ -233,7 +233,7 @@ def main():
 
         # Write SRT
         write_srt(result["segments"], output_path)
-        print(f"\n[WI] Done! SRT file saved: {output_path}")
+        print(f"\nDone! SRT file saved: {output_path}")
 
     except Exception as e:
         print(f"\n[CRITICAL ERROR]: {e}")
