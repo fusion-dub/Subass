@@ -3290,13 +3290,14 @@ local function check_async_pool()
     end
 end
 
-local function run_async_command(shell_cmd, callback, is_silent, loading_text, is_visible)
+local function run_async_command(shell_cmd, callback, is_silent, loading_text, is_visible, custom_out_file, custom_done_file)
     local id = tostring(os.time()) .. "_" .. math.random(1000,9999)
     local path = reaper.GetResourcePath() .. "/Scripts/"
     local is_tracking = (callback ~= nil)
     
-    local out_file, done_file
-    if is_tracking then
+    local out_file = custom_out_file
+    local done_file = custom_done_file
+    if is_tracking and not out_file then
         out_file = path .. "async_out_" .. id .. ".tmp"
         done_file = path .. "async_done_" .. id .. ".marker"
     end
@@ -29366,6 +29367,390 @@ function OTHER.AI_insert_result()
     end
 end
 
+OTHER.last_progress_check_time = 0
+
+function OTHER.update_whisper_progress()
+    if not OTHER.whisper_state or not OTHER.whisper_state.active then return end
+    
+    local now = os.clock()
+    if now - OTHER.last_progress_check_time < 0.3 then return end -- check every 0.3 seconds
+    OTHER.last_progress_check_time = now
+    
+    local state = OTHER.whisper_state
+    local f = io.open(state.out_file, "r")
+    if not f then return end
+    
+    local content = f:read("*a")
+    f:close()
+    
+    local last_end_time = 0
+    local last_text = ""
+    
+    -- Match lines like: [00:00.000 --> 00:05.000] text
+    for m1, s1, ms1, m2, s2, ms2, txt in content:gmatch("%[(%d+):(%d+)[%.%:](%d+)%s*%-%->%s*(%d+):(%d+)[%.%:](%d+)%]%s*(.-)[\r\n]") do
+        local t2 = tonumber(m2) * 60 + tonumber(s2) + tonumber(ms2) / 1000
+        if t2 > last_end_time then
+            last_end_time = t2
+            last_text = txt
+        end
+    end
+    
+    if last_end_time > 0 and state.effective_dur > 0 then
+        local progress = last_end_time / state.effective_dur
+        if progress > 1.0 then progress = 1.0 end
+        state.progress = progress
+        state.text = last_text:gsub("^%s*(.-)%s*$", "%1")
+    else
+        -- No timestamps yet, look for the last non-empty line of the file (initialization messages)
+        local last_line = ""
+        for line in content:gmatch("[^\r\n]+") do
+            line = line:gsub("^%s*(.-)%s*$", "%1")
+            if line ~= "" then
+                last_line = line
+            end
+        end
+        if last_line ~= "" then
+            state.text = last_line
+        end
+    end
+end
+
+function OTHER.cancel_whisper_task()
+    if not OTHER.whisper_state or not OTHER.whisper_state.active then return end
+    
+    local state = OTHER.whisper_state
+    state.active = false
+    
+    -- Kill the process on Mac/Linux if PID exists
+    if not reaper.GetOS():match("Win") and state.pid_file then
+        local f = io.open(state.pid_file, "r")
+        if f then
+            local pid = f:read("*a"):gsub("%s+", "")
+            f:close()
+            if pid and pid ~= "" then
+                os.execute("kill -9 " .. pid)
+            end
+        end
+    end
+    
+    -- Remove the task from global_async_pool
+    for i = #global_async_pool, 1, -1 do
+        local task = global_async_pool[i]
+        if task.id == state.id then
+            table.remove(global_async_pool, i)
+            break
+        end
+    end
+    
+    -- Clean up files
+    if state.pid_file then os.remove(state.pid_file) end
+    if state.out_file then os.remove(state.out_file) end
+    if state.done_file then os.remove(state.done_file) end
+    if state.temp_srt then os.remove(state.temp_srt) end
+    
+    show_snackbar("Розпізнавання мови скасовано", "info")
+end
+
+function OTHER.import_whisper_srt(file_path, timeline_offset, play_rate)
+    local f = io.open(file_path, "r")
+    if not f then return end
+    
+    local content = fix_encoding(f:read("*all"))
+    f:close()
+    content = content:gsub("\r\n", "\n")
+    if not content:match("\n\n$") then
+        content = content .. "\n\n"
+    end
+    
+    if not ass_lines then ass_lines = {} end
+    if not ass_actors then ass_actors = {} end
+    
+    push_undo("Whisper Speech to Text")
+    
+    local line_idx_counter = get_next_line_index()
+    local default_actor = "Whisper"
+    ass_actors[default_actor] = true
+    
+    local function parse_srt_timestamp(str)
+        local h, m, s, ms = str:match("(%d+):(%d+):(%d+)[%,%.](%d+)")
+        if not h then return 0 end
+        return (tonumber(h) * 3600) + (tonumber(m) * 60) + tonumber(s) + (tonumber(ms) / 1000)
+    end
+    
+    for s_start, s_end, text in content:gmatch("(%d+:%d+:%d+[,.]%d+)%s*%-%->%s*(%d+:%d+:%d+[,.]%d+)%s*\n(.-)\n%s*\n") do
+        local t1 = parse_srt_timestamp(s_start)
+        local t2 = parse_srt_timestamp(s_end)
+        
+        -- Adjust for play rate and shift by timeline_offset
+        local adjusted_t1 = timeline_offset + (t1 / play_rate)
+        local adjusted_t2 = timeline_offset + (t2 / play_rate)
+        
+        local clean_text = text:gsub("\r", ""):gsub("\n", " "):match("^%s*(.-)%s*$")
+        if clean_text ~= "" then
+            table.insert(ass_lines, {
+                t1 = adjusted_t1,
+                t2 = adjusted_t2,
+                text = clean_text,
+                actor = default_actor,
+                enabled = true,
+                index = line_idx_counter
+            })
+            line_idx_counter = line_idx_counter + 1
+        end
+    end
+
+    rebuild_regions()
+end
+
+--- Speech to Text: перевіряє встановлення Whisper і запускає транскрипцію вибраного Item
+function OTHER.speech_to_text_from_item()
+    if OTHER.whisper_state and OTHER.whisper_state.active then
+        show_snackbar("Розпізнавання мови вже виконується", "warning")
+        return
+    end
+
+    -- Перевірка збереженості проєкту
+    local _, proj_fn = reaper.EnumProjects(-1)
+    if not proj_fn or proj_fn == "" then
+        show_snackbar("Збережіть проєкт перед запуском Speech to Text", "error")
+        return
+    end
+
+    -- 1. Перевірка вибраного Item
+    local sel_count = reaper.CountSelectedMediaItems(0)
+    if sel_count == 0 then
+        show_snackbar("Виберіть один Media Item для розпізнавання мови", "error")
+        return
+    end
+    if sel_count > 1 then
+        show_snackbar("Оберіть лише один Media Item для Speech to Text", "warning")
+        return
+    end
+
+    local item = reaper.GetSelectedMediaItem(0, 0)
+    local take = reaper.GetActiveTake(item)
+    if not take or reaper.TakeIsMIDI(take) then
+        show_snackbar("Обраний Item не містить аудіо", "error")
+        return
+    end
+
+    local source = reaper.GetMediaItemTake_Source(take)
+    if not source then
+        show_snackbar("Не вдалося отримати аудіо-джерело", "error")
+        return
+    end
+
+    local source_file = reaper.GetMediaSourceFileName(source, "")
+    if not source_file or source_file == "" then
+        show_snackbar("Не вдалося знайти файл аудіо", "error")
+        return
+    end
+
+    -- 2. Параметри Item (враховуємо підрізання та зсув)
+    --    D_STARTOFFS — зсув у вихідному файлі (секунди)
+    --    D_PLAYRATE  — швидкість відтворення
+    --    D_LENGTH    — видима довжина item на таймлайні
+    local item_len   = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+    local start_offs = reaper.GetMediaItemTakeInfo_Value(take, "D_STARTOFFS")
+    local play_rate  = reaper.GetMediaItemTakeInfo_Value(take, "D_PLAYRATE")
+    if not play_rate or play_rate == 0 then play_rate = 1.0 end
+
+    -- Фактичні секунди у вихідному файлі
+    local effective_start = start_offs           -- старт у source-файлі
+    local effective_dur   = item_len * play_rate -- тривалість у source-файлі
+
+    -- 3. Перевіряємо чи встановлений Whisper (синхронний io.popen check)
+    local is_win = reaper.GetOS():match("Win")
+    local py_exe
+    if is_win then
+        py_exe = UTILS.get_win_py_exe(
+            (OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or "py -3"
+        )
+    else
+        py_exe = (OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or "python3"
+        -- For macOS/Linux, if the command is a simple relative executable (no slashes),
+        -- prepend standard PATH to find Homebrew or other user Python installations.
+        if not py_exe:find("/") then
+            py_exe = "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin " .. py_exe
+        end
+    end
+
+    local check_cmd = py_exe .. ' -c "import whisper" 2>&1'
+    local handle = io.popen(check_cmd)
+    local check_out = handle and handle:read("*a") or "error"
+    if handle then pcall(function() handle:close() end) end
+
+    local whisper_installed = not (
+        check_out:find("No module") or
+        check_out:find("ModuleNotFoundError") or
+        check_out:find("ImportError") or
+        check_out:find("not found") or
+        check_out:find("not recognized")
+    )
+
+    -- 4. Whisper not installed -- ask user
+    if not whisper_installed then
+        local msg = "Whisper AI (Speech to Text) не знайдено.\n\n" ..
+                    "Необхідно:\n" ..
+                    "  - openai-whisper, numpy, torch\n" ..
+                    "  - Model 'turbo' (~1.6 GB)\n\n" ..
+                    "Встановити та завантажити зараз?\n" ..
+                    "(Відкриється вікно командного рядка, в якому буде відображатися хід встановлення)"
+        local res = reaper.MB(msg, "Speech to Text -- Install", 4) -- 4 = Yes/No
+        if res ~= 6 then -- 6 = Yes
+            show_snackbar("Whisper встановлення скасовано", "info")
+            return
+        end
+
+        local src_info = debug.getinfo(1, 'S').source
+        local script_dir = src_info:match([[^@?(.*[\/])]]) or ""
+        local py_script = script_dir .. "stats/subass_whisper.py"
+
+        local install_cmd
+        if is_win then
+            local py_exe_win = UTILS.get_win_py_exe(
+                (OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or "py -3"
+            )
+            install_cmd = py_exe_win .. ' "' .. py_script .. '" --install-check'
+        else
+            local py_exe_unix = (OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or "python3"
+            install_cmd = 'PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$PATH ' .. py_exe_unix .. ' "' .. py_script .. '" --install-check'
+        end
+
+        run_async_command(install_cmd, nil, true, nil, true)
+        show_snackbar("Почалося встановлення — перевірте термінал", "info")
+        return
+    end
+
+    -- 5. Whisper is installed -- ask user to select language
+    local menu_str = "#Оберіть мову оригіналу||Автовизначення|Українська|Англійська|Японська||Польська|Німецька|Французька|Іспанська|Італійська|Португальська|Китайська|Корейська"
+    gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+    local ret = gfx.showmenu(menu_str)
+    if ret <= 0 then
+        return
+    end
+    
+    local lang_map = {
+        [2] = "auto",
+        [3] = "uk",
+        [4] = "en",
+        [5] = "ja",
+        [6] = "pl",
+        [7] = "de",
+        [8] = "fr",
+        [9] = "es",
+        [10] = "it",
+        [11] = "pt",
+        [12] = "zh",
+        [13] = "ko"
+    }
+    
+    local selected_lang = lang_map[ret]
+    if not selected_lang then return end
+
+    local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+    local src_info = debug.getinfo(1, 'S').source
+    local script_dir = src_info:match([[^@?(.*[\/])]]) or ""
+    local py_script = script_dir .. "stats/subass_whisper.py"
+    
+    local source_proj, filename = reaper.EnumProjects(-1)
+    local id_fname = (not filename or filename == "") and "unsaved" or filename
+    local source_project_id = source_proj and (tostring(source_proj) .. "_" .. id_fname) or "none"
+    
+    local id = tostring(os.clock()):gsub("%.", "") .. "_" .. math.random(1000, 9999)
+    local path = reaper.GetResourcePath() .. "/Scripts/"
+    local temp_srt = path .. "whisper_temp_" .. id .. ".srt"
+    local out_file = path .. "async_out_" .. id .. ".tmp"
+    local done_file = path .. "async_done_" .. id .. ".marker"
+    local pid_file = path .. "async_pid_" .. id .. ".tmp"
+    
+    local py_script_arg = py_script
+    local source_arg = source_file
+    local srt_arg = temp_srt
+    if is_win then
+        py_script_arg = py_script_arg:gsub("/", "\\")
+        source_arg = source_arg:gsub("/", "\\")
+        srt_arg = srt_arg:gsub("/", "\\")
+    end
+    
+    local cmd
+    if is_win then
+        cmd = string.format('%s -u "%s" "%s" "%s" --lang %s --start %f --duration %f',
+            py_exe, py_script_arg, source_arg, srt_arg, selected_lang, effective_start, effective_dur)
+    else
+        cmd = string.format('( PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$PATH %s -u "%s" "%s" "%s" --lang %s --start %f --duration %f & echo $!>"%s" ; wait )',
+            py_exe, py_script_arg, source_arg, srt_arg, selected_lang, effective_start, effective_dur, pid_file)
+    end
+    
+    local proj_basename = "Unsaved"
+    if filename and filename ~= "" then
+        proj_basename = filename:match("[^/\\]+$") or filename
+        proj_basename = proj_basename:gsub("%.rpp$", ""):gsub("%.RPP$", "")
+    end
+    
+    OTHER.whisper_state = {
+        active = true,
+        progress = 0.0,
+        text = "Ініціалізація...",
+        id = id,
+        project_name = proj_basename,
+        out_file = out_file,
+        done_file = done_file,
+        pid_file = not is_win and pid_file or nil,
+        temp_srt = temp_srt,
+        effective_dur = effective_dur,
+        item_pos = item_pos,
+        play_rate = play_rate
+    }
+    
+    run_async_command(cmd, function(output)
+        if not OTHER.whisper_state or OTHER.whisper_state.id ~= id or not OTHER.whisper_state.active then
+            return
+        end
+        
+        OTHER.whisper_state.active = false
+        
+        local f = io.open(temp_srt, "r")
+        if not f then
+            show_snackbar("Помилка розпізнавання: не вдалося створити субтитри", "error")
+            reaper.ClearConsole()
+            reaper.ShowConsoleMsg("--- WHISPER ERROR LOG ---\n" .. tostring(output) .. "\n-------------------------\n")
+            if pid_file then os.remove(pid_file) end
+            if out_file then os.remove(out_file) end
+            if done_file then os.remove(done_file) end
+            if temp_srt then os.remove(temp_srt) end
+            return
+        end
+        f:close()
+        
+        local active_proj = reaper.EnumProjects(-1)
+        if active_proj == source_proj then
+            -- Still on the same project — import immediately
+            OTHER.import_whisper_srt(temp_srt, item_pos, play_rate)
+            show_snackbar("Розпізнавання успішно завершено!", "success")
+            if pid_file then os.remove(pid_file) end
+            if out_file then os.remove(out_file) end
+            if done_file then os.remove(done_file) end
+            if temp_srt then os.remove(temp_srt) end
+        else
+            -- User switched tabs — keep the SRT and wait for them to come back
+            OTHER.pending_whisper = {
+                temp_srt   = temp_srt,
+                item_pos   = item_pos,
+                play_rate  = play_rate,
+                proj       = source_proj,
+                proj_name  = proj_basename,
+                pid_file   = pid_file,
+                out_file   = out_file,
+                done_file  = done_file,
+            }
+            show_snackbar("Розпізнавання завершено! Перейдіть на проєкт «" .. proj_basename .. "» для отримання результату", "info", 8)
+        end
+    end, true, nil, false, out_file, done_file)
+    
+    show_snackbar("Розпочато розпізнавання мови...", "info")
+end
+
 function DRAW_TABS.draw_table(input_queue)
     local show_actor = UI_STATE.ass_file_loaded
     local start_y = S(65)
@@ -29497,7 +29882,7 @@ function DRAW_TABS.draw_table(input_queue)
                 local editor_label = (cfg.editor_mode and "• " or "") .. "Режим Редактора"
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам|" .. editor_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)||Нормалізація гучності реплік (EBU R128)||<|>Переклад з ШІ|Згенерувати промпт для виділених реплік (дубляж)|Згенерувати промпт для виділених реплік (озвучка)||Вставити результат від ШІ|<"
+                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам|" .. editor_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)|Мова в текст (Speech-to-Text)||Нормалізація гучності реплік (EBU R128)||<|>Переклад з ШІ|Згенерувати промпт для виділених реплік (дубляж)|Згенерувати промпт для виділених реплік (озвучка)||Вставити результат від ШІ|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     OTHER.find_replace_state.show = true
@@ -29545,12 +29930,14 @@ function DRAW_TABS.draw_table(input_queue)
                 elseif ret == 11 then
                     filter_unique_item_replicas()
                 elseif ret == 12 then
-                    ebu_r128_replicas_normalize()
+                    OTHER.speech_to_text_from_item()
                 elseif ret == 13 then
-                    OTHER.AI_generate_prompt(true)
+                    ebu_r128_replicas_normalize()
                 elseif ret == 14 then
-                    OTHER.AI_generate_prompt(false)
+                    OTHER.AI_generate_prompt(true)
                 elseif ret == 15 then
+                    OTHER.AI_generate_prompt(false)
+                elseif ret == 16 then
                     OTHER.AI_insert_result()
                 end
             end
@@ -29648,6 +30035,56 @@ function DRAW_TABS.draw_table(input_queue)
         end
         
         start_y = start_y + S(35) -- Shift content down
+    end
+    
+    -- UPDATE WHISPER PROGRESS
+    OTHER.update_whisper_progress()
+
+    -- WHISPER PROGRESS BAR UI
+    if OTHER.whisper_state and OTHER.whisper_state.active then
+        local progress_y = start_y
+        local progress_h = S(25)
+        
+        -- Draw background
+        set_color(UI.C_PANEL_BG or {0.15, 0.15, 0.15, 1})
+        gfx.rect(filter_x, progress_y, filter_w, progress_h, 1)
+        
+        -- Draw border
+        set_color(UI.C_FR_BORDER or {0.3, 0.3, 0.3, 1})
+        gfx.rect(filter_x, progress_y, filter_w, progress_h, 0)
+        
+        -- Cancel Button
+        local cancel_w = S(80)
+        local cancel_x = filter_x + filter_w - cancel_w
+        if draw_btn_inline(cancel_x, progress_y, cancel_w, progress_h, "Скасувати", UI.C_BTN_ERROR) then
+            OTHER.cancel_whisper_task()
+        end
+        
+        -- Draw active progress fill
+        local max_progress_w = cancel_x - filter_x - S(10)
+        local progress_w = math.floor(max_progress_w * (OTHER.whisper_state.progress or 0))
+        if progress_w > 0 then
+            set_color(UI.C_ACCENT or {0.2, 0.6, 0.8, 0.3})
+            gfx.rect(filter_x + 1, progress_y + 1, progress_w, progress_h - 2, 1)
+        end
+        
+        -- Draw text info (e.g. "Whisper: 45% [text snippet]")
+        set_color(UI.C_TXT or {0.9, 0.9, 0.9, 1})
+        local pct = math.floor((OTHER.whisper_state.progress or 0) * 100)
+        local info_str = string.format("Whisper: %d%%", pct)
+        if OTHER.whisper_state.text and OTHER.whisper_state.text ~= "" then
+            info_str = info_str .. " | " .. OTHER.whisper_state.text
+        end
+        
+        gfx.setfont(F.std)
+        -- Limit text to fit
+        local max_txt_w = max_progress_w - S(15)
+        info_str = fit_text_width(info_str, max_txt_w)
+        
+        gfx.x, gfx.y = filter_x + S(8), progress_y + (progress_h - gfx.texth)/2
+        gfx.drawstr(info_str)
+        
+        start_y = start_y + S(30) -- Shift content down
     end
     
     -- Helper: Delete Logic
@@ -32213,6 +32650,22 @@ local function main()
         -- Immediate cache update after loading
         update_regions_cache()
         load_director_actors_from_state()
+        
+        -- Auto-import pending Whisper result if we just switched to the correct project
+        if OTHER.pending_whisper and reaper.EnumProjects(-1) == OTHER.pending_whisper.proj then
+            local pw = OTHER.pending_whisper
+            OTHER.pending_whisper = nil
+            local pf = io.open(pw.temp_srt, "r")
+            if pf then
+                pf:close()
+                OTHER.import_whisper_srt(pw.temp_srt, pw.item_pos, pw.play_rate)
+                show_snackbar("Результати Whisper імпортовано!", "success")
+            end
+            if pw.pid_file  then os.remove(pw.pid_file)  end
+            if pw.out_file  then os.remove(pw.out_file)  end
+            if pw.done_file then os.remove(pw.done_file) end
+            if pw.temp_srt  then os.remove(pw.temp_srt)  end
+        end
     end
     
     local curs_state = reaper.GetProjectStateChangeCount(0)
