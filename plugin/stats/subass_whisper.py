@@ -6,44 +6,125 @@ import argparse
 import json
 import tempfile
 
+# On macOS/Linux, ensure common search paths are in PATH environment variable
+# (especially important when run from GUI apps like REAPER)
+if sys.platform != "win32":
+    extra_paths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+    paths = os.environ.get("PATH", "").split(os.pathsep)
+    for p in extra_paths:
+        if p not in paths:
+            paths.insert(0, p)
+    os.environ["PATH"] = os.pathsep.join(paths)
+
+# --- Install-check mode (triggered by Lua after user confirmation) ---
+# Must be handled BEFORE the whisper import block so we can auto-install
+_INSTALL_CHECK = "--install-check" in sys.argv
+if _INSTALL_CHECK:
+    sys.argv = [a for a in sys.argv if a != "--install-check"]
+
 # Check if dependencies are installed
 try:
     import whisper
     import numpy as np
     import torch
+
+    # ---- INSTALL-CHECK mode: deps already present, just pre-download the model ----
+    if _INSTALL_CHECK:
+        print("\n[WI] Dependencies are already installed.")
+        print("[WI] Downloading model 'turbo' (~1.6 GB), please wait...")
+        try:
+            device = "cpu"
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device = "mps"
+            elif torch.cuda.is_available():
+                device = "cuda"
+            print(f"[WI] Device: {device.upper()}")
+            whisper.load_model("turbo", device=device)
+            print("\n[WI] ✅ Model successfully loaded and ready to use!")
+        except Exception as e:
+            print(f"\n[WI] ⚠️  Error loading model: {e}")
+        print("\n[WI] This window can be closed.")
+        input("Press Enter to exit...")
+        sys.exit(0)
+
 except ImportError:
-    print("\n[AI] Необхідні бібліотеки (openai-whisper, numpy, torch) не знайдені.")
-    print("Якщо ви хочете встановити бібліотеки зараз, введіть 'install' та натисніть Enter.")
-    
+    # ---- INSTALL-CHECK mode: auto-install without prompts (user confirmed in REAPER) ----
+    if _INSTALL_CHECK:
+        print("\n[WI] ╔══════════════════════════════════════════════════╗")
+        print("[WI] ║      Installing Whisper AI (Speech to Text)      ║")
+        print("[WI] ╚══════════════════════════════════════════════════╝")
+        print("[WI] Step 1/2: Installing packages (openai-whisper, numpy, torch)...")
+        print("[WI] This may take a few minutes...\n")
+        install_ok = False
+        for extra_flags in (["--break-system-packages"], []):
+            try:
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install",
+                     "openai-whisper", "numpy", "torch"] + extra_flags
+                )
+                install_ok = True
+                break
+            except subprocess.CalledProcessError:
+                continue
+        if not install_ok:
+            print("\n[WI] ❌ Installation error.")
+            print("[WI] Try manually: pip install openai-whisper numpy torch --break-system-packages")
+            input("Press Enter to exit...")
+            sys.exit(1)
+
+        print("\n[WI] ✅ Packages installed!")
+        print("[WI] Step 2/2: Downloading model 'turbo' (~1.6 GB)...\n")
+        try:
+            import whisper
+            import torch
+            device = "cpu"
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device = "mps"
+            elif torch.cuda.is_available():
+                device = "cuda"
+            print(f"[WI] Device: {device.upper()}")
+            whisper.load_model("turbo", device=device)
+            print("\n[WI] ✅ Model loaded! Whisper AI is ready to use.")
+        except Exception as e:
+            print(f"\n[WI] ⚠️  Error loading model: {e}")
+            print("[WI] Model will be downloaded automatically during first use.")
+        print("\n[WI] This window can be closed.")
+        input("Press Enter to exit...")
+        sys.exit(0)
+
+    # ---- Interactive mode: ask user ----
+    print("\n[WI] Required packages (openai-whisper, numpy, torch) not found.")
+    print("If you want to install the packages now, type 'install' and press Enter.")
+
     choice = input("\n> ").strip().lower()
     if choice == "install":
-        print("\n[AI] Встановлення залежностей... (Це може зайняти деякий час)")
+        print("\n[WI] Installing dependencies... (This may take some time)")
         try:
             # Try installing with --break-system-packages for Homebrew/system Python environments
             subprocess.check_call([sys.executable, "-m", "pip", "install", "openai-whisper", "numpy", "torch", "--break-system-packages"])
-            print("[AI] Бібліотеки успішно встановлені!")
-            import whisper 
+            print("[WI] Packages successfully installed!")
+            import whisper
             import numpy as np
             import torch
         except subprocess.CalledProcessError:
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", "openai-whisper", "numpy", "torch"])
-                print("[AI] Бібліотеки успішно встановлені!")
+                print("[WI] Packages successfully installed!")
                 import whisper
                 import numpy as np
                 import torch
             except:
-                print("[AI] Помилка встановлення. Спробуйте вручну: 'pip install openai-whisper numpy torch --break-system-packages'")
+                print("[WI] Installation error. Try manually: 'pip install openai-whisper numpy torch --break-system-packages'")
                 sys.exit(1)
     else:
-        print("[AI] Встановлення скасовано.")
+        print("[WI] Installation cancelled.")
         sys.exit(0)
 
 # Check for ffmpeg (Required by Whisper)
 if not shutil.which("ffmpeg"):
-    print("\n[AI] Помилка: 'ffmpeg' не знайдено.")
-    print("Whisper вимагає ffmpeg для обробки аудіо.")
-    print("Будь ласка, встановіть ffmpeg вручну (наприклад, 'brew install ffmpeg' на macOS або скачайте з ffmpeg.org).")
+    print("\n[WI] Error: 'ffmpeg' not found.")
+    print("Whisper requires ffmpeg to process audio.")
+    print("Please install ffmpeg manually (e.g., 'brew install ffmpeg' on macOS or download from ffmpeg.org).")
     sys.exit(1)
 
 def format_srt_timestamp(seconds: float) -> str:
@@ -66,21 +147,24 @@ def write_srt(segments, output_path):
             f.write(f"{format_srt_timestamp(start)} --> {format_srt_timestamp(end)}\n")
             f.write(f"{text}\n\n")
 
-def extract_audio(input_path):
-    """Extracts audio to a temporary WAV file for faster processing."""
+def extract_audio(input_path, start=None, duration=None):
+    """Extracts audio to a temporary WAV file for faster processing, optionally trimming it."""
     temp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     temp_wav.close()
-    print(f"[AI] Оптимізація: вилучення аудіо до тимчасового файлу...")
+    print(f"[WI] Optimization: extracting audio to a temporary file...")
     try:
-        # Extract audio as mono 16kHz WAV
-        subprocess.run([
-            "ffmpeg", "-y", "-i", input_path, 
-            "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", 
-            temp_wav.name
-        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cmd = ["ffmpeg", "-y"]
+        if start is not None:
+            cmd += ["-ss", str(start)]
+        cmd += ["-i", input_path]
+        if duration is not None:
+            cmd += ["-t", str(duration)]
+        cmd += ["-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", temp_wav.name]
+        
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return temp_wav.name
     except Exception as e:
-        print(f"[AI] Увага: Не вдалося вилучити аудіо автоматично ({e}). Спробуємо завантажити як є.")
+        print(f"[WI] Warning: Failed to extract or trim audio ({e}). Attempting to load as is.")
         return input_path
 
 def main():
@@ -88,6 +172,8 @@ def main():
     parser.add_argument("input_file", help="Path to the local video or audio file.")
     parser.add_argument("output_path", help="Path where the .srt file should be saved or its directory.")
     parser.add_argument("--lang", default="en", help="Original language of the audio (default: en).")
+    parser.add_argument("--start", type=float, default=None, help="Start offset in seconds")
+    parser.add_argument("--duration", type=float, default=None, help="Duration in seconds")
     args = parser.parse_args()
 
     # Target model: set to "turbo" for much faster performance on Mac (1.6GB)
@@ -96,9 +182,11 @@ def main():
     input_path = os.path.abspath(args.input_file)
     output_path = os.path.abspath(args.output_path)
     language = args.lang
+    if language == "auto" or language == "None":
+        language = None
 
     if not os.path.exists(input_path):
-        print(f"\n[AI] Помилка: Файл не знайдено: {input_path}")
+        print(f"\n[WI] Error: File not found: {input_path}")
         sys.exit(1)
 
     # If output_path is a directory, use the input filename (with .srt extension)
@@ -111,7 +199,7 @@ def main():
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    print(f"\n[AI] Ініціалізація Whisper AI (модель {target_model})...")
+    print(f"\n[WI] Initializing Whisper AI (model: {target_model})...")
     
     # Determine device
     device = "cpu"
@@ -120,20 +208,20 @@ def main():
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         device = "mps"
     
-    print(f"[AI] Використовується пристрій: {device.upper()}")
+    print(f"[WI] Active device: {device.upper()}")
 
     try:
         model = whisper.load_model(target_model, device=device)
     except Exception as e:
-        print(f"\n[AI] Помилка завантаження моделі: {e}")
+        print(f"\n[WI] Error loading model: {e}")
         sys.exit(1)
 
     # Pre-extract audio to speed up processing
-    audio_file = extract_audio(input_path)
+    audio_file = extract_audio(input_path, args.start, args.duration)
 
-    print(f"[AI] Транскрибація файлу: {os.path.basename(input_path)}...")
-    print(f"[AI] Мова: {language}")
-    print(f"[AI] (Ви побачите текст нижче, коли він почне розпізнаватися)\n")
+    print(f"[WI] Transcribing file: {os.path.basename(input_path)}...")
+    print(f"[WI] Language: {language}")
+    print(f"[WI] You will see the text as it gets recognized\n")
 
     try:
         # Transcribe
@@ -147,10 +235,10 @@ def main():
 
         # Write SRT
         write_srt(result["segments"], output_path)
-        print(f"\n[AI] Готово! SRT файл збережено: {output_path}")
+        print(f"\n[WI] Done! SRT file saved: {output_path}")
 
     except Exception as e:
-        print(f"\n[КРИТИЧНА ПОМИЛКА]: {e}")
+        print(f"\n[CRITICAL ERROR]: {e}")
     finally:
         # Cleanup temporary audio file
         if audio_file != input_path and os.path.exists(audio_file):
