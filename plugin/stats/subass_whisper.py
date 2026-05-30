@@ -219,9 +219,7 @@ def main():
     # Pre-extract audio to speed up processing
     audio_file = extract_audio(input_path, args.start, args.duration)
 
-    print(f"[WI] Transcribing file: {os.path.basename(input_path)}...")
     print(f"[WI] Language: {language}")
-    print(f"[WI] You will see the text as it gets recognized\n")
 
     try:
         # Transcribe
