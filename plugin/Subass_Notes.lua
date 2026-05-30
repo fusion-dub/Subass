@@ -29486,15 +29486,25 @@ function OTHER.cancel_whisper_task()
     local state = OTHER.whisper_state
     state.active = false
     
-    -- Kill the process on Mac/Linux if PID exists
-    if not reaper.GetOS():match("Win") and state.pid_file then
+    -- Kill the underlying process
+    local pid_str = nil
+    if state.pid_file then
         local f = io.open(state.pid_file, "r")
         if f then
-            local pid = f:read("*a"):gsub("%s+", "")
+            pid_str = f:read("*a"):gsub("%s+", "")
             f:close()
-            if pid and pid ~= "" then
-                os.execute("kill -9 " .. pid)
-            end
+        end
+    end
+    
+    if pid_str and pid_str ~= "" then
+        if reaper.GetOS():match("Win") then
+            -- taskkill /F /T kills the process AND all its children (e.g. ffmpeg)
+            -- reaper.ExecProcess runs this completely silently (no console window flashing)
+            reaper.ExecProcess("taskkill /F /T /PID " .. pid_str, 1000)
+        else
+            -- Kill children first (e.g. ffmpeg spawned by whisper), then the process itself
+            reaper.ExecProcess("pkill -KILL -P " .. pid_str, 1000)
+            reaper.ExecProcess("kill -9 " .. pid_str, 1000)
         end
     end
     
@@ -29508,10 +29518,11 @@ function OTHER.cancel_whisper_task()
     end
     
     -- Clean up files
-    if state.pid_file then os.remove(state.pid_file) end
-    if state.out_file then os.remove(state.out_file) end
+    if state.pid_file  then os.remove(state.pid_file)  end
+    if state.ps1_file  then os.remove(state.ps1_file)  end
+    if state.out_file  then os.remove(state.out_file)  end
     if state.done_file then os.remove(state.done_file) end
-    if state.temp_srt then os.remove(state.temp_srt) end
+    if state.temp_srt  then os.remove(state.temp_srt)  end
     
     show_snackbar("Розпізнавання мови скасовано", "info")
 end
@@ -29624,7 +29635,7 @@ function OTHER.speech_to_text_from_item()
     local effective_start = start_offs           -- старт у source-файлі
     local effective_dur   = item_len * play_rate -- тривалість у source-файлі
 
-    -- 3. Перевіряємо чи встановлений Whisper (синхронний io.popen check)
+    -- 3. Перевіряємо чи встановлений Whisper (без відкриття вікна консолі)
     local is_win = reaper.GetOS():match("Win")
     local py_exe
     if is_win then
@@ -29640,10 +29651,18 @@ function OTHER.speech_to_text_from_item()
         end
     end
 
-    local check_cmd = py_exe .. ' -c "import whisper" 2>&1'
-    local handle = io.popen(check_cmd)
-    local check_out = handle and handle:read("*a") or "error"
-    if handle then pcall(function() handle:close() end) end
+    local check_out
+    if is_win then
+        -- На Windows ExecProcess запускає процес повністю приховано (без вікна cmd.exe)
+        local check_cmd = py_exe .. ' -c "import whisper"'
+        local _, out = reaper.ExecProcess(check_cmd, 3000)
+        check_out = out or "error"
+    else
+        -- На macOS/Linux запускаємо через sh, щоб врахувати PATH та redirections
+        local check_cmd = '/bin/sh -c "' .. py_exe .. ' -c \\"import whisper\\" 2>&1"'
+        local _, out = reaper.ExecProcess(check_cmd, 3000)
+        check_out = out or "error"
+    end
 
     local whisper_installed = not (
         check_out:find("No module") or
@@ -29739,9 +29758,44 @@ function OTHER.speech_to_text_from_item()
     end
     
     local cmd
+    local ps1_file
     if is_win then
-        cmd = string.format('%s -u "%s" "%s" "%s" --lang %s --start %f --duration %f',
-            py_exe, py_script_arg, source_arg, srt_arg, selected_lang, effective_start, effective_dur)
+        -- On Windows: create a .ps1 wrapper that records PowerShell's own $PID into pid_file,
+        -- then runs Python synchronously as a child process.
+        -- run_async_command wraps this in its own bat as usual — no changes needed there.
+        -- On cancel: taskkill /F /T /PID <ps_pid> kills PowerShell + python + any children (e.g. ffmpeg).
+        local pid_file_win = pid_file:gsub("/", "\\")
+        ps1_file = (path .. "whisper_wrap_" .. id .. ".ps1"):gsub("/", "\\")
+        
+        -- Build the PowerShell call expression for py_exe
+        -- py_exe can be: "py -3", "python", or a quoted full path like "\"C:\...\python.exe\""
+        local py_exe_raw = py_exe:gsub('^"', ''):gsub('"$', '')  -- strip outer quotes
+        local ps_invoke
+        if py_exe_raw:find("[/\\]") then
+            -- Full path — re-quote with double quotes for PowerShell
+            ps_invoke = '& "' .. py_exe_raw .. '"'
+        else
+            -- Short form like "py -3" or "python" — no extra quoting needed
+            ps_invoke = '& ' .. py_exe_raw
+        end
+        
+        local f_ps1 = io.open(ps1_file, "wb")
+        if f_ps1 then
+            -- Write UTF-8 BOM so PowerShell parses non-ASCII characters correctly
+            f_ps1:write(string.char(0xEF, 0xBB, 0xBF))
+            -- Write PowerShell's own PID; python runs as its child, so taskkill /T covers all
+            f_ps1:write('$PID | Out-File -FilePath "' .. pid_file_win .. '" -Encoding ASCII\r\n')
+            f_ps1:write('$env:PYTHONUTF8 = "1"\r\n')
+            f_ps1:write(string.format(
+                '%s -u "%s" "%s" "%s" --lang %s --start %f --duration %f\r\n',
+                ps_invoke, py_script_arg, source_arg, srt_arg,
+                selected_lang, effective_start, effective_dur
+            ))
+            f_ps1:close()
+        end
+        
+        -- Pass the ps1 invocation as cmd; run_async_command will wrap it in a bat normally
+        cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' .. ps1_file .. '"'
     else
         cmd = string.format('( PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$PATH %s -u "%s" "%s" "%s" --lang %s --start %f --duration %f & echo $!>"%s" ; wait )',
             py_exe, py_script_arg, source_arg, srt_arg, selected_lang, effective_start, effective_dur, pid_file)
@@ -29761,7 +29815,8 @@ function OTHER.speech_to_text_from_item()
         project_name = proj_basename,
         out_file = out_file,
         done_file = done_file,
-        pid_file = not is_win and pid_file or nil,
+        pid_file = pid_file,  -- used on both platforms for kill
+        ps1_file = is_win and ps1_file or nil,
         temp_srt = temp_srt,
         effective_dur = effective_dur,
         item_pos = item_pos,
@@ -29774,6 +29829,8 @@ function OTHER.speech_to_text_from_item()
         end
         
         OTHER.whisper_state.active = false
+        
+        if is_win and ps1_file then os.remove(ps1_file) end
         
         local f = io.open(temp_srt, "r")
         if not f then
