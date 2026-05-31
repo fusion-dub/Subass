@@ -229,21 +229,6 @@ else
     echo "\033[1;33mPlease make sure you extracted the entire ZIP file.\033[0m"
 fi
 
-# 5.5 Verify Stress Tool Dependencies
-echo "\033[1;34m>> Verifying Ukrainian Stress Tool...\033[0m"
-STRESS_TOOL="$SCRIPTS_PATH/stress/ukrainian_stress_tool.py"
-if [ -f "$STRESS_TOOL" ]; then
-    echo "Running stress tool self-check (may install dependencies)..."
-    python3 "$STRESS_TOOL" "Привіт" > /dev/null
-    if [ $? -eq 0 ]; then
-        echo "\033[1;32mStress tool verification successful.\033[0m"
-    else
-        echo "\033[1;33mWARNING: Stress tool verification failed. You may need to run it manually to check for errors.\033[0m"
-    fi
-else
-    echo "\033[1;33mStress tool not found at $STRESS_TOOL\033[0m"
-fi
-
 # 6. Register Action and Menu Item
 echo "\033[1;34m>> Registering Action and Menu Item...\033[0m"
 KB_FILE="$REAPER_PATH/reaper-kb.ini"
