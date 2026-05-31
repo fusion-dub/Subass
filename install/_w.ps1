@@ -379,31 +379,6 @@ if (Test-Path $scriptSource) {
 } else {
     Write-Host-Color "ERROR: Could not find plugin in $projectRoot\plugin" "Red"
 }
-    
-# 5.5 Verify Stress Tool Dependencies
-Write-Host-Color "Verifying Ukrainian Stress Tool..." "Cyan"
-$stressTool = Join-Path $scriptsPath "stress\ukrainian_stress_tool.py"
-if (Test-Path $stressTool) {
-    Write-Host "Running stress tool self-check..."
-    try {
-        $pyCmdRaw = "python"
-        if ($env:SUBASS_PYTHON) { $pyCmdRaw = $env:SUBASS_PYTHON }
-        $pyCmdArray = $pyCmdRaw -split " "
-        $exe = $pyCmdArray[0]
-        $extraArgs = @()
-        if ($pyCmdArray.Count -gt 1) { $extraArgs = $pyCmdArray[1..($pyCmdArray.Count-1)] }
-        
-        $argList = $extraArgs + "`"$stressTool`"" + "`"Привіт`""
-        $process = Start-Process $exe -ArgumentList $argList -PassThru -NoNewWindow -Wait
-        if ($process.ExitCode -eq 0) {
-            Write-Host-Color "Stress tool verification successful." "Green"
-        } else {
-            Write-Host-Color "WARNING: Stress tool verification failed (Exit Code: $($process.ExitCode))." "Yellow"
-        }
-    } catch {
-         Write-Host-Color "WARNING: Failed to run stress tool verification: $($_.Exception.Message)" "Yellow"
-    }
-}
 
 # 6. Register Action and Menu Item
 $kbFile = Join-Path $reaperPath "reaper-kb.ini"
