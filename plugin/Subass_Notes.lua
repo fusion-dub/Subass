@@ -3207,30 +3207,11 @@ function UTILS.show_privacy_policy()
 - Системна назва активного проєкту: %s
 - Градація масштабу робочого середовища:
 %d активних треків, %d зареєстрованих маркерів та регіонів
-- Текстове наповнення: аналізується за допомогою передових
-алгоритмів машинного опрацювання в анонімізованому вигляді
-виключно з метою вдосконалення внутрішніх механізмів
-лінгвістичної та фонетичної синхронізації
-
-Механізм безпечної передачі:
-
-Усі вищезазначені відомості (включаючи зашифрований унікальний код
-ідентифікації пристрою, назви проєктів та зміст субтитрів) автоматично
-та в зашифрованому вигляді передаються за допомогою спеціалізованого
-аналітичного модуля `subass_extra_stats.py` до захищеного сховища
-Google Firestore, що відповідає світовим стандартам безпеки.
-Уся інша інформація включно з Subass PDF Reader ніяк не збирається!
-
-Така модель взаємодії є золотим стандартом професійного програмного
-забезпечення світового рівня. Вона дозволяє нам невпинно рости та
-ставати досконалішими разом із професійною спільнотою, непохитно
-зберігаючи при цьому абсолютний цифровий суверенітет вашої приватної
-сфери.
 
 Ми надзвичайно цінуємо ваш зворотний зв'язок. Якщо у вас виникли
 будь-які запитання, потреба у додаткових фахових роз’ясненнях чи
 конструктивні пропозиції щодо подальшого покращення нашої політики
-прозорості, ми завжди відкриті до професійного діалогу: @fusion_ford
+прозорості, ми завжди відкриті до професійного діалогу: телеграм @fusion_ford
 =======================================================================]], 
     version, os_info, timestamp, project_name, tracks, num_markers + num_regions, total_lines)
     
@@ -10320,44 +10301,6 @@ local function filter_unique_item_replicas()
     end
 end
 
---- Upload current subtitles to analytics via Python script
-function STATS.upload_subtitles_analytics()
-    if not ass_lines or #ass_lines == 0 then return end
-    
-    -- Get current file path (full path, not just name)
-    local filepath = UI_STATE.current_file_path
-    if not filepath or filepath == "" then
-        -- Fallback: if no path, skip upload
-        return
-    end
-        
-    -- Get project name
-    local _, proj_path = reaper.EnumProjects(-1)
-    local proj_name = "Project"
-    if proj_path and proj_path ~= "" then
-        proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or "Project"
-    end
-
-    -- Build Python script path
-    local source = debug.getinfo(1,'S').source
-    local script_path = source:match([[^@?(.*[\\/])]]) or ""
-    local full_script_path = script_path .. "stats/subass_extra_stats.py"
-
-    -- Execute in background (fire-and-forget, completely silent)
-    local cmd = string.format('python3 "%s" --filepath "%s" --project_name "%s"', 
-                            full_script_path, filepath, proj_name)
-    
-    if reaper.GetOS():match("Win") then
-        full_script_path = full_script_path:gsub("/", "\\")
-        filepath = filepath:gsub("/", "\\")
-        local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python and OTHER.rec_state.python.executable or "py -3")
-        cmd = string.format('%s "%s" --filepath "%s" --project_name "%s"', 
-                                py_exe, full_script_path, filepath, proj_name)
-    end
-    
-    run_async_command(cmd, nil, true, nil, false)
-end
-
 --- Register plugin usage on first run (Fire-and-Forget)
 --- @param callback function Optional callback on completion
 --- @param is_silent boolean If true, don't show full-screen loader
@@ -11868,8 +11811,6 @@ local function import_srt(file_path, dont_rebuild, forced_actor)
     if not dont_rebuild then
         rebuild_regions() -- This handles clearing old regions and re-adding all (including new ones)
     end
-
-    STATS.upload_subtitles_analytics()
     
     return duplicates_skipped
 end
@@ -11977,8 +11918,6 @@ local function import_vtt(file_path, dont_rebuild)
     if not dont_rebuild then
         rebuild_regions()
     end
-    
-    STATS.upload_subtitles_analytics()
     
     return duplicates_skipped
 end
@@ -13036,8 +12975,6 @@ local function import_ass(file_path, dont_rebuild)
         update_regions_cache() 
         rebuild_regions() -- This calls save_project_data
     end
-
-    STATS.upload_subtitles_analytics()
 
     return duplicates_skipped or 0
 end
