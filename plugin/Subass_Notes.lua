@@ -13262,12 +13262,12 @@ apply_stress_marks_async = function()
     end
     local script_path = get_actual_script_path()
 
-    UI_STATE.tmp_show_cats = UI_STATE.show_cats
-    UI_STATE.show_cats = true
-
     -- Use global coroutine for setup phase to allow yielding (fix initial freeze)
     global_coroutine = coroutine.create(function()
         coroutine.yield() -- Yield once to ensure Loader draws immediately
+
+        UI_STATE.tmp_show_cats = UI_STATE.show_cats
+        UI_STATE.show_cats = true
         
         local python_tool = script_path .. "ukrainian_stress_tool.py"
         
@@ -13283,7 +13283,6 @@ apply_stress_marks_async = function()
         
         -- Prepare Data
         if has_python_tool then
-            UI_STATE.script_loading_state.text = "Експорт тексту..."
             coroutine.yield()
             
             os.remove(temp_out)
@@ -13304,11 +13303,12 @@ apply_stress_marks_async = function()
                         time_batch_start = os.clock()
                     end
                 end
-                
+
                 f_in:close()
-                
+
                 if export_count > 0 then
-                    UI_STATE.script_loading_state.text = "AI обробка..."
+                    UI_STATE.script_loading_state.text = "Обробка наголосів, це займе певний час..."
+
                     coroutine.yield()
                     
                     local tool_p = python_tool
@@ -13335,7 +13335,7 @@ apply_stress_marks_async = function()
                         -- We are done with coroutine setup, hand off to async system
                         run_async_command(cmd_to_run, function(out)
                             on_stress_complete(out, script_path, export_count, temp_out, log_file, temp_in, is_windows, false)
-                        end)
+                        end, false, UI_STATE.script_loading_state.text)
                         global_coroutine = nil -- Coroutine finished its job
                         return 
                     end
@@ -14361,9 +14361,8 @@ local function play_tts_audio(text, save_to_timeline)
             reaper.ShowConsoleMsg(output or "No output available")
             reaper.ShowConsoleMsg("\n══════════════════════════════════════\n")
         end
-    end)
+    end, false, UI_STATE.script_loading_state.text)
 end
-
 
 --- Automatic actor assignment based on selected track activity
 function UTILS.calc_track_items_by_actor()
