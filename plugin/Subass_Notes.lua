@@ -9111,7 +9111,6 @@ function UTILS.create_text_items_from_regions()
 font="Arial";
 
 //@param1:size 'Size' 0.05 0.01 0.2 0.1 0.001
-//@param2:rotate 'Rotation' 0 -360 360 0 0.1
 //@param4:fontselect 'Font' 0 0 11 6 1
 //@param5:fontstyle 'Style' 0 0 3 1.5 1
 //@param6:underline 'Underline' 0 0 1 0.5 1
@@ -9125,15 +9124,14 @@ font="Arial";
 //@param14:bg_on 'BG enabled' 0 0 1 0.5 1
 //@param15:bgypos 'BG Y offset' 0.5 0 1 0.5 0.01
 //@param16:bgxpos 'BG X offset' 0.5 0 1 0.5 0.01
-//@param17:bg_rot 'BG rotation (deg)' 0 -360 360 0 0.1
+
 //@param18:bgwidth 'BG width' 1.0 0.0 10.0 1.0 0.01
 //@param19:bgheight 'BG height' 1.0 0.0 10.0 1.0 0.01
 //@param20:bgc_r 'Red BG' 0.0 0 1 0.5 0.01
 //@param21:bgc_g 'Green BG' 0.0 0 1 0.5 0.01
 //@param22:bgc_b 'Blue BG' 0.0 0 1 0.5 0.01
 //@param23:bga 'Alpha BG' 1 0.001 1 0.5 0.001
-//@param24:bg_corner 'BG border radius' 0 0 0.5 0.1 0.01
-//@param25:bg_fade 'BG fade' 0 0 0.5 0 0.01
+
 //@param27:ol_on 'Outline enabled' 0 0 1 0.5 1
 //@param28:outline_w 'Outline width' 2 0 10 2 1
 //@param29:outl_r 'Red outline' 0.0 0 1 0.5 0.01
@@ -9209,6 +9207,10 @@ strlen(#text) > 0 ? (
   ty = ((project_h - txth) * ypos) | 0; xp = (xpos * (project_w - txtw)) | 0;
   bgw = bg_on ? txtw * bgwidth : project_w * bgwidth; bgh = bg_on ? txth * bgheight : project_h * bgheight;
   bgx = xp - (bgw - txtw) / 2 + (bgxpos - 0.5) * project_w; bgy = ty  - (bgh - txth) / 2 + (bgypos - 0.5) * project_h;
+
+  img_bg = gfx_img_alloc(bgw, bgh, 1);
+  gfx_dest = img_bg;
+  gfx_set(0, 0, 0, 0); gfx_clear = 1; // Очистка в прозорість
 
   gfx_dest = -1; // ПРЯМЕ МАЛЮВАННЯ БЕЗ БУФЕРІВ
 
@@ -9288,7 +9290,7 @@ strlen(#text) > 0 ? (
             reaper.Main_OnCommand(8, 0)
 
             -- ТОЧНА ІНІЦІАЛІЗАЦІЯ ПАРАМЕТРІВ (Індекси від 0 до 33)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 0, 0.06)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 0, 0.065)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 6, 0.5)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 7, 0.98)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 8, 1.0) 
@@ -9297,6 +9299,14 @@ strlen(#text) > 0 ? (
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 11, 1.0)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 12, 1.0)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 13, 0.0)
+
+
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 14, 0.5)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 15, 0.5)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 17, 1.1)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 18, 1.1)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 22, 0.5)
+
 
             -- Обводка (Outline)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 26, 1.0)
