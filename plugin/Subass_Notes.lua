@@ -26155,7 +26155,7 @@ function DRAW_TABS.draw_settings()
                         save_settings()
                     end
                 end
-            elseif ret >= 2 and ret <= 1 + #other_projects then
+            elseif ret >= 2 and ret < (2 + #other_projects) then
                 local src_name = other_projects[ret - 1]
                 local src_rules = cfg.dubber_char_rules[src_name] or {}
                 local dst_rules = cfg.dubber_char_rules[p_name] or {}
@@ -26183,7 +26183,7 @@ function DRAW_TABS.draw_settings()
                 else
                     show_snackbar("Немає нових правил для імпорту з '" .. src_name .. "'", "info")
                 end
-            elseif ret == 2 + #other_projects then
+            elseif ret >= (2 + #other_projects) then
                 if reaper.ShowMessageBox("Ви дійсно хочете видалити проєкт '" .. p_name .. "'?", "Підтвердження", 4) == 6 then
                     cfg.dubber_char_rules[p_name] = nil
                     if cfg.dubber_project_selected == p_name then
