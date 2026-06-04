@@ -9062,12 +9062,15 @@ function UTILS.create_text_items_from_regions()
 
     -- Collect all regions from project
     local rgns = {}
+    local time_points = {}
     local i = 0
     while true do
         local retval, isrgn, pos, rgnend, name = reaper.EnumProjectMarkers3(0, i)
         if retval == 0 then break end
         if isrgn then
             table.insert(rgns, {pos = pos, rgnend = rgnend, name = name})
+            table.insert(time_points, pos)
+            table.insert(time_points, rgnend)
         end
         i = i + 1
     end
@@ -9090,6 +9093,7 @@ function UTILS.create_text_items_from_regions()
         end
     end
 
+    reaper.PreventUIRefresh(1)
     reaper.Undo_BeginBlock()
 
     if not target_track then
@@ -9142,6 +9146,12 @@ font="Arial";
 //@param35:sh_y 'Shadow Y offset' 5 -100 100 0 1
 //@param36:sh_a 'Shadow alpha' 0.5 0 1 0.5 0.01
 //@param37:sh_on 'Shadow enabled' 1 0 1 0.5 1
+
+input_info(0, w, h);
+w == 0 ? (
+  gfx_clear = 0;
+  return;
+);
 
 // 1. Обов'язково малюємо відео на екран
 gfx_blit(0, 1); 
@@ -9285,11 +9295,9 @@ strlen(#text) > 0 ? (
         track_fx_idx = reaper.TrackFX_AddByName(target_track, "Video processor", false, 1) -- add
         if track_fx_idx >= 0 then
             set_fx_code_simple(target_track, track_fx_idx, track_fx_code, false)
-            -- reaper.TrackFX_SetEnabled(target_track, track_fx_idx, false)
             reaper.SetOnlyTrackSelected(target_track)
             reaper.Main_OnCommand(8, 0)
 
-            -- ТОЧНА ІНІЦІАЛІЗАЦІЯ ПАРАМЕТРІВ (Індекси від 0 до 33)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 0, 0.065)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 6, 0.5)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 7, 0.98)
@@ -9300,20 +9308,16 @@ strlen(#text) > 0 ? (
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 12, 1.0)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 13, 0.0)
 
-
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 14, 0.5)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 15, 0.5)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 17, 1.1)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 18, 1.1)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 22, 0.5)
 
-
-            -- Обводка (Outline)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 26, 1.0)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 27, 2.0)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 31, 0.15)
  
-            -- Тінь (Shadow)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 33, 3.0)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 34, 3.0)
             reaper.TrackFX_SetParam(target_track, track_fx_idx, 35, 0.6)
@@ -9321,24 +9325,79 @@ strlen(#text) > 0 ? (
         end
     end
 
-    for _, rgn in ipairs(rgns) do
-        local item = reaper.AddMediaItemToTrack(target_track)
-        reaper.SetMediaItemPosition(item, rgn.pos, false)
-        reaper.SetMediaItemLength(item, math.max(rgn.rgnend - rgn.pos, 0.001), false)
-        local take = reaper.AddTakeToMediaItem(item)
-        if take then
-            reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", rgn.name, true)
-            reaper.GetSetMediaItemInfo_String(item, "P_NOTES", rgn.name, true)
+    local function format_text(in_text, limit)
+        text = in_text:gsub("{{+.-}}+", ""):gsub("{.-}", "")
+
+        local lines = {}
+        -- Розбиваємо вхідний текст на існуючі рядки
+        for line in text:gmatch("[^\r\n]+") do
+            -- Якщо рядок короткий, додаємо як є
+            if #line <= limit then
+                table.insert(lines, line)
+            else
+                -- Якщо рядок задовгий, розбиваємо його на підрядки
+                local current_line = ""
+                for word in line:gmatch("%S+") do
+                    if #current_line + #word + 1 > limit then
+                        table.insert(lines, current_line)
+                        current_line = word
+                    else
+                        current_line = (current_line == "" and "" or current_line .. " ") .. word
+                    end
+                end
+                table.insert(lines, current_line)
+            end
+        end
+        
+        -- Збираємо все назад у один текст
+        return table.concat(lines, "\n")
+    end
+
+    table.sort(time_points)
+    local unique_points = {}
+    for i = 1, #time_points do
+        if i == 1 or time_points[i] ~= time_points[i-1] then
+            table.insert(unique_points, time_points[i])
+        end
+    end
+
+    for i = 1, #unique_points - 1 do
+        local start_t = unique_points[i]
+        local end_t = unique_points[i+1]
+        
+        -- Знаходимо всі регіони, які активні в цьому сегменті
+        local active_names = {}
+        for _, rgn in ipairs(rgns) do
+            if rgn.pos <= start_t and rgn.rgnend >= end_t then
+                table.insert(active_names, rgn.name)
+            end
+        end
+        
+        -- Якщо в цьому сегменті щось є — створюємо айтем
+        if #active_names > 0 then
+            local item = reaper.AddMediaItemToTrack(target_track)
+            reaper.SetMediaItemInfo_Value(item, "D_POSITION", start_t)
+            reaper.SetMediaItemInfo_Value(item, "D_LENGTH", math.max(end_t - start_t, 0.001))
             
-            -- Add Video Processor to item take
-            local take_fx = reaper.TakeFX_AddByName(take, "Video processor", 1)
-            if take_fx >= 0 then
-                local item_code = "gfx_blit(0, 1);\ngmem[0] = 1;"
-                set_fx_code_simple(take, take_fx, item_code, true)
+            local take = reaper.AddTakeToMediaItem(item)
+            if take then
+                -- Об'єднуємо назви через перенос рядка
+                local combined_text = table.concat(active_names, "\n")
+                local formatted_name = format_text(combined_text, 80)
+                
+                reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", formatted_name, true)
+                reaper.GetSetMediaItemInfo_String(item, "P_NOTES", formatted_name, true)
+                
+                local take_fx = reaper.TakeFX_AddByName(take, "Video processor", 1)
+                if take_fx >= 0 then
+                    local item_code = "gfx_blit(0, 1);\ngmem[0] = 1;"
+                    set_fx_code_simple(take, take_fx, item_code, true)
+                end
             end
         end
     end
 
+    reaper.PreventUIRefresh(-1)
     reaper.UpdateArrange()
     reaper.Undo_EndBlock("Create text items from regions", -1)
     show_snackbar(string.format("Створено %d Text Items на треку '%s'", #rgns, track_name), "success")
