@@ -9005,6 +9005,61 @@ end
 --- Creates empty "Text Items" on a dedicated SUBASS_ITEMS track from all project regions.
 --- If the track already exists its items are cleared first.
 function UTILS.create_text_items_from_regions()
+    -- Simplified robust helper to set FX code (Track or Take)
+    local function set_fx_code_simple(target, fx_idx, code_str, is_take)
+        -- Try API first
+        local setter = is_take and reaper.TakeFX_SetNamedConfigParm or reaper.TrackFX_SetNamedConfigParm
+        if setter then
+            if setter(target, fx_idx, "code", code_str) then return true end
+        end
+        
+        -- Fallback to chunk hacking (target is track or take)
+        local encoded = "|" .. code_str:gsub("\n", "\n|")
+        local ret, chunk
+        local item = is_take and reaper.GetMediaItemTake_Item(target) or nil
+        
+        if is_take then
+            ret, chunk = reaper.GetItemStateChunk(item, "", false)
+        else
+            ret, chunk = reaper.GetTrackStateChunk(target, "", false)
+        end
+        
+        if ret then
+            -- Find the fx_idx-th VIDEO_EFFECT block (0-indexed)
+            local current_idx = -1
+            local s_idx = 1
+            while true do
+                local s, e = chunk:find("<VIDEO_EFFECT", s_idx)
+                if not s then break end
+                current_idx = current_idx + 1
+                
+                if current_idx == fx_idx then
+                    local b_end = chunk:find("\n>", e)
+                    if b_end then
+                        local code_s, code_e = chunk:find("<CODE.-%s>", s)
+                        local new_chunk
+                        if code_s and code_s < b_end then
+                            new_chunk = chunk:sub(1, code_s - 1) .. "<CODE\n" .. encoded .. "\n>" .. chunk:sub(code_e + 1)
+                        else
+                            -- Find first newline after VIDEO_EFFECT to insert NI and CODE
+                            local head_end = chunk:find("\n", e) or e
+                            new_chunk = chunk:sub(1, head_end) .. "\n<CODE\n" .. encoded .. "\n>" .. chunk:sub(head_end + 1)
+                        end
+                        
+                        if is_take then
+                            reaper.SetItemStateChunk(item, new_chunk, false)
+                        else
+                            reaper.SetTrackStateChunk(target, new_chunk, false)
+                        end
+                        return true
+                    end
+                end
+                s_idx = e + 1
+            end
+        end
+        return false
+    end
+
     -- Collect all regions from project
     local rgns = {}
     local i = 0
@@ -9050,14 +9105,228 @@ function UTILS.create_text_items_from_regions()
         end
     end
 
-    -- Create one text item per region
+    -- Add FX to the track (if not present)
+    local track_fx_code = [=[// TEXT OVER VIDEO (Direct Screen Render Fix)
+#text="";
+font="Arial";
+
+//@param1:size 'Size' 0.05 0.01 0.2 0.1 0.001
+//@param2:rotate 'Rotation' 0 -360 360 0 0.1
+//@param4:fontselect 'Font' 0 0 11 6 1
+//@param5:fontstyle 'Style' 0 0 3 1.5 1
+//@param6:underline 'Underline' 0 0 1 0.5 1
+//@param7:xpos 'Text X position' 0.5 0 1 0.5 0.01
+//@param8:ypos 'Text Y position' 0.5 0 1 0.5 0.01
+//@param9:fgc_r 'Red text' 1.0 0 1 0.5 0.01
+//@param10:fgc_g 'Green text' 1.0 0 1 0.5 0.01
+//@param11:fgc_b 'Blue text' 1.0 0 1 0.5 0.01
+//@param12:align 'Text align' 1 0 2 1 1
+//@param13:fga 'Alpha text' 1.0 0 1 0.5 0.01
+//@param14:bg_on 'BG enabled' 0 0 1 0.5 1
+//@param15:bgypos 'BG Y offset' 0.5 0 1 0.5 0.01
+//@param16:bgxpos 'BG X offset' 0.5 0 1 0.5 0.01
+//@param17:bg_rot 'BG rotation (deg)' 0 -360 360 0 0.1
+//@param18:bgwidth 'BG width' 1.0 0.0 10.0 1.0 0.01
+//@param19:bgheight 'BG height' 1.0 0.0 10.0 1.0 0.01
+//@param20:bgc_r 'Red BG' 0.0 0 1 0.5 0.01
+//@param21:bgc_g 'Green BG' 0.0 0 1 0.5 0.01
+//@param22:bgc_b 'Blue BG' 0.0 0 1 0.5 0.01
+//@param23:bga 'Alpha BG' 1 0.001 1 0.5 0.001
+//@param24:bg_corner 'BG border radius' 0 0 0.5 0.1 0.01
+//@param25:bg_fade 'BG fade' 0 0 0.5 0 0.01
+//@param27:ol_on 'Outline enabled' 0 0 1 0.5 1
+//@param28:outline_w 'Outline width' 2 0 10 2 1
+//@param29:outl_r 'Red outline' 0.0 0 1 0.5 0.01
+//@param30:outl_g 'Green outline' 0.0 0 1 0.5 0.01
+//@param31:outl_b 'Blue outline' 0.0 0 1 0.5 0.01
+//@param32:outl_a 'Alpha outline' 1.0 0 1 0.5 0.01
+//@param34:sh_x 'Shadow X offset' 5 -100 100 0 1
+//@param35:sh_y 'Shadow Y offset' 5 -100 100 0 1
+//@param36:sh_a 'Shadow alpha' 0.5 0 1 0.5 0.01
+//@param37:sh_on 'Shadow enabled' 1 0 1 0.5 1
+
+// 1. Обов'язково малюємо відео на екран
+gfx_blit(0, 1); 
+
+project_w <= 0 ? input_info(0, project_w, project_h);
+(project_w <= 0 || project_h <= 0) ? (project_w = 1920; project_h = 1080;);
+
+is_active = gmem[0];
+gmem[0] = 0; 
+
+#text = "";
+
+// 2. Зчитування назви айтема
+is_active == 1 ? (
+  input_get_name(0, #text);
+  strcmp(#text, "SUBASS_ITEMS") == 0 ? #text = "";
+) : (
+  #text = "";
+);
+
+// 3. Малювання тексту напряму на екран проекту
+strlen(#text) > 0 ? (
+  fontselect == 0  ? font = "Arial";
+  fontselect == 1  ? font = "Calibri";
+  fontselect == 2  ? font = "Roboto";
+  fontselect == 3  ? font = "Segoe UI";
+  fontselect == 4  ? font = "Trebuchet MS";
+  fontselect == 5  ? font = "Verdana";
+  fontselect == 6  ? font = "Cambria";
+  fontselect == 7  ? font = "Impact";
+  fontselect == 8  ? font = "Georgia";
+  fontselect == 9  ? font = "Times New Roman";
+  fontselect == 10 ? font = "Consolas";
+  fontselect == 11 ? font = "Courier New";
+
+  style_flag = 0;
+  fontstyle == 1 ? style_flag = 'b';
+  fontstyle == 2 ? style_flag = 'i';
+  fontstyle == 3 ? style_flag = 256 * 'i' + 'b';
+  underline > 0.5 ? style_flag = (style_flag > 0) ? (256 * style_flag + 'u') : 'u';
+  
+  colorspace = 'RGBA';
+  gfx_setfont(size * project_h, font, style_flag);
+
+  // Вимірюємо текст
+  line_count = 0; max_line_w = 0; total_line_h = 0; src_len = strlen(#text); i = 0; line_start = 0;
+  loop(src_len + 1,
+    ch = (i < src_len) ? str_getchar(#text, i) : 10;
+    (ch == 10 || ch == 13) ? (
+      #line = ""; copy_len = i - line_start;
+      copy_len > 0 ? ( j = 0; loop(copy_len, str_setchar(#line, j, str_getchar(#text, line_start + j)); j += 1; ); str_setchar(#line, copy_len, 0); );
+      gfx_str_measure(#line, lw, lh);
+      lw > max_line_w ? max_line_w = lw;
+      total_line_h += lh; line_h_single = lh; line_count += 1;
+      (ch == 13 && i + 1 < src_len && str_getchar(#text, i + 1) == 10) ? ( i += 1; );
+      line_start = i + 1;
+    );
+    i += 1;
+  );
+  line_count == 0 ? ( gfx_str_measure(#text, max_line_w, total_line_h); line_h_single = total_line_h; line_count = 1; );
+  txtw = max_line_w; txth = total_line_h;
+
+  ty = ((project_h - txth) * ypos) | 0; xp = (xpos * (project_w - txtw)) | 0;
+  bgw = bg_on ? txtw * bgwidth : project_w * bgwidth; bgh = bg_on ? txth * bgheight : project_h * bgheight;
+  bgx = xp - (bgw - txtw) / 2 + (bgxpos - 0.5) * project_w; bgy = ty  - (bgh - txth) / 2 + (bgypos - 0.5) * project_h;
+
+  gfx_dest = -1; // ПРЯМЕ МАЛЮВАННЯ БЕЗ БУФЕРІВ
+
+  // А. ПІД КЛАДКА
+  (bg_on > 0.5 && bga > 0) ? (
+    gfx_set(bgc_r, bgc_g, bgc_b, bga, 0);
+    gfx_fillrect(bgx, bgy, bgw, bgh);
+  );
+
+  // Б. МАЛЮЄМО ТЕКСТ ТА ОБВОДКУ
+  cur_ly = ty; i = 0; line_start = 0;
+  loop(src_len + 1,
+    ch = (i < src_len) ? str_getchar(#text, i) : 10;
+    (ch == 10 || ch == 13) ? (
+      #line = ""; copy_len = i - line_start;
+      copy_len > 0 ? ( j = 0; loop(copy_len, str_setchar(#line, j, str_getchar(#text, line_start + j)); j += 1; ); str_setchar(#line, copy_len, 0); );
+      gfx_str_measure(#line, line_w, line_h);
+      
+      align == 0 ? cur_lx = xp; 
+      align == 1 ? cur_lx = xp + (txtw - line_w) / 2; 
+      align == 2 ? cur_lx = xp + (txtw - line_w);
+      
+      // 1. Тінь
+      (sh_on > 0.5 && sh_a > 0) ? ( 
+        gfx_set(0, 0, 0, sh_a * fga, 0); 
+        gfx_str_draw(#line, cur_lx + sh_x, cur_ly + sh_y); 
+      );
+      
+      // 2. Обводка
+      (ol_on > 0.5 && outline_w > 0) ? (
+        gfx_set(outl_r, outl_g, outl_b, outl_a, 0); 
+        oi = -outline_w; 
+        while(oi <= outline_w) ( 
+          oj = -outline_w; 
+          while(oj <= outline_w) ( 
+            (oi != 0 || oj != 0) ? gfx_str_draw(#line, cur_lx + oi, cur_ly + oj); 
+            oj += outline_w; 
+          ); 
+          oi += outline_w; 
+        );
+      );
+      
+      // 3. ОСНОВНИЙ ТЕКСТ (Фікс альфа-каналу)
+      // Ми малюємо текст двічі: перший раз з альфою 0 для заповнення, 
+      // а другий раз — як нормальний колір.
+      gfx_set(fgc_r, fgc_g, fgc_b, fga, 0); 
+      gfx_str_draw(#line, cur_lx, cur_ly);
+      // Якщо він все ще прозорий, додаємо "штамп":
+      gfx_set(fgc_r, fgc_g, fgc_b, fga, 1);
+      gfx_str_draw(#line, cur_lx, cur_ly);
+      
+      cur_ly += line_h;
+      (ch == 13 && i + 1 < src_len && str_getchar(#text, i + 1) == 10) ? ( i += 1; );
+      line_start = i + 1;
+    );
+    i += 1;
+  );
+);]=]
+
+    -- Find if the track already has a Video Processor FX
+    local track_fx_idx = -1
+    local num_fx = reaper.TrackFX_GetCount(target_track)
+    for f = 0, num_fx - 1 do
+        local retval, fx_name = reaper.TrackFX_GetFXName(target_track, f, "")
+        if retval and (fx_name:lower():find("video processor") or fx_name:lower():find("video_processor")) then
+            track_fx_idx = f
+            break
+        end
+    end
+
+    if track_fx_idx < 0 then
+        track_fx_idx = reaper.TrackFX_AddByName(target_track, "Video processor", false, 1) -- add
+        if track_fx_idx >= 0 then
+            set_fx_code_simple(target_track, track_fx_idx, track_fx_code, false)
+            -- reaper.TrackFX_SetEnabled(target_track, track_fx_idx, false)
+            reaper.SetOnlyTrackSelected(target_track)
+            reaper.Main_OnCommand(8, 0)
+
+            -- ТОЧНА ІНІЦІАЛІЗАЦІЯ ПАРАМЕТРІВ (Індекси від 0 до 33)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 0, 0.06)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 6, 0.5)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 7, 0.98)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 8, 1.0) 
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 9, 1.0)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 10, 1.0)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 11, 1.0)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 12, 1.0)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 13, 0.0)
+
+            -- Обводка (Outline)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 26, 1.0)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 27, 2.0)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 31, 0.15)
+ 
+            -- Тінь (Shadow)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 33, 3.0)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 34, 3.0)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 35, 0.6)
+            reaper.TrackFX_SetParam(target_track, track_fx_idx, 36, 1.0)
+        end
+    end
+
     for _, rgn in ipairs(rgns) do
         local item = reaper.AddMediaItemToTrack(target_track)
         reaper.SetMediaItemPosition(item, rgn.pos, false)
         reaper.SetMediaItemLength(item, math.max(rgn.rgnend - rgn.pos, 0.001), false)
         local take = reaper.AddTakeToMediaItem(item)
-        reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", rgn.name, true)
-        reaper.GetSetMediaItemInfo_String(item, "P_NOTES", rgn.name, true)
+        if take then
+            reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", rgn.name, true)
+            reaper.GetSetMediaItemInfo_String(item, "P_NOTES", rgn.name, true)
+            
+            -- Add Video Processor to item take
+            local take_fx = reaper.TakeFX_AddByName(take, "Video processor", 1)
+            if take_fx >= 0 then
+                local item_code = "gfx_blit(0, 1);\ngmem[0] = 1;"
+                set_fx_code_simple(take, take_fx, item_code, true)
+            end
+        end
     end
 
     reaper.UpdateArrange()
