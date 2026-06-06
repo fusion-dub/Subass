@@ -922,7 +922,7 @@ local I18N = {
     OPEN_IN_REAPACK = { en = "Open in ReaPack", ua = "Відкрити в ReaPack" },
     REAPACK_NOT_FOUND = { en = "ReaPack wasn't found, even though the check says it's OK.", ua = "ReaPack не знайдено, хоча перевірка каже ОК." },
     RQ_PYTHON_1 = { en = "Current version: ", ua = "Поточна версія: " },
-    RQ_PYTHON_2 = { en = ". A programming language for running AI accents.\n\n**STEP 1:** Go to [python.org](https://www.python.org/downloads/) and download Python 3.12+.\n\n**STEP 2 (WINDOWS):** During installation, **MUST** check the box for **‘Add Python to PATH’**!\n\n**STEP 2 (macOS):** Run the installer and follow the instructions.\n\n**STEP 3:** Restart REAPER.\n\n**STEP 4:** Verification (optional): In the terminal, type **‘python --version’** (or **‘python3 --version’**). It should be 3.12+.", ua = ". Мова програмування для зупуску ШІ наголосів.\n\n**КРОК 1:** Натисніть [python.org](https://www.python.org/downloads/) і завантажте Python 3.11+.\n\n**КРОК 2 (WINDOWS):** Під час встановлення **ОБОВ'ЯЗКОВО** поставте галочку **'Add Python to PATH'**!\n\n**КРОК 2 (macOS):** Запустіть інсталятор і слідуйте інструкціям.\n\n**КРОК 3:** Перезапустіть REAPER.\n\n**КРОК 4:** Перевірка (не обов'язково): у терміналі введіть **'python --version'** (або **'python3 --version'**). Має бути 3.12+." },
+    RQ_PYTHON_2 = { en = ". A programming language for running AI accents.\n\n**STEP 1:** Go to [python.org](https://www.python.org/downloads/) and download Python 3.12+.\n\n**STEP 2 (WINDOWS):** During installation, **MUST** check the box for **‘Add Python to PATH’**!\n\n**STEP 2 (macOS):** Run the installer and follow the instructions.\n\n**STEP 3:** Restart REAPER.\n\n**STEP 4:** Verification (optional): In the terminal, type **‘python --version’** (or **‘python3 --version’**). It should be 3.12+.", ua = ". Мова програмування для зупуску ШІ наголосів.\n\n**КРОК 1:** Натисніть [python.org](https://www.python.org/downloads/) і завантажте Python 3.12+.\n\n**КРОК 2 (WINDOWS):** Під час встановлення **ОБОВ'ЯЗКОВО** поставте галочку **'Add Python to PATH'**!\n\n**КРОК 2 (macOS):** Запустіть інсталятор і слідуйте інструкціям.\n\n**КРОК 3:** Перезапустіть REAPER.\n\n**КРОК 4:** Перевірка (не обов'язково): у терміналі введіть **'python --version'** (або **'python3 --version'**). Має бути 3.12+." },
     RQ_REAIMGUI = { en = "Graphics engine for the overlay interface.\n\n**IMPORTANT:** Install ReaPack first!\n\n**STEP 1:** Open **‘Extensions’** → **‘ReaPack’** → **‘Browse packages’**.\n\n**STEP 2:** In the search field, enter **‘ReaImGui’** (without spaces).\n\n**STEP 3:** Find the ‘ReaImGui’ package by ‘cfillion’ in the list of results.\n\n**STEP 4:** **Right-click** on it and select **‘Install’**.\n\n**STEP 5:** Click the **‘Apply’** button at the bottom of the ReaPack window (wait for the installation to complete).\n\n**STEP 6:** **MUST** restart REAPER (even if it doesn't prompt you to).", ua = "Графічний движок для інтерфейсу оверлея.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack!\n\n**КРОК 1:** Відкрийте **'Extensions'** → **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 2:** У полі пошуку введіть **'ReaImGui'** (без пробілів).\n\n**КРОК 3:** Знайдіть пакет 'ReaImGui' від 'cfillion' у списку результатів.\n\n**КРОК 4:** Клацніть по ньому **ПРАВОЮ кнопкою миші** і виберіть **'Install'**.\n\n**КРОК 5:** Натисніть кнопку **'Apply'** внизу вікна ReaPack (почекайте встановлення).\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** перезапустіть REAPER (навіть якщо не просить)." },
     RQ_JS_REA = { en = "Advanced API for scripts.\n\n**IMPORTANT:** First, install ReaPack (see above)!\n\n**STEP 1:** In REAPER, open the **‘Extensions’** menu (at the top).\n\n**STEP 2:** Select **‘ReaPack’** → **‘Browse packages’**.\n\n**STEP 3:** In the window that opens, type **‘js_ReaScriptAPI’** into the search field at the top.\n\n**STEP 4:** Find the ‘js_ReaScriptAPI’ package in the list, and **RIGHT-CLICK** on it.\n\n**STEP 5:** In the menu, select **‘Install’**.\n\n**STEP 6:** **MUST** click the **‘Apply’** button at the bottom of the ReaPack window.\n\n**STEP 7:** Wait for the installation to complete (a message will appear).", ua = "Розширений API для скриптів.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack (див. вище)!\n\n**КРОК 1:** У REAPER відкрийте меню **'Extensions'** (вгорі).\n\n**КРОК 2:** Виберіть **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 3:** У вікні що відкрилося, у полі пошуку вгорі введіть **'js_ReaScriptAPI'**.\n\n**КРОК 4:** Знайдіть пакет 'js_ReaScriptAPI' у списку, клацніть по ньому **ПРАВОЮ кнопкою миші**.\n\n**КРОК 5:** У меню виберіть **'Install'**.\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** натисніть кнопку **'Apply'** внизу вікна ReaPack.\n\n**КРОК 7:** Дочекайтеся завершення встановлення (з'явиться повідомлення)." },
     RQ_REAPACK = { en = "REAPER Plugin Manager.\n\n**STEP 1:** Click the link [reapack.com](https://reapack.com/) and download the file for your operating system.\n\n**STEP 2:** In REAPER, open the **‘Options’** menu (at the top) and select **‘Show REAPER resource path in explorer/finder’**.\n\n**STEP 3:** In the open folder, locate or create a folder named **‘UserPlugins’**.\n\n**STEP 4:** Copy the downloaded ReaPack file (.dll for Windows or .dylib for macOS) into this ‘UserPlugins’ folder.\n\n**STEP 5:** Restart REAPER.\n\n**STEP 6:** Verify that the ‘ReaPack’ option has appeared in the ‘Extensions’ menu.", ua = "Менеджер розширень для REAPER.\n\n**КРОК 1:** Натисніть на посилання [reapack.com](https://reapack.com/) і завантажте файл для вашої ОС.\n\n**КРОК 2:** У REAPER відкрийте меню **'Options'** (вгорі) і виберіть **'Show REAPER resource path in explorer/finder'**.\n\n**КРОК 3:** У відкритій папці знайдіть або створіть папку **'UserPlugins'**.\n\n**КРОК 4:** Скопіюйте завантажений файл ReaPack (.dll для Windows або .dylib для macOS) у цю папку 'UserPlugins'.\n\n**КРОК 5:** Перезапустіть REAPER.\n\n**КРОК 6:** Перевірте, що в меню 'Extensions' з'явився пункт 'ReaPack'." },
@@ -1196,26 +1196,20 @@ local I18N = {
     DG_FILE_I_COUNT_DUP = { en = " (Duplicates: ", ua = " (Дублікатів: " },
     STRESS_IT_TAKE_TIME = { en = "Processing the accents will take some time...", ua = "Обробка наголосів, це займе певний час..." },
     STRESS_INIT = { en = "Initializing...", ua = "Ініціалізація..." },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
+    ACCENTS_ADDED = { en = "Accents added: %d lines", ua = "Наголоси додано: %d рядків" },
+    ACCENTS_NOT_NEEDED = { en = "Accents not needed or not found", ua = "Наголоси не потрібні або не знайдені" },
+    STRESS_ERR_HEADER = { en = "Failed to apply accents.\n--------------------------------------------------\n\n", ua = "Не вдалося розставити наголоси.\n--------------------------------------------------\n\n" },
+    STRESS_ERR_PERMISSION_WIN = { en = "⚠️ ACCESS ERROR (Windows):\nAntivirus or access permissions are blocking file operations.\n\nHOW TO FIX:\n1. Try running REAPER as Administrator.\n2. Add the folder '%s' to antivirus exclusions.\n\n", ua = "⚠️ ПОМИЛКА ДОСТУПУ (Windows):\nАнтивірус або права доступу блокують роботу з файлами.\n\nЯК ВИПРАВИТИ:\n1. Спробуйте запустити REAPER від імені Адміністратора.\n2. Додайте папку '%s' у виключення антивірусу.\n\n" },
+    STRESS_ERR_PERMISSION_MAC = { en = "⚠️ ACCESS ERROR (macOS Sandbox):\nREAPER does not have permission to read files in this folder.\n\nHOW TO FIX:\n1. Open 'System Settings' -> 'Privacy & Security'.\n2. Find 'Full Disk Access'.\n3. Add REAPER to the list and enable the switch.\n4. RESTART REAPER.\n\n", ua = "⚠️ ПОМИЛКА ДОСТУПУ (macOS Sandbox):\nУ REAPER немає прав на читання файлів у цій папці.\n\nЯК ВИПРАВИТИ:\n1. Відкрийте 'Системні налаштування' -> 'Конфіденційність та безпека'.\n2. Знайдіть 'Повний доступ до диска' (Full Disk Access).\n3. Додайте REAPER до списку та увімкніть перемикач.\n4. ПЕРЕЗАПУСТІТЬ REAPER.\n\n" },
+    STRESS_ERR_PYTHON_MISSING_WIN = { en = "⚠️ PYTHON NOT FOUND:\nPython is not installed or not added to PATH.\n\nHOW TO FIX:\n1. Install Python from Microsoft Store (select version 3.12+).\n2. OR download the installer from python.org and MUST check the box 'Add Python to PATH' during installation.\n\n", ua = "⚠️ PYTHON НЕ ЗНАЙДЕНО:\nPython не встановлено або не додано в PATH.\n\nЯК ВИПРАВИТИ:\n1. Встановіть Python з Microsoft Store (виберіть версію 3.12+).\n2. АБО завантажте інсталятор з python.org і ОБОВ'ЯЗКОВО поставте галочку 'Add Python to PATH' при встановленні.\n\n" },
+    STRESS_ERR_PYTHON_MISSING_MAC = { en = "⚠️ PYTHON NOT FOUND:\nThe command 'python3' was not found.\n\nHOW TO FIX:\nInstall Python 3.9+ from the official website or via Homebrew: 'brew install python'.\n\n", ua = "⚠️ PYTHON НЕ ЗНАЙДЕНО:\nКоманда 'python3' не знайдена.\n\nЯК ВИПРАВИТИ:\nВстановіть Python 3.9+ з офіційного сайту або через Homebrew: 'brew install python'." },
+    STRESS_ERR_VERSION_WIN = { en = "⚠️ OLD PYTHON VERSION:\nPython 3.9 or newer is required for AI accents.\n\nHOW TO FIX:\nUpdate Python (download the new version 3.12+ from python.org).\n\n", ua = "⚠️ СТАРА ВЕРСІЯ PYTHON:\nДля роботи AI-наголосів потрібен Python 3.9 або новіше.\n\nЯК ВИПРАВИТИ:\nОновіть Python (завантажте нову версію 3.12+ з python.org).\n\n" },
+    STRESS_ERR_VERSION_MAC = { en = "⚠️ OLD PYTHON VERSION:\nPython 3.9 or newer is required for AI accents.\n\nHOW TO FIX:\nInstall the new version via Homebrew: 'brew install python@3.12'\n\n", ua = "⚠️ СТАРА ВЕРСІЯ PYTHON:\nДля роботи AI-наголосів потрібен Python 3.9 або новіше.\n\nЯК ВИПРАВИТИ:\nВстановіть нову версію через Homebrew: 'brew install python@3.12'\n\n" },
+    STRESS_ERR_DEPENDENCY = { en = "⚠️ DEPENDENCY INSTALLATION ERROR:\nFailed to automatically install 'ukrainian-word-stress'.\n\nHOW TO FIX:\n1. Check your internet connection (needed to download libraries).\n2. Try installing manually: open terminal/CMD and enter: 'pip install ukrainian-word-stress'\n\n", ua = "⚠️ ПОМИЛКА ВСТАНОВЛЕННЯ ЗАЛЕЖНОСТЕЙ:\nНе вдалося автоматично встановити 'ukrainian-word-stress'.\n\nЯК ВИПРАВИТИ:\n1. Перевірте підключення до інтернету (потрібно для завантаження бібліотек).\n2. Спробуйте встановити вручную: відкрийте термінал/CMD і введіть: 'pip install ukrainian-word-stress'\n\n" },
+    STRESS_ERR_TIMEOUT = { en = "⚠️ TIMEOUT EXCEEDED:\nThe AI tool did not process the text in time (or crashed).\n\nHOW TO FIX:\n1. If this is the first run, model download might be in progress. Try again.\n2. Check the REAPER console for errors.\n\n", ua = "⚠️ ПЕРЕВИЩЕНО ЧАС ОЧІКУВАННЯ (Timeout):\nAI-інструмент не встиг обробити текст (або стався збій).\n\nЯК ВИПРАВИТИ:\n1. Якщо це перший запуск — можливо, триває завантаження моделей. Спробуйте ще раз.\n2. Перевірте консоль REAPER на наявність помилок.\n\n" },
+    STRESS_ERR_UNKNOWN = { en = "❌ UNKNOWN ERROR.\n\n", ua = "❌ НЕВІДОМА ПОМИЛКА.\n\n" },
+    STRESS_ERR_PATH = { en = "Script path: ", ua = "Шлях до скрипта: " },
+    STRESS_ERR_TITLE = { en = "Accent Error", ua = "Помилка наголосів" },
 }
 
 function T(key)
@@ -14420,63 +14414,35 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
     if not python_success then
         UI_STATE.script_loading_state.active = false
         
-        local msg = "Не вдалося розставити наголоси.\n--------------------------------------------------\n\n"
+        local msg = T("STRESS_ERR_HEADER")
         if ai_error_type == "PERMISSION" then
             if is_windows then
-                msg = msg .. "⚠️ ПОМИЛКА ДОСТУПУ (Windows):\n"
-                msg = msg .. "Антивірус або права доступу блокують роботу з файлами.\n\n"
-                msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                msg = msg .. "1. Спробуйте запустити REAPER від імені Адміністратора.\n"
-                msg = msg .. "2. Додайте папку '" .. script_path .. "' у виключення антивірусу.\n\n"
+                msg = msg .. string.format(T("STRESS_ERR_PERMISSION_WIN"), script_path)
             else
-                msg = msg .. "⚠️ ПОМИЛКА ДОСТУПУ (macOS Sandbox):\n"
-                msg = msg .. "У REAPER немає прав на читання файлів у цій папці.\n\n"
-                msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                msg = msg .. "1. Відкрийте 'Системні налаштування' -> 'Конфіденційність та безпека'.\n"
-                msg = msg .. "2. Знайдіть 'Повний доступ до диска' (Full Disk Access).\n"
-                msg = msg .. "3. Додайте REAPER до списку та увімкніть перемикач.\n"
-                msg = msg .. "4. ПЕРЕЗАПУСТІТЬ REAPER.\n\n"
+                msg = msg .. T("STRESS_ERR_PERMISSION_MAC")
             end
         elseif ai_error_type == "PYTHON_MISSING" then
-            msg = msg .. "⚠️ PYTHON НЕ ЗНАЙДЕНО:\n"
             if is_windows then
-                msg = msg .. "Python не встановлено або не додано в PATH.\n\n"
-                msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                msg = msg .. "1. Встановіть Python з Microsoft Store (виберіть версію 3.11+).\n"
-                msg = msg .. "2. АБО завантажте інсталятор з python.org і ОБОВ'ЯЗКОВО поставте галочку 'Add Python to PATH' при встановленні.\n\n"
+                msg = msg .. T("STRESS_ERR_PYTHON_MISSING_WIN")
             else
-                msg = msg .. "Команда 'python3' не знайдена.\n\n"
-                msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                msg = msg .. "Встановіть Python 3.9+ з офіційного сайту або через Homebrew: 'brew install python'.\n\n"
+                msg = msg .. T("STRESS_ERR_PYTHON_MISSING_MAC")
             end
         elseif ai_error_type == "VERSION" then
-            msg = msg .. "⚠️ СТАРА ВЕРСІЯ PYTHON:\n"
-            msg = msg .. "Для роботи AI-наголосів потрібен Python 3.9 або новіше.\n\n"
             if is_windows then
-                msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                msg = msg .. "Оновіть Python (завантажте нову версію 3.11+ з python.org).\n\n"
+                msg = msg .. T("STRESS_ERR_VERSION_WIN")
             else
-                msg = msg .. "ЯК ВИПРАВИТИ:\n"
-                msg = msg .. "Встановіть нову версію через Homebrew: 'brew install python@3.11'\n\n"
+                msg = msg .. T("STRESS_ERR_VERSION_MAC")
             end
         elseif ai_error_type == "DEPENDENCY" then
-            msg = msg .. "⚠️ ПОМИЛКА ВСТАНОВЛЕННЯ ЗАЛЕЖНОСТЕЙ:\n"
-            msg = msg .. "Не вдалося автоматично встановити 'ukrainian-word-stress'.\n\n"
-            msg = msg .. "ЯК ВИПРАВИТИ:\n"
-            msg = msg .. "1. Перевірте підключення до інтернету (потрібно для завантаження бібліотек).\n"
-            msg = msg .. "2. Спробуйте встановити вручную: відкрийте термінал/CMD і введіть: 'pip install ukrainian-word-stress'\n\n"
+            msg = msg .. T("STRESS_ERR_DEPENDENCY")
         elseif ai_error_type == "TIMEOUT" or ai_error_type == "TIMEOUT_OR_CRASH" then
-            msg = msg .. "⚠️ ПЕРЕВИЩЕНО ЧАС ОЧІКУВАННЯ (Timeout):\n"
-            msg = msg .. "AI-інструмент не встиг обробити текст (або стався збій).\n\n"
-            msg = msg .. "ЯК ВИПРАВИТИ:\n"
-            msg = msg .. "1. Якщо це перший запуск — можливо, триває завантаження моделей. Спробуйте ще раз.\n"
-            msg = msg .. "2. Перевірте консоль REAPER на наявність помилок.\n"
+            msg = msg .. T("STRESS_ERR_TIMEOUT")
         else
-            msg = msg .. "❌ НЕВІДОМА ПОМИЛКА.\n\n"
+            msg = msg .. T("STRESS_ERR_UNKNOWN")
         end
         
-        msg = msg .. "Шлях до скрипта: " .. script_path
-        reaper.MB(msg, "Помилка наголосів", 0)
+        msg = msg .. T("STRESS_ERR_PATH") .. script_path
+        reaper.MB(msg, T("STRESS_ERR_TITLE"), 0)
         return
     end
     
@@ -14488,12 +14454,12 @@ local function on_stress_complete(output, script_path, export_count, temp_out, l
         rebuild_regions()
         save_project_data(UI_STATE.last_project_id)
         reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
-        show_snackbar("Наголоси додано: " .. changed_lines .. " рядків", "success")
+        show_snackbar(string.format(T("ACCENTS_ADDED"), changed_lines), "success")
 
         ACHIEVEMENTS.add_stat("ach_2_total_lines", changed_lines)
         ACHIEVEMENTS.add_stat("ach_2_run_count", 1)
     else
-        show_snackbar("Наголоси не потрібні або не знайдені", "info")
+        show_snackbar(T("ACCENTS_NOT_NEEDED"), "info")
         ACHIEVEMENTS.add_stat("ach_2_run_count", 1)
     end
 
