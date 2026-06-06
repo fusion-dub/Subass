@@ -1089,6 +1089,29 @@ local function draw_gui()
                 end
                 reaper.ImGui_EndPopup(ctx)
             end
+        else
+            -- Right aligned menu (кнопка меню завжди відображається)
+            local btn_w = 24
+            local avail_xw = reaper.ImGui_GetContentRegionAvail(ctx)
+            
+            reaper.ImGui_SameLine(ctx, avail_xw - btn_w)
+            if reaper.ImGui_Button(ctx, "≡", btn_w, 0) then
+                reaper.ImGui_OpenPopup(ctx, "DocMenu")
+            end
+            
+            if reaper.ImGui_BeginPopup(ctx, "DocMenu") then                
+                if reaper.ImGui_BeginMenu(ctx, T("lang_label")) then
+                    if reaper.ImGui_MenuItem(ctx, "English", nil, language == "en") then
+                        save_language("en")
+                    end
+                    if reaper.ImGui_MenuItem(ctx, "Українська", nil, language == "ua") then
+                        save_language("ua")
+                    end
+                    reaper.ImGui_EndMenu(ctx)
+                end
+                
+                reaper.ImGui_EndPopup(ctx)
+            end
         end
         
         reaper.ImGui_Separator(ctx)
