@@ -1117,21 +1117,85 @@ local I18N = {
     ACH_HINT_ach_28 = { en = "Lines edited in Editor mode", ua = "Редаговано реплік в режимі Редактора" },
     ACH_HINT_ach_29 = { en = "AI translated lines imported", ua = "Імпортовано перекладених реплік через ШІ" },
     ACH_HINT_ach_30 = { en = "Deadline notifications configured", ua = "Налаштовано сповіщень про дедлайни" },
-
     ACH_ER_LOAD_L = { en = "Unable to load the leaderboard", ua = "Не вдалося завантажити таблицю лідерів" },
     ACH_ER_JSON_L = { en = "JSON decoding error", ua = "Помилка декодування JSON" },
     ACH_ER_CON_L = { en = "No connection to the server (file not found)", ua = "Немає зв'язку з сервером (файл відсутній)" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
+    SRC_IN_ALL_PROJ = { en = "Searching across all projects...", ua = "Шукаю у всіх проектах..." },
+    SRC_NO_FOUND = { en = "Nothing found", ua = "Нічого не знайдено" },
+    SRC_ENTER_SF_TEXT = { en = "Enter the text you want to search for in the folder:", ua = "Введіть текст для пошуку в папці:" },
+    SRC_NO_F_SELECTED = { en = "(No folder selected)", ua = "(Папка не вибрана)" },
+    SRC_ENTER_TEXT_SEARCH_WANT = { en = "Enter the text you want to search for...", ua = "Введіть текст для пошуку..." },
+    SEARCH = { en = "Search", ua = "Шукати" },
+    SRC_SELECT_F_FOR_S_1 = { en = "Select a folder to search for projects: ", ua = "Вибрати папку для пошуку проектів: " },
+    NOT_SELECTED = { en = "Not selected", ua = "Не вибрано" },
+    SRC_FOLDER = { en = "Folder: ", ua = "Папка: " },
+    SRC_I_MENU = { en = "Insert audio into the track||Open the project with this audio", ua = "Вставити аудіо на доріжку||Відкрити проєкт з цим аудіо" },
+    AUDIO_ADDED = { en = "Audio added", ua = "Аудіо додано" },
+    SRC_I_SW_OPEN_PROJ = { en = "Switched to an open project", ua = "Переключено на відкритий проєкт" },
+    SRC_I_OPEN_PROJ = { en = "The project is now open", ua = "Проєкт відкрито" },
+    SRC_I_NF_1 = { en = "Project file not found:\n", ua = "Файл проєкту не знайдено:\n" },
+    SRC_I_NF_2 = { en = "\n\nFind the file manually?", ua = "\n\nЗнайти файл вручну?" },
+    SRC_I_NF_3 = { en = "Opening error", ua = "Помилка відкриття" },
+    FIND_A_PROJ_UF = { en = "Find project", ua = "Знайти проєкт" },
+    SRC_NO_PATH_PROJ_UF = { en = "The path to the project was not found", ua = "Шлях до проєкту не знайдено" },
+    FILE_NOT_FOUND = { en = "File not found", ua = "Файл не знайдено" },
+    SRC_F_OPEN_A_SOURCE = { en = "Unable to open the audio source", ua = "Не вдалося відкрити аудіо джерело" },
+    SRC_PATH_ERR = { en = "Path error: ", ua = "Помилка шляху: " },
+    SEARCH_DOTS = { en = "Search...", ua = "Пошук..." },
+    SRC_SELECT_F_FOR_S_2 = { en = "Select a folder to search for projects", ua = "Виберіть папку для пошуку проектів" },
+    SRC_JS_API_RQ = { en = "The JS_API is required to select a folder", ua = "Потрібен JS_API для вибору папки" },
+    ENTER_TEXT_DOTS = { en = "Enter text...", ua = "Введіть текст..." },
+    TE_TITLE = { en = "Text editing (Shift+Enter = new line, Enter = save, Esc = cancel)", ua = "Редагування тексту (Shift+Enter = новий рядок, Enter = зберегти, Esc = скасування)" },
+    TE_AI_S_T_TEXT = { en = "You need to select the text you want to work on", ua = "Треба виділити цільовий текст для роботи" },
+    TE_AI_S_MORE = { en = "You need to select more text", ua = "Треба виділити більше тексту" },
+    TE_AI_KEY_E_1 = { en = "The ", ua = "Ключ " },
+    TE_AI_KEY_E_2 = { en = "API key is invalid or missing", ua = " API не валідний або відсутній" },
+    PASTE = { en = "Paste", ua = "Вставити" },
+    CUT = { en = "Cut", ua = "Вирізати" },
+    SELECT_ALL = { en = "Select all", ua = "Виділити все" },
+    FAST_UA_INPUT = { en = "Quick UA Input:\nAllows you to type in Ukrainian using an English keyboard layout", ua = "Швидкий UA ввід:\nДозволяє писати українською на англійській розкладці клавіатури" },
+    TAKES_PROCC_CTI = { en = "Takes processed: ", ua = "Оброблено реплік: " },
+    SELECT_1_MORE_T_CTI = { en = "Select one or more actor tracks for analysis.", ua = "Оберіть один або кілька треків акторів для аналізу." },
+    IMPORT_S_F_CTI = { en = "First, import the subtitle file.", ua = "Спершу імпортуйте файл субтитрів." },
+    CALC_L_CTI = { en = "Calc lins by actors", ua = "Розрахунок реплік по акторам" },
+    TTS_READING_1 = { en = "I'm reading...", ua = "Озвучую..." },
+    TTS_READING_2 = { en = "Generating and saving...", ua = "Генерую та зберігаю..." },
+    TTS_S_NOT_FOUND = { en = "TTS script not found", ua = "TTS скрипт не знайдено" },
+    TTS_E_1 = { en = "Temporary file write error", ua = "Помилка запису тимчасового файлу" },
+    TTS_E_2 = { en = "TTS execution error", ua = "Помилка виконання TTS" },
+    TTS_A_PLAY = { en = "▶ Audio playback", ua = "▶ Відтворення аудіо" },
+    TTS_S_TRACK_TO_I = { en = "Select a track to insert", ua = "Виберіть трек для вставки" },
+    TTS_A_ADDED_TO_T = { en = "Audio added to the track", ua = "Аудіо додано на трек" },
+    MORE = { en = "MORE", ua = "ЩЕ" },
+    AI_WAIT_AI_WORKS = { en = "Please wait, the AI is working...", ua = "Зачекайте, AI чаклує..." },
+    AI_BACK_TO_RESULTS = { en = "Back to results", ua = "Назад до результатів" },
+    AI_OPTION = { en = "AI Option", ua = "AI Варіант" },
+    AI_OPTION_F_E = { en = "For example: More slang, extrawidth=500", ua = "наприклад: Більше сленгу,extrawidth=500" },
+    SU_CHECKING_FOR_UPDATE = { en = "Checking for updates...", ua = "Перевіряю оновлення..." },
+    SU_ERROR_F_R_1 = { en = "Unable to receive a response from the update server.\nCommand: ", ua = "Не вдалося отримати відповідь від сервера оновлень.\nКоманда: " },
+    SU_CHECK_FOR_UP_TIT = { en = "Check for updates", ua = "Перевірка оновлень" },
+    SU_YOU_LATEST_VERSION = { en = "You already have the latest version installed.", ua = "У вас вже встановлена актуальна версія." },
+    SU_UPDATING = { en = "Updating...", ua = "Оновлюю..." },
+    SU_AUTO_UPDATER_TIT = { en = "Auto Updater", ua = "Автооновитель" },
+    SU_UPDATE_HB_DONE = { en = "The update has been successfully completed!", ua = "Оновлення успішно завершено!" },
+    SU_ERROR_UPDATE = { en = "Update error.", ua = "Помилка оновлення." },
+    SU_UPDATE_AVAILABLE = { en = "Update available", ua = "Доступне оновлення" },
+    SU_W_LIKE_UPDATE = { en = "Would you like to update?", ua = "Бажаєте оновити?" },
+    SU_MANUAL_UPDATE = { en = "Manual update", ua = "Ручне оновлення" },
+    SU_MANUAL_UPDATE_TIP = { en = "This update requires manual installation.\nGo to the Telegram channel to download it?", ua = "Це оновлення потребує ручного встановлення.\nПерейти до Telegram каналу для завантаження?" },
+    SU_WAHT_NEW = { en = "What's new:\n", ua = "Що нового:\n" },
+    SU_NEW_HAS_V = { en = "A new version is available: %s\n(You have: %s)\n\n", ua = "Доступна нова версія: %s\n(У вас: %s)\n\n" },
+    DELETE_ALL_SURE_1 = { en = "Are you sure you want to delete ALL regions and clear the data?\n\n!!THIS ACTION CANNOT BE UNDONE!!!", ua = "Ви впевнені, що хочете видалити ВСІ регіони та очистити дані?\n\n!!ДІЯ НЕЗВОРОТНА!!!" },
+    DELETE_ALL_SURE_2 = { en = "Deletion", ua = "Видалення" },
+    DELETE_ALL_DONE = { en = "All data and regions have been deleted", ua = "Всі дані та регіони видалено" },
+    DG_IMPORT_ERR_1 = { en = "WAV import error: ", ua = "Помилка імпорту WAV: " },
+    DG_IMPORT_ERR_2 = { en = "The file format could not be determined", ua = "Не вдалося визначити формат файлу" },
+    DG_IMPORT_ERR_F_1 = { en = "The .", ua = "Формат ." },
+    DG_IMPORT_ERR_F_2 = { en = " format is not supported", ua = " не підтримується" },
+    DG_FILE_I_COUNT = { en = "Files imported: ", ua = "Імпортовано файлів: " },
+    DG_FILE_I_COUNT_DUP = { en = " (Duplicates: ", ua = " (Дублікатів: " },
+    STRESS_IT_TAKE_TIME = { en = "Processing the accents will take some time...", ua = "Обробка наголосів, це займе певний час..." },
+    STRESS_INIT = { en = "Initializing...", ua = "Ініціалізація..." },
     A = { en = "", ua = "" },
     A = { en = "", ua = "" },
     A = { en = "", ua = "" },
@@ -5386,9 +5450,9 @@ function DEADLINE.open_project_smart(proj_data)
         reaper.Main_openProject(target_path)
     else
         -- Smart Recovery: File not found
-        local result = reaper.MB("Файл проєкту не знайдено:\n" .. target_path .. "\n\nЗнайти файл вручну?", "Помилка відкриття", 4) -- 4 = Yes/No
+        local result = reaper.MB(T("SRC_I_NF_1") .. target_path .. T("SRC_I_NF_2"), T("SRC_I_NF_3"), 4)
         if result == 6 then -- 6 = Yes
-            local retval, new_path = reaper.GetUserFileNameForRead(target_path, "Знайти проєкт " .. (proj_data.name or ""), "rpp")
+            local retval, new_path = reaper.GetUserFileNameForRead(target_path, T("FIND_A_PROJ_UF") .. " " .. (proj_data.name or ""), "rpp")
             if retval and new_path then
                 -- Open found file
                 reaper.Main_OnCommand(40859, 0)
@@ -8368,7 +8432,7 @@ UTILS.GLOBAL_HOTKEY_ACTIONS = {
             trigger_dictionary_lookup(input) 
         end
     end },
-    { label = "Глобальний пошук реплік", action = function()
+    { label = T("GLOBAL_SEARCH_FOR_TAKES"), action = function()
         local state = not SEARCH_ITEM.show
         UTILS.close_all_modals()
         if state then
@@ -14439,7 +14503,7 @@ end
 --- Apply stress marks asynchronously
 apply_stress_marks_async = function()
     UI_STATE.script_loading_state.active = true
-    UI_STATE.script_loading_state.text = "Ініціалізація..."
+    UI_STATE.script_loading_state.text = T("STRESS_INIT")
     
     -- Calculate paths OUTSIDE coroutine to avoid debug.getinfo issues
     local function get_actual_script_path()
@@ -14524,7 +14588,7 @@ apply_stress_marks_async = function()
                 f_in:close()
 
                 if export_count > 0 then
-                    UI_STATE.script_loading_state.text = "Обробка наголосів, це займе певний час..."
+                    UI_STATE.script_loading_state.text = T("STRESS_IT_TAKE_TIME")
 
                     coroutine.yield()
                     
@@ -14582,7 +14646,7 @@ local function handle_drag_drop()
     local total_duplicates = 0
     
     if retval > 0 then
-        push_undo("Імпорт (Drag & Drop)")
+        push_undo("Import (Drag & Drop)")
     end
     
     while retval > 0 do
@@ -14603,13 +14667,13 @@ local function handle_drag_drop()
             elseif ext == "wav" then
                 local ok, err_msg = UTILS.import_compact_wav(dropped_file)
                 if not ok then
-                    show_snackbar("Помилка імпорту WAV: " .. tostring(err_msg), "error")
+                    show_snackbar(T("DG_IMPORT_ERR_1") .. tostring(err_msg), "error")
                 end
             else
-                show_snackbar("Формат ." .. ext:upper() .. " не підтримується", "error")
+                show_snackbar(T("DG_IMPORT_ERR_F_1") .. ext:upper() .. T("DG_IMPORT_ERR_F_2"), "error")
             end
         else
-            show_snackbar("Не вдалося визначити формат файлу", "error")
+            show_snackbar(T("DG_IMPORT_ERR_2"), "error")
         end
         
         file_idx = file_idx + 1
@@ -14619,8 +14683,8 @@ local function handle_drag_drop()
     if imported_count > 0 then
         update_regions_cache()
         rebuild_regions()
-        local msg = "Імпортовано файлів: " .. imported_count
-        if total_duplicates > 0 then msg = msg .. " (Дублікатів: " .. total_duplicates .. ")" end
+        local msg = T("DG_FILE_I_COUNT") .. imported_count
+        if total_duplicates > 0 then msg = msg .. T("DG_FILE_I_COUNT_DUP") .. total_duplicates .. ")" end
         show_snackbar(msg, "success")
     end
     
@@ -14629,7 +14693,7 @@ end
 
 --- Delete all project regions
 local function delete_all_regions()
-    local resp = reaper.ShowMessageBox("Ви впевнені, що хочете видалити ВСІ регіони та очистити дані?\n\n!!ДІЯ НЕЗВОРОТНА!!!", "Видалення", 4)
+    local resp = reaper.ShowMessageBox(T("DELETE_ALL_SURE_1"), T("DELETE_ALL_SURE_2"), 4)
     if resp ~= 6 then return end
 
     -- Clear project data
@@ -14667,7 +14731,7 @@ local function delete_all_regions()
     DICT.save_selected()
 
     if show_snackbar then
-        show_snackbar("Всі дані та регіони видалено", "error")
+        show_snackbar(T("DELETE_ALL_DONE"), "error")
     end
 end
 
@@ -14847,24 +14911,24 @@ local function check_for_updates(is_silent)
             data.description = output:match("DESCRIPTION_START[\r\n]*(.-)[\r\n]*DESCRIPTION_END")
             
             if data.update_available then
-                local msg = string.format("Доступна нова версія: %s\n(У вас: %s)\n\n", data.latest_title or "v?", data.current_title or "v?")
+                local msg = string.format(T("SU_NEW_HAS_V"), data.latest_title or "v?", data.current_title or "v?")
                 if data.description and data.description ~= "" then
-                    msg = msg .. "Що нового:\n" .. data.description .. "\n\n"
+                    msg = msg .. T("SU_WAHT_NEW") .. data.description .. "\n\n"
                 end
                 
                 if data.manual_update then
-                    msg = msg .. "Це оновлення потребує ручного встановлення.\nПерейти до Telegram каналу для завантаження?"
+                    msg = msg .. T("SU_MANUAL_UPDATE_TIP")
                     
                     -- MB Type 4 = Yes/No (Yes=6, No=7)
-                    local res = reaper.MB(msg, "Ручне оновлення", 4)
+                    local res = reaper.MB(msg, T("SU_MANUAL_UPDATE"), 4)
                     if res == 6 then
                         UTILS.open_url("https://t.me/subass_notes")
                     end
                 else
-                    msg = msg .. "Бажаєте оновити?"
+                    msg = msg .. T("SU_W_LIKE_UPDATE")
                     
                     -- MB Type 4 = Yes/No (Yes=6, No=7)
-                    local res = reaper.MB(msg, "Доступне оновлення", 4)
+                    local res = reaper.MB(msg, T("SU_UPDATE_AVAILABLE"), 4)
                     if res == 6 then
                         -- Trigger update in python
                         local update_cmd
@@ -14876,25 +14940,25 @@ local function check_for_updates(is_silent)
                         
                         run_async_command(update_cmd, function(upd_output)
                             UI_STATE.script_loading_state.active = false
-                            local ok_msg = "Оновлення успішно завершено!"
+                            local ok_msg = T("SU_UPDATE_HB_DONE")
                             if upd_output and upd_output:find(ok_msg) then
-                                reaper.MB(upd_output, "Автооновитель", 0)
+                                reaper.MB(upd_output, T("SU_AUTO_UPDATER_TIT"), 0)
                                 UTILS.restart_script()
                             else
-                                reaper.MB(upd_output or "Помилка оновлення.", "Автооновитель", 0)
+                                reaper.MB(upd_output or T("SU_ERROR_UPDATE"), T("SU_AUTO_UPDATER_TIT"), 0)
                             end
-                        end, false, "Оновлюю...")
+                        end, false, T("SU_UPDATING"))
                     end
                 end
             elseif not is_silent then
                 -- If not available and NOT silent, we show either the python msg or "you have latest"
                 local clean_out = output:gsub("UPDATE_AVAILABLE: false[\r\n]*", ""):gsub("CURRENT_TITLE: .-[\r\n]*", ""):match("^%s*(.-)%s*$")
-                reaper.MB(clean_out ~= "" and clean_out or "У вас вже встановлена актуальна версія.", "Перевірка оновлень", 0)
+                reaper.MB(clean_out ~= "" and clean_out or T("SU_YOU_LATEST_VERSION"), T("SU_CHECK_FOR_UP_TIT"), 0)
             end
         elseif not is_silent then
-            reaper.MB("Не вдалося отримати відповідь від сервера оновлень.\nКоманда: " .. cmd, T("ERROR"), 0)
+            reaper.MB(T("SU_ERROR_F_R_1") .. cmd, T("ERROR"), 0)
         end
-    end, is_silent, "Перевіряю оновлення...")
+    end, is_silent, T("SU_CHECKING_FOR_UPDATE"))
 end
 
 --- Wrap rich text (segments) to fit width
@@ -15175,7 +15239,7 @@ function DRAW_WINDOW.draw_ai_modal(skip_draw)
                             if gfx.mouse_x >= bx and gfx.mouse_x <= bx + bw and gfx.mouse_y >= by and gfx.mouse_y <= by + btn_h then
                                 ai_modal.last_click_time = now
                                 if t.task == "CUSTOM" then
-                                    local ok, input = reaper.GetUserInputs("AI Варіант", 1, "наприклад: Більше сленгу,extrawidth=200", "")
+                                    local ok, input = reaper.GetUserInputs(T("AI_OPTION"), 1, T("AI_OPTION_F_E"), "")
                                     if ok and input ~= "" then
                                         request_ai_assistant_task(t.id, input, ai_modal.text, 3)
                                     end
@@ -15318,14 +15382,14 @@ function DRAW_WINDOW.draw_ai_modal(skip_draw)
 
             gfx.rect(bbx, bby, bbw, bbh, 1)
             set_color(UI.C_TXT)
-            local sw, sh = gfx.measurestr("Назад до результатів")
+            local sw, sh = gfx.measurestr(T("AI_BACK_TO_RESULTS"))
             gfx.x, gfx.y = bbx + (bbw - sw) / 2, bby + (bbh - sh) / 2
-            gfx.drawstr("Назад до результатів")
+            gfx.drawstr(T("AI_BACK_TO_RESULTS"))
         end
         
     elseif ai_modal.current_step == "LOADING" then
         gfx.setfont(F.std)
-        local msg = "Зачекайте, AI чаклує..."
+        local msg = T("AI_WAIT_AI_WORKS")
         local mw, mh = gfx.measurestr(msg)
         gfx.x = (menu_w - mw) / 2
         gfx.y = (menu_h - mh) / 2
@@ -15388,9 +15452,9 @@ function DRAW_WINDOW.draw_ai_modal(skip_draw)
         set_color(hover_more and UI.C_SEL or UI.C_BTN_DARK)
         gfx.rect(rbx, rby, rbw, rbh, 1)
         set_color(UI.C_TXT)
-        local msw, msh = gfx.measurestr("ЩЕ")
+        local msw, msh = gfx.measurestr(T("MORE"))
         gfx.x, gfx.y = rbx + (rbw - msw) / 2, rby + (rbh - msh) / 2
-        gfx.drawstr("ЩЕ")
+        gfx.drawstr(T("MORE"))
 
     elseif ai_modal.current_step == "ERROR" then
         set_color(UI.C_FR_CLOSE)
@@ -15431,7 +15495,6 @@ function DRAW_WINDOW.draw_ai_modal(skip_draw)
     return changed
 end
 
-
 --- Play text-to-speech audio for Ukrainian word using ukrainian_tts.py
 --- @param text string Text to synthesize
 --- @param save_to_timeline boolean|nil If true, insert audio into active track at cursor
@@ -15446,7 +15509,7 @@ local function play_tts_audio(text, save_to_timeline)
     dict_modal.tts_loading = true
     dict_modal.tts_current_word = text
     UI_STATE.script_loading_state.active = true
-    UI_STATE.script_loading_state.text = save_to_timeline and "Генерую та зберігаю..." or "Озвучую..."
+    UI_STATE.script_loading_state.text = save_to_timeline and T("TTS_READING_2") or T("TTS_READING_1")
     
     -- Stop any existing preview
     if dict_modal.tts_preview and reaper.CF_Preview_Stop then
@@ -15461,7 +15524,7 @@ local function play_tts_audio(text, save_to_timeline)
     -- Check if TTS script exists
     local f = io.open(tts_script, "r")
     if not f then
-        show_snackbar("TTS скрипт не знайдено", "error")
+        show_snackbar(T("TTS_S_NOT_FOUND"), "error")
         dict_modal.tts_loading = false
         UI_STATE.script_loading_state.active = false
         return
@@ -15485,13 +15548,13 @@ local function play_tts_audio(text, save_to_timeline)
     local is_windows = reaper.GetOS():match("Win")
     local tts_input_file = (script_path .. "/tts/tts_input.txt")
     if is_windows then tts_input_file = tts_input_file:gsub("/", "\\") end
-    
+
     local f_in = io.open(tts_input_file, "w")
     if f_in then
         f_in:write(text)
         f_in:close()
     else
-        show_snackbar("Помилка запису тимчасового файлу", "error")
+        show_snackbar(T("TTS_E_1"), "error")
         dict_modal.tts_loading = false
         UI_STATE.script_loading_state.active = false
         return
@@ -15520,7 +15583,7 @@ local function play_tts_audio(text, save_to_timeline)
         UI_STATE.script_loading_state.active = false
         
         if not output then
-            show_snackbar("Помилка виконання TTS", "error")
+            show_snackbar(T("TTS_E_2"), "error")
             return
         end
         
@@ -15551,7 +15614,7 @@ local function play_tts_audio(text, save_to_timeline)
                             if preview then
                                 reaper.CF_Preview_Play(preview)
                                 dict_modal.tts_preview = preview
-                                show_snackbar("▶ Відтворення аудіо", "success")
+                                show_snackbar(T("TTS_A_PLAY"), "success")
                             end
                         end
                     end
@@ -15561,19 +15624,19 @@ local function play_tts_audio(text, save_to_timeline)
                 if save_to_timeline then
                     local track = reaper.GetSelectedTrack(0, 0)
                     if not track then
-                        show_snackbar("Виберіть трек для вставки", "error")
+                        show_snackbar(T("TTS_S_TRACK_TO_I"), "error")
                     else
                         -- mode 0 = insert at edit cursor, move cursor? 
                         -- actually, mode 0 is standard. mode 1 = new track. 
                         reaper.InsertMedia(mp3_path, 0)
-                        show_snackbar("Аудіо додано на трек", "success")
+                        show_snackbar(T("TTS_A_ADDED_TO_T"), "success")
                     end
                 end
             else
-                show_snackbar("Аудіо файл не знайдено", "error")
+                show_snackbar(T("FILE_NOT_FOUND"), "error")
             end
         else
-            show_snackbar("Помилка генерації TTS", "error")
+            show_snackbar(T("TTS_E_2"), "error")
             reaper.ShowConsoleMsg("\n══════════ TTS ERROR REPORT ══════════\n")
             reaper.ShowConsoleMsg(output or "No output available")
             reaper.ShowConsoleMsg("\n══════════════════════════════════════\n")
@@ -15585,12 +15648,12 @@ end
 function UTILS.calc_track_items_by_actor()
     local sel_track_count = reaper.CountSelectedTracks(0)
     if sel_track_count == 0 then
-        reaper.MB("Оберіть один або кілька треків акторів для аналізу.", T("ERROR"), 0)
+        reaper.MB(T("SELECT_1_MORE_T_CTI"), T("ERROR"), 0)
         return
     end
 
     if not ass_lines or #ass_lines == 0 then
-        reaper.MB("Спершу імпортуйте файл субтитрів.", T("ERROR"), 0)
+        reaper.MB(T("IMPORT_S_F_CTI"), T("ERROR"), 0)
         return
     end
 
@@ -15601,7 +15664,7 @@ function UTILS.calc_track_items_by_actor()
         table.insert(tracks, {obj = tr, name = name})
     end
 
-    push_undo("Розрахунок реплік по акторам (" .. sel_track_count .. " треків)")
+    push_undo(T("CALC_L_CTI"))
 
     local new_ass_lines = {}
     local changed_count = 0
@@ -15694,7 +15757,7 @@ function UTILS.calc_track_items_by_actor()
     rebuild_regions()
     save_project_data()
     reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
-    show_snackbar("Оброблено реплік: " .. changed_count, "success")
+    show_snackbar(T("TAKES_PROCC_CTI") .. changed_count, "success")
 end
 
 --- Handle keyboard input for a text field state
@@ -16136,7 +16199,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             UI_STATE.tooltip_state.hover_id = tip_id
             UI_STATE.tooltip_state.start_time = reaper.time_precise()
         end
-        UI_STATE.tooltip_state.text = "Швидкий UA ввід:\nДозволяє писати українською на англійській розкладці клавіатури"
+        UI_STATE.tooltip_state.text = T("FAST_UA_INPUT")
     end
     
     if (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and ua_btn_hover then
@@ -16265,7 +16328,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         
         -- Build Dynamic Menu
         local dict_label = has_sel and T("SEARCH_IN_GOROH") or T("FIND_NEW_G_PCX")
-        local menu_items = { "Вирізати", T("COPY"), "Вставити", "Виділити все", "", dict_label, "", T("VOICE_OVER_M"), T("VOICE_OVER_SAVE_M"), "", T("CHANGE_VOICE_M") }
+        local menu_items = { T("CUT"), T("COPY"), T("PASTE"), T("SELECT_ALL"), "", dict_label, "", T("VOICE_OVER_M"), T("VOICE_OVER_SAVE_M"), "", T("CHANGE_VOICE_M") }
         for _, v_name in ipairs(cfg.tts_voices_order) do
             local check = (v_name == cfg.tts_voice) and "• " or ""
             table.insert(menu_items, check .. (v_name:gsub("|", "||")))
@@ -16339,7 +16402,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             -- Change TTS Voice
             cfg.tts_voice = cfg.tts_voices_order[ret - 7]
             save_settings()
-            show_snackbar("Голос змінено на " .. cfg.tts_voice)
+            show_snackbar(T("VOICE_HB_CHANGED_TO") .. cfg.tts_voice)
         end
     end
     
@@ -16576,7 +16639,7 @@ local function trigger_ai_modal(target_state, anchor_x, anchor_y, provider_name)
     end
     
     if not key or key == "" or (status ~= 200 and status ~= 429) then
-        show_snackbar("Ключ " .. provider_name .. " API не валідний або відсутній", "error")
+        show_snackbar(T("TE_AI_KEY_E_1") .. provider_name .. T("TE_AI_KEY_E_2"), "error")
         return
     end
 
@@ -16621,7 +16684,7 @@ local function trigger_ai_modal(target_state, anchor_x, anchor_y, provider_name)
     end
     
     if has_sel and sel_max - sel_min < 8 then
-        show_snackbar("Треба виділити більше тексту", "error")
+        show_snackbar(T("TE_AI_S_MORE"), "error")
     elseif has_sel then
         if (ai_modal.text ~= "") and sel_min == ai_modal.sel_min and sel_max == ai_modal.sel_max and ai_modal.target_state == target_state then
             ai_modal.show = true
@@ -16638,7 +16701,7 @@ local function trigger_ai_modal(target_state, anchor_x, anchor_y, provider_name)
         target_state.anchor, target_state.cursor = 0, #target_state.text
         init_selection(0, #target_state.text)
     else
-        show_snackbar("Треба виділити цільовий текст для роботи", "error")
+        show_snackbar(T("TE_AI_S_T_TEXT"), "error")
     end
 end
 
@@ -16687,7 +16750,7 @@ function DRAW_WINDOW.draw_text_editor(input_queue)
     gfx.setfont(F.std)
     gfx.x, gfx.y = box_x + S(10), box_y + S(10)
     
-    local title_txt = "Редагування тексту (Shift+Enter = новий рядок, Enter = зберегти, Esc = скасування)"
+    local title_txt = T("TE_TITLE")
     local limit_x = hist_btn_x - S(10)
     local max_title_w = limit_x - gfx.x
     
@@ -16705,12 +16768,12 @@ function DRAW_WINDOW.draw_text_editor(input_queue)
         if btn(hist_btn_x, hist_btn_y, hist_btn_w, hist_btn_h, "#") then
             -- Build history text for display
             reaper.ShowConsoleMsg("")
-            local history_text = "=== ІСТОРІЯ AI ОПЕРАЦІЙ ===\n\n"
+            local history_text = "=== THE HISTORY OF AI OPERATIONS ===\n\n"
             for i = #ai_modal.history, 1, -1 do
                 local entry = ai_modal.history[i]
                 history_text = history_text .. string.format("[%s] %s\n\n", entry.timestamp, entry.task)
-                history_text = history_text .. "ОРИГІНАЛЬНИЙ ТЕКСТ:\n" .. entry.original .. "\n\n"
-                history_text = history_text .. "ВАРІАНТИ ВІД GEMINI:\n"
+                history_text = history_text .. "ORIGINAL TEXT:\n" .. entry.original .. "\n\n"
+                history_text = history_text .. "OPTIONS FROM AI:\n"
                 for j, variant in ipairs(entry.variants) do
                     history_text = history_text .. string.format("%d. %s\n", j, variant)
                 end
@@ -16755,10 +16818,10 @@ function DRAW_WINDOW.draw_text_editor(input_queue)
     local text_w, text_h = box_w - S(20), box_h - S(80)
 
     -- Main editor interaction
-    ui_text_input("text_editor", text_x, text_y, text_w, text_h, text_editor_state, "Введіть текст...", input_queue, true, text_editor_state.is_director_mode, F[cfg.t_editor_size])
+    ui_text_input("text_editor", text_x, text_y, text_w, text_h, text_editor_state, T("ENTER_TEXT_DOTS"), input_queue, true, text_editor_state.is_director_mode, F[cfg.t_editor_size])
 
     local btn_y = box_y + box_h - S(40)
-    if btn(box_x + S(10), btn_y, S(90), S(30), "Скасування") then 
+    if btn(box_x + S(10), btn_y, S(90), S(30), T("CANCEL")) then 
         text_editor_state.active = false
         ai_modal.text = ""
         ai_modal.suggestions = {}
@@ -16863,7 +16926,7 @@ end
 
 function SEARCH_ITEM.pick_folder(callback)
     if reaper.JS_Dialog_BrowseForFolder then
-        local retval, folder = reaper.JS_Dialog_BrowseForFolder("Виберіть папку для пошуку проектів", cfg.search_item_path or "")
+        local retval, folder = reaper.JS_Dialog_BrowseForFolder(T("SRC_SELECT_F_FOR_S_2"), cfg.search_item_path or "")
         if retval == 1 and folder ~= "" then
             cfg.search_item_path = folder
             save_settings()
@@ -16871,7 +16934,7 @@ function SEARCH_ITEM.pick_folder(callback)
             return true
         end
     else
-        show_snackbar("Потрібен JS_API для вибору папки", "error")
+        show_snackbar(T("SRC_JS_API_RQ"), "error")
     end
     return false
 end
@@ -16895,7 +16958,7 @@ function SEARCH_ITEM.perform_search()
     local dir = path:match("(.*[/\\])")
     
     if not dir then
-        show_snackbar("Помилка шляху: " .. tostring(path), "error")
+        show_snackbar(T("SRC_PATH_ERR") .. tostring(path), "error")
         SEARCH_ITEM.loading = false
         return
     end
@@ -16922,7 +16985,7 @@ function SEARCH_ITEM.perform_search()
         end
         SEARCH_ITEM.scroll_y = 0
         SEARCH_ITEM.target_scroll_y = 0
-    end, false, "Пошук...")
+    end, false, T("SEARCH_DOTS"))
 end
 
 function SEARCH_ITEM.play_item(item, from_pos)
@@ -16952,14 +17015,14 @@ function SEARCH_ITEM.play_item(item, from_pos)
     -- Verify path
     local f = io.open(clean_path, "r")
     if not f then
-        show_snackbar("Файл не знайдено", "error")
+        show_snackbar(T("FILE_NOT_FOUND"), "error")
         return
     end
     f:close()
 
     local pcm_source = reaper.PCM_Source_CreateFromFile(clean_path)
     if not pcm_source then
-        show_snackbar("Не вдалося відкрити аудіо джерело", "error")
+        show_snackbar(T("SRC_F_OPEN_A_SOURCE"), "error")
         return
     end
 
@@ -17101,14 +17164,14 @@ function SEARCH_ITEM.draw_mini_player()
     local menu_x = x + w - pad - menu_sz - S(40)  -- Space for close button
     local menu_y = y + pad
     if btn(menu_x, menu_y, menu_sz, menu_sz, "≡", UI.C_BTN, UI.C_TXT) then
-        local menu_str = "Вставити аудіо на доріжку||Відкрити проєкт з цим аудіо"
+        local menu_str = T("SRC_I_MENU")
         local ret = gfx.showmenu(menu_str)
         
         if ret == 1 then
             -- Insert audio
             if item and item.file_path then
                 reaper.InsertMedia(item.file_path, 0)
-                show_snackbar("Аудіо додано", "success")
+                show_snackbar(T("AUDIO_ADDED"), "success")
             end
         elseif ret == 2 then
             -- Open project
@@ -17154,18 +17217,18 @@ function SEARCH_ITEM.draw_mini_player()
 
                     if found_proj then
                         reaper.SelectProjectInstance(found_proj)
-                        show_snackbar("Переключено на відкритий проєкт", "success")
+                        show_snackbar(T("SRC_I_SW_OPEN_PROJ"), "success")
                     else
                         reaper.Main_OnCommand(40859, 0) -- New project tab
                         reaper.Main_openProject(target_path)
-                        show_snackbar("Проєкт відкрито", "success")
+                        show_snackbar(T("SRC_I_OPEN_PROJ"), "success")
                     end
                     
                     jump_to_pos()
                 else
-                    local result = reaper.MB("Файл проєкту не знайдено:\n" .. target_path .. "\n\nЗнайти файл вручну?", "Помилка відкриття", 4)
+                    local result = reaper.MB(T("SRC_I_NF_1") .. target_path .. T("SRC_I_NF_2"), T("SRC_I_NF_3"), 4)
                     if result == 6 then -- Yes
-                        local retval, new_path = reaper.GetUserFileNameForRead(target_path, "Знайти проєкт", "rpp")
+                        local retval, new_path = reaper.GetUserFileNameForRead(target_path, T("FIND_A_PROJ_UF"), "rpp")
                         if retval and new_path then
                             -- Check if project is already open
                             local found_proj = nil
@@ -17182,11 +17245,11 @@ function SEARCH_ITEM.draw_mini_player()
 
                             if found_proj then
                                 reaper.SelectProjectInstance(found_proj)
-                                show_snackbar("Переключено на відкритий проєкт", "success")
+                                show_snackbar(T("SRC_I_SW_OPEN_PROJ"), "success")
                             else
                                 reaper.Main_OnCommand(40859, 0)
                                 reaper.Main_openProject(new_path)
-                                show_snackbar("Проєкт відкрито", "success")
+                                show_snackbar(T("SRC_I_OPEN_PROJ"), "success")
                             end
                             
                             jump_to_pos()
@@ -17194,7 +17257,7 @@ function SEARCH_ITEM.draw_mini_player()
                     end
                 end
             else
-                show_snackbar("Шлях до проєкту не знайдено", "error")
+                show_snackbar(T("SRC_NO_PATH_PROJ_UF"), "error")
             end
         end
         UI_STATE.mouse_handled = true
@@ -17378,14 +17441,14 @@ function SEARCH_ITEM.draw_window(input_queue)
     elseif SEARCH_ITEM.loading then
         set_color(UI.C_TXT, 0.5)
         gfx.setfont(F.std)
-        local s = "Шукаю у всіх проектах..."
+        local s = T("SRC_IN_ALL_PROJ")
         local sw, sh = gfx.measurestr(s)
         gfx.x, gfx.y = pad + (gfx.w - pad*2 - sw)/2, res_y + (res_h - sh)/2
         gfx.drawstr(s)
     elseif SEARCH_ITEM.last_query ~= "" then
         set_color(UI.C_TXT, 0.5)
         gfx.setfont(F.std)
-        local s = "Нічого не знайдено"
+        local s = T("SRC_NO_FOUND")
         local sw, sh = gfx.measurestr(s)
         gfx.x, gfx.y = pad + (gfx.w - pad*2 - sw)/2, res_y + (res_h - sh)/2
         gfx.drawstr(s)
@@ -17393,8 +17456,8 @@ function SEARCH_ITEM.draw_window(input_queue)
         -- Initial State
         set_color(UI.C_TXT, 0.5)
         gfx.setfont(F.std)
-        local s1 = "Введіть текст для пошуку в папці:"
-        local s2 = cfg.search_item_path ~= "" and cfg.search_item_path or "(Папка не вибрана)"
+        local s1 = T("SRC_ENTER_SF_TEXT")
+        local s2 = cfg.search_item_path ~= "" and cfg.search_item_path or T("SRC_NO_F_SELECTED")
         
         local sw1, sh1 = gfx.measurestr(s1)
         local sw2, sh2 = gfx.measurestr(s2)
@@ -17437,7 +17500,7 @@ function SEARCH_ITEM.draw_window(input_queue)
     -- Title
     gfx.setfont(F.title)
     set_color(UI.C_TXT)
-    local title = "Глобальний пошук реплік"
+    local title = T("GLOBAL_SEARCH_FOR_TAKES")
     local avail_tw = close_x - pad - S(10)
     local draw_title = fit_text_width(title, avail_tw)
     gfx.x, gfx.y = pad, pad
@@ -17451,11 +17514,11 @@ function SEARCH_ITEM.draw_window(input_queue)
     local spacing = S(8)
     local input_w = gfx.w - pad*2 - s_btn_w - f_btn_sz - spacing*2
     
-    ui_text_input("search_modal", pad, content_y, input_w, input_h, SEARCH_ITEM.input, "Введіть текст для пошуку...", input_queue)
+    ui_text_input("search_modal", pad, content_y, input_w, input_h, SEARCH_ITEM.input, T("SRC_ENTER_TEXT_SEARCH_WANT"), input_queue)
     
     -- Search Button next to input
     local s_btn_x = pad + input_w + spacing
-    if btn(s_btn_x, content_y, s_btn_w, input_h, "Шукати", UI.C_SNACK_SUCCESS, UI.C_TXT) then
+    if btn(s_btn_x, content_y, s_btn_w, input_h, T("SEARCH"), UI.C_SNACK_SUCCESS, UI.C_TXT) then
         SEARCH_ITEM.perform_search()
         UI_STATE.mouse_handled = true
     end
@@ -17469,7 +17532,7 @@ function SEARCH_ITEM.draw_window(input_queue)
 
     -- Tooltip for folder button
     if gfx.mouse_x >= f_btn_x and gfx.mouse_x <= f_btn_x + f_btn_sz and gfx.mouse_y >= content_y and gfx.mouse_y <= content_y + input_h then
-        UI_STATE.tooltip = "Вибрати папку для пошуку проектів: " .. (cfg.search_item_path or "Не вибрано")
+        UI_STATE.tooltip = T("SRC_SELECT_F_FOR_S_1") .. (cfg.search_item_path or T("NOT_SELECTED"))
     end
     
     if input_queue then
@@ -17487,7 +17550,7 @@ function SEARCH_ITEM.draw_window(input_queue)
         local path_y = content_y + input_h + S(4)
         set_color(UI.C_TXT, 0.4)
         gfx.setfont(F.tip)
-        local p_text = "Папка: " .. cfg.search_item_path
+        local p_text = T("SRC_FOLDER") .. cfg.search_item_path
         local avail_pw = gfx.w - pad*2
         local draw_path = fit_text_width(p_text, avail_pw)
         gfx.x, gfx.y = pad, path_y
