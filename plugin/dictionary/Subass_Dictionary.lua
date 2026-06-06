@@ -1946,26 +1946,6 @@ local function RenderTab_Glossary()
             -- Glossary List
             for i, entry in ipairs(cfg_glos.glossary_data.entries) do
                 local match = true
-                -- Відображення зображення (80x80) зліва
-                if entry.image then
-                    local img_path = data_path .. entry.image
-                    if reaper.file_exists(img_path) then
-                        -- Створити або використати кешовану текстуру
-                        if not entry.image_texture then
-                            if reaper.ImGui_CreateImage then
-                                entry.image_texture = reaper.ImGui_CreateImage(img_path)
-                                if entry.image_texture and reaper.ImGui_Attach then
-                                    reaper.ImGui_Attach(ctx, entry.image_texture)
-                                end
-                            end
-                        end
-                        
-                        if entry.image_texture then
-                            reaper.ImGui_Image(ctx, entry.image_texture, 80, 80)
-                            reaper.ImGui_SameLine(ctx)
-                        end
-                    end
-                end
                 -- 1. Check text filter
                 if cfg_glos.glos_filter ~= "" then
                     local s = utf8_lower(cfg_glos.glos_filter)
@@ -1993,6 +1973,27 @@ local function RenderTab_Glossary()
                 end
 
                 if match then
+                    -- Відображення зображення (80x80) зліва (тільки якщо запис відповідає фільтру)
+                    if entry.image then
+                        local img_path = data_path .. entry.image
+                        if reaper.file_exists(img_path) then
+                            -- Створити або використати кешовану текстуру
+                            if not entry.image_texture then
+                                if reaper.ImGui_CreateImage then
+                                    entry.image_texture = reaper.ImGui_CreateImage(img_path)
+                                    if entry.image_texture and reaper.ImGui_Attach then
+                                        reaper.ImGui_Attach(ctx, entry.image_texture)
+                                    end
+                                end
+                            end
+                            
+                            if entry.image_texture then
+                                reaper.ImGui_Image(ctx, entry.image_texture, 80, 80)
+                                reaper.ImGui_SameLine(ctx)
+                            end
+                        end
+                    end
+
                     -- Main Interaction Group
                     reaper.ImGui_BeginGroup(ctx)
                     
