@@ -1210,6 +1210,54 @@ local I18N = {
     STRESS_ERR_UNKNOWN = { en = "❌ UNKNOWN ERROR.\n\n", ua = "❌ НЕВІДОМА ПОМИЛКА.\n\n" },
     STRESS_ERR_PATH = { en = "Script path: ", ua = "Шлях до скрипта: " },
     STRESS_ERR_TITLE = { en = "Accent Error", ua = "Помилка наголосів" },
+    IMPORT_DIC_ACTV = { en = "Dictionaries imported and activated: ", ua = "Імпортовано та активовано словників: " },
+    IMPORT_VIEW_ALL_SC = { en = "View the full script|", ua = "Відкрити весь скрипт|" },
+    DUBBER_MODE_IMPORT = { en = "Dubber mode: ", ua = "Режим дабера: " },
+    IMPORT_RETAKES_FROM_CSV = { en = "Import retakes from CSV", ua = "Імпорт правок з CSV" },
+    UNABLE_TO_OPEN_FILE = { en = "Unable to open the file", ua = "Не вдалося відкрити файл" },
+    MO_MARKERS_FOUND_IN_FILE = { en = "No markers were found in the file", ua = "Не знайдено жодного маркера у файлі" },
+    N_MARKERS_CREATED = { en = "Markers created: ", ua = "Створено маркерів: " },
+    N_EXISTING_OMITED = { en = " (existing ones omitted: ", ua = " (пропущено існуючих: " },
+    N_IMPORT_RETAKES = { en = "Import retakes", ua = "Імпорт правок" },
+    N_NO_RETAKES_IN_C_FOUND = { en = "No retakes in the correct format were found", ua = "Не знайдено жодної правки у правильному форматі" },
+    N_UNABLE_REC_D = { en = "⚠️ Unable to recognize %d lines:\n\n", ua = "⚠️ Не вдалося розпізнати %d рядків:\n\n" },
+    WARNING = { en = "Warning", ua = "Попередження" },
+    N_ERR_CONTINUE = { en = "\n\nContinue creating markers for recognized lines?", ua = "\n\nПродовжити створення маркерів для розпізнаних рядків?" },
+    N_ERR_ANOTHER_10 = { en = "\n... and another %d lines", ua = "\n... та ще %d рядків" },
+    N_COPY_INFO = { en = "Copy the list of retakes to the clipboard and click OK.\n\nSupported formats:\n• MM:SS - text\n• MM:SS - MM:SS - text (range)\n• #N - text (region index)\n• ⭐ Name (grouped by actor)\n• Multi-line text", ua = "Скопіюйте список правок у буфер обміну і натисніть OK.\n\nПідтримувані формати:\n• MM:SS - текст\n• MM:SS - MM:SS - текст (діапазон)\n• #N - текст (індекс регіону)\n• ⭐ Ім'я (групування за актором)\n• Багаторядковий текст" },
+    ST_C_TOTAL_LINES = { en = "Total lines: ", ua = "Всього реплік: " },
+    ST_C_TOTAL_TIME = { en = "Total time: ", ua = "Загальний час: " },
+    ST_C_TOTAL_WORDS = { en = "Total words: ", ua = "Всього слів: " },
+    ST_C_AC_STATS = { en = "Actor statistics:", ua = "Статистика по акторам:" },
+    ST_C_COPIED = { en = "Statistics copied", ua = "Статистику скопійовано" },
+    ST_C_FORMAT_1 = { en = "-- %d lines (%05.2f%%), %s (%05.2f%%), %4d words (%05.2f%%)", ua = "-- %d реплік (%05.2f%%), %s (%05.2f%%), %4d слів (%05.2f%%)" },
+    ST_C_FORMAT_2 = { en = "-- %d lines (%05.2f%%), %4d words (%05.2f%%)", ua = "-- %d реплік (%05.2f%%), %4d слів (%05.2f%%)" },
+    EXPORT_TO_ASS = { en = "Export to ASS", ua = "Експорт в ASS" },
+    EXPORT_TO_SRT = { en = "Export to SRT", ua = "Експорт в SRT" },
+    IMPORT_OMIT_DUP_F = { en = "Duplicates omitted: ", ua = "Пропущено дублікатів: " },
+    IMPORT_ERROR = { en = "Import error", ua = "Помилка імпорту" },
+    IMPORT_FILE_UABLE_OPEN = { en = "Unable to open the file for import:\n", ua = "Не вдалося відкрити файл для імпорту:\n" },
+    TALENTS_ERR_1 = { en = "Failed to load the list of talents", ua = "Не вдалося завантажити список талантів" },
+    TALENTS_ERR_2 = { en = "Connection error while searching for talent", ua = "Помилка з'єднання при пошуку талантів" },
+    TALENTS_SEARCH_DOTS = { en = "Talent search...", ua = "Пошук талантів..." },
+    LOADING_PROFILE_DOTS = { en = "Loading profile...", ua = "Завантаження профілю..." },
+    FAILED_TO_LOAD_PROFILE = { en = "Failed to load profile", ua = "Не вдалося завантажити профіль" },
+    CON_OR_SCRIPT_ERR = { en = "Connection or script error", ua = "Помилка з'єднання або скрипта" },
+    SYNCHRONIZING_DOTS = { en = "Synchronizing...", ua = "Синхронізація..." },
+    SYNC_ERR_RANKS = { en = "Synchronization error: ", ua = "Помилка синхронізації: " },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+
 }
 
 function T(key)
@@ -4795,7 +4843,7 @@ local function draw_loader()
     gfx.setfont(F.bld)
     set_color(UI.C_TXT)
     
-    local str = UI_STATE.script_loading_state.text or "Завантаження..."
+    local str = UI_STATE.script_loading_state.text or T("LOADING_ELLIPSIS")
     local sw, sh = gfx.measurestr(str)
     
     local cx, cy = gfx.w / 2, gfx.h / 2
@@ -7922,7 +7970,7 @@ local function fetch_dictionary_category(word, display_name)
         end
     end)
     
-    return "Завантаження..." -- Placeholder
+    return T("LOADING_ELLIPSIS") -- Placeholder
 end
 
 --- Call AI API Asynchronously (delegates to subass_ai.py)
@@ -11719,7 +11767,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
 
                 if data.ok == false then
                     if not silent_mode then
-                        show_snackbar("Помилка синхронізації: " .. (data.error or "невідома"), "error")
+                        show_snackbar(T("SYNC_ERR_RANKS") .. (data.error or "unknown"), "error")
                     end
                     os.remove(rankings_path) -- Delete error file so it doesn't persist
                     return false
@@ -11765,7 +11813,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
     run_async_command(cmd, function(exit_code)
         local success = update_rankings_from_disk(is_silent)
         if callback then callback(success) end
-    end, is_silent, "Синхронізація...", false)
+    end, is_silent, T("SYNCHRONIZING_DOTS"), false)
 end
 
 --- Fetch detailed profile for specific machine_id
@@ -11783,7 +11831,7 @@ function ACHIEVEMENTS.fetch_profile(machine_id)
         cmd = string.format('%s "%s" --get-profile "%s"', py_exe, py_path, machine_id)
     end
     
-    UI_STATE.script_loading_state.text = "Завантаження профілю..."
+    UI_STATE.script_loading_state.text = T("LOADING_PROFILE_DOTS")
     UI_STATE.script_loading_state.active = true
     UI_STATE.selected_profile = nil -- Clear old data
     ACHIEVEMENTS.profile_scroll_y = 0
@@ -11802,15 +11850,15 @@ function ACHIEVEMENTS.fetch_profile(machine_id)
                 UI_STATE.selected_profile = data.profile
                 UI_STATE.show_profile_view = true
             else
-                show_snackbar("Не вдалося завантажити профіль", "error")
+                show_snackbar(T("FAILED_TO_LOAD_PROFILE"), "error")
                 UI_STATE.show_profile_view = false
             end
             os.remove(profile_path)
         else
-            show_snackbar("Помилка з'єднання або скрипта", "error")
+            show_snackbar(T("CON_OR_SCRIPT_ERR"), "error")
             UI_STATE.show_profile_view = false
         end
-    end, false, "Завантаження...", false)
+    end, false, T("LOADING_ELLIPSIS"), false)
 end
 
 --- Fetch paginated talents list
@@ -11876,13 +11924,13 @@ function ACHIEVEMENTS.fetch_talents(page)
                 UI_STATE.talents_looking_count = data.data.looking_for_talents_count or 0
                 UI_STATE.talents_page = page
             else
-                show_snackbar("Не вдалося завантажити список талантів", "error")
+                show_snackbar(T("TALENTS_ERR_1"), "error")
             end
             os.remove(talents_path)
         else
-            show_snackbar("Помилка з'єднання при пошуку талантів", "error")
+            show_snackbar(T("TALENTS_ERR_2"), "error")
         end
-    end, true, "Пошук талантів...", false)
+    end, true, T("TALENTS_SEARCH_DOTS"), false)
 end
 
 -- ═══════════════════════════════════════════════════════════════
@@ -12944,7 +12992,7 @@ local function import_srt(file_path, dont_rebuild, forced_actor)
     end
     local f = io.open(file, "r")
     if not f then 
-        reaper.MB("Не вдалося відкрити файл для імпорту:\n" .. tostring(file), "Помилка імпорту", 0)
+        reaper.MB(T("IMPORT_FILE_UABLE_OPEN") .. tostring(file), T("IMPORT_ERROR"), 0)
         return 
     end
     UI_STATE.current_file_name = file:match("([^/\\]+)$")
@@ -12984,7 +13032,7 @@ local function import_srt(file_path, dont_rebuild, forced_actor)
     if not ass_actors then ass_actors = {} end
     
     if not dont_rebuild then
-        push_undo("Імпорт SRT")
+        push_undo("Import SRT")
     end
     
     UI_STATE.ass_file_loaded = true -- Enable Actor view
@@ -13137,7 +13185,7 @@ local function import_srt(file_path, dont_rebuild, forced_actor)
     end
     
     if duplicates_skipped > 0 and not dont_rebuild then
-        show_snackbar("Пропущено дублікатів: " .. duplicates_skipped, "info")
+        show_snackbar(T("IMPORT_OMIT_DUP_F") .. duplicates_skipped, "info")
     end
     
     local lines_added = #ass_lines - initial_len
@@ -13203,7 +13251,7 @@ local function import_vtt(file_path, dont_rebuild)
     if not ass_actors then ass_actors = {} end
     
     if not dont_rebuild then
-        push_undo("Імпорт VTT")
+        push_undo("Import VTT")
     end
     
     UI_STATE.ass_file_loaded = true
@@ -13244,7 +13292,7 @@ local function import_vtt(file_path, dont_rebuild)
     end
     
     if duplicates_skipped > 0 and not dont_rebuild then
-        show_snackbar("Пропущено дублікатів: " .. duplicates_skipped, "info")
+        show_snackbar(T("IMPORT_OMIT_DUP_F") .. duplicates_skipped, "info")
     end
     
     local lines_added = #ass_lines - initial_len
@@ -13310,7 +13358,7 @@ local function export_as_srt()
     if not out_lines then return end
 
     -- Save Dialog
-    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Експорт в SRT", "", default_filename, "SRT files (.srt)\0*.srt\0All Files (*.*)\0*.*\0")
+    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile(T("EXPORT_TO_SRT"), "", default_filename, "SRT files (.srt)\0*.srt\0All Files (*.*)\0*.*\0")
     
     if retval == 1 and filename ~= "" then
         if not filename:match("%.srt$") then
@@ -13382,7 +13430,7 @@ local function export_as_ass()
     end
 
     -- Save Dialog
-    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Експорт в ASS", "", default_filename, "ASS files (.ass)\0*.ass\0All Files (*.*)\0*.*\0")
+    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile(T("EXPORT_TO_ASS"), "", default_filename, "ASS files (.ass)\0*.ass\0All Files (*.*)\0*.*\0")
     
     if retval == 1 and filename ~= "" then
         if not filename:match("%.ass$") then
@@ -13536,13 +13584,13 @@ local function copy_actors_statistics(include_time)
     end
     
     local lines = {}
-    table.insert(lines, "Всього реплік: " .. total_repl)
+    table.insert(lines, T("ST_C_TOTAL_LINES") .. total_repl)
     if include_time then
-        table.insert(lines, "Загальний час: " .. fmt_time(total_time))
+        table.insert(lines, T("ST_C_TOTAL_TIME") .. fmt_time(total_time))
     end
-    table.insert(lines, "Всього слів: " .. total_words)
+    table.insert(lines, T("ST_C_TOTAL_WORDS") .. total_words)
     table.insert(lines, "")
-    table.insert(lines, "Статистика по акторам:")
+    table.insert(lines, T("ST_C_AC_STATS"))
     table.insert(lines, "")
     
     for i, act in ipairs(sorted_actors) do
@@ -13558,10 +13606,10 @@ local function copy_actors_statistics(include_time)
         -- Second line formatted with percentage spacing
         local stats_line = ""
         if include_time then
-            stats_line = string.format("-- %d реплік (%05.2f%%), %s (%05.2f%%), %4d слів (%05.2f%%)", 
+            stats_line = string.format(T("ST_C_FORMAT_1"), 
                 st.r, l_pct, fmt_time(st.t), t_pct, st.w, w_pct)
         else
-            stats_line = string.format("-- %d реплік (%05.2f%%), %4d слів (%05.2f%%)", 
+            stats_line = string.format(T("ST_C_FORMAT_2"), 
                 st.r, l_pct, st.w, w_pct)
         end
         table.insert(lines, stats_line)
@@ -13577,21 +13625,15 @@ local function copy_actors_statistics(include_time)
     set_clipboard(text)
 
     ACHIEVEMENTS.add_stat("ach_26_count", 1)
-    show_snackbar("Статистику скопійовано", "success")
+    show_snackbar(T("ST_C_COPIED"), "success")
 end
 
 --- Import director notes from text format and create markers
 local function import_notes()
     -- Show instruction dialog
     local response = reaper.ShowMessageBox(
-        "Скопіюйте список правок у буфер обміну і натисніть OK.\n\n" ..
-        "Підтримувані формати:\n" ..
-        "• MM:SS - текст\n" ..
-        "• MM:SS - MM:SS - текст (діапазон)\n" ..
-        "• #N - текст (індекс регіону)\n" ..
-        "• ⭐ Ім'я (групування за актором)\n" ..
-        "• Багаторядковий текст",
-        "Імпорт правок",
+        T("N_COPY_INFO"),
+        T("N_IMPORT_RETAKES"),
         1  -- OK/Cancel
     )
 
@@ -13620,7 +13662,7 @@ local function import_notes()
                 -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
                 actor_name = actor_name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
                 
-                if actor_name == "" or actor_name == "-- без актора --" then
+                if actor_name == "" or actor_name == T("NO_RETAKES_DUBBER") then
                     current_actor = nil -- Clear active actor
                 else
                     current_actor = actor_name -- Set new persistent actor
@@ -13753,31 +13795,31 @@ local function import_notes()
     end
 
     if #notes == 0 then
-        show_snackbar("Не знайдено жодної правки у правильному форматі", "error")
+        show_snackbar(T("N_NO_RETAKES_IN_C_FOUND"), "error")
         return
     end
     
     -- Show warning if some lines failed to parse
     if #failed_lines > 0 then
-        local warning_msg = string.format("⚠️ Не вдалося розпізнати %d рядків:\n\n", #failed_lines)
+        local warning_msg = string.format(T("N_UNABLE_REC_D"), #failed_lines)
         for i, failed_line in ipairs(failed_lines) do
             if i <= 10 then -- Show max 10 failed lines
                 warning_msg = warning_msg .. "• " .. failed_line .. "\n"
             end
         end
         if #failed_lines > 10 then
-            warning_msg = warning_msg .. string.format("\n... та ще %d рядків", #failed_lines - 10)
+            warning_msg = warning_msg .. string.format(T("N_ERR_ANOTHER_10"), #failed_lines - 10)
         end
-        warning_msg = warning_msg .. "\n\nПродовжити створення маркерів для розпізнаних рядків?"
+        warning_msg = warning_msg .. T("N_ERR_CONTINUE")
         
-        local response = reaper.ShowMessageBox(warning_msg, "Попередження", 4) -- 4 = Yes/No
+        local response = reaper.ShowMessageBox(warning_msg, T("WARNING"), 4) -- 4 = Yes/No
         if response ~= 6 then -- 6 = Yes
             return
         end
     end
     
     -- Create markers
-    push_undo("Імпорт правок")
+    push_undo(T("N_IMPORT_RETAKES"))
     
     -- Build lookup of existing markers
     update_marker_cache()
@@ -13802,7 +13844,7 @@ local function import_notes()
             skipped_count = skipped_count + 1
         end
     end
-    reaper.Undo_EndBlock("Імпорт правок", -1)
+    reaper.Undo_EndBlock(T("N_IMPORT_RETAKES"), -1)
     reaper.PreventUIRefresh(-1)
     reaper.UpdateArrange()
     
@@ -13814,9 +13856,9 @@ local function import_notes()
     ACHIEVEMENTS.add_stat("ach_5_import_count", 1)
     ACHIEVEMENTS.add_stat("ach_5_corr_item_count", created_count)
 
-    local msg = "Створено маркерів: " .. created_count
+    local msg = T("N_MARKERS_CREATED") .. created_count
     if skipped_count > 0 then
-        msg = msg .. " (пропущено існуючих: " .. skipped_count .. ")"
+        msg = msg .. T("N_EXISTING_OMITED") .. skipped_count .. ")"
     end
     show_snackbar(msg, "success")
     UI_STATE.ass_file_loaded = true -- Enable Actor view
@@ -13829,7 +13871,7 @@ local function import_notes_from_csv(file_path)
     local file = file_path
     if not file then
         local retval
-        retval, file = reaper.GetUserFileNameForRead("", "Імпорт правок з CSV", "*.csv")
+        retval, file = reaper.GetUserFileNameForRead("", T("IMPORT_RETAKES_FROM_CSV"), "*.csv")
         if not retval or not file then return end
     end
 
@@ -13842,7 +13884,7 @@ local function import_notes_from_csv(file_path)
     
     local f = io.open(file, "r")
     if not f then
-        show_snackbar("Не вдалося відкрити файл", "error")
+        show_snackbar(T("UNABLE_TO_OPEN_FILE"), "error")
         return
     end
     
@@ -13963,12 +14005,12 @@ local function import_notes_from_csv(file_path)
     end
     
     if #notes == 0 then
-        show_snackbar("Не знайдено жодного маркера у файлі", "error")
+        show_snackbar(T("MO_MARKERS_FOUND_IN_FILE"), "error")
         return
     end
     
     -- Create markers
-    push_undo("Імпорт правок з CSV")
+    push_undo(T("IMPORT_RETAKES_FROM_CSV"))
     
     -- Build lookup of existing markers
     update_marker_cache()
@@ -13993,7 +14035,7 @@ local function import_notes_from_csv(file_path)
             skipped_count = skipped_count + 1
         end
     end
-    reaper.Undo_EndBlock("Імпорт правок з CSV", -1)
+    reaper.Undo_EndBlock(T("IMPORT_RETAKES_FROM_CSV"), -1)
     reaper.PreventUIRefresh(-1)
     reaper.UpdateArrange()
     
@@ -14005,9 +14047,9 @@ local function import_notes_from_csv(file_path)
     ACHIEVEMENTS.add_stat("ach_5_import_count", 1)
     ACHIEVEMENTS.add_stat("ach_5_corr_item_count", created_count)
 
-    local msg = "Створено маркерів: " .. created_count
+    local msg = T("N_MARKERS_CREATED") .. created_count
     if skipped_count > 0 then
-        msg = msg .. " (пропущено існуючих: " .. skipped_count .. ")"
+        msg = msg .. T("N_EXISTING_OMITED") .. skipped_count .. ")"
     end
     show_snackbar(msg, "success")
 end
@@ -14107,13 +14149,13 @@ local function import_ass(file_path, dont_rebuild)
             table.sort(dubber_names)
             
             if #dubber_names > 0 then
-                local menu_str = "Відкрити весь скрипт|" .. table.concat(dubber_names, "|")
+                local menu_str = T("IMPORT_VIEW_ALL_SC") .. table.concat(dubber_names, "|")
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                 local ret = gfx.showmenu(menu_str)
                 if ret > 1 then
                     local chosen = dubber_names[ret - 1]
                     selected_dubber_actors = assignments[chosen] or {}
-                    show_snackbar("Режим дабера: " .. chosen, "info")
+                    show_snackbar(T("DUBBER_MODE_IMPORT") .. chosen, "info")
                 end
             end
         end
@@ -14180,7 +14222,7 @@ local function import_ass(file_path, dont_rebuild)
                     end
                     DICT.save_selected()
                     DICT.load()
-                    show_snackbar("Імпортовано та активовано словників: " .. #imported_ids, "success")
+                    show_snackbar(T("IMPORT_DIC_ACTV") .. #imported_ids, "success")
                 end
             end
         end
@@ -14309,7 +14351,7 @@ local function import_ass(file_path, dont_rebuild)
 
     -- Initial Build
     if not dont_rebuild then
-        push_undo("Імпорт ASS")
+        push_undo("Import ASS")
         update_regions_cache() 
         rebuild_regions() -- This calls save_project_data
     end
