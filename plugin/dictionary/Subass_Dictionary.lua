@@ -33,7 +33,6 @@ local translations = {
         tab_glossary      = "Звуковий Глосарій",
         tab_dictionaries  = "Словники",
         tab_download      = "Центр Завантажень",
-        lang_btn          = "⛭",
         lang_label        = "Мова / Language",
         search_reference  = "Пошук у довіднику...",
         search_glossary   = "Пошук у глосарії...",
@@ -160,7 +159,6 @@ local translations = {
         tab_glossary      = "Sound Glossary",
         tab_dictionaries  = "Dictionaries",
         tab_download      = "Download Center",
-        lang_btn          = "⛭",
         lang_label        = "Language / Мова",
         search_reference  = "Search in reference...",
         search_glossary   = "Search in glossary...",
@@ -3892,6 +3890,8 @@ local function RenderTab_DownloadCenter()
     end
 end
 
+local is_mac = reaper.GetOS():match("OSX") or reaper.GetOS():match("macOS")
+
 local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
     load_language()
@@ -3926,7 +3926,7 @@ local function loop()
             RenderTab_DownloadCenter()
 
             -- Language switcher button (trailing, right side of tab bar)
-            if reaper.ImGui_TabItemButton(ctx, T("lang_btn"), reaper.ImGui_TabItemFlags_Trailing()) then
+            if reaper.ImGui_TabItemButton(ctx, is_mac and "⛭" or "⚙", reaper.ImGui_TabItemFlags_Trailing()) then
                 reaper.ImGui_OpenPopup(ctx, "lang_popup_dict")
             end
             if reaper.ImGui_BeginPopup(ctx, "lang_popup_dict") then
