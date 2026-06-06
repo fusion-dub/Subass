@@ -1,6 +1,6 @@
 -- @description Subass Dictionary
 -- @version 2.1
--- @author Fusion (Fusion Dub)
+-- @author Fusion
 -- @about Dictionary of slang, idioms and terminology for dubbing.
 
 local ctx = reaper.ImGui_CreateContext('Subass Dictionary')
@@ -23,6 +23,291 @@ local C_SEL_BG = 0x4CA6FFFF
 
 -- Load dictionary data
 local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
+
+-- Language System
+local language = "ua"
+
+local translations = {
+    ua = {
+        tab_reference     = "Довідник",
+        tab_glossary      = "Звуковий Глосарій",
+        tab_dictionaries  = "Словники",
+        tab_download      = "Центр Завантажень",
+        lang_btn          = "⛭",
+        lang_label        = "Мова / Language",
+        search_reference  = "Пошук у довіднику...",
+        search_glossary   = "Пошук у глосарії...",
+        add_from_reaper   = "Додати з REAPER",
+        insert_into_proj  = "Вставити в проєкт",
+        edit              = "✎ Редагувати",
+        delete            = "× Видалити",
+        confirm_del_audio = "Видалити цей звук?",
+        confirm           = "Підтвердження",
+        select_track_err  = "Будь ласка, виберіть трек для вставки.",
+        error             = "Помилка",
+        sound_settings    = "Налаштування нового звуку:",
+        name_lbl          = "Назва",
+        tags_lbl          = "Теги (через кому)",
+        desc_lbl          = "Опис",
+        image_lbl         = "Зображення (80x80):",
+        select_image      = "Вибрати зображення##new_img",
+        clear_image       = "Очистити##new_img_clear",
+        save              = "Зберегти",
+        cancel            = "Скасувати",
+        edit_lbl          = "Редагування:",
+        tags_edit         = "Теги",
+        change_image      = "Змінити зображення##edit_img",
+        remove_image      = "Видалити зображення##edit_img_del",
+        user_dicts        = "Користувацькі словники",
+        create_new        = "Створити новий",
+        import_csv        = "Імпорт з .csv",
+        new_dict_name_lbl = "Назва нового словника:",
+        create            = "Створити",
+        dict_exists_err   = "Словник з такою назвою вже існує!",
+        rename_dict_lbl   = "Перейменувати словник:",
+        rename            = "Перейменувати",
+        export_csv        = "Експорт у .csv",
+        delete_dict       = "Видалити",
+        confirm_del_dict  = "Словник '%s' містить записів: %d.\nВи впевнені, що хочете видалити його?",
+        confirm_del_title = "Підтвердження видалення",
+        dict_header       = "Словник: ",
+        add_entry         = "+ Додати запис",
+        search_dict       = "Пошук у словнику...",
+        col_word          = "Слово",
+        col_replacement   = "Заміна (в суфлер)",
+        col_comment       = "Коментар",
+        col_action        = "Дія",
+        paste             = "Вставити",
+        search_hint_dl    = "Введіть назву (напр. Inception) або посилання...",
+        search_btn        = "Шукати",
+        searching         = "Пошук... Зачекайте, будь ласка...",
+        close             = "Закрити",
+        copy_link         = "Скопіювати посилання",
+        save_as           = "Зберегти як...",
+        save_file_title   = "Зберегти файл",
+        no_id_err         = "Не вдалося знайти ID або посилання для цього елемента.",
+        save_success      = "Успішно збережено за шляхом:\n",
+        save_fail         = "Помилка при завантаженні. Перевірте subass_debug.log\n\n",
+        save_err_log      = "Помилка: Файл не був збережений. Перевірте subass_debug.log",
+        confirm_del_entry   = "Видалити цей запис?",
+        confirm_del_entries = "Видалити %d виділених записів?",
+        delete_selected     = "Видалити (%d)",
+        select_dict_hint  = "Виберіть словник зліва або створіть новий для редагування записів.",
+        api_key_prompt    = "Введіть ваш API ключ для ",
+        no_results        = "Нічого не знайдено.",
+        enter_query       = "Введіть пошуковий запит для початку.",
+        unknown_video     = "Невідоме відео",
+        unknown_item      = "Невідомо",
+        embedded_subs     = "Субтитри (вбудовані)",
+        media_only        = "Медіа (тільки відео/аудіо)",
+        duration_fmt      = "Тривалість: %d:%02d",
+        err_timeout       = "Помилка: Час очікування вичерпано.",
+        err_prefix        = "Помилка: ",
+        err_json          = "Помилка розбору JSON: ",
+        err_empty         = "Скрипт повернув порожню відповідь.",
+        change_api_key    = "Змінити API ключ##",
+        enter_api_popup   = "Введіть API Ключ",
+        download_btn      = "Завантажити",
+        save_media_title  = "Зберегти медіа",
+        save_as_path_lbl  = "Повний шлях до файлу:,extrawidth=400",
+        folder_close_btn  = "▼ ЗАКРИТИ",
+        folder_open_btn   = "► ФАЙЛИ",
+        preview_btn       = "ПЕРЕГЛЯД",
+        video_fallback    = "Відео",
+        select_csv_file   = "Виберіть .csv файл",
+        imported_dict     = "Імпортований словник",
+        imported_entries_msg = "Імпортовано %d записів.",
+        import            = "Імпорт",
+        no_entries_to_import_err = "Не знайдено записів для імпорту.",
+        export_default_name = "Словник",
+        export_dict_title = "Експорт Словника",
+        export_select_file = "Виберіть папку та введіть ім'я для збереження (напр. word.csv)",
+        save_file_err     = "Помилка збереження файлу.",
+        select_item_err   = "Будь ласка, виберіть айтем у REAPER",
+        process_file_err  = "Не вдалося обробити файл (Glue/Copy failed).",
+        load_err_category = "Помилка завантаження",
+        save_project_first_err = "Спершу збережіть проект!",
+        save_file_failed_err = "Не вдалося зберегти файл: %s",
+        unknown_response  = "невідома відповідь",
+        unknown_error     = "невідома помилка",
+        err_get_files_prefix = "Помилка отримання файлів: ",
+        subs_not_found_err = "Субтитри не знайдено.",
+        select_image_dialog_title = "Виберіть зображення",
+        save_project_save_as_err = "Спершу збережіть проект або використовуйте 'Зберегти як'!",
+        file_download_success = "Файл успішно завантажено",
+        download_failed_err = "Завантаження не вдалося.",
+        preview_subs_title = "Перегляд субтитрів",
+        import_to_project_btn = "Імпортувати в проект",
+        save_subs_title   = "Зберегти субтитри",
+        subs_filter_fmt   = "%s файли (*.%s)\0*.%s\0Всі файли (*.*)\0*.*\0",
+        folder_filter     = "Папки\0*.*\0",
+        file_filter_fmt   = "%s файли (*.%s)\0*.%s\0Всі файли (*.*)\0*.*\0",
+        save_title_prefix = "Зберегти ",
+        folder_noun       = "папку",
+        file_noun         = "файл",
+        err_failed_to_delete = "Не вдалося видалити: ",
+        copy_count_lbl    = "Копіювати (%d)",
+        cut_count_lbl     = "Вирізати (%d)",
+        auto_sub_suffix   = " (Авто)",
+        cat_dialect       = "Діалектизми / Говірка",
+        cat_assimilation  = "Асиміляція",
+        cat_declensions   = "Відмінки",
+        cat_slang         = "Лайка / Сленг",
+        cat_idioms        = "Фразеологізми",
+    },
+    en = {
+        tab_reference     = "Reference",
+        tab_glossary      = "Sound Glossary",
+        tab_dictionaries  = "Dictionaries",
+        tab_download      = "Download Center",
+        lang_btn          = "⛭",
+        lang_label        = "Language / Мова",
+        search_reference  = "Search in reference...",
+        search_glossary   = "Search in glossary...",
+        add_from_reaper   = "Add from REAPER",
+        insert_into_proj  = "Insert into project",
+        edit              = "✎ Edit",
+        delete            = "× Delete",
+        confirm_del_audio = "Delete this sound?",
+        confirm           = "Confirm",
+        select_track_err  = "Please select a track to insert into.",
+        error             = "Error",
+        sound_settings    = "New sound settings:",
+        name_lbl          = "Name",
+        tags_lbl          = "Tags (comma separated)",
+        desc_lbl          = "Description",
+        image_lbl         = "Image (80x80):",
+        select_image      = "Select image##new_img",
+        clear_image       = "Clear##new_img_clear",
+        save              = "Save",
+        cancel            = "Cancel",
+        edit_lbl          = "Editing:",
+        tags_edit         = "Tags",
+        change_image      = "Change image##edit_img",
+        remove_image      = "Remove image##edit_img_del",
+        user_dicts        = "User Dictionaries",
+        create_new        = "Create New",
+        import_csv        = "Import .csv",
+        new_dict_name_lbl = "New dictionary name:",
+        create            = "Create",
+        dict_exists_err   = "A dictionary with this name already exists!",
+        rename_dict_lbl   = "Rename dictionary:",
+        rename            = "Rename",
+        export_csv        = "Export .csv",
+        delete_dict       = "Delete",
+        confirm_del_dict  = "Dictionary '%s' has %d entries.\nAre you sure you want to delete it?",
+        confirm_del_title = "Confirm Delete",
+        dict_header       = "Dictionary: ",
+        add_entry         = "+ Add Entry",
+        search_dict       = "Search in dictionary...",
+        col_word          = "Word",
+        col_replacement   = "Replacement (prompter)",
+        col_comment       = "Comment",
+        col_action        = "Action",
+        paste             = "Paste",
+        search_hint_dl    = "Enter title (e.g. Inception) or link...",
+        search_btn        = "Search",
+        searching         = "Searching... Please wait...",
+        close             = "Close",
+        copy_link         = "Copy link",
+        save_as           = "Save as...",
+        save_file_title   = "Save file",
+        no_id_err         = "Could not find ID or link for this item.",
+        save_success      = "Successfully saved to:\n",
+        save_fail         = "Download error. Check subass_debug.log\n\n",
+        save_err_log      = "Error: File was not saved. Check subass_debug.log",
+        confirm_del_entry   = "Delete this entry?",
+        confirm_del_entries = "Delete %d selected entries?",
+        delete_selected     = "Delete (%d)",
+        select_dict_hint  = "Select a dictionary on the left or create a new one to edit entries.",
+        api_key_prompt    = "Enter your API key for ",
+        no_results        = "Nothing found.",
+        enter_query       = "Enter a search query to begin.",
+        unknown_video     = "Unknown video",
+        unknown_item      = "Unknown",
+        embedded_subs     = "Subtitles (embedded)",
+        media_only        = "Media (video/audio only)",
+        duration_fmt      = "Duration: %d:%02d",
+        err_timeout       = "Error: Request timed out.",
+        err_prefix        = "Error: ",
+        err_json          = "JSON parse error: ",
+        err_empty         = "Script returned an empty response.",
+        change_api_key    = "Change API key##",
+        enter_api_popup   = "Enter API Key",
+        download_btn      = "Download",
+        save_media_title  = "Save media",
+        save_as_path_lbl  = "Full file path:,extrawidth=400",
+        folder_close_btn  = "▼ CLOSE",
+        folder_open_btn   = "► FILES",
+        preview_btn       = "PREVIEW",
+        video_fallback    = "Video",
+        select_csv_file   = "Select .csv file",
+        imported_dict     = "Imported Dictionary",
+        imported_entries_msg = "Imported %d entries.",
+        import            = "Import",
+        no_entries_to_import_err = "No entries found to import.",
+        export_default_name = "Dictionary",
+        export_dict_title = "Export Dictionary",
+        export_select_file = "Select folder and enter file name to save (e.g. word.csv)",
+        save_file_err     = "Error saving file.",
+        select_item_err   = "Please select an item in REAPER",
+        process_file_err  = "Failed to process file (Glue/Copy failed).",
+        load_err_category = "Loading Error",
+        save_project_first_err = "Save the project first!",
+        save_file_failed_err = "Failed to save file: %s",
+        unknown_response  = "unknown response",
+        unknown_error     = "unknown error",
+        err_get_files_prefix = "Error getting files: ",
+        subs_not_found_err = "Subtitles not found.",
+        select_image_dialog_title = "Select Image",
+        save_project_save_as_err = "Save the project first or use 'Save as'!",
+        file_download_success = "File downloaded successfully",
+        download_failed_err = "Download failed.",
+        preview_subs_title = "Subtitle Preview",
+        import_to_project_btn = "Import to project",
+        save_subs_title   = "Save Subtitles",
+        subs_filter_fmt   = "%s files (*.%s)\0*.%s\0All files (*.*)\0*.*\0",
+        folder_filter     = "Folders\0*.*\0",
+        file_filter_fmt   = "%s files (*.%s)\0*.%s\0All files (*.*)\0*.*\0",
+        save_title_prefix = "Save ",
+        folder_noun       = "folder",
+        file_noun         = "file",
+        err_failed_to_delete = "Failed to delete: ",
+        copy_count_lbl    = "Copy (%d)",
+        cut_count_lbl     = "Cut (%d)",
+        auto_sub_suffix   = " (Auto)",
+        cat_dialect       = "Dialectisms",
+        cat_assimilation  = "Assimilation",
+        cat_declensions   = "Declensions",
+        cat_slang         = "Slang",
+        cat_idioms        = "Idioms",
+    }
+}
+
+local function T(key)
+    local t = translations[language] or translations["ua"]
+    return (t and t[key]) or (translations["ua"] and translations["ua"][key]) or key
+end
+
+local function translate_category(name)
+    if name == "Діалектизми / Говірка" then return T("cat_dialect") end
+    if name == "Асиміляція" then return T("cat_assimilation") end
+    if name == "Відмінки" then return T("cat_declensions") end
+    if name == "Лайка / Сленг" then return T("cat_slang") end
+    if name == "Фразеологізми" then return T("cat_idioms") end
+    return name
+end
+
+local function load_language()
+    local lang = reaper.GetExtState("Subass_Dictionary", "language")
+    if lang == "" then lang = "ua" end
+    language = (lang == "ua" or lang == "en") and lang or "ua"
+end
+
+local function save_language(lang)
+    language = lang
+    reaper.SetExtState("Subass_Dictionary", "language", lang, true)
+end
 
 -- Global ImGui Style
 local Style = dofile(script_path .. "Subass_ReaImGuiGlobalStyle.lua")
@@ -568,13 +853,13 @@ function UTILS.check_dict_name_exists(name, exclude_idx)
 end
 
 function UTILS.import_dict_csv()
-    local retval, filename = reaper.GetUserFileNameForRead(data_path, "Виберіть .csv файл", ".csv")
+    local retval, filename = reaper.GetUserFileNameForRead(data_path, T("select_csv_file"), ".csv")
     if not retval or filename == "" then return end
     
     local f = io.open(filename, "r")
     if not f then return end
     
-    local base_name = filename:match("([^/\\]+)%.[a-zA-Z0-9]+$") or "Імпортований словник"
+    local base_name = filename:match("([^/\\]+)%.[a-zA-Z0-9]+$") or T("imported_dict")
     base_name = base_name:match("^%s*(.-)%s*$") -- Trim whitespace
     local name = base_name
     local counter = 1
@@ -614,7 +899,7 @@ function UTILS.import_dict_csv()
             is_first = false
             -- Use utf8_lower for Cyrillic support
             local dummy_lower = utf8_lower(word)
-            if dummy_lower:find("word") or dummy_lower:find("слово") then 
+            if dummy_lower:find("word") or dummy_lower:find("слово") or dummy_lower:find(utf8_lower(T("col_word"))) then 
                 goto continue 
             end
         end
@@ -640,21 +925,21 @@ function UTILS.import_dict_csv()
         table.insert(cfg_dict.udd.dictionaries, 1, new_dict)
         UTILS.save_user_dicts()
         UTILS.update_last_selected_dict(1)
-        reaper.MB("Імпортовано " .. #new_dict.entries .. " записів.", "Імпорт", 0)
+        reaper.MB(string.format(T("imported_entries_msg"), #new_dict.entries), T("import"), 0)
     else
-        reaper.MB("Не знайдено записів для імпорту.", "Помилка", 0)
+        reaper.MB(T("no_entries_to_import_err"), T("error"), 0)
     end
 end
 
 function UTILS.export_dict_csv(dict)
-    local safe_name = (dict.name or "Словник"):gsub("[^%wА-Яа-яІіЇїЄєҐґ-]", "_")
+    local safe_name = (dict.name or T("export_default_name")):gsub("[^%wА-Яа-яІіЇїЄєҐґ-]", "_")
     local default_filename = safe_name .. "_Dictionary.csv"
     local path = ""
     
     -- Check for js_ReaScriptAPI
     if reaper.JS_Dialog_BrowseForSaveFile then
         local initial_dir = script_path
-        local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Експорт Словника", initial_dir, default_filename, "CSV Files (*.csv)\0*.csv\0All Files (*.*)\0*.*\0")
+        local retval, filename = reaper.JS_Dialog_BrowseForSaveFile(T("export_dict_title"), initial_dir, default_filename, "CSV Files (*.csv)\0*.csv\0All Files (*.*)\0*.*\0")
         if retval and filename ~= "" then
             if not filename:lower():match("%.csv$") then filename = filename .. ".csv" end
             path = filename
@@ -663,7 +948,7 @@ function UTILS.export_dict_csv(dict)
         end
     else
         -- Fallback to basic API if JS is not installed (no initial name though)
-        local retval, filename = reaper.GetUserFileNameForRead(script_path, "Виберіть папку та введіть ім'я для збереження (напр. word.csv)", ".csv")
+        local retval, filename = reaper.GetUserFileNameForRead(script_path, T("export_select_file"), ".csv")
         if retval and filename ~= "" then
             if not filename:lower():match("%.csv$") then filename = filename .. ".csv" end
             path = filename
@@ -677,7 +962,7 @@ function UTILS.export_dict_csv(dict)
         local function clean(s)
             return (s or ""):gsub("[\r\n]", ""):match("^%s*(.-)%s*$")
         end
-        f:write("Слово,Заміна,Коментар\n")
+        f:write(string.format("%s,%s,%s\n", T("col_word"), T("col_replacement"), T("col_comment")))
         for _, entry in ipairs(dict.entries) do
             local w = clean(entry.word):gsub('"', '""')
             local r = clean(entry.replacement):gsub('"', '""')
@@ -686,7 +971,7 @@ function UTILS.export_dict_csv(dict)
         end
         f:close()
     else
-        reaper.MB("Помилка збереження файлу.", "Помилка", 0)
+        reaper.MB(T("save_file_err"), T("error"), 0)
     end
 end
 
@@ -706,7 +991,7 @@ end
 function UTILS.add_from_reaper()
     local item = reaper.GetSelectedMediaItem(0, 0)
     if not item then
-        reaper.MB("Будь ласка, виберіть айтем у REAPER", "Помилка", 0)
+        reaper.MB(T("select_item_err"), T("error"), 0)
         return nil
     end
     
@@ -768,7 +1053,7 @@ function UTILS.add_from_reaper()
             date = os.date("%Y-%m-%d %H:%M:%S")
         }
     else
-        reaper.MB("Не вдалося обробити файл (Glue/Copy failed).", "Помилка", 0)
+        reaper.MB(T("process_file_err"), T("error"), 0)
         return nil
     end
 end
@@ -796,7 +1081,7 @@ function UTILS.load_data()
         cfg_ref.categories = f()
     else
         reaper.ShowConsoleMsg("Error loading dictionary data: " .. tostring(err) .. "\n")
-        cfg_ref.categories = { { name = "Помилка завантаження", entries = {} } }
+        cfg_ref.categories = { { name = T("load_err_category"), entries = {} } }
     end
     cfg_ref.last_filter = nil -- Force cache rebuild
 end
@@ -855,7 +1140,7 @@ end
 function UTILS.import_subtitle_to_project(content, title, fmt)
     local prj_path = reaper.GetProjectPath("")
     if prj_path == "" then
-        cfg_dwn.error_tooltip = { text = "Спершу збережіть проект!", t = reaper.time_precise() }
+        cfg_dwn.error_tooltip = { text = T("save_project_first_err"), t = reaper.time_precise() }
         return
     end
     
@@ -870,7 +1155,7 @@ function UTILS.import_subtitle_to_project(content, title, fmt)
         -- Signal Subass_Notes to import the saved file
         reaper.SetExtState("Subass_Notes", "import_request", full_path, false)
     else
-        cfg_dwn.error_tooltip = { text = "Не вдалося зберегти файл: " .. filename, t = reaper.time_precise() }
+        cfg_dwn.error_tooltip = { text = string.format(T("save_file_failed_err"), filename), t = reaper.time_precise() }
     end
 end
 
@@ -897,7 +1182,7 @@ function UTILS.trigger_subtitle_download(item, source, mode, item_key)
     UTILS.run_async_command(cmd, function(output)
         cfg_dwn.loading_item = nil
         if output == "TIMEOUT" then
-            cfg_dwn.error_tooltip = { text = "Помилка: Час очікування вичерпано.", t = reaper.time_precise() }
+            cfg_dwn.error_tooltip = { text = T("err_timeout"), t = reaper.time_precise() }
         else
             local success, res = pcall(UTILS.json_decode_robust, output)
             if success and res and res.status == "success" then
@@ -916,7 +1201,8 @@ function UTILS.trigger_subtitle_download(item, source, mode, item_key)
                     UTILS.import_subtitle_to_project(res.content, item.title or item.file_name or "Subtitle", res.format or item.format)
                 end
             else
-                cfg_dwn.error_tooltip = { text = "Помилка завантаження: " .. (res and (res.error or "невідома відповідь") or "невідома помилка"), t = reaper.time_precise() }
+                local err_detail = res and (res.error or T("unknown_response")) or T("unknown_error")
+                cfg_dwn.error_tooltip = { text = T("err_prefix") .. err_detail, t = reaper.time_precise() }
             end
         end
     end)
@@ -964,7 +1250,7 @@ function UTILS.get_folder_files(item, source, item_key)
             item.files = res.files
             item.expanded = true
         else
-            cfg_dwn.error_tooltip = { text = "Помилка отримання файлів: " .. (res and res.error or "невідома помилка"), t = reaper.time_precise() }
+            cfg_dwn.error_tooltip = { text = T("err_get_files_prefix") .. (res and res.error or T("unknown_error")), t = reaper.time_precise() }
         end
     end)
 end
@@ -981,8 +1267,8 @@ function UTILS.trigger_subtitle_from_url(url, lang, item_key)
         if success and res and res.status == "success" then
             UTILS.import_subtitle_to_project(res.content, "Subtitle_" .. lang, res.format)
         else
-            local err_msg = (res and res.error) or "Субтитри не знайдено."
-            cfg_dwn.error_tooltip = { text = "Помилка: " .. err_msg, t = reaper.time_precise() }
+            local err_msg = (res and res.error) or T("subs_not_found_err")
+            cfg_dwn.error_tooltip = { text = T("err_prefix") .. err_msg, t = reaper.time_precise() }
         end
     end)
 end
@@ -1024,7 +1310,7 @@ end
 
 -- Функція для відкриття діалогу вибору зображення
 function UTILS.pick_image_file()
-    local retval, filename = reaper.GetUserFileNameForRead("", "Виберіть зображення", ".jpg;.jpeg;.png;.bmp;.gif")
+    local retval, filename = reaper.GetUserFileNameForRead("", T("select_image_dialog_title"), ".jpg;.jpeg;.png;.bmp;.gif")
     if retval and filename ~= "" then
         return filename
     end
@@ -1053,7 +1339,7 @@ function UTILS.download_media(url, format_id, title, ext, m_type, item_key, cust
     if not full_path then
         local prj_path = reaper.GetProjectPath("")
         if prj_path == "" then
-            cfg_dwn.error_tooltip = { text = "Спершу збережіть проект або використовуйте 'Зберегти як'!", t = reaper.time_precise() }
+            cfg_dwn.error_tooltip = { text = T("save_project_save_as_err"), t = reaper.time_precise() }
             return
         end
         
@@ -1091,10 +1377,10 @@ function UTILS.download_media(url, format_id, title, ext, m_type, item_key, cust
                     end
                 end)
             end
-            cfg_dwn.error_tooltip = { text = "Файл успішно завантажено", t = reaper.time_precise(), type = "success" }
+            cfg_dwn.error_tooltip = { text = T("file_download_success"), t = reaper.time_precise(), type = "success" }
         else
-            local err_msg = (res and res.error) or "Завантаження не вдалося."
-            cfg_dwn.error_tooltip = { text = "Помилка: " .. err_msg, t = reaper.time_precise() }
+            local err_msg = (res and res.error) or T("download_failed_err")
+            cfg_dwn.error_tooltip = { text = T("err_prefix") .. err_msg, t = reaper.time_precise() }
         end
     end)
 end
@@ -1107,7 +1393,7 @@ local function draw_preview_popup()
     reaper.ImGui_SetNextWindowSize(ctx, 700, 500, reaper.ImGui_Cond_FirstUseEver())
     
     reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 20, 20)
-    local visible, open = reaper.ImGui_Begin(ctx, "Перегляд субтитрів", true, reaper.ImGui_WindowFlags_NoCollapse())
+    local visible, open = reaper.ImGui_Begin(ctx, T("preview_subs_title"), true, reaper.ImGui_WindowFlags_NoCollapse())
     reaper.ImGui_PopStyleVar(ctx)
     
     if not open then
@@ -1129,22 +1415,23 @@ local function draw_preview_popup()
         end
         
         reaper.ImGui_Dummy(ctx, 0, 10)
-        if reaper.ImGui_Button(ctx, "Імпортувати в проект", 170) then
+        if reaper.ImGui_Button(ctx, T("import_to_project_btn"), 170) then
             UTILS.import_subtitle_to_project(cfg_dwn.preview_data.content, cfg_dwn.preview_data.title)
             cfg_dwn.preview_data = nil
         end
         
         reaper.ImGui_SameLine(ctx)
-        if reaper.ImGui_Button(ctx, "Зберегти як...", 120) then
+        if reaper.ImGui_Button(ctx, T("save_as"), 120) then
             local default_name = UTILS.sanitize_filename(cfg_dwn.preview_data.title)
             local default_ext = default_name:match("%.(%w+)$") or "srt"
             local initial_dir = reaper.GetProjectPath("")
             local retval, filename = 0, ""
             
             if reaper.JS_Dialog_BrowseForSaveFile then
-                retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти субтитри", initial_dir, default_name, default_ext:upper() .. " файли (*." .. default_ext .. ")\0*." .. default_ext .. "\0Всі файли (*.*)\0*.*\0")
+                local filter = string.format(T("subs_filter_fmt"), default_ext:upper(), default_ext, default_ext)
+                retval, filename = reaper.JS_Dialog_BrowseForSaveFile(T("save_subs_title"), initial_dir, default_name, filter)
             else
-                retval, filename = reaper.GetUserFileNameForRead(initial_dir .. "/" .. default_name, "Зберегти субтитри", default_ext)
+                retval, filename = reaper.GetUserFileNameForRead(initial_dir .. "/" .. default_name, T("save_subs_title"), default_ext)
             end
             
             if retval == 1 and filename ~= "" then
@@ -1165,16 +1452,16 @@ local function draw_preview_popup()
                 end
                 
                 if reaper.file_exists(filename) then
-                    reaper.MB("Файл успішно збережено за шляхом:\n" .. filename, "Subass", 0)
+                    reaper.MB(T("save_success") .. filename, "Subass", 0)
                     cfg_dwn.preview_data = nil
                 else
-                    reaper.MB("Помилка: Файл не був збережений. Перевірте subass_debug.log", "Subass", 0)
+                    reaper.MB(T("save_err_log"), "Subass", 0)
                 end
             end
         end
         
         reaper.ImGui_SameLine(ctx)
-        if reaper.ImGui_Button(ctx, "Закрити", 100) then
+        if reaper.ImGui_Button(ctx, T("close"), 100) then
             cfg_dwn.preview_data = nil
         end
         
@@ -1186,7 +1473,7 @@ end
 local function draw_menu_contents(item, source, unique_key)
     local url = item.download_url or item.url or item.files_url
     
-    if reaper.ImGui_Selectable(ctx, "Скопіювати посилання") then
+    if reaper.ImGui_Selectable(ctx, T("copy_link")) then
         if url then
             local final_url = url
             if source == "gestdown" then
@@ -1196,7 +1483,7 @@ local function draw_menu_contents(item, source, unique_key)
         end
     end
     
-    if reaper.ImGui_Selectable(ctx, "Зберегти як...") then
+    if reaper.ImGui_Selectable(ctx, T("save_as")) then
         local default_name = UTILS.sanitize_filename(item.file_name or item.title or "subtitle")
         if item.is_folder then
             -- Strip extensions for folders to avoid "name.srt" being a directory
@@ -1207,10 +1494,11 @@ local function draw_menu_contents(item, source, unique_key)
         
         local retval, filename = 0, ""
         if reaper.JS_Dialog_BrowseForSaveFile then
-            local filter = item.is_folder and "Папки\0*.*\0" or (default_ext:upper() .. " файли (*." .. default_ext .. ")\0*." .. default_ext .. "\0Всі файли (*.*)\0*.*\0")
-            retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти " .. (item.is_folder and "папку" or "файл"), initial_dir, default_name, filter)
+            local filter = item.is_folder and T("folder_filter") or string.format(T("file_filter_fmt"), default_ext:upper(), default_ext, default_ext)
+            local save_title = T("save_title_prefix") .. (item.is_folder and T("folder_noun") or T("file_noun"))
+            retval, filename = reaper.JS_Dialog_BrowseForSaveFile(save_title, initial_dir, default_name, filter)
         else
-            retval, filename = reaper.GetUserFileNameForRead(initial_dir .. "/" .. default_name, "Зберегти файл", default_ext)
+            retval, filename = reaper.GetUserFileNameForRead(initial_dir .. "/" .. default_name, T("save_file_title"), default_ext)
         end
         
         if retval == 1 and filename ~= "" then
@@ -1231,7 +1519,7 @@ local function draw_menu_contents(item, source, unique_key)
             end
             
             if not download_id and not url then
-                reaper.MB("Не вдалося знайти ID або посилання для цього елемента.", "Subass", 0)
+                reaper.MB(T("no_id_err"), "Subass", 0)
                 return
             end
 
@@ -1247,9 +1535,9 @@ local function draw_menu_contents(item, source, unique_key)
             UTILS.run_async_command(cmd, function(output)
                 cfg_dwn.loading_item = nil
                 if reaper.file_exists(filename) then
-                    reaper.MB("Успішно збережено за шляхом:\n" .. filename, "Subass", 0)
+                    reaper.MB(T("save_success") .. filename, "Subass", 0)
                 else
-                    reaper.MB("Помилка при завантаженні. Перевірте subass_debug.log\n\n" .. (output or ""), "Subass", 0)
+                    reaper.MB(T("save_fail") .. (output or ""), "Subass", 0)
                 end
             end)
         end
@@ -1510,7 +1798,7 @@ end
 
 local function RenderTab_Reference()
     local ref_flags = (cfg.restore_tab and cfg.last_tab == 0) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-    if reaper.ImGui_BeginTabItem(ctx, "Довідник", nil, ref_flags) then
+    if reaper.ImGui_BeginTabItem(ctx, T("tab_reference"), nil, ref_flags) then
         if not cfg.restore_tab and cfg.last_tab ~= 0 then
             cfg.last_tab = 0
             reaper.SetExtState(section_name, "last_tab", "0", true)
@@ -1522,7 +1810,7 @@ local function RenderTab_Reference()
         -- Search inside Tab
         reaper.ImGui_SetNextItemWidth(ctx, -5)
         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
-        local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search_ref', "Пошук у довіднику...", cfg_ref.ref_filter)
+        local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search_ref', T("search_reference"), cfg_ref.ref_filter)
         if changed then cfg_ref.ref_filter = new_filter end
         if cfg_ref.ref_filter ~= cfg_ref.last_filter then UTILS.update_search_cache(cfg_ref.ref_filter) end
         reaper.ImGui_PopStyleVar(ctx) -- Pop FramePadding for search bar
@@ -1533,7 +1821,7 @@ local function RenderTab_Reference()
         if reaper.ImGui_BeginChild(ctx, "content_reference", 0, child_h) then
             for _, cat in ipairs(cfg_ref.cached_results) do
                 local header_flags = 0
-                local header_name = string.format("%s (%d)###%s", cat.name, #cat.entries, cat.name)
+                local header_name = string.format("%s (%d)###%s", translate_category(cat.name), #cat.entries, cat.name)
                 
                 reaper.ImGui_PushFont(ctx, font_main, 16)
                 local header_open = reaper.ImGui_CollapsingHeader( ctx, header_name, header_flags )
@@ -1563,7 +1851,7 @@ end
 
 local function RenderTab_Glossary()
     local glos_flags = (cfg.restore_tab and cfg.last_tab == 1) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-    if reaper.ImGui_BeginTabItem(ctx, "Звуковий Глосарій", nil, glos_flags) then
+    if reaper.ImGui_BeginTabItem(ctx, T("tab_glossary"), nil, glos_flags) then
         if not cfg.restore_tab and cfg.last_tab ~= 1 then
             cfg.last_tab = 1
             reaper.SetExtState(section_name, "last_tab", "1", true)
@@ -1575,12 +1863,12 @@ local function RenderTab_Glossary()
         -- Search and Add on one line (Increased height)
         reaper.ImGui_SetNextItemWidth(ctx, -145)
         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
-        local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search_glos', "Пошук у глосарії...", cfg_glos.glos_filter)
+        local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search_glos', T("search_glossary"), cfg_glos.glos_filter)
         if changed then cfg_glos.glos_filter = new_filter end
         
         reaper.ImGui_SameLine(ctx)
         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
-        if reaper.ImGui_Button(ctx, "Додати з REAPER", 135) then
+        if reaper.ImGui_Button(ctx, T("add_from_reaper"), 135) then
             local new_entry = UTILS.add_from_reaper()
             if new_entry then
                 cfg_glos.add_entry_pending = new_entry
@@ -1764,7 +2052,7 @@ local function RenderTab_Glossary()
                     local is_ultra = (tag_str == "") and (not entry.desc or entry.desc == "")
                     
                     reaper.ImGui_PushFont(ctx, font_main, 15)
-                    local insert_btn_w = reaper.ImGui_CalcTextSize(ctx, "Вставити в проєкт")
+                    local insert_btn_w = reaper.ImGui_CalcTextSize(ctx, T("insert_into_proj"))
                     reaper.ImGui_PopFont(ctx)
                     local actions_btn_w = 30
                     local total_btns_w = insert_btn_w + actions_btn_w + 8
@@ -1840,7 +2128,7 @@ local function RenderTab_Glossary()
                         reaper.ImGui_BeginGroup(ctx)
                             -- Action Buttons - Centered vertically
                             reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 6) -- Match title offset
-                            if reaper.ImGui_Button(ctx, "Вставити в проєкт##"..i, insert_btn_w) then
+                            if reaper.ImGui_Button(ctx, T("insert_into_proj").."##"..i, insert_btn_w) then
                                 local full_path = data_path .. entry.filename
                                 local track = reaper.GetSelectedTrack(0, 0)
                                 if track then
@@ -1853,7 +2141,7 @@ local function RenderTab_Glossary()
                                         reaper.UpdateArrange()
                                     end
                                 else
-                                    reaper.MB("Будь ласка, виберіть трек для вставки.", "Помилка", 0)
+                                    reaper.MB(T("select_track_err"), T("error"), 0)
                                 end
                             end
                             reaper.ImGui_SameLine(ctx)
@@ -1892,7 +2180,7 @@ local function RenderTab_Glossary()
                         end
                         
                         reaper.ImGui_BeginGroup(ctx)
-                            local insert_label = "Вставити в проєкт##"..i
+                            local insert_label = T("insert_into_proj").."##"..i
                             if reaper.ImGui_Button(ctx, insert_label, insert_btn_w) then
                                 local full_path = data_path .. entry.filename
                                 local track = reaper.GetSelectedTrack(0, 0)
@@ -1906,7 +2194,7 @@ local function RenderTab_Glossary()
                                         reaper.UpdateArrange()
                                     end
                                 else
-                                    reaper.MB("Будь ласка, виберіть трек для вставки.", "Помилка", 0)
+                                    reaper.MB(T("select_track_err"), T("error"), 0)
                                 end
                             end
                             
@@ -1919,7 +2207,7 @@ local function RenderTab_Glossary()
 
                     -- Common Actions Popup
                     if reaper.ImGui_BeginPopup(ctx, "glossary_actions_popup"..i) then
-                        if reaper.ImGui_Selectable(ctx, "✎ Редагувати") then
+                        if reaper.ImGui_Selectable(ctx, T("edit")) then
                             cfg_glos.edit_entry_idx = i
                             cfg_glos.edit_entry_data = {
                                 name = entry.name,
@@ -1946,8 +2234,8 @@ local function RenderTab_Glossary()
                         end
                         
                         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
-                        if reaper.ImGui_Selectable(ctx, "× Видалити") then
-                            if reaper.MB("Видалити цей звук?", "Підтвердження", 1) == 1 then
+                        if reaper.ImGui_Selectable(ctx, T("delete")) then
+                            if reaper.MB(T("confirm_del_audio"), T("confirm"), 1) == 1 then
                                 -- Зупинити програвання якщо цей файл грає
                                 if cfg_glos.current_preview_name == entry.name then
                                     UTILS.stop_preview()
@@ -1960,7 +2248,7 @@ local function RenderTab_Glossary()
                                     if audio_file and audio_file ~= "" and reaper.file_exists(audio_file) then
                                         local success = os.remove(audio_file)
                                         if not success then
-                                            reaper.ShowConsoleMsg("Не вдалося видалити: " .. audio_file .. "\n")
+                                            reaper.ShowConsoleMsg(T("err_failed_to_delete") .. audio_file .. "\n")
                                         end
                                     end
                                     
@@ -2003,17 +2291,17 @@ local function RenderTab_Glossary()
                     cfg_glos.open_edit_popup = false
                 end
             if reaper.ImGui_BeginPopupModal(ctx, "GlossaryMetadata", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
-                reaper.ImGui_Text(ctx, "Налаштування нового звуку:")
+                reaper.ImGui_Text(ctx, T("sound_settings"))
                 reaper.ImGui_Dummy(ctx, 0, 5)
                 
-                _, cfg_glos.add_entry_pending.name = reaper.ImGui_InputText(ctx, "Назва", cfg_glos.add_entry_pending.name)
-                _, cfg_glos.add_entry_pending.tags = reaper.ImGui_InputText(ctx, "Теги (через кому)", cfg_glos.add_entry_pending.tags)
-                _, cfg_glos.add_entry_pending.desc = reaper.ImGui_InputTextMultiline(ctx, "Опис", cfg_glos.add_entry_pending.desc, 300, 100)
+                _, cfg_glos.add_entry_pending.name = reaper.ImGui_InputText(ctx, T("name_lbl"), cfg_glos.add_entry_pending.name)
+                _, cfg_glos.add_entry_pending.tags = reaper.ImGui_InputText(ctx, T("tags_lbl"), cfg_glos.add_entry_pending.tags)
+                _, cfg_glos.add_entry_pending.desc = reaper.ImGui_InputTextMultiline(ctx, T("desc_lbl"), cfg_glos.add_entry_pending.desc, 300, 100)
                 
                 -- Додати блок вибору зображення
                 reaper.ImGui_Dummy(ctx, 0, 5)
                 reaper.ImGui_Separator(ctx)
-                reaper.ImGui_Text(ctx, "Зображення (80x80):")
+                reaper.ImGui_Text(ctx, T("image_lbl"))
                 
                 if cfg_glos.add_entry_pending.image_preview then
                     if reaper.ImGui_ImageButton then
@@ -2022,7 +2310,7 @@ local function RenderTab_Glossary()
                     reaper.ImGui_SameLine(ctx)
                 end
                 
-                if reaper.ImGui_Button(ctx, "Вибрати зображення##new_img", 150) then
+                if reaper.ImGui_Button(ctx, T("select_image"), 150) then
                     local img_path = UTILS.pick_image_file()
                     if img_path then
                         -- Тимчасово зберігаємо шлях, зображення буде скопійовано при збереженні
@@ -2043,7 +2331,7 @@ local function RenderTab_Glossary()
                 end
                 
                 reaper.ImGui_SameLine(ctx)
-                if cfg_glos.add_entry_pending.temp_image_path and reaper.ImGui_Button(ctx, "Очистити##new_img_clear", 100) then
+                if cfg_glos.add_entry_pending.temp_image_path and reaper.ImGui_Button(ctx, T("clear_image"), 100) then
                     cfg_glos.add_entry_pending.temp_image_path = nil
                     if cfg_glos.add_entry_pending.image_preview then
                         reaper.ImGui_Detach(ctx, cfg_glos.add_entry_pending.image_preview)
@@ -2053,7 +2341,7 @@ local function RenderTab_Glossary()
                 
                 reaper.ImGui_Dummy(ctx, 0, 10)
                 
-                if reaper.ImGui_Button(ctx, "Зберегти", 120) then
+                if reaper.ImGui_Button(ctx, T("save"), 120) then
                     -- Зберегти зображення якщо вибрано
                     if cfg_glos.add_entry_pending.temp_image_path then
                         local saved_img = UTILS.save_image_for_entry(cfg_glos.add_entry_pending, cfg_glos.add_entry_pending.temp_image_path)
@@ -2073,7 +2361,7 @@ local function RenderTab_Glossary()
                     reaper.ImGui_CloseCurrentPopup(ctx)
                 end
                 reaper.ImGui_SameLine(ctx)
-                if reaper.ImGui_Button(ctx, "Скасувати", 120) then
+                if reaper.ImGui_Button(ctx, T("cancel"), 120) then
                     if cfg_glos.add_entry_pending.image_preview then
                         reaper.ImGui_Detach(ctx, cfg_glos.add_entry_pending.image_preview)
                     end
@@ -2085,17 +2373,17 @@ local function RenderTab_Glossary()
             end
 
             if reaper.ImGui_BeginPopupModal(ctx, "EditGlossary", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
-                reaper.ImGui_Text(ctx, "Редагування:")
+                reaper.ImGui_Text(ctx, T("edit_lbl"))
                 reaper.ImGui_Dummy(ctx, 0, 5)
                 
-                _, cfg_glos.edit_entry_data.name = reaper.ImGui_InputText(ctx, "Назва", cfg_glos.edit_entry_data.name)
-                _, cfg_glos.edit_entry_data.tags = reaper.ImGui_InputText(ctx, "Теги", cfg_glos.edit_entry_data.tags)
-                _, cfg_glos.edit_entry_data.desc = reaper.ImGui_InputTextMultiline(ctx, "Опис", cfg_glos.edit_entry_data.desc, 300, 100)
+                _, cfg_glos.edit_entry_data.name = reaper.ImGui_InputText(ctx, T("name_lbl"), cfg_glos.edit_entry_data.name)
+                _, cfg_glos.edit_entry_data.tags = reaper.ImGui_InputText(ctx, T("tags_edit"), cfg_glos.edit_entry_data.tags)
+                _, cfg_glos.edit_entry_data.desc = reaper.ImGui_InputTextMultiline(ctx, T("desc_lbl"), cfg_glos.edit_entry_data.desc, 300, 100)
                 
                 -- Додати блок редагування зображення
                 reaper.ImGui_Dummy(ctx, 0, 5)
                 reaper.ImGui_Separator(ctx)
-                reaper.ImGui_Text(ctx, "Зображення (80x80):")
+                reaper.ImGui_Text(ctx, T("image_lbl"))
                 
                 -- Показати поточне зображення якщо є
                 if cfg_glos.edit_entry_data.current_image_tex then
@@ -2105,7 +2393,7 @@ local function RenderTab_Glossary()
                     reaper.ImGui_SameLine(ctx)
                 end
                 
-                if reaper.ImGui_Button(ctx, "Змінити зображення##edit_img", 150) then
+                if reaper.ImGui_Button(ctx, T("change_image"), 150) then
                     local img_path = UTILS.pick_image_file()
                     if img_path then
                         cfg_glos.edit_entry_data.temp_image_path = img_path
@@ -2125,7 +2413,7 @@ local function RenderTab_Glossary()
                 end
                 
                 reaper.ImGui_SameLine(ctx)
-                if reaper.ImGui_Button(ctx, "Видалити зображення##edit_img_del", 130) then
+                if reaper.ImGui_Button(ctx, T("remove_image"), 130) then
                     cfg_glos.edit_entry_data.delete_image = true
                     if cfg_glos.edit_entry_data.current_image_tex then
                         reaper.ImGui_Detach(ctx, cfg_glos.edit_entry_data.current_image_tex)
@@ -2135,7 +2423,7 @@ local function RenderTab_Glossary()
                 
                 reaper.ImGui_Dummy(ctx, 0, 10)
                 
-                if reaper.ImGui_Button(ctx, "Зберегти", 120) then
+                if reaper.ImGui_Button(ctx, T("save"), 120) then
                     local target_entry = cfg_glos.glossary_data.entries[cfg_glos.edit_entry_idx]
                     target_entry.name = cfg_glos.edit_entry_data.name
                     target_entry.tags = cfg_glos.edit_entry_data.tags
@@ -2173,7 +2461,7 @@ local function RenderTab_Glossary()
                     reaper.ImGui_CloseCurrentPopup(ctx)
                 end
                 reaper.ImGui_SameLine(ctx)
-                if reaper.ImGui_Button(ctx, "Скасувати", 120) then
+                if reaper.ImGui_Button(ctx, T("cancel"), 120) then
                     if cfg_glos.edit_entry_data.current_image_tex then
                         reaper.ImGui_Detach(ctx, cfg_glos.edit_entry_data.current_image_tex)
                     end
@@ -2190,7 +2478,7 @@ end
 
 local function RenderTab_Dictionaries()
     local dict_flags = (cfg.restore_tab and cfg.last_tab == 2) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-    if reaper.ImGui_BeginTabItem(ctx, "Словники", nil, dict_flags) then
+    if reaper.ImGui_BeginTabItem(ctx, T("tab_dictionaries"), nil, dict_flags) then
         if not cfg.restore_tab and cfg.last_tab ~= 2 then
             cfg.last_tab = 2
             reaper.SetExtState(section_name, "last_tab", "2", true)
@@ -2203,26 +2491,26 @@ local function RenderTab_Dictionaries()
                 
         -- Split view Left: Dictionary List
         if reaper.ImGui_BeginChild(ctx, "dict_split_left", 200, avail_h, 1) then
-            reaper.ImGui_Text(ctx, "Користувацькі словники")
+            reaper.ImGui_Text(ctx, T("user_dicts"))
             reaper.ImGui_Separator(ctx)
             reaper.ImGui_Dummy(ctx, 0, 5)
             
-            if reaper.ImGui_Button(ctx, "Створити новий", -1) then
+            if reaper.ImGui_Button(ctx, T("create_new"), -1) then
                 reaper.ImGui_OpenPopup(ctx, "new_dict_popup")
             end
-            if reaper.ImGui_Button(ctx, "Імпорт з .csv", -1) then
+            if reaper.ImGui_Button(ctx, T("import_csv"), -1) then
                 UTILS.import_dict_csv()
             end
             reaper.ImGui_Dummy(ctx, 0, 5)
             
             if reaper.ImGui_BeginPopup(ctx, "new_dict_popup") then
-                reaper.ImGui_Text(ctx, "Назва нового словника:")
+                reaper.ImGui_Text(ctx, T("new_dict_name_lbl"))
                 _, cfg_dict.new_dict_name = reaper.ImGui_InputText(ctx, "##new_dict_name", cfg_dict.new_dict_name)
-                if reaper.ImGui_Button(ctx, "Створити", 130) then
+                if reaper.ImGui_Button(ctx, T("create"), 130) then
                     local trimmed_name = (cfg_dict.new_dict_name or ""):match("^%s*(.-)%s*$")
                     if trimmed_name and trimmed_name ~= "" then
                         if UTILS.check_dict_name_exists(trimmed_name) then
-                            reaper.MB("Словник з такою назвою вже існує!", "Помилка", 0)
+                            reaper.MB(T("dict_exists_err"), T("error"), 0)
                         else
                             table.insert(cfg_dict.udd.dictionaries, 1, {
                                 id = "dict_" .. os.time(),
@@ -2244,13 +2532,13 @@ local function RenderTab_Dictionaries()
             end
 
             if reaper.ImGui_BeginPopup(ctx, "rename_dict_popup") then
-                reaper.ImGui_Text(ctx, "Перейменувати словник:")
+                reaper.ImGui_Text(ctx, T("rename_dict_lbl"))
                 _, cfg_dict.rename_dict_name = reaper.ImGui_InputText(ctx, "##rename_dict_name", cfg_dict.rename_dict_name)
-                if reaper.ImGui_Button(ctx, "Зберегти", 100) then
+                if reaper.ImGui_Button(ctx, T("save"), 100) then
                     local trimmed_name = (cfg_dict.rename_dict_name or ""):match("^%s*(.-)%s*$")
                     if cfg_dict.rename_dict_idx and trimmed_name and trimmed_name ~= "" and cfg_dict.udd.dictionaries[cfg_dict.rename_dict_idx] then
                         if UTILS.check_dict_name_exists(trimmed_name, cfg_dict.rename_dict_idx) then
-                            reaper.MB("Словник з такою назвою вже існує!", "Помилка", 0)
+                            reaper.MB(T("dict_exists_err"), T("error"), 0)
                         else
                             cfg_dict.udd.dictionaries[cfg_dict.rename_dict_idx].name = trimmed_name
                             UTILS.save_user_dicts()
@@ -2262,7 +2550,7 @@ local function RenderTab_Dictionaries()
                     end
                 end
                 reaper.ImGui_SameLine(ctx)
-                if reaper.ImGui_Button(ctx, "Скасувати", 100) then
+                if reaper.ImGui_Button(ctx, T("cancel"), 100) then
                     cfg_dict.rename_dict_idx = nil
                     cfg_dict.rename_dict_name = ""
                     reaper.ImGui_CloseCurrentPopup(ctx)
@@ -2313,18 +2601,18 @@ local function RenderTab_Dictionaries()
                 reaper.ImGui_Separator(ctx)
                 
                 if reaper.ImGui_BeginPopup(ctx, "dict_context_" .. i) then
-                    if reaper.ImGui_Selectable(ctx, "Перейменувати") then
+                    if reaper.ImGui_Selectable(ctx, T("rename")) then
                         cfg_dict.rename_dict_idx = i
                         cfg_dict.rename_dict_name = dict.name
                     end
-                    if reaper.ImGui_Selectable(ctx, "Експорт у .csv") then
+                    if reaper.ImGui_Selectable(ctx, T("export_csv")) then
                         UTILS.export_dict_csv(dict)
                     end
                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
-                    if reaper.ImGui_Selectable(ctx, "Видалити") then
+                    if reaper.ImGui_Selectable(ctx, T("delete_dict")) then
                         local confirm = true
                         if #dict.entries > 0 then
-                            local resp = reaper.MB("Словник '" .. dict.name .. "' містить записів: " .. #dict.entries .. ".\nВи впевнені, що хочете видалити його?", "Підтвердження видалення", 4) -- 4 = Yes/No
+                            local resp = reaper.MB(string.format(T("confirm_del_dict"), dict.name, #dict.entries), T("confirm_del_title"), 4) -- 4 = Yes/No
                             if resp ~= 6 then confirm = false end -- 6 = Yes
                         end
                         
@@ -2354,7 +2642,7 @@ local function RenderTab_Dictionaries()
                 local active_dict = cfg_dict.udd.dictionaries[cfg_dict.sd_inx]
                 
                 -- Truncate header dictionary name
-                local header_prefix = "Словник: "
+                local header_prefix = T("dict_header")
                 local header_prefix_w = reaper.ImGui_CalcTextSize(ctx, header_prefix)
                 -- Available width minus the button space (110 button + 10 padding roughly)
                 local header_avail_w = reaper.ImGui_GetContentRegionAvail(ctx) - 120 - header_prefix_w
@@ -2385,7 +2673,7 @@ local function RenderTab_Dictionaries()
                 end
                 
                 reaper.ImGui_SameLine(ctx, reaper.ImGui_GetContentRegionAvail(ctx) - 100)
-                if reaper.ImGui_Button(ctx, "+ Додати запис", 110) then
+                if reaper.ImGui_Button(ctx, T("add_entry"), 110) then
                     local nid = active_dict.next_id or (#active_dict.entries + 1)
                     table.insert(active_dict.entries, 1, {uid = nid, word = "", replacement = "", comment = ""})
                     active_dict.next_id = nid + 1
@@ -2397,7 +2685,7 @@ local function RenderTab_Dictionaries()
                 
                 -- Search Filter
                 reaper.ImGui_SetNextItemWidth(ctx, -5)
-                local filter_changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, "##dict_filter_input", "Пошук у словнику...", cfg_dict.dict_filter)
+                local filter_changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, "##dict_filter_input", T("search_dict"), cfg_dict.dict_filter)
                 if filter_changed then 
                     cfg_dict.dict_filter = new_filter 
                     cfg_dict.entry_selection = {} -- Clear selection on filter change
@@ -2409,10 +2697,10 @@ local function RenderTab_Dictionaries()
                 if reaper.ImGui_BeginTable(ctx, 'dict_entries_table', 5, table_flags) then
                     reaper.ImGui_TableSetupScrollFreeze(ctx, 0, 1)
                     reaper.ImGui_TableSetupColumn(ctx, "#", reaper.ImGui_TableColumnFlags_WidthFixed() | reaper.ImGui_TableColumnFlags_DefaultSort(), 30)
-                    reaper.ImGui_TableSetupColumn(ctx, "Слово", reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
-                    reaper.ImGui_TableSetupColumn(ctx, "Заміна (в суфлер)", reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
-                    reaper.ImGui_TableSetupColumn(ctx, "Коментар", reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
-                    reaper.ImGui_TableSetupColumn(ctx, "Дія", reaper.ImGui_TableColumnFlags_WidthFixed() | reaper.ImGui_TableColumnFlags_NoSort(), 30)
+                    reaper.ImGui_TableSetupColumn(ctx, T("col_word"), reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
+                    reaper.ImGui_TableSetupColumn(ctx, T("col_replacement"), reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
+                    reaper.ImGui_TableSetupColumn(ctx, T("col_comment"), reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
+                    reaper.ImGui_TableSetupColumn(ctx, T("col_action"), reaper.ImGui_TableColumnFlags_WidthFixed() | reaper.ImGui_TableColumnFlags_NoSort(), 30)
                     reaper.ImGui_TableHeadersRow(ctx)
 
                     -- Handle Sorting
@@ -2596,7 +2884,7 @@ local function RenderTab_Dictionaries()
                     end
                             
                     if reaper.ImGui_BeginPopup(ctx, "table_bg_popup") then
-                        if reaper.ImGui_Selectable(ctx, "Вставити") then
+                        if reaper.ImGui_Selectable(ctx, T("paste")) then
                             local text = reaper.ImGui_GetClipboardText(ctx)
                             if text and text ~= "" and active_dict then
                                 local added = 0
@@ -2604,7 +2892,7 @@ local function RenderTab_Dictionaries()
                                 for line in text:gmatch("[^\r\n]+") do
                                     local skip = false
                                     local l_lower = utf8_lower(line)
-                                    if l_lower:find("слово") and l_lower:find("заміна") then skip = true end
+                                    if (l_lower:find("word") and l_lower:find("replacement")) or (l_lower:find("слово") and l_lower:find("заміна")) or (l_lower:find(utf8_lower(T("col_word"))) and l_lower:find(utf8_lower(T("col_replacement")))) then skip = true end
                                     
                                     if not skip then
                                         local parts = {}
@@ -2655,7 +2943,7 @@ local function RenderTab_Dictionaries()
                         local selected_count = 0
                         for _ in pairs(cfg_dict.entry_selection) do selected_count = selected_count + 1 end
                         
-                        if reaper.ImGui_Selectable(ctx, "Копіювати (" .. selected_count .. ")") then
+                        if reaper.ImGui_Selectable(ctx, string.format(T("copy_count_lbl"), selected_count)) then
                             local lines = {}
                             -- We need to find entries by UIDs now
                             for _, e in ipairs(active_dict.entries) do
@@ -2669,7 +2957,7 @@ local function RenderTab_Dictionaries()
                             reaper.ImGui_SetClipboardText(ctx, table.concat(lines, "\n"))
                         end
                         
-                        if reaper.ImGui_Selectable(ctx, "Вирізати (" .. selected_count .. ")") then
+                        if reaper.ImGui_Selectable(ctx, string.format(T("cut_count_lbl"), selected_count)) then
                             local lines = {}
                             local to_del_uids = {}
                             for uid, sel in pairs(cfg_dict.entry_selection) do if sel then to_del_uids[uid] = true end end
@@ -2695,7 +2983,7 @@ local function RenderTab_Dictionaries()
                             UTILS.move_dict_to_top(cfg_dict.sd_inx)
                         end
 
-                        if reaper.ImGui_Selectable(ctx, "Вставити") then
+                        if reaper.ImGui_Selectable(ctx, T("paste")) then
                             local text = reaper.ImGui_GetClipboardText(ctx)
                             if text and text ~= "" then
                                 local added = 0
@@ -2703,7 +2991,7 @@ local function RenderTab_Dictionaries()
                                 for line in text:gmatch("[^\r\n]+") do
                                     local skip = false
                                     local l_lower = utf8_lower(line)
-                                    if l_lower:find("слово") and l_lower:find("заміна") then skip = true end
+                                    if (l_lower:find("word") and l_lower:find("replacement")) or (l_lower:find("слово") and l_lower:find("заміна")) or (l_lower:find(utf8_lower(T("col_word"))) and l_lower:find(utf8_lower(T("col_replacement")))) then skip = true end
                                     
                                     if not skip then
                                         local parts = {}
@@ -2749,14 +3037,14 @@ local function RenderTab_Dictionaries()
                         end
 
                         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
-                        if reaper.ImGui_Selectable(ctx, "Видалити (" .. selected_count .. ")") then
-                            local confirm = true
+                        if reaper.ImGui_Selectable(ctx, string.format(T("delete_selected"), selected_count)) then
+                            local do_confirm = true
                             if selected_count > 1 then
-                                local resp = reaper.MB("Видалити " .. selected_count .. " виділених записів?", "Підтвердження", 4)
-                                if resp ~= 6 then confirm = false end
+                                local resp = reaper.MB(string.format(T("confirm_del_entries"), selected_count), T("confirm"), 4)
+                                if resp ~= 6 then do_confirm = false end
                             end
                             
-                            if confirm then
+                            if do_confirm then
                                 local to_del_uids = {}
                                 for uid, sel in pairs(cfg_dict.entry_selection) do if sel then to_del_uids[uid] = true end end
                                 
@@ -2786,7 +3074,7 @@ local function RenderTab_Dictionaries()
                             end
                         end
 
-                        if is_empty or reaper.MB("Видалити цей запис?", "Підтвердження", 1) == 1 then
+                        if is_empty or reaper.MB(T("confirm_del_entry"), T("confirm"), 1) == 1 then
                             if entry and entry.uid then
                                 cfg_dict.entry_selection[entry.uid] = nil
                             end
@@ -2797,7 +3085,7 @@ local function RenderTab_Dictionaries()
                     end
                  end
             else
-                reaper.ImGui_TextWrapped(ctx, "Виберіть словник зліва або створіть новий для редагування записів.")
+                reaper.ImGui_TextWrapped(ctx, T("select_dict_hint"))
             end
             reaper.ImGui_EndChild(ctx)
         end
@@ -2811,7 +3099,7 @@ end
 local function RenderTab_DownloadCenter()
     -- Download Center Tab
     local dl_flags = (cfg.restore_tab and cfg.last_tab == 3) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-    if reaper.ImGui_BeginTabItem(ctx, "Центр Завантажень", nil, dl_flags) then
+    if reaper.ImGui_BeginTabItem(ctx, T("tab_download"), nil, dl_flags) then
         if not cfg.restore_tab and cfg.last_tab ~= 3 then
             cfg.last_tab = 3
             reaper.SetExtState(section_name, "last_tab", "3", true)
@@ -2826,7 +3114,7 @@ local function RenderTab_DownloadCenter()
         local hist_btn_w = show_history and 32 or 0
         reaper.ImGui_SetNextItemWidth(ctx, -120 - hist_btn_w - (show_history and 4 or 0))
         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
-        local changed, new_query = reaper.ImGui_InputTextWithHint(ctx, "##dl_search", "Введіть назву (напр. Inception) або посилання...", cfg_dwn.dwn_search)
+        local changed, new_query = reaper.ImGui_InputTextWithHint(ctx, "##dl_search", T("search_hint_dl"), cfg_dwn.dwn_search)
         if changed then 
             cfg_dwn.dwn_search = new_query 
             reaper.SetExtState(section_name, "dwn_search", new_query, true)
@@ -2851,11 +3139,11 @@ local function RenderTab_DownloadCenter()
         end
 
         reaper.ImGui_SameLine(ctx)
-        local is_searching = (dl_search_results ~= nil and dl_search_results:find("Пошук... Зачекайте, будь ласка..."))
+        local is_searching = (dl_search_results ~= nil and dl_search_results:find(T("searching"), 1, true))
         local spinner_chars = { "|" , "/", "-", "\\" }
         local spin_label = is_searching
             and (spinner_chars[math.floor(reaper.time_precise() * 6) % 4 + 1] .. " ...")
-            or "Шукати"
+            or T("search_btn")
 
         if is_searching then
             reaper.ImGui_BeginDisabled(ctx)
@@ -2869,7 +3157,6 @@ local function RenderTab_DownloadCenter()
                 -- Cleanup old thumbnail
                 if cfg_dwn.thumbnail_tex then
                     if reaper.ImGui_Detach then reaper.ImGui_Detach(ctx, cfg_dwn.thumbnail_tex) end
-                    if reaper.ImGui_DeleteTexture then reaper.ImGui_DeleteTexture(cfg_dwn.thumbnail_tex) end
                     cfg_dwn.thumbnail_tex = nil
                 end
                 if cfg_dwn.thumbnail_path then
@@ -2878,7 +3165,7 @@ local function RenderTab_DownloadCenter()
                 end
 
                 cfg_dwn.search_data = nil
-                dl_search_results = "Пошук... Зачекайте, будь ласка..."
+                dl_search_results = T("searching")
                 
                 local query = cfg_dwn.dwn_search:gsub('"', '\\"')
                 
@@ -2898,7 +3185,7 @@ local function RenderTab_DownloadCenter()
                 UTILS.run_async_command(cmd, function(output)
                     if output == "TIMEOUT" then
                         dl_search_results = nil
-                        cfg_dwn.error_tooltip = { text = "Помилка: Час очікування вичерпано.", t = reaper.time_precise() }
+                        cfg_dwn.error_tooltip = { text = T("err_timeout"), t = reaper.time_precise() }
                     elseif output and output ~= "" then
                         local success, data = pcall(UTILS.json_decode_robust, output)
                         if success and type(data) == "table" and not data.error then
@@ -2907,16 +3194,16 @@ local function RenderTab_DownloadCenter()
                             UTILS.update_search_history(cfg_dwn.dwn_search)
                         elseif data and data.error then
                             dl_search_results = nil
-                            cfg_dwn.error_tooltip = { text = "Помилка: " .. tostring(data.error), t = reaper.time_precise() }
+                            cfg_dwn.error_tooltip = { text = T("err_prefix") .. tostring(data.error), t = reaper.time_precise() }
                         else
                             dl_search_results = nil
                             -- Show the actual output in the tooltip for debugging
                             local short_out = output:sub(1, 100):gsub("\n", " ")
-                            cfg_dwn.error_tooltip = { text = "Помилка розбору JSON: " .. short_out, t = reaper.time_precise() }
+                            cfg_dwn.error_tooltip = { text = T("err_json") .. short_out, t = reaper.time_precise() }
                         end
                     else
                         dl_search_results = nil
-                        cfg_dwn.error_tooltip = { text = "Скрипт повернув порожню відповідь.", t = reaper.time_precise() }
+                        cfg_dwn.error_tooltip = { text = T("err_empty"), t = reaper.time_precise() }
                     end
                 end)
             end
@@ -2970,7 +3257,7 @@ local function RenderTab_DownloadCenter()
             end
             
             if src.id ~= "tvsubtitles" and src.id ~= "gestdown" and reaper.ImGui_BeginPopupContextItem(ctx, "src_ctx_" .. src.id) then
-                if reaper.ImGui_MenuItem(ctx, "Змінити API ключ##" .. src.id) then
+                if reaper.ImGui_MenuItem(ctx, T("change_api_key") .. src.id) then
                     cfg_dwn.pending_key_src = src
                     cfg_dwn.temp_key_val = cfg_dwn[src.id .. "_key"] or ""
                 end
@@ -3053,7 +3340,7 @@ local function RenderTab_DownloadCenter()
         
         -- API Key Input Modal
         if cfg_dwn.pending_key_src then
-            reaper.ImGui_OpenPopup(ctx, "Введіть API Ключ")
+            reaper.ImGui_OpenPopup(ctx, T("enter_api_popup"))
         end
         
         local wx_m, wy_m = reaper.ImGui_GetWindowPos(ctx)
@@ -3061,9 +3348,9 @@ local function RenderTab_DownloadCenter()
         reaper.ImGui_SetNextWindowPos(ctx, wx_m + ww_m * 0.5, wy_m + wh_m * 0.5, reaper.ImGui_Cond_Appearing(), 0.5, 0.5)
         reaper.ImGui_SetNextWindowSize(ctx, 400, 0)
         
-        if reaper.ImGui_BeginPopupModal(ctx, "Введіть API Ключ", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
+        if reaper.ImGui_BeginPopupModal(ctx, T("enter_api_popup"), nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
             local src = cfg_dwn.pending_key_src
-            reaper.ImGui_Text(ctx, "Введіть ваш API ключ для " .. src.label .. ":")
+            reaper.ImGui_Text(ctx, T("api_key_prompt") .. src.label .. ":")
             reaper.ImGui_Dummy(ctx, 0, 5)
             
             reaper.ImGui_SetNextItemWidth(ctx, -1)
@@ -3072,7 +3359,7 @@ local function RenderTab_DownloadCenter()
             
             reaper.ImGui_Dummy(ctx, 0, 10)
             
-            if reaper.ImGui_Button(ctx, "Зберегти", 120) or reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Enter()) then
+            if reaper.ImGui_Button(ctx, T("save"), 120) or reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Enter()) then
                 cfg_dwn[src.id .. "_key"] = cfg_dwn.temp_key_val
                 reaper.SetExtState(section_name, "key_" .. src.id, cfg_dwn.temp_key_val, true)
                 -- Auto-enable source if key is set
@@ -3085,7 +3372,7 @@ local function RenderTab_DownloadCenter()
                 reaper.ImGui_CloseCurrentPopup(ctx)
             end
             reaper.ImGui_SameLine(ctx)
-            if reaper.ImGui_Button(ctx, "Скасувати", 120) or reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Escape()) then
+            if reaper.ImGui_Button(ctx, T("cancel"), 120) or reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Escape()) then
                 cfg_dwn.pending_key_src = nil
                 reaper.ImGui_CloseCurrentPopup(ctx)
             end
@@ -3137,12 +3424,12 @@ local function RenderTab_DownloadCenter()
                     
                     reaper.ImGui_BeginGroup(ctx)
                     reaper.ImGui_PushFont(ctx, font_main, 19)
-                    reaper.ImGui_TextWrapped(ctx, data.title or "Невідоме відео")
+                    reaper.ImGui_TextWrapped(ctx, data.title or T("unknown_video"))
                     reaper.ImGui_PopFont(ctx)
                     if data.duration then
                         local m = math.floor(data.duration / 60)
                         local s = math.floor(data.duration % 60)
-                        reaper.ImGui_TextDisabled(ctx, string.format("Тривалість: %d:%02d", m, s))
+                        reaper.ImGui_TextDisabled(ctx, string.format(T("duration_fmt"), m, s))
                     end
                     reaper.ImGui_EndGroup(ctx)
                     
@@ -3153,7 +3440,7 @@ local function RenderTab_DownloadCenter()
                     -- Subtitles Section
                     if data.subtitles and #data.subtitles > 0 then
                         reaper.ImGui_PushFont(ctx, font_main, 17)
-                        reaper.ImGui_Text(ctx, "Субтитри (вбудовані)")
+                        reaper.ImGui_Text(ctx, T("embedded_subs"))
                         reaper.ImGui_PopFont(ctx)
                         reaper.ImGui_Dummy(ctx, 0, 5)
                         
@@ -3161,7 +3448,7 @@ local function RenderTab_DownloadCenter()
                         local spin = spin_chars[math.floor(reaper.time_precise() * 6) % 4 + 1]
                         
                         for i, s in ipairs(data.subtitles) do
-                            local label = s.lang:upper() .. (s.is_auto and " (Авто)" or "")
+                            local label = s.lang:upper() .. (s.is_auto and T("auto_sub_suffix") or "")
                             local btn_key = "url_sub_" .. s.lang
                             local is_loading = (cfg_dwn.loading_item == btn_key)
                             
@@ -3177,7 +3464,7 @@ local function RenderTab_DownloadCenter()
                                 reaper.ImGui_EndDisabled(ctx)
                             else
                                 if is_any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                if reaper.ImGui_Button(ctx, "Завантажити##" .. btn_key, 90) then
+                                if reaper.ImGui_Button(ctx, T("download_btn").."##" .. btn_key, 90) then
                                     UTILS.trigger_subtitle_from_url(cfg_dwn.dwn_search, s.lang, btn_key)
                                 end
                                 if is_any_loading then reaper.ImGui_EndDisabled(ctx) end
@@ -3191,7 +3478,7 @@ local function RenderTab_DownloadCenter()
                     -- Formats Section (Media download)
                     if data.formats and #data.formats > 0 then
                         reaper.ImGui_PushFont(ctx, font_main, 17)
-                        reaper.ImGui_Text(ctx, "Медіа (тільки відео/аудіо)")
+                        reaper.ImGui_Text(ctx, T("media_only"))
                         reaper.ImGui_PopFont(ctx)
                         reaper.ImGui_Dummy(ctx, 0, 5)
                         
@@ -3228,27 +3515,27 @@ local function RenderTab_DownloadCenter()
                                 reaper.ImGui_EndDisabled(ctx)
                             else
                                 if is_any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                if reaper.ImGui_Button(ctx, "Зберегти як...##" .. btn_key, 115) then
+                                if reaper.ImGui_Button(ctx, T("save_as").."##" .. btn_key, 115) then
                                     local def_ext = f.ext or "mp4"
                                     local initial_dir = reaper.GetProjectPath("")
-                                    local default_name = (data.title or "Відео") .. "." .. def_ext
+                                    local default_name = (data.title or T("video_fallback")) .. "." .. def_ext
                                     
                                     if reaper.JS_Dialog_BrowseForSaveFile then
                                         local filter = def_ext:upper() .. " Files (*." .. def_ext .. ")\0*." .. def_ext .. "\0All Files (*.*)\0*.*\0"
-                                        local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти медіа", initial_dir, default_name, filter)
+                                        local retval, filename = reaper.JS_Dialog_BrowseForSaveFile(T("save_media_title"), initial_dir, default_name, filter)
                                         if retval == 1 then
-                                            UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or "Відео", f.ext, f.type, btn_key, filename, true)
+                                            UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or T("video_fallback"), f.ext, f.type, btn_key, filename, true)
                                         end
                                     else
-                                        local ok, filename = reaper.GetUserInputs("Зберегти як", 1, "Повний шлях до файлу:,extrawidth=400", initial_dir .. "/" .. default_name)
+                                        local ok, filename = reaper.GetUserInputs(T("save_as"), 1, T("save_as_path_lbl"), initial_dir .. "/" .. default_name)
                                         if ok then
-                                            UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or "Відео", f.ext, f.type, btn_key, filename, true)
+                                            UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or T("video_fallback"), f.ext, f.type, btn_key, filename, true)
                                         end
                                     end
                                 end
                                 reaper.ImGui_SameLine(ctx, avail_w - 90)
-                                if reaper.ImGui_Button(ctx, "Завантажити##" .. btn_key, 90) then
-                                    UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or "Відео", f.ext, f.type, btn_key)
+                                if reaper.ImGui_Button(ctx, T("download_btn").."##" .. btn_key, 90) then
+                                    UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or T("video_fallback"), f.ext, f.type, btn_key)
                                 end
                                 if is_any_loading then reaper.ImGui_EndDisabled(ctx) end
                             end
@@ -3312,7 +3599,7 @@ local function RenderTab_DownloadCenter()
                             -- Dynamic Height Calculation
                             local wrap_w = avail_w - btn_w * 2 - btn_gap - 15
                             reaper.ImGui_PushFont(ctx, font_main, 14)
-                            local title_txt = item.title or item.file_name or "Невідомо"
+                            local title_txt = item.title or item.file_name or T("unknown_item")
                             local t_w, t_lh = reaper.ImGui_CalcTextSize(ctx, title_txt)
                             local title_h = math.ceil(t_w / (wrap_w - 5)) * t_lh
                             reaper.ImGui_PopFont(ctx)
@@ -3352,7 +3639,7 @@ local function RenderTab_DownloadCenter()
                             -- Main Title
                             reaper.ImGui_PushFont(ctx, font_main, 14)
                             reaper.ImGui_PushTextWrapPos(ctx, avail_w - btn_w * 2 - btn_gap - 15)
-                            reaper.ImGui_Text(ctx, item.title or item.file_name or "Невідомо")
+                            reaper.ImGui_Text(ctx, item.title or item.file_name or T("unknown_item"))
                             reaper.ImGui_PopTextWrapPos(ctx)
                             reaper.ImGui_PopFont(ctx)
                             
@@ -3380,7 +3667,7 @@ local function RenderTab_DownloadCenter()
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x6B423CFF)
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x82524AFF)
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x54342FFF)
-                                    if reaper.ImGui_Button(ctx, "▼ ЗАКРИТИ##fld" .. i .. source_group.source, 115) then
+                                    if reaper.ImGui_Button(ctx, T("folder_close_btn").."##fld" .. i .. source_group.source, 115) then
                                         item.expanded = false
                                     end
                                     reaper.ImGui_PopStyleColor(ctx, 3)
@@ -3395,7 +3682,7 @@ local function RenderTab_DownloadCenter()
                                         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3C5A78FF)
                                         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4B6D8FFF)
                                         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2D455CFF)
-                                        if reaper.ImGui_Button(ctx, "► ФАЙЛИ##fld" .. i .. source_group.source, 115) then
+                                        if reaper.ImGui_Button(ctx, T("folder_open_btn").."##fld" .. i .. source_group.source, 115) then
                                             if item.files then
                                                 item.expanded = true
                                             else
@@ -3420,7 +3707,7 @@ local function RenderTab_DownloadCenter()
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4A4A4AFF)
                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2A2A2AFF)
-                                    if reaper.ImGui_Button(ctx, "ПЕРЕГЛЯД##prev" .. i .. source_group.source, 105) then
+                                    if reaper.ImGui_Button(ctx, T("preview_btn").."##prev" .. i .. source_group.source, 105) then
                                         UTILS.trigger_subtitle_download(item, source_group.source, "preview", prev_key)
                                     end
                                     reaper.ImGui_PopStyleColor(ctx, 3)
@@ -3447,7 +3734,7 @@ local function RenderTab_DownloadCenter()
                                         reaper.ImGui_PushID(ctx, f_idx)
                                         local current_id = (parent_id or (source_group.source .. "_" .. i)) .. "_" .. f_idx
                                         local f_key = current_id .. "_" .. (depth or 0)
-                                        local f_name = (f.file_name or f.title or "Невідомо")
+                                        local f_name = (f.file_name or f.title or T("unknown_item"))
                                         
                                         local f_meta = ""
                                         if f.lang then f_meta = f_meta .. "[" .. f.lang:upper() .. "] " end
@@ -3514,7 +3801,7 @@ local function RenderTab_DownloadCenter()
                                                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x6B423CFF)
                                                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x82524AFF)
                                                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x54342FFF)
-                                                if reaper.ImGui_Button(ctx, "▼ ЗАКРИТИ##f" .. f_key, 115) then
+                                                if reaper.ImGui_Button(ctx, T("folder_close_btn").."##f" .. f_key, 115) then
                                                     f.expanded = false
                                                 end
                                                 reaper.ImGui_PopStyleColor(ctx, 3)
@@ -3530,7 +3817,7 @@ local function RenderTab_DownloadCenter()
                                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3C5A78FF)
                                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4B6D8FFF)
                                                     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2D455CFF)
-                                                    if reaper.ImGui_Button(ctx, "► ФАЙЛИ##f" .. f_key, 115) then
+                                                    if reaper.ImGui_Button(ctx, T("folder_open_btn").."##f" .. f_key, 115) then
                                                         if f.files then
                                                             f.expanded = true
                                                         else
@@ -3553,7 +3840,7 @@ local function RenderTab_DownloadCenter()
                                                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
                                                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4A4A4AFF)
                                                 reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2A2A2AFF)
-                                                if reaper.ImGui_Button(ctx, "ПЕРЕГЛЯД##p" .. f_key, 105) then
+                                                if reaper.ImGui_Button(ctx, T("preview_btn").."##p" .. f_key, 105) then
                                                     UTILS.trigger_subtitle_download(f, source_group.source, "preview", f_key)
                                                 end
                                                 reaper.ImGui_PopStyleColor(ctx, 3)
@@ -3589,10 +3876,10 @@ local function RenderTab_DownloadCenter()
                     end
                 end
                 if not has_results then
-                    reaper.ImGui_TextDisabled(ctx, "Нічого не знайдено.")
+                    reaper.ImGui_TextDisabled(ctx, T("no_results"))
                 end
             else
-                reaper.ImGui_TextDisabled(ctx, "Введіть пошуковий запит для початку.")
+                reaper.ImGui_TextDisabled(ctx, T("enter_query"))
             end
 
             reaper.ImGui_EndChild(ctx)
@@ -3606,6 +3893,7 @@ end
 
 local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
+    load_language()
     local force_close = reaper.GetExtState("Subass_Global", "ForceCloseComplementary")
     if force_close == "1" or force_close == "Subass_Dictionary.lua" then 
         if force_close == "Subass_Dictionary.lua" then
@@ -3635,6 +3923,22 @@ local function loop()
             RenderTab_Glossary()
             RenderTab_Dictionaries()
             RenderTab_DownloadCenter()
+
+            -- Language switcher button (trailing, right side of tab bar)
+            if reaper.ImGui_TabItemButton(ctx, T("lang_btn"), reaper.ImGui_TabItemFlags_Trailing()) then
+                reaper.ImGui_OpenPopup(ctx, "lang_popup_dict")
+            end
+            if reaper.ImGui_BeginPopup(ctx, "lang_popup_dict") then
+                reaper.ImGui_Text(ctx, T("lang_label"))
+                reaper.ImGui_Separator(ctx)
+                if reaper.ImGui_Selectable(ctx, "English", language == "en") then
+                    save_language("en")
+                end
+                if reaper.ImGui_Selectable(ctx, "Українська", language == "ua") then
+                    save_language("ua")
+                end
+                reaper.ImGui_EndPopup(ctx)
+            end
 
             reaper.ImGui_EndTabBar(ctx)
             cfg.restore_tab = false
