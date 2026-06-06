@@ -78,6 +78,7 @@ def main():
                 dubber_contact = stats_raw.get('dubber_contact', '')
                 dubber_specialization = stats_raw.get('dubber_specialization', '')
                 dubber_archetypes = stats_raw.get('dubber_archetypes', '')
+                dubber_languages = stats_raw.get('dubber_languages', '')
                 dubber_samples = stats_raw.get('dubber_samples', '')
                 dubber_equipment = stats_raw.get('dubber_equipment', '')
                 dubber_conditions = stats_raw.get('dubber_conditions', '')
@@ -116,6 +117,7 @@ def main():
                 "dubber_contact": {"stringValue": dubber_contact},
                 "dubber_specialization": {"stringValue": dubber_specialization},
                 "dubber_archetypes": {"stringValue": dubber_archetypes},
+                "dubber_languages": {"stringValue": dubber_languages},
                 "dubber_samples": {"stringValue": dubber_samples},
                 "dubber_equipment": {"stringValue": dubber_equipment},
                 "dubber_conditions": {"stringValue": dubber_conditions},
@@ -159,6 +161,7 @@ def main():
                 "dubber_contact": dubber_contact,
                 "dubber_specialization": dubber_specialization,
                 "dubber_archetypes": dubber_archetypes,
+                "dubber_languages": dubber_languages,
                 "dubber_samples": dubber_samples,
                 "dubber_equipment": dubber_equipment,
                 "dubber_conditions": dubber_conditions,
