@@ -932,7 +932,7 @@ local I18N = {
     BACK = { en = "Back", ua = "Назад" },
     GD_Conjugation = { en = "Conjugation", ua = "Словозміна" },
     GD_Synonyms = { en = "Synonyms", ua = "Синонімія" },
-    GD_Interpretation = { en = "Interpretation", ua = "Тлумачення" },
+    GD_Interpretation = { en = "Definition", ua = "Тлумачення" },
     GD_Idioms = { en = "Idioms", ua = "Фразеологія" },
     GD_Word_usage = { en = "Word usage", ua = "Слововживання" },
     NO_DATA_OR_LOADING = { en = "Data is missing or still loading...", ua = "Дані відсутні або ще завантажуються..." },
@@ -998,6 +998,160 @@ local I18N = {
     STATUS_TIP_REGULAR = { en = "• You do not participate in the talent race. You are just a user who is not looking for anyone at the moment.", ua = "• Ви не берете участь в гонці талантів. Ви просто користувач який наразі нікого не шукає." },
     COPY_ST = { en = "Copy content", ua = "Копіювати вміст" },
     OPEN_TG = { en = "Open in Telegram", ua = "Відкрити в телеграм" },
+    DUR_MONTH = { en = " mo.", ua = " міс." },
+    DUR_DAY = { en = " d.", ua = " д." },
+    DUR_HOUR = { en = " h.", ua = " год." },
+    DUR_MIN = { en = " m.", ua = " хв." },
+    REFRESH_DATA = { en = "Refresh data", ua = "Оновити дані" },
+    UPDATING_DATA_ELLIPSIS = { en = "Updating data...", ua = "Оновлення даних..." },
+    LOADING_ELLIPSIS = { en = "Loading...", ua = "Завантаження..." },
+    ACH_NOT_UNLOCKED = { en = "%s (locked)", ua = "%s (не відкрито)" },
+    ACH_RANK_MY_POSITION = { en = "YOUR RANK: #%s\n(out of %s users)", ua = "ВИ ПОСІДАЄТЕ: %s місце\n(серед %s користувачів)" },
+    ACH_RANK_POPULARITY = { en = "POPULARITY: %s users\n(already have this achievement)", ua = "ПОПУЛЯРНІСТЬ: %s людей\n(вже мають це досягнення)" },
+    ACHIEVEMENTS_LBL = { en = "Achievements", ua = "Досягнення" },
+    LEADERBOARD_TITLE = { en = "Leaderboard: %s", ua = "Таблиця лідерів: %s" },
+    ACH_LOCKED_HINT = { en = "! Achievement locked !", ua = "! Досягнення не відкрито !" },
+    LOAD_MORE = { en = "Load more", ua = "Завантажити ще" },
+    USER_ID_NOT_FOUND = { en = "User ID not found", ua = "ID користувача не знайдено" },
+    ACH_HALL_OF_FAME = { en = "Hall of Fame: %s", ua = "Зал слави: %s" },
+    ACH_PROGRESS_TEXT = { en = "Earned %d of %d achievements, you are better than %d%% of users", ua = "Здобуто %d з %d нагород, ви краще за %d%% користувачів" },
+    AI_TASK_ref = { en = "Rephrase", ua = "Перефразувати" },
+    AI_TASK_long = { en = "Make longer", ua = "Зробити довше" },
+    AI_TASK_short = { en = "Make shorter", ua = "Зробити коротше" },
+    AI_TASK_stress = { en = "Check accents", ua = "Перевірити наголоси" },
+    AI_TASK_main_word = { en = "Identify main word", ua = "Визначити головне слово" },
+    AI_TASK_fun = { en = "More cheerful", ua = "Веселіше" },
+    AI_TASK_drama = { en = "More dramatic", ua = "Більше драми" },
+    AI_TASK_sarcasm = { en = "More sarcastic", ua = "Більше сарказму" },
+    AI_TASK_threat = { en = "More threatening", ua = "Більш погрозливо" },
+    AI_TASK_simple = { en = "Make simple", ua = "Максимально просто" },
+    AI_TASK_custom = { en = "<Custom option>", ua = "<Свій варіант>" },
+    ACH_NAME_ach_1 = { en = "Text Summoner", ua = "Прикликач тексту" },
+    ACH_NAME_ach_2 = { en = "Accented Brew", ua = "Наголошене вариво" },
+    ACH_NAME_ach_3 = { en = "Emerald Harvest", ua = "Смарагдовий урожай" },
+    ACH_NAME_ach_4 = { en = "Ghost in the Machine", ua = "Дух у машині" },
+    ACH_NAME_ach_5 = { en = "Cursed Spells", ua = "Прокляті заклинання" },
+    ACH_NAME_ach_6 = { en = "Utter Shame", ua = "Суцільний сором" },
+    ACH_NAME_ach_7 = { en = "Trust is Sacred", ua = "Довіра - це святе" },
+    ACH_NAME_ach_8 = { en = "Correctional Hell", ua = "Виправне пекло" },
+    ACH_NAME_ach_9 = { en = "Siren", ua = "Сирена" },
+    ACH_NAME_ach_10 = { en = "Architect of Worlds", ua = "Архітектор світів" },
+    ACH_NAME_ach_11 = { en = "Silence Breaker", ua = "Порушник Тиші" },
+    ACH_NAME_ach_12 = { en = "King of the Hill", ua = "Король гори" },
+    ACH_NAME_ach_13 = { en = "Banshee Scream", ua = "Крик Банші" },
+    ACH_NAME_ach_14 = { en = "Shadow of Eternity", ua = "Тінь вічності" },
+    ACH_NAME_ach_15 = { en = "Succubus Whisper", ua = "Шепіт Сукуба" },
+    ACH_NAME_ach_16 = { en = "Polyphonic Vortex", ua = "Поліфонічний вихр" },
+    ACH_NAME_ach_17 = { en = "Legion", ua = "Легіон" },
+    ACH_NAME_ach_18 = { en = "Epic Saga", ua = "Епічна Сага" },
+    ACH_NAME_ach_19 = { en = "Parseltongue", ua = "Парселтанг" },
+    ACH_NAME_ach_20 = { en = "A Thousand Spells", ua = "Тисяча заклять" },
+    ACH_NAME_ach_21 = { en = "Magical Sync", ua = "Магічний синхрон" },
+    ACH_NAME_ach_22 = { en = "Night Vigil", ua = "Нічне Бдіння" },
+    ACH_NAME_ach_23 = { en = "Artemis' Blessing", ua = "Благословення Артеміди" },
+    ACH_NAME_ach_24 = { en = "Inner Peace", ua = "Внутрішній спокій" },
+    ACH_NAME_ach_25 = { en = "Genie Summon", ua = "Виклик Джина" },
+    ACH_NAME_ach_26 = { en = "Eureka", ua = "Еврика" },
+    ACH_NAME_ach_27 = { en = "Legend of the Elements", ua = "Легенда про стихії" },
+    ACH_NAME_ach_28 = { en = "Light as a Feather", ua = "Легкість пірїни" },
+    ACH_NAME_ach_29 = { en = "Text Transmutation", ua = "Трансмутація тексту" },
+    ACH_NAME_ach_30 = { en = "Rooster of Justice", ua = "Півень правосуддя" },
+    ACH_TIP_1 = { en = "SRT imported: %s\nASS imported: %s\nVTT imported: %s\n%s\nLines imported: %s", ua = "Імпортовано SRT: %s\nІмпортовано ASS: %s\nІмпортовано VTT: %s\n%s\nІмпортовано реплік: %s" },
+    ACH_TIP_2 = { en = "Accents applied: %s\nAccented lines: %s\n%s\n\"Correct accent is like a spice:\ntoo much ruins it, too little makes it bland.\"", ua = "Застосувань наголосів: %s\nНаголошено реплік: %s\n%s\n\"Правильний наголос — як спеція:\nзабагато зіпсує, замало — знебарвить.\"" },
+    ACH_TIP_3 = { en = "GOROH Dictionary Lookups\n%s\nDefinitions: %s\nConjugations: %s\nSynonyms: %s\nIdioms: %s\nWord usages: %s", ua = "Перегляд словника ГОРОХ\n%s\nТлумачення: %s\nСловозміна: %s\nСиноніми: %s\nФразеологія: %s\nСлововживання: %s" },
+    ACH_TIP_4_HEADER = { en = "AI used\n", ua = "Використано ШІ\n" },
+    ACH_TIP_4_NONE = { en = "You have not used any AI features yet", ua = "Ви ще не використовували AI-функції" },
+    ACH_TIP_5 = { en = "Retakes packs accepted: %s\nRetakes received: %s\n%s\n\"Criticism is just another name for the opportunity to become better.\"", ua = "Прийнято паків правок: %s\nОтримано правок: %s\n%s\n\"Критика — це лише інше ім'я для можливості стати кращим.\"" },
+    ACH_TIP_6 = { en = "Missed deadlines: %s\n%s\n\"You let the team down by not submitting the project on time. Deadlines are not just dates, they are your word.\"", ua = "Прострочено дедлайнів: %s\n%s\n\"Ви підвели команду, не здавши проєкт вчасно. Терміни — це не просто дати, це Ваше слово.\"" },
+    ACH_TIP_7 = { en = "\"Always loyal to the village.\"\n%s\n\nMeetings with Itachi: %s", ua = "\"Завжди вірний селищу.\"\n%s\n\nЗустрічей з Ітачі: %s" },
+    ACH_TIP_8 = { en = "Retakes packs sent: %s\nRetakes submitted: %s\n%s\n\"A true master notices every mistake not for condemnation, but to help others reach perfection.\"", ua = "Віддано паків правок: %s\nПередано зауважень: %s\n%s\n\"Справжній майстер помічає кожну помилку не заради осуду, а щоб допомогти іншим досягти досконалості.\"" },
+    ACH_TIP_9 = { en = "Number of long recordings (>30s): %s\n%s\n\"A voice that captivates with its duration.\"", ua = "Кількість довгих записів (>30с): %s\n%s\n\"Голос, що зачаровує своєю тривалістю.\"" },
+    ACH_TIP_10 = { en = "Projects created: %s\n%s\n\"For a true architect, every project is a new universe.\"", ua = "Кількість створених проєктів: %s\n%s\n\"Для справжнього архітектора кожен проєкт — це новий всесвіт.\"" },
+    ACH_TIP_11 = { en = "Takes recorded: %s\nWords spoken: %s\nTotal time: %s\n%s\n\"Silence is just a pause between recordings.\"", ua = "Записаних дублів: %s\nПромовлено слів: %s\nЗагальний час: %s\n%s\n\"Тиша — це лише пауза між записом.\"" },
+    ACH_TIP_12 = { en = "Super-complex line recording: %s\n%s\n\"The twenty-first attempt is a masterpiece by default.\"", ua = "Запис надскладної репліки: %s\n%s\n\"Двадцять перша спроба — за замовчуванням шедевр.\"" },
+    ACH_TIP_13 = { en = "Reality rupture events (clipping): %s\n%s\n\"Some sounds cannot be tamed — they simply burn everything in their path.\"", ua = "Випадків розриву реальності (кліпінгу): %s\n%s\n\"Деякі звуки неможливо приборкати — вони просто спалюють все на своєму шляху.\"" },
+    ACH_TIP_14 = { en = "Projects with over 12 hours spent: %s\n%s\n\"Time is the fabric from which life and your best projects are made.\"", ua = "Проєкти, в яких проведено понад 12 годин: %s\n%s\n\"Час — це матерія, з якої зроблено життя та ваші кращі проєкти.\"" },
+    ACH_TIP_15 = { en = "For every spoken word \"sex\": %s\n%s\n\"Every word has its weight, but some make the heart beat faster.\"", ua = "За кожне промовлене слово \"секс\": %s\n%s\n\"Кожне слово має свою вагу, але деякі змушують серце битися частіше.\"" },
+    ACH_TIP_16 = { en = "Projects with over 15 tracks: %s\n%s\n\"The true power of sound is born in the harmony of many voices.\"", ua = "Проєкти з понад 15 треками: %s\n%s\n\"Справжня потужність звуку народжується в гармонії багатьох голосів.\"" },
+    ACH_TIP_17 = { en = "Projects with over 50 actors: %s\n%s\n\"Their name is Legion. An army of voices creating a new reality.\"", ua = "Проєкти з понад 50 акторами: %s\n%s\n\"Ім'я їм — Легіон. Армія голосів, що створює нову реальність.\"" },
+    ACH_TIP_18 = { en = "Participation in epic sagas (80min+): %s\n%s\n\"Great stories demand great patience and skill.\"", ua = "Участь у епічних сагах (80хв+): %s\n%s\n\"Великі історії вимагають великого терпіння та майстерності.\"" },
+    ACH_TIP_19 = { en = "Lines with more than 8 sibilants: %s\n%s\n\"Shh... Your voice slips between words like a snake in thick grass.\"", ua = "Репліки з понад 8 шиплячими: %s\n%s\n\"Тссс... Твій голос ковзає між словами, наче змія в густій траві.\"" },
+    ACH_TIP_20 = { en = "Projects with over 1000 takes: %s\n%s\n\"Each take is a new step towards perfection. A thousand steps is already mastery.\"", ua = "Проєкти з понад 1000 дублів: %s\n%s\n\"Кожен дубль — це новий крок до ідеалу. Тисяча кроків — це вже майстерність.\"" },
+    ACH_TIP_21 = { en = "Perfect syncs logged: %s\n%s\n\"The length of the recorded take is identical to the length of the subtitle region.\"", ua = "Зафіксовано ідеальних синхронів: %s\n%s\n\"Довжина записаного дубля ідентична довжині регіону субтитрів.\"" },
+    ACH_TIP_22 = { en = "Nights spent at the microphone: %s\n%s\n\"Between midnight and dawn, voices sound different. The magic of the night is in every breath.\"\n(Issued once a day from 00:00 to 04:00)", ua = "Ночей проведено за мікрофоном: %s\n%s\n\"Між північчю та світанком голоси звучать інакше. Магія ночі у кожному подиху.\"\n(Видається раз на добу з 00:00 до 04:00)" },
+    ACH_TIP_23 = { en = "Projects with perfect accuracy: %s\n%s\n\"Your accuracy is amazing. Every word is right on target, like an arrow of the goddess of the hunt.\"\n(50+ lines with a take ratio of <= 1.1)", ua = "Проєкти з ідеальною точністю: %s\n%s\n\"Твоя влучність вражає. Кожне слово — точно в ціль, наче стріла богині полювання.\"\n(50+ реплік з коефіцієнтом дублів <= 1.1)" },
+    ACH_TIP_24 = { en = "Moments of silence captured: %s\n%s\n\"The ability to be silent is also an art.\"\n(Silence recording of 5+ seconds)", ua = "Миттєвостей тиші зафіксовано: %s\n%s\n\"Вміння мовчати — це теж мистецтво.\"\n(Запис тиші тривалістю 5+ секунд)" },
+    ACH_TIP_25 = { en = "Genie summoned: %s\n%s\n\"Careful, you only have three wishes!\"", ua = "Викликано джина: %s\n%s\n\"Обережно у вас є тільки три бажання!\"" },
+    ACH_TIP_26 = { en = "Statistics copied: %s\n%s\n\"The math of success is simple: every step brings you closer to the goal. Now it's officially logged!\"", ua = "Скопійовано статистику: %s\n%s\n\"Математика успіху проста: кожен крок наближає тебе до мети. Тепер це офіційно зафіксовано!\"" },
+    ACH_TIP_27 = { en = "Collect all API keys: %s\n%s\n\"Keys to all the doors in the world. Now you are the master of uncharted knowledge!\"", ua = "Зібрати всі API ключи: %s\n%s\n\"Ключі від усіх дверей світу. Тепер ти володар незвіданих знань!\"" },
+    ACH_TIP_28 = { en = "Text revisions: %s\n%s\n\"A writer without a pen is like a street sweeper without a rake\"\n(Issued for editing text in Editor mode)", ua = "Редакцій тексту: %s\n%s\n\"Письменник без пера, як двірник без граблів\"\n(Видається за редагування тексту в режимі Редактора)" },
+    ACH_TIP_29 = { en = "Integrated AI translation: %s\nNumber of translated lines: %s\n%s\n\"Thread by thread, digit by digit — words turn into meanings, unknown until now.\"", ua = "Інтегровано переклад від ШІ: %s\nКількість перекладених реплік: %s\n%s\n\"Нитка за ниткою, цифра за цифрою — слова перетворюються на сенси, невідомі досі.\"" },
+    ACH_TIP_30 = { en = "Notifications configured: %s\n%s\n\"Now you won't forget about the deadline because the rooster of justice will remind you about it\"", ua = "Налаштовано сповіщень: %s\n%s\n\"Тепер ви не забудете про дедлайн бо півень правосуддя вам про нього нагадає\"" },
+    ACH_HINT_ach_1 = { en = "Number of imported lines", ua = "Кількість імпортованих реплік" },
+    ACH_HINT_ach_2 = { en = "Number of accented lines", ua = "Кількість наголошених реплік" },
+    ACH_HINT_ach_3 = { en = "GOROH dictionary lookups", ua = "Переглядів словника ГОРОХ" },
+    ACH_HINT_ach_4 = { en = "AI features used in the text editor", ua = "Використано ШІ-функцій в текстовому редакторі" },
+    ACH_HINT_ach_5 = { en = "Retakes imported", ua = "Імпортовано правок" },
+    ACH_HINT_ach_6 = { en = "Missed project deadlines", ua = "Прострочено дедлайнів у проектах" },
+    ACH_HINT_ach_7 = { en = "Meetings with Itachi Uchiha", ua = "Зустрічей з Ітачі Учіха" },
+    ACH_HINT_ach_8 = { en = "Retakes submitted for colleagues", ua = "Віддано правок для колег" },
+    ACH_HINT_ach_9 = { en = "Recordings longer than 30 seconds", ua = "Записів довжиною понад 30 секунд" },
+    ACH_HINT_ach_10 = { en = "Number of projects created", ua = "Кількість створених проєктів" },
+    ACH_HINT_ach_11 = { en = "Number of recorded items/takes", ua = "Кількість записаних айтемів/дублів" },
+    ACH_HINT_ach_12 = { en = "Attempts to record a single line (21+ times)", ua = "Спроб запису однієї репліки (21+ разів)" },
+    ACH_HINT_ach_13 = { en = "Clipping occurrences (audio distortion)", ua = "Випадків кліпінгу (перевантаження звуку)" },
+    ACH_HINT_ach_14 = { en = "Projects with over 12 hours spent", ua = "Проєктів, де проведено понад 12 годин" },
+    ACH_HINT_ach_15 = { en = "Occurrences of the word \"sex\"", ua = "Випадків промовлення слова \"секс\"" },
+    ACH_HINT_ach_16 = { en = "Projects with over 15 tracks", ua = "Проєктів з понад 15 треками" },
+    ACH_HINT_ach_17 = { en = "Projects with over 50 actors", ua = "Проєктів з понад 50 акторами" },
+    ACH_HINT_ach_18 = { en = "Projects longer than 80 minutes", ua = "Проєктів тривалістю понад 80 хвилин" },
+    ACH_HINT_ach_19 = { en = "Recorded lines with over 8 sibilant sounds", ua = "Записано реплік з понад 8 шиплячих звуків" },
+    ACH_HINT_ach_20 = { en = "Projects with over 1,000 takes", ua = "Проєктів з понад 1000 дублів" },
+    ACH_HINT_ach_21 = { en = "Recorded takes with identical length to the line", ua = "Кількість записаних дублів з ідентичною довжиною репліки" },
+    ACH_HINT_ach_22 = { en = "Nights spent at the microphone (00:00 - 04:00)", ua = "Ночей проведено за мікрофоном (00:00 - 04:00)" },
+    ACH_HINT_ach_23 = { en = "Recorded 50 lines with take ratio <= 1.1", ua = "Записано 50 реплік з кількістю дублів <= 1.1" },
+    ACH_HINT_ach_24 = { en = "Silence recordings of 5+ seconds", ua = "Записів тиші тривалістю 5+ секунд" },
+    ACH_HINT_ach_25 = { en = "Number of times developer's name copied", ua = "Кількість копіювання імені розробника" },
+    ACH_HINT_ach_26 = { en = "Number of actor statistics copies", ua = "Кількість копіювань статистики по акторам" },
+    ACH_HINT_ach_27 = { en = "Collected all available API keys", ua = "Зібрано всіх доступних API ключів" },
+    ACH_HINT_ach_28 = { en = "Lines edited in Editor mode", ua = "Редаговано реплік в режимі Редактора" },
+    ACH_HINT_ach_29 = { en = "AI translated lines imported", ua = "Імпортовано перекладених реплік через ШІ" },
+    ACH_HINT_ach_30 = { en = "Deadline notifications configured", ua = "Налаштовано сповіщень про дедлайни" },
+
+    ACH_ER_LOAD_L = { en = "Unable to load the leaderboard", ua = "Не вдалося завантажити таблицю лідерів" },
+    ACH_ER_JSON_L = { en = "JSON decoding error", ua = "Помилка декодування JSON" },
+    ACH_ER_CON_L = { en = "No connection to the server (file not found)", ua = "Немає зв'язку з сервером (файл відсутній)" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
 }
 
 function T(key)
@@ -2923,7 +3077,7 @@ function ACHIEVEMENTS.check_deadline_failure()
 end
 
 function ACHIEVEMENTS.format_long_duration(s)
-    if not s or s <= 0 then return "0 хв." end
+    if not s or s <= 0 then return "0" .. T("DUR_MIN") end
     
     local months = math.floor(s / 2592000) -- 30 days
     s = s % 2592000
@@ -2934,10 +3088,10 @@ function ACHIEVEMENTS.format_long_duration(s)
     local minutes = math.floor(s / 60)
     
     local parts = {}
-    if months > 0 then table.insert(parts, months .. " міс.") end
-    if days > 0 then table.insert(parts, days .. " д.") end
-    if hours > 0 then table.insert(parts, hours .. " год.") end
-    if minutes > 0 or #parts == 0 then table.insert(parts, minutes .. " хв.") end
+    if months > 0 then table.insert(parts, months .. T("DUR_MONTH")) end
+    if days > 0 then table.insert(parts, days .. T("DUR_DAY")) end
+    if hours > 0 then table.insert(parts, hours .. T("DUR_HOUR")) end
+    if minutes > 0 or #parts == 0 then table.insert(parts, minutes .. T("DUR_MIN")) end
     
     return table.concat(parts, " ")
 end
@@ -17417,52 +17571,21 @@ function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key, page)
                     end
                     ACHIEVEMENTS.leaderboard_data.rows = rows
                 else
-                    show_snackbar("Не вдалося завантажити таблицю лідерів", "error")
+                    show_snackbar(T("ACH_ER_LOAD_L"), "error")
                 end
             else
-                show_snackbar("Помилка декодування JSON", "error")
+                show_snackbar(T("ACH_ER_JSON_L"), "error")
             end
             os.remove(leaderboard_path)
         else
-            show_snackbar("Немає зв'язку з сервером (файл відсутній)", "error")
+            show_snackbar(T("ACH_ER_CON_L"), "error")
         end
     end, true, "Fetching " .. ach_id .. " leaderboard...", false)
 end
 
 function ACHIEVEMENTS.get_ach_hint(ach_id)
-    local hints = {
-        ach_1 = "Кількість імпортованих реплік",
-        ach_2 = "Кількість наголошених реплік",
-        ach_3 = "Переглядів словника ГОРОХ",
-        ach_4 = "Використано ШІ-функцій в текстовому редакторі",
-        ach_5 = "Імпортовано правок",
-        ach_6 = "Прострочено дедлайнів у проектах",
-        ach_7 = "Зустрічей з Ітачі Учіха",
-        ach_8 = "Віддано правок для колег",
-        ach_9 = "Записів довжиною понад 30 секунд",
-        ach_10 = "Кількість створених проєктів",
-        ach_11 = "Кількість записаних айтемів/дублів",
-        ach_12 = "Спроб запису однієї репліки (21+ разів)",
-        ach_13 = "Випадків кліпінгу (перевантаження звуку)",
-        ach_14 = "Проєктів, де проведено понад 12 годин",
-        ach_15 = "Випадків промовлення слова \"секс\"",
-        ach_16 = "Проєктів з понад 15 треками",
-        ach_17 = "Проєктів з понад 50 акторами",
-        ach_18 = "Проєктів тривалістю понад 80 хвилин",
-        ach_19 = "Записано реплік з понад 8 шиплячих звуків",
-        ach_20 = "Проєктів з понад 1000 дублів",
-        ach_21 = "Кількість записаних дублів з ідентичною довжиною репліки",
-        ach_22 = "Ночей проведено за мікрофоном (00:00 - 04:00)",
-        ach_23 = "Записано 50 реплік з кількістю дублів <= 1.1",
-        ach_24 = "Записів тиші тривалістю 5+ секунд",
-        ach_25 = "Кількість копіювання імені розробника",
-        ach_26 = "Кількість копіювань статистики по акторам",
-        ach_27 = "Зібрано всіх доступних API ключів",
-        ach_28 = "Редаговано реплік в режимі Редактора",
-        ach_29 = "Імпортовано перекладених реплік через ШІ",
-        ach_30 = "Налаштовано сповіщень про дедлайни"
-    }
-    return hints[ach_id] or ""
+    local hint_key = "ACH_HINT_" .. ach_id
+    return T(hint_key)
 end
 
 function ACHIEVEMENTS.draw_dialog()
@@ -17533,11 +17656,11 @@ function ACHIEVEMENTS.draw_dialog()
                         if row.machine_id and row.machine_id ~= "" then
                             ACHIEVEMENTS.fetch_profile(row.machine_id)
                         else
-                            show_snackbar("ID користувача не знайдено", "error")
+                            show_snackbar(T("USER_ID_NOT_FOUND"), "error")
                         end
                     end
                 end
-
+ 
                 gfx.setfont(F.std)
                 set_color(UI.C_TXT, (row.is_me or row_hover) and 1.0 or 0.7)
                 
@@ -17570,7 +17693,7 @@ function ACHIEVEMENTS.draw_dialog()
                 -- Name with ellipsis
                 local name_x = rx + S(40)
                 local avail_name_w = val_x - name_x - S(15)
-                local draw_name = fit_text_width(row.dubber_name or "Анонім", avail_name_w)
+                local draw_name = fit_text_width(row.dubber_name or T("ANONYMOUS"), avail_name_w)
                 
                 gfx.x, gfx.y = name_x, ty
                 gfx.drawstr(draw_name)
@@ -17581,7 +17704,7 @@ function ACHIEVEMENTS.draw_dialog()
             end
         end
     end
-
+ 
     -- Load More Button
     if ACHIEVEMENTS.leaderboard_data.has_more then
         local btn_w = S(160)
@@ -17590,33 +17713,33 @@ function ACHIEVEMENTS.draw_dialog()
         local btn_y = content_y + S(5) + #rows_to_draw * row_h + S(5) - ACHIEVEMENTS.leaderboard_scroll_y
         
         if btn_y + btn_h > content_y and btn_y < content_y + list_h then
-            if btn(btn_x, btn_y, btn_w, btn_h, "Завантажити ще", UI.C_BTN, UI.C_TXT) then
+            if btn(btn_x, btn_y, btn_w, btn_h, T("LOAD_MORE"), UI.C_BTN, UI.C_TXT) then
                 local next_page = (ACHIEVEMENTS.leaderboard_data.page or 1) + 1
                 ACHIEVEMENTS.fetch_leaderboard(ACHIEVEMENTS.leaderboard_data.ach_name, ACHIEVEMENTS.leaderboard_data.rank_key, next_page)
                 UI_STATE.mouse_handled = true
             end
         end
     end
-
+ 
     -- MASK TOP (Header area) - Draw this after content to cover overlap
     set_color(UI.C_BG, 1.0)
     gfx.rect(x, y, w, content_y - y, 1)
     set_color(UI.C_TXT, 0.1)
     gfx.line(x, content_y, x + w, content_y)
-
+ 
     -- Draw Title & Close Button
     gfx.setfont(F.title)
     set_color(UI.C_TXT, 1)
-    local ach_name = ACHIEVEMENTS.leaderboard_data.ach_name or "Досягнення"
+    local ach_name = ACHIEVEMENTS.leaderboard_data.ach_name or T("ACHIEVEMENTS_LBL")
     for _, ach in ipairs(OTHER.ACH_CFG) do
         if ach.id == ach_name then
-            ach_name = ach.name
+            ach_name = T("ACH_NAME_" .. ach.id)
             break
         end
     end
     
     gfx.x, gfx.y = x + pad, y + pad - S(2)
-    local draw_title = fit_text_width("Таблиця лідерів: " .. ach_name, w - pad*2 - close_sz - S(10))
+    local draw_title = fit_text_width(string.format(T("LEADERBOARD_TITLE"), ach_name), w - pad*2 - close_sz - S(10))
     gfx.drawstr(draw_title)
     
     gfx.setfont(F.tip)
@@ -17624,7 +17747,7 @@ function ACHIEVEMENTS.draw_dialog()
     local current_ach_id = ACHIEVEMENTS.leaderboard_data.ach_name
     local hint = ACHIEVEMENTS.get_ach_hint(current_ach_id)
     if ACHIEVEMENTS.stats[current_ach_id .. "_tracking"] ~= 1 then
-        hint = "! Досягнення не відкрито !"
+        hint = T("ACH_LOCKED_HINT")
     end
     gfx.x, gfx.y = x + pad, y + pad + S(24)
     gfx.drawstr(fit_text_width(hint, w - pad*2 - close_sz - S(10)))
@@ -17633,7 +17756,7 @@ function ACHIEVEMENTS.draw_dialog()
         ACHIEVEMENTS.show_leaderboard = false
         UI_STATE.mouse_handled = true
     end
-
+ 
     -- Draw Border over everything
     set_color(UI.C_TXT, 0.1)
     gfx.rect(x, y, w, h, 0)
@@ -17713,10 +17836,10 @@ function ACHIEVEMENTS.draw_window(input_queue)
         -- Right click context menu
         if is_right_mouse_clicked() then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-            local ret = gfx.showmenu("Оновити дані")
+            local ret = gfx.showmenu(T("REFRESH_DATA"))
             if ret == 1 then
                 STATS.register_plugin_usage()
-                show_snackbar("Оновлення даних...")
+                show_snackbar(T("UPDATING_DATA_ELLIPSIS"))
             end
             UI_STATE.mouse_handled = true
         end
@@ -17810,7 +17933,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
             -- Name Label
             gfx.setfont(F.std)
             set_color(is_unlocked and UI.C_TXT or UI.C_MEDIUM_GREY)
-            local draw_name = fit_text_width(ach.name, item_sz - S(10))
+            local draw_name = fit_text_width(T("ACH_NAME_" .. ach.id), item_sz - S(10))
             local tw, th_meas = gfx.measurestr(draw_name)
             gfx.x = cx + (item_sz - tw) / 2
             gfx.y = cy + item_sz - th_meas - S(10)
@@ -17850,7 +17973,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local vtt = ACHIEVEMENTS.stats["ach_1_vtt_import"] or 0
                         local total = ACHIEVEMENTS.stats["ach_1_total_lines"] or 0
                         
-                        tooltip_text = string.format("Імпортовано SRT: %s\nІмпортовано ASS: %s\nІмпортовано VTT: %s\n%s\nІмпортовано реплік: %s", 
+                        tooltip_text = string.format(T("ACH_TIP_1"), 
                             UTILS.format_number(srt), UTILS.format_number(ass), UTILS.format_number(vtt), string.rep("—", 12), UTILS.format_number(total))
                     elseif ach.id == "ach_3" then
                         local def = ACHIEVEMENTS.stats["ach_3_definition"] or 0
@@ -17859,144 +17982,148 @@ function ACHIEVEMENTS.draw_window(input_queue)
                         local idiom = ACHIEVEMENTS.stats["ach_3_idioms"] or 0
                         local usage = ACHIEVEMENTS.stats["ach_3_word_usage"] or 0
                         
-                        tooltip_text = string.format("Перегляд словника ГОРОХ\n%s\nТлумачення: %s\nСловозміна: %s\nСиноніми: %s\nФразеологія: %s\nСлововживання: %s", 
+                        tooltip_text = string.format(T("ACH_TIP_3"), 
                             string.rep("—", 12), UTILS.format_number(def), UTILS.format_number(conj), UTILS.format_number(syn), UTILS.format_number(idiom), UTILS.format_number(usage))
                     elseif ach.id == "ach_7" then
                         local total = ACHIEVEMENTS.stats["ach_7_itachi_uchiha"] or 0
-                        tooltip_text = string.format("\"Завжди вірний селищу.\"\n%s\n\nЗустрічей з Ітачі: %s", 
+                        tooltip_text = string.format(T("ACH_TIP_7"), 
                             string.rep("—", 12), UTILS.format_number(total))
                     elseif ach.id == "ach_2" then
                         local total = ACHIEVEMENTS.stats["ach_2_total_lines"] or 0
                         local runs = ACHIEVEMENTS.stats["ach_2_run_count"] or 0
-                        tooltip_text = string.format("Застосувань наголосів: %s\nНаголошено реплік: %s\n%s\n\"Правильний наголос — як спеція:\nзабагато зіпсує, замало — знебарвить.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_2"), 
                             UTILS.format_number(runs), UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_8" then
                         local export = ACHIEVEMENTS.stats["ach_8_export_count"] or 0
                         local items = ACHIEVEMENTS.stats["ach_8_corr_item_count"] or 0
-                        tooltip_text = string.format("Віддано паків правок: %s\nПередано зауважень: %s\n%s\n\"Справжній майстер помічає кожну помилку не заради осуду, а щоб допомогти іншим досягти досконалості.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_8"), 
                             UTILS.format_number(export), UTILS.format_number(items), string.rep("—", 12))
                     elseif ach.id == "ach_6" then
                         local total = ACHIEVEMENTS.stats["ach_6_failed_count"] or 0
-                        tooltip_text = string.format("Прострочено дедлайнів: %s\n%s\n\"Ви підвели команду, не здавши проєкт вчасно. Терміни — це не просто дати, це Ваше слово.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_6"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_4" then
-                        local parts = { "Використано ШІ" .. "\n" .. string.rep("—", 12) }
+                        local parts = { T("ACH_TIP_4_HEADER") .. string.rep("—", 12) }
                         
                         -- Dynamically build tooltip from OTHER.AI_TASKS
                         for _, task in ipairs(OTHER.AI_TASKS) do
                             local stat_key = "ach_4_" .. task.id .. "_count"
                             local val = ACHIEVEMENTS.stats[stat_key] or 0
                             if val > 0 then
-                                table.insert(parts, string.format("%s: %s", task.name, UTILS.format_number(val)))
+                                local translated_name = T("AI_TASK_" .. task.id)
+                                if translated_name == "AI_TASK_" .. task.id then
+                                    translated_name = task.name
+                                end
+                                table.insert(parts, string.format("%s: %s", translated_name, UTILS.format_number(val)))
                             end
                         end
                         
                         if #parts == 1 then
-                            tooltip_text = "Ви ще не використовували AI-функції"
+                            tooltip_text = T("ACH_TIP_4_NONE")
                         else
                             tooltip_text = table.concat(parts, "\n")
                         end
                     elseif ach.id == "ach_5" then
                         local imports = ACHIEVEMENTS.stats["ach_5_import_count"] or 0
                         local items = ACHIEVEMENTS.stats["ach_5_corr_item_count"] or 0
-                        tooltip_text = string.format("Прийнято паків правок: %s\nОтримано правок: %s\n%s\n\"Критика — це лише інше ім'я для можливості стати кращим.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_5"), 
                             UTILS.format_number(imports), UTILS.format_number(items), string.rep("—", 12))
                     elseif ach.id == "ach_11" then
                         local total = ACHIEVEMENTS.stats["ach_11_count"] or 0
                         local words = ACHIEVEMENTS.stats["ach_11_word_count"] or 0
                         local duration = ACHIEVEMENTS.stats["ach_11_total_duration"] or 0
-                        tooltip_text = string.format("Записаних дублів: %s\nПромовлено слів: %s\nЗагальний час: %s\n%s\n\"Тиша — це лише пауза між записом.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_11"), 
                             UTILS.format_number(total), UTILS.format_number(words), ACHIEVEMENTS.format_long_duration(duration), string.rep("—", 12))
                     elseif ach.id == "ach_10" then
                         local total = ACHIEVEMENTS.stats["ach_10_count"] or 0
-                        tooltip_text = string.format("Кількість створених проєктів: %s\n%s\n\"Для справжнього архітектора кожен проєкт — це новий всесвіт.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_10"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_14" then
                         local total = ACHIEVEMENTS.stats["ach_14_count"] or 0
-                        tooltip_text = string.format("Проєкти, в яких проведено понад 12 годин: %s\n%s\n\"Час — це матерія, з якої зроблено життя та ваші кращі проєкти.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_14"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_15" then
                         local total = ACHIEVEMENTS.stats["ach_15_count"] or 0
-                        tooltip_text = string.format("За кожне промовлене слово \"секс\": %s\n%s\n\"Кожне слово має свою вагу, але деякі змушують серце битися частіше.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_15"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_12" then
                         local total = ACHIEVEMENTS.stats["ach_12_count"] or 0
-                        tooltip_text = string.format("Запис надскладної репліки: %s\n%s\n\"Двадцять перша спроба — за замовчуванням шедевр.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_12"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_9" then
                         local total = ACHIEVEMENTS.stats["ach_9_count"] or 0
-                        tooltip_text = string.format("Кількість довгих записів (>30с): %s\n%s\n\"Голос, що зачаровує своєю тривалістю.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_9"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_13" then
                         local total = ACHIEVEMENTS.stats["ach_13_count"] or 0
-                        tooltip_text = string.format("Випадків розриву реальності (кліпінгу): %s\n%s\n\"Деякі звуки неможливо приборкати — вони просто спалюють все на своєму綢ляху.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_13"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_18" then
                         local total = ACHIEVEMENTS.stats["ach_18_count"] or 0
-                        tooltip_text = string.format("Участь у епічних сагах (80хв+): %s\n%s\n\"Великі історії вимагають великого терпіння та майстерності.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_18"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_16" then
                         local total = ACHIEVEMENTS.stats["ach_16_count"] or 0
-                        tooltip_text = string.format("Проєкти з понад 15 треками: %s\n%s\n\"Справжня потужність звуку народжується в гармонії багатьох голосів.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_16"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_17" then
                         local total = ACHIEVEMENTS.stats["ach_17_count"] or 0
-                        tooltip_text = string.format("Проєкти з понад 50 акторами: %s\n%s\n\"Ім'я їм — Легіон. Армія голосів, що створює нову реальність.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_17"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_19" then
                         local total = ACHIEVEMENTS.stats["ach_19_count"] or 0
-                        tooltip_text = string.format("Репліки з понад 8 шиплячими: %s\n%s\n\"Тссс... Твій голос ковзає між словами, наче змія в густій траві.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_19"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_20" then
                         local total = ACHIEVEMENTS.stats["ach_20_count"] or 0
-                        tooltip_text = string.format("Проєкти з понад 1000 дублів: %s\n%s\n\"Кожен дубль — це новий крок до ідеалу. Тисяча кроків — це вже майстерність.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_20"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_21" then
                         local total = ACHIEVEMENTS.stats["ach_21_count"] or 0
-                        tooltip_text = string.format("Зафіксовано ідеальних синхронів: %s\n%s\n\"Довжина записаного дубля ідентична довжині регіону субтитрів.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_21"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_22" then
                         local total = ACHIEVEMENTS.stats["ach_22_count"] or 0
-                        tooltip_text = string.format("Ночей проведено за мікрофоном: %s\n%s\n\"Між північчю та світанком голоси звучать інакше. Магія ночі у кожному подиху.\"\n(Видається раз на добу з 00:00 до 04:00)", 
+                        tooltip_text = string.format(T("ACH_TIP_22"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_23" then
                         local total = ACHIEVEMENTS.stats["ach_23_count"] or 0
-                        tooltip_text = string.format("Проєкти з ідеальною точністю: %s\n%s\n\"Твоя влучність вражає. Кожне слово — точно в ціль, наче стріла богині полювання.\"\n(50+ реплік з коефіцієнтом дублів <= 1.1)", 
+                        tooltip_text = string.format(T("ACH_TIP_23"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_24" then
                         local total = ACHIEVEMENTS.stats["ach_24_count"] or 0
-                        tooltip_text = string.format("Миттєвостей тиші зафіксовано: %s\n%s\n\"Вміння мовчати — це теж мистецтво.\"\n(Запис тиші тривалістю 5+ секунд)", 
+                        tooltip_text = string.format(T("ACH_TIP_24"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_25" then
                         local total = ACHIEVEMENTS.stats["ach_25_count"] or 0
-                        tooltip_text = string.format("Викликано джина: %s\n%s\n\"Обережно у вас є тільки три бажання!\"", 
+                        tooltip_text = string.format(T("ACH_TIP_25"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_26" then
                         local total = ACHIEVEMENTS.stats["ach_26_count"] or 0
-                        tooltip_text = string.format("Скопійовано статистику: %s\n%s\n\"Математика успіху проста: кожен крок наближає тебе до мети. Тепер це офіційно зафіксовано!\"", 
+                        tooltip_text = string.format(T("ACH_TIP_26"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_27" then
                         local total = ACHIEVEMENTS.stats["ach_27_count"] or 0
-                        tooltip_text = string.format("Зібрати всі API ключи: %s\n%s\n\"Ключі від усіх дверей світу. Тепер ти володар незвіданих знань!\"", 
+                        tooltip_text = string.format(T("ACH_TIP_27"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_28" then
                         local total = ACHIEVEMENTS.stats["ach_28_count"] or 0
-                        tooltip_text = string.format("Редакцій тексту: %s\n%s\n\"Письменник без пера, як двірник без граблів\"\n(Видається за редагування тексту в режимі Редактора)", 
+                        tooltip_text = string.format(T("ACH_TIP_28"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     elseif ach.id == "ach_29" then
                         local total = ACHIEVEMENTS.stats["ach_29_count"] or 0
                         local import_count = ACHIEVEMENTS.stats["ach_29_import_count"] or 0
-                        tooltip_text = string.format("Інтегровано переклад від ШІ: %s\nКількість перекладених реплік: %s\n%s\n\"Нитка за ниткою, цифра за цифрою — слова перетворюються на сенси, невідомі досі.\"", 
+                        tooltip_text = string.format(T("ACH_TIP_29"), 
                             UTILS.format_number(total), UTILS.format_number(import_count), string.rep("—", 12))
                     elseif ach.id == "ach_30" then
                         local total = ACHIEVEMENTS.stats["ach_30_count"] or 0
-                        tooltip_text = string.format("Налаштовано сповіщень: %s\n%s\n\"Тепер ви не забудете про дедлайн бо півень правосуддя вам про нього нагадає\"", 
+                        tooltip_text = string.format(T("ACH_TIP_30"), 
                             UTILS.format_number(total), string.rep("—", 12))
                     else
-                        tooltip_text = ach.name
+                        tooltip_text = T("ACH_NAME_" .. ach.id)
                     end
                 else
-                    tooltip_text = ach.name .. " (не відкрито)"
+                    tooltip_text = string.format(T("ACH_NOT_UNLOCKED"), T("ACH_NAME_" .. ach.id))
                 end
 
                 if tooltip_text ~= "" then
@@ -18017,9 +18144,9 @@ function ACHIEVEMENTS.draw_window(input_queue)
                            gfx.mouse_y >= cy and gfx.mouse_y <= cy + bh then
                             show_rank_tooltip = true
                             if r_data.position then
-                                r_tooltip = string.format("ВИ ПОСІДАЄТЕ: %s місце\n(серед %s користувачів)", UTILS.format_number(r_data.position), UTILS.format_number(r_data.total_competitors or 0))
+                                r_tooltip = string.format(T("ACH_RANK_MY_POSITION"), UTILS.format_number(r_data.position), UTILS.format_number(r_data.total_competitors or 0))
                             elseif r_data.unlocked_by then
-                                r_tooltip = string.format("ПОПУЛЯРНІСТЬ: %s людей\n(вже мають це досягнення)", UTILS.format_number(r_data.unlocked_by))
+                                r_tooltip = string.format(T("ACH_RANK_POPULARITY"), UTILS.format_number(r_data.unlocked_by))
                             end
                         end
                     end
@@ -18046,9 +18173,9 @@ function ACHIEVEMENTS.draw_window(input_queue)
                 gfx.rect(cx, cy, item_sz, item_sz, 1)
                 set_color(UI.C_TXT, 1)
                 gfx.setfont(F.bld)
-                local lw, lh = gfx.measurestr("Завантаження...")
+                local lw, lh = gfx.measurestr(T("LOADING_ELLIPSIS"))
                 gfx.x, gfx.y = cx + (item_sz - lw) / 2, cy + (item_sz - lh) / 2
-                gfx.drawstr("Завантаження...")
+                gfx.drawstr(T("LOADING_ELLIPSIS"))
             end
 
             -- Draw Ranking Badge (Top Right)
@@ -18118,10 +18245,10 @@ function ACHIEVEMENTS.draw_window(input_queue)
     local avail_tw = close_x - pad - S(30) -- Adjusted for edit button
 
     -- Edit Name Button
-    local edit_w = S(145)
+    local edit_w = cfg.lng == "ua" and S(145) or S(90)
     local edit_h = S(24)
     local edit_x = close_x - edit_w - S(8)
-    if btn(edit_x, pad, edit_w, edit_h, "Редагувати профіль", UI.C_BTN, UI.C_TXT) and not ACHIEVEMENTS.show_leaderboard then
+    if btn(edit_x, pad, edit_w, edit_h, T("EDIT_PROFILE_TITLE"), UI.C_BTN, UI.C_TXT) and not ACHIEVEMENTS.show_leaderboard then
         ACHIEVEMENTS.open_edit_profile()
         UI_STATE.mouse_handled = true
     end
@@ -18130,7 +18257,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
     gfx.setfont(F.title)
     set_color(UI.C_TXT)
     gfx.x, gfx.y = pad, pad - S(2)
-    local name_title = fit_text_width("Зал слави: " .. display_name, edit_x - pad - S(5))
+    local name_title = fit_text_width(string.format(T("ACH_HALL_OF_FAME"), display_name), edit_x - pad - S(5))
     gfx.drawstr(name_title)
     
     -- Line 2: Progress Status
@@ -18138,7 +18265,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
     set_color(UI.C_TXT, 0.6)
     gfx.x, gfx.y = pad, pad + S(24)
     local pct = math.floor(tonumber(ACHIEVEMENTS.rankings and ACHIEVEMENTS.rankings["overall_percentile"]) or 0)
-    local progress_text = string.format("Здобуто %d з %d нагород, ви краще за %d%% користувачів", open_count, #OTHER.ACH_CFG, pct)
+    local progress_text = string.format(T("ACH_PROGRESS_TEXT"), open_count, #OTHER.ACH_CFG, pct)
     gfx.drawstr(fit_text_width(progress_text, edit_x - pad - S(5)))
 
     -- Handle Esc key
