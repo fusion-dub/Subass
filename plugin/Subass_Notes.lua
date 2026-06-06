@@ -380,7 +380,7 @@ local I18N = {
     EVERYONE = { en = "ALL", ua = "ВСІ" },
     HIDE_ALL = { en = "Hide all", ua = "Приховати всіх" },
     SHOW_ALL = { en = "Show all", ua = "Показати всіх" },
-    DABBER = { en = "Dabber", ua = "Дабер" },
+    DUBBER = { en = "Dubber", ua = "Дабер" },
     TOOLTIP_DUBBER_FILE = { en = "%s%s\nLines: %d\nWords: %d", ua = "%s%s\nРеплік: %d\nСлів: %d" },
     TAB_FILE_ACTOR_VISIBILITY = { en = "Changing an actor's visibility ", ua = "Зміна видимості актора " },
     CHANGE_COLOR = { en = "Change color", ua = "Змінити колір" },
@@ -22469,7 +22469,7 @@ function DRAW_TABS.draw_file()
                     
                     local stats = actor_tooltips[act] or {replicas = 0, words = 0}
                     local assigned_dubber = actor_to_dubber[act]
-                    local dubber_info = assigned_dubber and ("\n—\n" .. T("DABBER") .. ": " .. assigned_dubber) or "\n—\n"
+                    local dubber_info = assigned_dubber and ("\n—\n" .. T("DUBBER") .. ": " .. assigned_dubber) or "\n—\n"
                     local tooltip = string.format(T("TOOLTIP_DUBBER_FILE"), act, dubber_info, stats.replicas, stats.words)
                     
                     local tip_id = "actor_tip_" .. act
@@ -27565,7 +27565,7 @@ local function get_sort_value(item, col, is_ass)
         return dur > 0 and (chars / dur) or 0
     end
     if col == T("ACTOR") or col == "actor" then return utf8_lower(actor) end
-    if col == T("DABBER") or col == "dubber" then return utf8_lower(item.dubber or "") end
+    if col == T("DUBBER") or col == "dubber" then return utf8_lower(item.dubber or "") end
     if col == T("LINE") or col == "text" then return utf8_lower(txt) end
     
     return 0
@@ -33139,6 +33139,8 @@ function DRAW_TABS.draw_table(input_queue)
             gfx.rect(next_x - S(2), y, S(4), h_header, 1)
         end
 
+        gfx.setfont(F.bld)
+
         set_color(UI.C_TXT)
         gfx.x = x + text_padding; 
         gfx.y = y + (h_header - gfx.texth) / 2; 
@@ -33183,7 +33185,7 @@ function DRAW_TABS.draw_table(input_queue)
                 conflict_count = math.floor(conflict_count / 2) -- Pairs
             end
             local tip = conflict_count > 0 and (T("TOTAL_N_CONFLICTS") .. conflict_count) or T("NO_CONFLICTS")
-            draw_header_cell(col_ptr, T("DABBER"), x_off[col_ptr], start_y, "dubber", tip)
+            draw_header_cell(col_ptr, T("DUBBER"), x_off[col_ptr], start_y, "dubber", tip)
             col_ptr = col_ptr + 1 
         end
         
@@ -33201,7 +33203,7 @@ function DRAW_TABS.draw_table(input_queue)
             {label = "#", key = "col_table_index"},
             {label = T("START"), key = "col_table_start"},
             {label = T("END"), key = "col_table_end"},
-            {label = T("DABBER"), key = "col_table_dubber"},
+            {label = T("DUBBER"), key = "col_table_dubber"},
             {label = "CPS", key = "col_table_cps"},
             {label = T("ACTOR"), key = "col_table_actor"}
         }
