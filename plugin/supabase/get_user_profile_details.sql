@@ -13,6 +13,7 @@ BEGIN
         'dubber_conditions', dubber_conditions,
         'dubber_specialization', dubber_specialization,
         'dubber_archetypes', dubber_archetypes,
+        'dubber_languages', dubber_languages,
         'dubber_voice', dubber_voice,
         'dubber_timbre', dubber_timbre,
         'dubber_vocals', dubber_vocals,
