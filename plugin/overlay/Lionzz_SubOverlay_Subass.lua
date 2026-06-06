@@ -1,9 +1,9 @@
 -- @description Lionzz Sub Overlay (Subass)
--- @version 0.2.9
--- @author Lionzz + Fusion (Fusion Dub)
+-- @version 0.3.0
+-- @author Lionzz + Fusion
 
 if not reaper.ImGui_CreateContext then
-    reaper.ShowMessageBox("ReaImGui не знайдено. Встановіть ReaImGui.", "Помилка", 0)
+    reaper.ShowMessageBox("ReaImGui not found. Please install ReaImGui.", "Error", 0)
     return
 end
 
@@ -79,7 +79,226 @@ local line_spacing_main = 6             -- міжрядковий інтерва
 local line_spacing_corr = 6             -- міжрядковий інтервал для правок
 local line_spacing_next = 6             -- міжрядковий інтервал для другого рядка
 
-local language = "en"
+local language = "ua"
+
+-- i18n: translations for UA / EN
+local translations = {
+    ua = {
+        lang_label            = "Language/Мова",
+        lang_tooltip          = "Дозволяє вибрати мову інтерфейсу",
+        lock_window           = "Закріпити",
+        lock_window_tip       = "Вимикає можливість перетягувати вікно",
+        hide_title            = "Приховати заголовок",
+        hide_title_tip        = "Вимикає заголовок вікна",
+        hide_bg               = "Приховати фон",
+        hide_bg_tip           = "Повністю прибирає фон вікна, роблячи його прозорим",
+        text_bg               = "Фон під текстом",
+        text_bg_tip           = "Увімкнює підкладку під кожним рядком. Кольором виступає колір фону",
+        bg_color              = "Колір фону вікна",
+        bg_color_tip          = "Задає колір фону та підкладки",
+        key_disabled          = "Вимкнено",
+        transp_key_label      = "Клавіша прозорості",
+        transp_key_tip        = "Клавіша, при затисканні якої все вікно стає прозорим на 80%",
+        show_assim            = "Показувати асиміляцію",
+        show_assim_tip        = "Вмикає відображення асимільованого тексту в оверлеї (незалежно від Subass Notes)",
+        show_euph             = "Показувати чергування в/у, й/і, з/із/зі, б/би",
+        show_euph_tip         = "Відображати евфонічні підказки: в/у, й/і, з/із/зі та б/би на основі оточення",
+        align_horiz           = "Центрування по горизонталі",
+        align_horiz_tip       = "Вирівнює рядки по центру вікна (горизонтально)",
+        align_vert            = "Центрування по вертикалі",
+        align_vert_tip        = "Вирівнює рядки по вертикалі (центр)",
+        align_bot             = "Центрування по низу",
+        bottom_offset_lbl     = "відступ знизу",
+        align_bot_tip         = "Притискає рядки до низу вікна",
+        wrap                  = "Перенос рядків",
+        wrap_tip              = "Не дозволяє рядкам вилазити за межі вікна, розбиваючи їх на рівні відрізки",
+        wrap_margin_lbl       = "відступ переносу",
+        wrap_margin_tip       = "Відступ від краю вікна при автопереносі (пікселі)\nВраховується з обох сторін",
+        ignore_nl             = "Ігнорувати переноси",
+        ignore_nl_tip         = "Ігнорувати символи переносу рядка \\n при читанні тексту з регіонів",
+        fill_gaps             = "Заповнювати пробіли",
+        fill_gaps_tip         = "Дозволяє відображати рядки і за межами регіонів",
+        all_caps              = "Режим ВЕЛИКИМИ ЛІТЕРАМИ",
+        all_caps_tip          = "Весь текст відображатиметься ВЕЛИКИМИ ЛІТЕРАМИ",
+        all_caps_acute        = "Відображати нАголоси з великої літери",
+        all_caps_acute_tip    = "Букви з символом наголосу відображатимуться з ВЕЛИКОЇ ЛІТЕРИ",
+        no_resize             = "Не змінювати розміри",
+        no_resize_tip         = "Вимикає можливість змінювати розміри вікна",
+        attach_video          = "Прив'язати до відеовікна",
+        attach_video_tip      = "Автоматично позиціонує вікно відносно відеовікна REAPER\nПотрібно js_ReaScriptAPI",
+        attach_vert_pos       = "Верт. позиція %",
+        attach_vert_pos_tip   = "Позиція оверлею відносно висоти відеовікна",
+        attach_corr_x         = "Корекція X (px)",
+        attach_corr_x_tip     = "Додаткове зміщення по горизонталі",
+        attach_corr_y         = "Корекція Y (px)",
+        attach_corr_y_tip     = "Додаткове зміщення по вертикалі",
+        attach_h              = "Прив'язувати по висоті",
+        attach_h_tip          = "Оверлей автоматично прийматиме висоту відеовікна",
+        actor_name            = "Відображати ім'я актора",
+        actor_name_tip        = "Показувати ім'я актора в дужках [Актор] перед текстом",
+        progress              = "Прогрес-бар",
+        progress_tip          = "Увімкнює анімацію тривалості поточного регіону",
+        progress_len          = "довжина",
+        progress_thick        = "товщина",
+        progress_offset_lbl   = "відступ",
+        progress_color_lbl    = "колір прогресу",
+        progress_bg_color_lbl = "колір фону прогресу",
+        count_timer_lbl       = "Таймер відліку",
+        timer_bottom          = "Прогрес знизу",
+        timer_digit           = "Показувати цифру",
+        timer_scale           = "Розмір шрифту (%)",
+        main_line_header      = "Перший рядок (Поточна репліка)",
+        font_lbl              = "шрифт",
+        scale_lbl             = "масштаб",
+        line_spacing_main_lbl = "міжрядковий інтервал (Main)",
+        color_lbl             = "колір",
+        shadow_lbl            = "тінь",
+        second_line           = "Другий рядок (Наступна репліка)",
+        second_line_tip       = "Увімкнує відображення рядка наступного регіону",
+        font2_lbl             = "шрифт 2",
+        scale2_lbl            = "масштаб 2",
+        line_spacing_next_lbl = "міжрядковий інтервал (Next)",
+        offset2_lbl           = "відступ 2",
+        color2_lbl            = "колір 2",
+        shadow2_lbl           = "тінь 2",
+        next_two              = "2 наступні репліки",
+        next_two_tip          = "Показувати відразу дві наступні репліки",
+        always_next           = "Завжди показувати наступну репліку між регіонами",
+        always_next_tip       = "Показувати наступну репліку, навіть якщо курсор знаходиться між регіонами (ігноруючи 'Заповнювати прогалини')",
+        other_actors          = "Репліка інших акторів",
+        other_actors_tip      = "Відображати репліки інших акторів для контексту (дані з Subass_Notes)",
+        oact_font             = "шрифт інших",
+        oact_scale            = "масштаб інших",
+        oact_spacing          = "міжрядковий інтервал (Other)",
+        oact_offset_lbl       = "відступ інших",
+        oact_color            = "колір інших",
+        oact_shadow           = "тінь інших",
+        corrections           = "Правки (Маркери)",
+        corrections_tip       = "Відображати текст маркерів між репліками",
+        corr_font             = "шрифт правок",
+        corr_scale            = "масштаб правок",
+        corr_spacing          = "міжрядковий інтервал (Corr)",
+        corr_offset_lbl       = "відступ правок",
+        corr_color            = "колір правок",
+        corr_shadow           = "тінь правок",
+        no_dock               = "Не стикувати",
+        no_dock_tip           = "Вимикає можливість вбудовування та прилипання вікна. Перетягувати необхідно за заголовок або верхню межу вікна",
+        tooltips              = "Підказки",
+        tooltips_tip          = "Увімкнює відображення спливаючих підказок",
+        close_overlay         = "Закрити ОВЕРЛЕЙ",
+    },
+    en = {
+        lang_label            = "Language/Мова",
+        lang_tooltip          = "Select the interface language",
+        lock_window           = "Lock Window",
+        lock_window_tip       = "Disables the ability to drag the window",
+        hide_title            = "Hide Title Bar",
+        hide_title_tip        = "Hides the window title bar",
+        hide_bg               = "Hide Background",
+        hide_bg_tip           = "Completely removes the window background, making it transparent",
+        text_bg               = "Text Background",
+        text_bg_tip           = "Enables a background pad under each line. Color matches the window background color",
+        bg_color              = "Window Background Color",
+        bg_color_tip          = "Sets the background and text pad color",
+        key_disabled          = "Disabled",
+        transp_key_label      = "Transparency Key",
+        transp_key_tip        = "When held, this key makes the entire window 80% transparent",
+        show_assim            = "Show Assimilation",
+        show_assim_tip        = "Enables display of assimilated text in the overlay (independent of Subass Notes)",
+        show_euph             = "Show alternations в/у, й/і, з/із/зі, б/би",
+        show_euph_tip         = "Display euphonic hints: в/у, й/і, з/із/зі and б/би based on context",
+        align_horiz           = "Center Horizontally",
+        align_horiz_tip       = "Aligns lines to the center of the window (horizontally)",
+        align_vert            = "Center Vertically",
+        align_vert_tip        = "Aligns lines vertically (centered in window)",
+        align_bot             = "Align to Bottom",
+        bottom_offset_lbl     = "bottom offset",
+        align_bot_tip         = "Pushes lines to the bottom of the window",
+        wrap                  = "Word Wrap",
+        wrap_tip              = "Prevents lines from overflowing the window bounds by wrapping them",
+        wrap_margin_lbl       = "wrap margin",
+        wrap_margin_tip       = "Margin from the window edge for auto-wrap (pixels)\nApplied on both sides",
+        ignore_nl             = "Ignore Newlines",
+        ignore_nl_tip         = "Ignore newline characters \\n when reading text from regions",
+        fill_gaps             = "Fill Gaps",
+        fill_gaps_tip         = "Allows displaying lines outside region boundaries",
+        all_caps              = "ALL CAPS Mode",
+        all_caps_tip          = "All text will be displayed IN ALL CAPS",
+        all_caps_acute        = "Display Accented Letters in CAPS",
+        all_caps_acute_tip    = "Letters with an accent mark will be displayed in UPPERCASE",
+        no_resize             = "Lock Size",
+        no_resize_tip         = "Disables the ability to resize the window",
+        attach_video          = "Attach to Video Window",
+        attach_video_tip      = "Automatically positions the window relative to REAPER's video window\nRequires js_ReaScriptAPI",
+        attach_vert_pos       = "Vert. Position %",
+        attach_vert_pos_tip   = "Overlay position relative to the video window height",
+        attach_corr_x         = "Correction X (px)",
+        attach_corr_x_tip     = "Additional horizontal offset",
+        attach_corr_y         = "Correction Y (px)",
+        attach_corr_y_tip     = "Additional vertical offset",
+        attach_h              = "Attach by Height",
+        attach_h_tip          = "Overlay will automatically match the height of the video window",
+        actor_name            = "Show Actor Name",
+        actor_name_tip        = "Show actor name in brackets [Actor] before the text",
+        progress              = "Progress Bar",
+        progress_tip          = "Enables animation of the current region duration",
+        progress_len          = "length",
+        progress_thick        = "thickness",
+        progress_offset_lbl   = "offset",
+        progress_color_lbl    = "progress color",
+        progress_bg_color_lbl = "progress bg color",
+        count_timer_lbl       = "Countdown Timer",
+        timer_bottom          = "Progress at Bottom",
+        timer_digit           = "Show Digit",
+        timer_scale           = "Font Size (%)",
+        main_line_header      = "First Line (Current Phrase)",
+        font_lbl              = "font",
+        scale_lbl             = "scale",
+        line_spacing_main_lbl = "line spacing (Main)",
+        color_lbl             = "color",
+        shadow_lbl            = "shadow",
+        second_line           = "Second Line (Next Phrase)",
+        second_line_tip       = "Enables display of the next region line",
+        font2_lbl             = "font 2",
+        scale2_lbl            = "scale 2",
+        line_spacing_next_lbl = "line spacing (Next)",
+        offset2_lbl           = "offset 2",
+        color2_lbl            = "color 2",
+        shadow2_lbl           = "shadow 2",
+        next_two              = "2 Next Phrases",
+        next_two_tip          = "Show two next phrases simultaneously",
+        always_next           = "Always show next phrase between regions",
+        always_next_tip       = "Show the next phrase even when the cursor is between regions (ignoring 'Fill Gaps')",
+        other_actors          = "Other Actors' Lines",
+        other_actors_tip      = "Display other actors' lines for context (data from Subass_Notes)",
+        oact_font             = "others font",
+        oact_scale            = "others scale",
+        oact_spacing          = "line spacing (Other)",
+        oact_offset_lbl       = "others offset",
+        oact_color            = "others color",
+        oact_shadow           = "others shadow",
+        corrections           = "Retakes (Markers)",
+        corrections_tip       = "Display marker text between phrases",
+        corr_font             = "retakes font",
+        corr_scale            = "retakes scale",
+        corr_spacing          = "line spacing (Retakes)",
+        corr_offset_lbl       = "retakes offset",
+        corr_color            = "retakes color",
+        corr_shadow           = "retakes shadow",
+        no_dock               = "No Docking",
+        no_dock_tip           = "Disables window embedding and snapping. Drag by the title bar or top edge",
+        tooltips              = "Tooltips",
+        tooltips_tip          = "Enables display of popup tooltips",
+        close_overlay         = "Close OVERLAY",
+    }
+}
+
+-- Returns translated string for the current language (falls back to EN)
+local function T(key)
+    local lang = (language == "ua") and "ua" or "en"
+    local t = translations[lang]
+    return (t and t[key]) or (translations["en"] and translations["en"][key]) or key
+end
 local window_bg_color = 0x00000088      -- чорний з прозорістю
 local border = true                    -- малювати фон під текстом
 local enable_wrap = true                -- переносити текст по словах
@@ -1196,6 +1415,7 @@ local function load_settings()
     show_euphonics = (reaper.GetExtState(SETTINGS_SECTION, "show_euphonics") == "true")
     always_show_next = (reaper.GetExtState(SETTINGS_SECTION, "always_show_next") ~= "false")
     language = reaper.GetExtState(SETTINGS_SECTION, "language")
+    if language == "" then language = "ua" end
     fill_gaps = (reaper.GetExtState(SETTINGS_SECTION, "fill_gaps") == "true")
     all_caps = (reaper.GetExtState(SETTINGS_SECTION, "all_caps") == "true")
     all_caps_acute = (reaper.GetExtState(SETTINGS_SECTION, "all_caps_acute") == "true")
@@ -1260,11 +1480,13 @@ local function draw_context_menu()
         reaper.ImGui_PushItemWidth(ctx, CONTEXT_MENU_MIN_WIDTH)
 
         local changes = 0
-        local function add_change(changed, new_value)
-            changes = changes + (changed and 1 or 0)
-            return new_value
+        local function add_change(changed, val)
+            if changed then
+                changes = changes + 1
+            end
+            return val
         end
-        
+
         local function add_change_slider(label, value, min, max, default)
             reaper.ImGui_PushID(ctx, label)
             local btn_w = 18
@@ -1344,32 +1566,35 @@ local function draw_context_menu()
             return new_value
         end
 
-        if reaper.ImGui_BeginCombo(ctx, "Language/Мова", language) then
+        local lang_names = { en = "English", ua = "Українська" }
+        if reaper.ImGui_BeginCombo(ctx, T("lang_label"), lang_names[language] or language) then
             if reaper.ImGui_Selectable(ctx, "English", language == "en") then
                 language = "en"
+                changes = changes + 1
             end
             if reaper.ImGui_Selectable(ctx, "Українська", language == "ua") then
                 language = "ua"
+                changes = changes + 1
             end
             reaper.ImGui_EndCombo(ctx)
         end
-        tooltip("Дозволяє вибрати мову інтерфейсу")
+        tooltip(T("lang_tooltip"))
 
-        -- Прапорці вікна
+        -- Window flags
         reaper.ImGui_Separator(ctx)
-        flags.NoMove          = add_change(reaper.ImGui_Checkbox(ctx, "Закріпити", flags.NoMove))
-        tooltip("Вимикає можливість перетягувати вікно")
-        flags.NoTitle         = add_change(reaper.ImGui_Checkbox(ctx, "Приховати заголовок", flags.NoTitle))
-        tooltip("Вимикає заголовок вікна")
-        flags.HideBackground  = add_change(reaper.ImGui_Checkbox(ctx, "Приховати фон", flags.HideBackground))
-        tooltip("Повністю прибирає фон вікна, роблячи його прозорим")
-        border                = add_change(reaper.ImGui_Checkbox(ctx, "Фон під текстом", border))
-        tooltip("Увімкнує підкладку під кожним рядком. Кольором виступає колір фону")
-        window_bg_color       = add_change(reaper.ImGui_ColorEdit4(ctx, "Колір фону вікна", window_bg_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
-        tooltip("Задає колір фону та підкладки")
+        flags.NoMove          = add_change(reaper.ImGui_Checkbox(ctx, T("lock_window"), flags.NoMove))
+        tooltip(T("lock_window_tip"))
+        flags.NoTitle         = add_change(reaper.ImGui_Checkbox(ctx, T("hide_title"), flags.NoTitle))
+        tooltip(T("hide_title_tip"))
+        flags.HideBackground  = add_change(reaper.ImGui_Checkbox(ctx, T("hide_bg"), flags.HideBackground))
+        tooltip(T("hide_bg_tip"))
+        border                = add_change(reaper.ImGui_Checkbox(ctx, T("text_bg"), border))
+        tooltip(T("text_bg_tip"))
+        window_bg_color       = add_change(reaper.ImGui_ColorEdit4(ctx, T("bg_color"), window_bg_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+        tooltip(T("bg_color_tip"))
 
-        local key_labels = {"Shift", "Tab", "Вимкнено"}
-        if reaper.ImGui_BeginCombo(ctx, "Клавіша прозорості", key_labels[transparency_key + 1]) then
+        local key_labels = {"Shift", "Tab", T("key_disabled")}
+        if reaper.ImGui_BeginCombo(ctx, T("transp_key_label"), key_labels[transparency_key + 1]) then
             for i, lab in ipairs(key_labels) do
                 if reaper.ImGui_Selectable(ctx, lab, transparency_key == i-1) then
                     transparency_key = i-1
@@ -1378,132 +1603,132 @@ local function draw_context_menu()
             end
             reaper.ImGui_EndCombo(ctx)
         end
-        tooltip("Клавіша, при затисканні якої все вікно стає прозорим на 80%")
+        tooltip(T("transp_key_tip"))
 
-        local assim_changed, new_assim = reaper.ImGui_Checkbox(ctx, "Показувати асиміляцію", show_assimilation)
+        local assim_changed, new_assim = reaper.ImGui_Checkbox(ctx, T("show_assim"), show_assimilation)
         if assim_changed then
             show_assimilation = new_assim
             changes = changes + 1
         end
-        tooltip("Вмикає відображення асимільованого тексту в оверлеї (незалежно від Subass Notes)")
+        tooltip(T("show_assim_tip"))
 
-        local euph_changed, new_euph = reaper.ImGui_Checkbox(ctx, "Показувати чергування в/у, й/і, з/із/зі, б/би", show_euphonics)
+        local euph_changed, new_euph = reaper.ImGui_Checkbox(ctx, T("show_euph"), show_euphonics)
         if euph_changed then
             show_euphonics = new_euph
             changes = changes + 1
         end
-        tooltip("Відображати евфонічні підказки: в/у, й/і, з/із/зі та б/би на основі оточення")
+        tooltip(T("show_euph_tip"))
 
         reaper.ImGui_Separator(ctx)
-        align_center          = add_change(reaper.ImGui_Checkbox(ctx, "Центрування по горизонталі", align_center))
-        tooltip("Вирівнює рядки по центру вікна (горизонтально)")
+        align_center          = add_change(reaper.ImGui_Checkbox(ctx, T("align_horiz"), align_center))
+        tooltip(T("align_horiz_tip"))
 
-        if reaper.ImGui_Checkbox(ctx, "Центрування по вертикалі", align_vertical) then
+        if reaper.ImGui_Checkbox(ctx, T("align_vert"), align_vertical) then
             align_vertical = not align_vertical
             if align_vertical then align_bottom = false end -- Mutual exclusion
             changes = changes + 1
         end
-        tooltip("Вирівнює рядки по вертикалі (центр)")
+        tooltip(T("align_vert_tip"))
 
-        if reaper.ImGui_Checkbox(ctx, "Центрування по низу", align_bottom) then
+        if reaper.ImGui_Checkbox(ctx, T("align_bot"), align_bottom) then
             align_bottom = not align_bottom
             if align_bottom then align_vertical = false end -- Mutual exclusion
             changes = changes + 1
         end
         if align_bottom then
             reaper.ImGui_Indent(ctx)
-            bottom_offset = add_change_slider("відступ знизу", bottom_offset, 0, 100, 24)
+            bottom_offset = add_change_slider(T("bottom_offset_lbl"), bottom_offset, 0, 100, 24)
             reaper.ImGui_Unindent(ctx)
         end
-        tooltip("Притискає рядки до низу вікна")
+        tooltip(T("align_bot_tip"))
         reaper.ImGui_Separator(ctx)
-        enable_wrap           = add_change(reaper.ImGui_Checkbox(ctx, "Перенос рядків", enable_wrap))
-        tooltip("Не дозволяє рядкам вилазити за межі вікна, розбиваючи їх на рівні відрізки")
+        enable_wrap           = add_change(reaper.ImGui_Checkbox(ctx, T("wrap"), enable_wrap))
+        tooltip(T("wrap_tip"))
         if enable_wrap then
-            wrap_margin       = add_change_slider("відступ переносу", wrap_margin, 0, 300, 0)
-            tooltip("Відступ від краю вікна при автопереносі (пікселі)\nВраховується з обох сторін")
-            -- Показуємо напрямні якщо слайдер активний або на нього наведена миша
+            wrap_margin       = add_change_slider(T("wrap_margin_lbl"), wrap_margin, 0, 300, 0)
+            tooltip(T("wrap_margin_tip"))
+            -- Show guides when slider is active or hovered
             show_wrap_guides = reaper.ImGui_IsItemActive(ctx) or reaper.ImGui_IsItemHovered(ctx)
         else
             show_wrap_guides = false
         end
         local old_ignore_newlines = ignore_newlines
-        ignore_newlines       = add_change(reaper.ImGui_Checkbox(ctx, "Ігнорувати переноси", ignore_newlines))
-        tooltip("Ігнорувати символи переносу рядка \\n при читанні тексту з регіонів/ітемів")
+        ignore_newlines       = add_change(reaper.ImGui_Checkbox(ctx, T("ignore_nl"), ignore_newlines))
+        tooltip(T("ignore_nl_tip"))
         if old_ignore_newlines ~= ignore_newlines then
-            last_pos = nil -- Скидаємо кеш при зміні опції
+            last_pos = nil -- Reset cache on option change
         end
-        fill_gaps             = add_change(reaper.ImGui_Checkbox(ctx, "Заповнювати пробіли", fill_gaps))
-        tooltip("Дозволяє відображати рядки і за межами регіонів/ітемів")
+        fill_gaps             = add_change(reaper.ImGui_Checkbox(ctx, T("fill_gaps"), fill_gaps))
+        tooltip(T("fill_gaps_tip"))
         
-        all_caps              = add_change(reaper.ImGui_Checkbox(ctx, "Режим ВЕЛИКИМИ ЛІТЕРАМИ", all_caps))
-        tooltip("Весь текст відображатиметься ВЕЛИКИМИ ЛІТЕРАМИ")
+        all_caps              = add_change(reaper.ImGui_Checkbox(ctx, T("all_caps"), all_caps))
+        tooltip(T("all_caps_tip"))
 
-        all_caps_acute        = add_change(reaper.ImGui_Checkbox(ctx, "Відображати нАголоси з великої літери", all_caps_acute))
-        tooltip("Букви з символом наголосу відображатимуться з ВЕЛИКОЇ ЛІТЕРИ")
+        all_caps_acute        = add_change(reaper.ImGui_Checkbox(ctx, T("all_caps_acute"), all_caps_acute))
+        tooltip(T("all_caps_acute_tip"))
         reaper.ImGui_Separator(ctx)
-        flags.NoResize        = add_change(reaper.ImGui_Checkbox(ctx, "Не змінювати розміри", flags.NoResize))
-        tooltip("Вимикає можливість змінювати розміри вікна")
-        attach_to_video       = add_change(reaper.ImGui_Checkbox(ctx, "Прив'язати до відеовікна", attach_to_video))
-        tooltip("Автоматично позиціонує вікно відносно відеовікна REAPER\nПотрібно js_ReaScriptAPI")
-        -- Додаткові налаштування прив'язки (показуємо тільки якщо attach_to_video = true)
+        flags.NoResize        = add_change(reaper.ImGui_Checkbox(ctx, T("no_resize"), flags.NoResize))
+        tooltip(T("no_resize_tip"))
+        attach_to_video       = add_change(reaper.ImGui_Checkbox(ctx, T("attach_video"), attach_to_video))
+        tooltip(T("attach_video_tip"))
+        -- Extra attach settings (shown only when attach_to_video = true)
         if attach_to_video then
             reaper.ImGui_Indent(ctx)
-            -- Слайдер позиції (0% - зверху, 100% - знизу)
-            attach_offset = add_change_slider("Верт. позиція %", attach_offset, 0, 100, 0)
-            tooltip("Позиція оверлею відносно висоти відеовікна")
+            -- Vertical position slider (0% = top, 100% = bottom)
+            attach_offset = add_change_slider(T("attach_vert_pos"), attach_offset, 0, 100, 0)
+            tooltip(T("attach_vert_pos_tip"))
             
-            -- Ручна корекція X
-            attach_manual_x = add_change_slider("Корекція X (px)", attach_manual_x, -500, 500, 0)
-            tooltip("Додаткове зміщення по горизонталі")
+            -- Manual X correction
+            attach_manual_x = add_change_slider(T("attach_corr_x"), attach_manual_x, -500, 500, 0)
+            tooltip(T("attach_corr_x_tip"))
 
-            -- Ручна корекція Y
-            attach_manual_y = add_change_slider("Корекція Y (px)", attach_manual_y, -500, 500, 0)
-            tooltip("Додаткове зміщення по вертикалі")
+            -- Manual Y correction
+            attach_manual_y = add_change_slider(T("attach_corr_y"), attach_manual_y, -500, 500, 0)
+            tooltip(T("attach_corr_y_tip"))
 
-            attach_to_video_h = add_change(reaper.ImGui_Checkbox(ctx, "Прив'язувати по висоті", attach_to_video_h))
-            tooltip("Оверлей автоматично прийматиме висоту відеовікна")
+            attach_to_video_h = add_change(reaper.ImGui_Checkbox(ctx, T("attach_h"), attach_to_video_h))
+            tooltip(T("attach_h_tip"))
             reaper.ImGui_Unindent(ctx)
         end
 
         reaper.ImGui_Separator(ctx)
-        show_actor_name = add_change(reaper.ImGui_Checkbox(ctx, "Відображати ім'я актора", show_actor_name))
-        tooltip("Показувати ім'я актора в дужках [Актор] перед текстом")
-        show_progress = add_change(reaper.ImGui_Checkbox(ctx, "Прогрес-бар", show_progress))
-        tooltip("Увімкнує анімацію тривалості поточного регіону/ітема")
+        show_actor_name = add_change(reaper.ImGui_Checkbox(ctx, T("actor_name"), show_actor_name))
+        tooltip(T("actor_name_tip"))
+        show_progress = add_change(reaper.ImGui_Checkbox(ctx, T("progress"), show_progress))
+        tooltip(T("progress_tip"))
         if show_progress then
             reaper.ImGui_Indent(ctx)
-            progress_width  = add_change_slider("довжина", progress_width, 200, 2000, 400)
-            progress_height = add_change_slider("товщина", progress_height, 1, 10, 4)
-            progress_offset = add_change_slider("відступ", progress_offset, 0, 200, 20)
-            progress_color     = add_change(reaper.ImGui_ColorEdit4(ctx, "колір прогресу", progress_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
-            progress_bg_color  = add_change(reaper.ImGui_ColorEdit4(ctx, "колір фону прогресу", progress_bg_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            progress_width  = add_change_slider(T("progress_len"), progress_width, 200, 2000, 400)
+            progress_height = add_change_slider(T("progress_thick"), progress_height, 1, 10, 4)
+            progress_offset = add_change_slider(T("progress_offset_lbl"), progress_offset, 0, 200, 20)
+            progress_color     = add_change(reaper.ImGui_ColorEdit4(ctx, T("progress_color_lbl"), progress_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            progress_bg_color  = add_change(reaper.ImGui_ColorEdit4(ctx, T("progress_bg_color_lbl"), progress_bg_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             reaper.ImGui_Unindent(ctx)
         end
 
-        if reaper.ImGui_Checkbox(ctx, "Таймер відліку", count_timer) then
+        if reaper.ImGui_Checkbox(ctx, T("count_timer_lbl"), count_timer) then
             count_timer = not count_timer
             save_settings()
         end
         
         if count_timer then
             reaper.ImGui_Indent(ctx)
-            if reaper.ImGui_Checkbox(ctx, "Прогрес знизу", count_timer_bottom) then
+            if reaper.ImGui_Checkbox(ctx, T("timer_bottom"), count_timer_bottom) then
                 count_timer_bottom = not count_timer_bottom
                 save_settings()
             end
-            if reaper.ImGui_Checkbox(ctx, "Показувати цифру", count_timer_digit) then
+            if reaper.ImGui_Checkbox(ctx, T("timer_digit"), count_timer_digit) then
                 count_timer_digit = not count_timer_digit
                 save_settings()
             end
-            count_timer_scale = add_change_slider("Розмір шрифту (%)", count_timer_scale, 10, 70, 25)
+            count_timer_scale = add_change_slider(T("timer_scale"), count_timer_scale, 10, 70, 25)
             reaper.ImGui_Unindent(ctx)
         end
         
-        -- Стиль першого рядка
+        -- First line style
         reaper.ImGui_Separator(ctx)
-        reaper.ImGui_Text(ctx, "Перший рядок (Поточна репліка)")
-        if reaper.ImGui_BeginCombo(ctx, "шрифт", available_fonts[current_font_index]) then
+        reaper.ImGui_Text(ctx, T("main_line_header"))
+        if reaper.ImGui_BeginCombo(ctx, T("font_lbl"), available_fonts[current_font_index]) then
             for i, name in ipairs(available_fonts) do
                 if reaper.ImGui_Selectable(ctx, name, i == current_font_index) then
                     current_font_index = i
@@ -1512,46 +1737,46 @@ local function draw_context_menu()
             end
             reaper.ImGui_EndCombo(ctx)
         end
-        font_scale      = add_change_slider("масштаб", font_scale, 10, 100, 30)
-        line_spacing_main = add_change_slider("міжрядковий інтервал (Main)", line_spacing_main, -10, 50, 6)
-        text_color      = add_change(reaper.ImGui_ColorEdit4(ctx, "колір", text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
-        shadow_color    = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь", shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+        font_scale        = add_change_slider(T("scale_lbl"), font_scale, 10, 100, 30)
+        line_spacing_main = add_change_slider(T("line_spacing_main_lbl"), line_spacing_main, -10, 50, 6)
+        text_color        = add_change(reaper.ImGui_ColorEdit4(ctx, T("color_lbl"), text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+        shadow_color      = add_change(reaper.ImGui_ColorEdit4(ctx, T("shadow_lbl"), shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
         
-        -- Стиль другого рядка
+        -- Second line style
         reaper.ImGui_Separator(ctx)
-        enable_second_line = add_change(reaper.ImGui_Checkbox(ctx, "Другий рядок (Наступна репліка)", enable_second_line))
-        tooltip("Увімкнує відображення рядка наступного регіону/ітема")
+        enable_second_line = add_change(reaper.ImGui_Checkbox(ctx, T("second_line"), enable_second_line))
+        tooltip(T("second_line_tip"))
         if enable_second_line then
             reaper.ImGui_Indent(ctx)
-            if reaper.ImGui_BeginCombo(ctx, "шрифт 2", available_fonts[second_font_index]) then
+            if reaper.ImGui_BeginCombo(ctx, T("font2_lbl"), available_fonts[second_font_index]) then
                 for i, name in ipairs(available_fonts) do
-                if reaper.ImGui_Selectable(ctx, name, i == second_font_index) then
-                    second_font_index = i
-                    changes = 1
-                end
+                    if reaper.ImGui_Selectable(ctx, name, i == second_font_index) then
+                        second_font_index = i
+                        changes = 1
+                    end
                 end
                 reaper.ImGui_EndCombo(ctx)
             end
-            second_font_scale   = add_change_slider("масштаб 2", second_font_scale, 10, 100, 22)
-            line_spacing_next   = add_change_slider("міжрядковий інтервал (Next)", line_spacing_next, -10, 50, 6)
-            next_region_offset  = add_change_slider("відступ 2", next_region_offset, 0, 200, 20)
-            second_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір 2", second_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
-            second_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь 2", second_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
-            show_next_two       = add_change(reaper.ImGui_Checkbox(ctx, "2 наступні репліки", show_next_two))
-            tooltip("Показувати відразу дві наступні репліки")
+            second_font_scale   = add_change_slider(T("scale2_lbl"), second_font_scale, 10, 100, 22)
+            line_spacing_next   = add_change_slider(T("line_spacing_next_lbl"), line_spacing_next, -10, 50, 6)
+            next_region_offset  = add_change_slider(T("offset2_lbl"), next_region_offset, 0, 200, 20)
+            second_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, T("color2_lbl"), second_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            second_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, T("shadow2_lbl"), second_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            show_next_two       = add_change(reaper.ImGui_Checkbox(ctx, T("next_two"), show_next_two))
+            tooltip(T("next_two_tip"))
             reaper.ImGui_Unindent(ctx)
         end
 
-        always_show_next = add_change(reaper.ImGui_Checkbox(ctx, "Завжди показувати наступну репліку між регіонами", always_show_next))
-        tooltip("Показувати наступну репліку, навіть якщо курсор знаходиться між регіонами (ігноруючи 'Заповнювати прогалини')")
+        always_show_next = add_change(reaper.ImGui_Checkbox(ctx, T("always_next"), always_show_next))
+        tooltip(T("always_next_tip"))
         
-        -- Репліка інших акторів
+        -- Other actors' lines
         reaper.ImGui_Separator(ctx)
-        show_other_actors = add_change(reaper.ImGui_Checkbox(ctx, "Репліка інших акторів", show_other_actors))
-        tooltip("Відображати репліки інших акторів для контексту (дані з Subass_Notes)")
+        show_other_actors = add_change(reaper.ImGui_Checkbox(ctx, T("other_actors"), show_other_actors))
+        tooltip(T("other_actors_tip"))
         if show_other_actors then
             reaper.ImGui_Indent(ctx)
-            if reaper.ImGui_BeginCombo(ctx, "шрифт інших", available_fonts[oact_font_index]) then
+            if reaper.ImGui_BeginCombo(ctx, T("oact_font"), available_fonts[oact_font_index]) then
                 for i, name in ipairs(available_fonts) do
                     if reaper.ImGui_Selectable(ctx, name, i == oact_font_index) then
                         oact_font_index = i
@@ -1560,21 +1785,21 @@ local function draw_context_menu()
                 end
                 reaper.ImGui_EndCombo(ctx)
             end
-            oact_font_scale   = add_change_slider("масштаб інших", math.floor(oact_font_scale), 10, 100, 18)
-            line_spacing_oact = add_change_slider("міжрядковий інтервал (Other)", line_spacing_oact, -10, 50, 6)
-            oact_offset       = add_change_slider("відступ інших", oact_offset, 0, 100, 12)
-            oact_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір інших", oact_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
-            oact_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь інших", oact_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            oact_font_scale   = add_change_slider(T("oact_scale"), math.floor(oact_font_scale), 10, 100, 18)
+            line_spacing_oact = add_change_slider(T("oact_spacing"), line_spacing_oact, -10, 50, 6)
+            oact_offset       = add_change_slider(T("oact_offset_lbl"), oact_offset, 0, 100, 12)
+            oact_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, T("oact_color"), oact_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            oact_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, T("oact_shadow"), oact_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             reaper.ImGui_Unindent(ctx)
         end
 
-        -- Стиль правок (маркерів)
+        -- Corrections style (markers)
         reaper.ImGui_Separator(ctx)
-        show_corrections = add_change(reaper.ImGui_Checkbox(ctx, "Правки (Маркери)", show_corrections))
-        tooltip("Відображати текст маркерів між репліками")
+        show_corrections = add_change(reaper.ImGui_Checkbox(ctx, T("corrections"), show_corrections))
+        tooltip(T("corrections_tip"))
         if show_corrections then
             reaper.ImGui_Indent(ctx)
-            if reaper.ImGui_BeginCombo(ctx, "шрифт правок", available_fonts[corr_font_index]) then
+            if reaper.ImGui_BeginCombo(ctx, T("corr_font"), available_fonts[corr_font_index]) then
                 for i, name in ipairs(available_fonts) do
                     if reaper.ImGui_Selectable(ctx, name, i == corr_font_index) then
                         corr_font_index = i
@@ -1583,27 +1808,27 @@ local function draw_context_menu()
                 end
                 reaper.ImGui_EndCombo(ctx)
             end
-            corr_font_scale   = add_change_slider("масштаб правок", math.floor(corr_font_scale), 10, 100, 18)
-            line_spacing_corr = add_change_slider("міжрядковий інтервал (Corr)", line_spacing_corr, -10, 50, 6)
-            corr_offset       = add_change_slider("відступ правок", corr_offset, 0, 100, 12)
-            corr_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, "колір правок", corr_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
-            corr_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, "тінь правок", corr_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            corr_font_scale   = add_change_slider(T("corr_scale"), math.floor(corr_font_scale), 10, 100, 18)
+            line_spacing_corr = add_change_slider(T("corr_spacing"), line_spacing_corr, -10, 50, 6)
+            corr_offset       = add_change_slider(T("corr_offset_lbl"), corr_offset, 0, 100, 12)
+            corr_text_color   = add_change(reaper.ImGui_ColorEdit4(ctx, T("corr_color"), corr_text_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
+            corr_shadow_color = add_change(reaper.ImGui_ColorEdit4(ctx, T("corr_shadow"), corr_shadow_color, reaper.ImGui_ColorEditFlags_NoInputs() | reaper.ImGui_ColorEditFlags_AlphaBar()))
             reaper.ImGui_Unindent(ctx)
         end
 
         reaper.ImGui_Separator(ctx)
-        flags.NoDocking = add_change(reaper.ImGui_Checkbox(ctx, "Не стикувати", flags.NoDocking))
-        tooltip("Вимикає можливість вбудовування та прилипання вікна. Перетягувати необхідно за заголовок або верхню межу вікна")
+        flags.NoDocking = add_change(reaper.ImGui_Checkbox(ctx, T("no_dock"), flags.NoDocking))
+        tooltip(T("no_dock_tip"))
         
-        show_tooltips   = add_change(reaper.ImGui_Checkbox(ctx, "Підказки", show_tooltips))
-        tooltip("Увімкнує відображення спливаючих підказок")
+        show_tooltips   = add_change(reaper.ImGui_Checkbox(ctx, T("tooltips"), show_tooltips))
+        tooltip(T("tooltips_tip"))
 
-        -- Зберігаємо налаштування, якщо були зміни
+        -- Save settings if there were changes
         if changes > 0 then save_settings() end
         
         reaper.ImGui_Separator(ctx)
         
-        if reaper.ImGui_Button(ctx, "Закрити ОВЕРЛЕЙ") then
+        if reaper.ImGui_Button(ctx, T("close_overlay")) then
             close_requested = true
             reaper.ImGui_CloseCurrentPopup(ctx)
         end
