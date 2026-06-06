@@ -1,5 +1,5 @@
 -- @description Subass Dictionary
--- @version 2.0
+-- @version 2.1
 -- @author Fusion (Fusion Dub)
 -- @about Dictionary of slang, idioms and terminology for dubbing.
 
@@ -1004,6 +1004,49 @@ function UTILS.download_thumbnail(url, callback)
     end)
 end
 
+function UTILS.save_image_for_entry(entry, source_path)
+    if not source_path or source_path == "" then return nil end
+    if not entry.filename then return nil end
+    
+    -- Створюємо унікальне ім'я для зображення
+    local base_name = entry.filename:gsub("%.[^%.]+$", "")
+    local img_filename = base_name .. "_thumb.jpg"
+    local img_path = data_path .. img_filename
+    
+    -- Просто копіюємо файл без зміни розміру (швидко)
+    if reaper.file_exists(source_path) then
+        if UTILS.copy_file(source_path, img_path) then
+            return img_filename
+        end
+    end
+    return nil
+end
+
+-- Функція для відкриття діалогу вибору зображення
+function UTILS.pick_image_file()
+    local retval, filename = reaper.GetUserFileNameForRead("", "Виберіть зображення", ".jpg;.jpeg;.png;.bmp;.gif")
+    if retval and filename ~= "" then
+        return filename
+    end
+    return nil
+end
+
+-- Функція для завантаження текстури зображення
+function UTILS.load_entry_image(entry)
+    if not entry or not entry.image then return nil end
+    
+    local img_path = data_path .. entry.image
+    if not reaper.file_exists(img_path) then return nil end
+    
+    -- Створюємо текстуру для ImGui
+    if reaper.ImGui_CreateImage then
+        local img = reaper.ImGui_CreateImage(img_path)
+        if reaper.ImGui_Attach then reaper.ImGui_Attach(ctx, img) end
+        return img
+    end
+    return nil
+end
+
 function UTILS.download_media(url, format_id, title, ext, m_type, item_key, custom_path, skip_insert)
     local full_path = custom_path
     
@@ -1615,7 +1658,26 @@ local function RenderTab_Glossary()
             -- Glossary List
             for i, entry in ipairs(cfg_glos.glossary_data.entries) do
                 local match = true
-                
+                -- Відображення зображення (80x80) зліва
+                if entry.image then
+                    local img_path = data_path .. entry.image
+                    if reaper.file_exists(img_path) then
+                        -- Створити або використати кешовану текстуру
+                        if not entry.image_texture then
+                            if reaper.ImGui_CreateImage then
+                                entry.image_texture = reaper.ImGui_CreateImage(img_path)
+                                if entry.image_texture and reaper.ImGui_Attach then
+                                    reaper.ImGui_Attach(ctx, entry.image_texture)
+                                end
+                            end
+                        end
+                        
+                        if entry.image_texture then
+                            reaper.ImGui_Image(ctx, entry.image_texture, 80, 80)
+                            reaper.ImGui_SameLine(ctx)
+                        end
+                    end
+                end
                 -- 1. Check text filter
                 if cfg_glos.glos_filter ~= "" then
                     local s = utf8_lower(cfg_glos.glos_filter)
@@ -1645,7 +1707,8 @@ local function RenderTab_Glossary()
                 if match then
                     -- Main Interaction Group
                     reaper.ImGui_BeginGroup(ctx)
-                        
+                    
+                    
                     -- 1. Name & Playback (Top)
                     local play_icon = (cfg_glos.current_preview_name == entry.name and not cfg_glos.current_preview_paused) and "Ⅱ" or "▶"
                             
@@ -1694,6 +1757,7 @@ local function RenderTab_Glossary()
                     end
 
                     -- 0. Layout Requirements & Widths
+                    local img_offset = reaper.ImGui_GetCursorPosX(ctx) -- зміщення через фото (0 якщо фото немає)
                     local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
                     local raw_tags = entry.tags or ""
                     local tag_str = raw_tags:gsub(",", ", ")
@@ -1803,7 +1867,7 @@ local function RenderTab_Glossary()
                         -- Tags Row (Right Aligned on title row) - Centered vertically
                         if right_margin_w > 0 then
                             reaper.ImGui_SameLine(ctx)
-                            reaper.ImGui_SetCursorPosX(ctx, avail_w - right_margin_w)
+                            reaper.ImGui_SetCursorPosX(ctx, img_offset + avail_w - right_margin_w)
                             reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 7) -- Center font 13 in 30px height
                             reaper.ImGui_PushFont(ctx, font_main, 13)
                             
@@ -1860,17 +1924,63 @@ local function RenderTab_Glossary()
                             cfg_glos.edit_entry_data = {
                                 name = entry.name,
                                 tags = entry.tags,
-                                desc = entry.desc
+                                desc = entry.desc,
+                                delete_image = false,
+                                temp_image_path = nil,
+                                current_image_tex = nil
                             }
+                            
+                            -- Завантажити поточне зображення якщо є
+                            if entry.image then
+                                local img_path = data_path .. entry.image
+                                if reaper.file_exists(img_path) and reaper.ImGui_CreateImage then
+                                    local img = reaper.ImGui_CreateImage(img_path)
+                                    if img and reaper.ImGui_Attach then
+                                        reaper.ImGui_Attach(ctx, img)
+                                        cfg_glos.edit_entry_data.current_image_tex = img
+                                    end
+                                end
+                            end
+                            
                             cfg_glos.open_edit_popup = true
                         end
                         
                         reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
                         if reaper.ImGui_Selectable(ctx, "× Видалити") then
                             if reaper.MB("Видалити цей звук?", "Підтвердження", 1) == 1 then
-                                os.remove(data_path .. entry.filename)
-                                table.remove(cfg_glos.glossary_data.entries, i)
-                                UTILS.save_glossary()
+                                -- Зупинити програвання якщо цей файл грає
+                                if cfg_glos.current_preview_name == entry.name then
+                                    UTILS.stop_preview()
+                                end
+                                
+                                -- Зачекати момент для звільнення файлу
+                                reaper.defer(function()
+                                    -- Видалити аудіо файл
+                                    local audio_file = data_path .. entry.filename
+                                    if audio_file and audio_file ~= "" and reaper.file_exists(audio_file) then
+                                        local success = os.remove(audio_file)
+                                        if not success then
+                                            reaper.ShowConsoleMsg("Не вдалося видалити: " .. audio_file .. "\n")
+                                        end
+                                    end
+                                    
+                                    -- Видалити зображення
+                                    if entry.image then
+                                        local img_file = data_path .. entry.image
+                                        if reaper.file_exists(img_file) then
+                                            os.remove(img_file)
+                                        end
+                                    end
+                                    
+                                    -- Видалити текстуру
+                                    if entry.image_texture then
+                                        reaper.ImGui_Detach(ctx, entry.image_texture)
+                                    end
+                                    
+                                    -- Видалити запис
+                                    table.remove(cfg_glos.glossary_data.entries, i)
+                                    UTILS.save_glossary()
+                                end)
                             end
                         end
                         reaper.ImGui_PopStyleColor(ctx)
@@ -1900,15 +2010,73 @@ local function RenderTab_Glossary()
                 _, cfg_glos.add_entry_pending.tags = reaper.ImGui_InputText(ctx, "Теги (через кому)", cfg_glos.add_entry_pending.tags)
                 _, cfg_glos.add_entry_pending.desc = reaper.ImGui_InputTextMultiline(ctx, "Опис", cfg_glos.add_entry_pending.desc, 300, 100)
                 
+                -- Додати блок вибору зображення
+                reaper.ImGui_Dummy(ctx, 0, 5)
+                reaper.ImGui_Separator(ctx)
+                reaper.ImGui_Text(ctx, "Зображення (80x80):")
+                
+                if cfg_glos.add_entry_pending.image_preview then
+                    if reaper.ImGui_ImageButton then
+                        reaper.ImGui_Image(ctx, cfg_glos.add_entry_pending.image_preview, 50, 50)
+                    end
+                    reaper.ImGui_SameLine(ctx)
+                end
+                
+                if reaper.ImGui_Button(ctx, "Вибрати зображення##new_img", 150) then
+                    local img_path = UTILS.pick_image_file()
+                    if img_path then
+                        -- Тимчасово зберігаємо шлях, зображення буде скопійовано при збереженні
+                        cfg_glos.add_entry_pending.temp_image_path = img_path
+                        
+                        -- Показати прев'ю
+                        if reaper.ImGui_CreateImage then
+                            if cfg_glos.add_entry_pending.image_preview then
+                                reaper.ImGui_Detach(ctx, cfg_glos.add_entry_pending.image_preview)
+                            end
+                            local img = reaper.ImGui_CreateImage(img_path)
+                            if img and reaper.ImGui_Attach then
+                                reaper.ImGui_Attach(ctx, img)
+                                cfg_glos.add_entry_pending.image_preview = img
+                            end
+                        end
+                    end
+                end
+                
+                reaper.ImGui_SameLine(ctx)
+                if cfg_glos.add_entry_pending.temp_image_path and reaper.ImGui_Button(ctx, "Очистити##new_img_clear", 100) then
+                    cfg_glos.add_entry_pending.temp_image_path = nil
+                    if cfg_glos.add_entry_pending.image_preview then
+                        reaper.ImGui_Detach(ctx, cfg_glos.add_entry_pending.image_preview)
+                        cfg_glos.add_entry_pending.image_preview = nil
+                    end
+                end
+                
                 reaper.ImGui_Dummy(ctx, 0, 10)
+                
                 if reaper.ImGui_Button(ctx, "Зберегти", 120) then
+                    -- Зберегти зображення якщо вибрано
+                    if cfg_glos.add_entry_pending.temp_image_path then
+                        local saved_img = UTILS.save_image_for_entry(cfg_glos.add_entry_pending, cfg_glos.add_entry_pending.temp_image_path)
+                        if saved_img then
+                            cfg_glos.add_entry_pending.image = saved_img
+                        end
+                    end
+                    
                     table.insert(cfg_glos.glossary_data.entries, cfg_glos.add_entry_pending)
                     UTILS.save_glossary()
+                    
+                    -- Очистити тимчасові дані
+                    if cfg_glos.add_entry_pending.image_preview then
+                        reaper.ImGui_Detach(ctx, cfg_glos.add_entry_pending.image_preview)
+                    end
                     cfg_glos.add_entry_pending = nil
                     reaper.ImGui_CloseCurrentPopup(ctx)
                 end
                 reaper.ImGui_SameLine(ctx)
                 if reaper.ImGui_Button(ctx, "Скасувати", 120) then
+                    if cfg_glos.add_entry_pending.image_preview then
+                        reaper.ImGui_Detach(ctx, cfg_glos.add_entry_pending.image_preview)
+                    end
                     os.remove(data_path .. cfg_glos.add_entry_pending.filename)
                     cfg_glos.add_entry_pending = nil
                     reaper.ImGui_CloseCurrentPopup(ctx)
@@ -1924,16 +2092,91 @@ local function RenderTab_Glossary()
                 _, cfg_glos.edit_entry_data.tags = reaper.ImGui_InputText(ctx, "Теги", cfg_glos.edit_entry_data.tags)
                 _, cfg_glos.edit_entry_data.desc = reaper.ImGui_InputTextMultiline(ctx, "Опис", cfg_glos.edit_entry_data.desc, 300, 100)
                 
+                -- Додати блок редагування зображення
+                reaper.ImGui_Dummy(ctx, 0, 5)
+                reaper.ImGui_Separator(ctx)
+                reaper.ImGui_Text(ctx, "Зображення (80x80):")
+                
+                -- Показати поточне зображення якщо є
+                if cfg_glos.edit_entry_data.current_image_tex then
+                    if reaper.ImGui_ImageButton then
+                        reaper.ImGui_Image(ctx, cfg_glos.edit_entry_data.current_image_tex, 50, 50)
+                    end
+                    reaper.ImGui_SameLine(ctx)
+                end
+                
+                if reaper.ImGui_Button(ctx, "Змінити зображення##edit_img", 150) then
+                    local img_path = UTILS.pick_image_file()
+                    if img_path then
+                        cfg_glos.edit_entry_data.temp_image_path = img_path
+                        
+                        -- Показати прев'ю
+                        if cfg_glos.edit_entry_data.current_image_tex then
+                            reaper.ImGui_Detach(ctx, cfg_glos.edit_entry_data.current_image_tex)
+                        end
+                        if reaper.ImGui_CreateImage then
+                            local img = reaper.ImGui_CreateImage(img_path)
+                            if img and reaper.ImGui_Attach then
+                                reaper.ImGui_Attach(ctx, img)
+                                cfg_glos.edit_entry_data.current_image_tex = img
+                            end
+                        end
+                    end
+                end
+                
+                reaper.ImGui_SameLine(ctx)
+                if reaper.ImGui_Button(ctx, "Видалити зображення##edit_img_del", 130) then
+                    cfg_glos.edit_entry_data.delete_image = true
+                    if cfg_glos.edit_entry_data.current_image_tex then
+                        reaper.ImGui_Detach(ctx, cfg_glos.edit_entry_data.current_image_tex)
+                        cfg_glos.edit_entry_data.current_image_tex = nil
+                    end
+                end
+                
                 reaper.ImGui_Dummy(ctx, 0, 10)
+                
                 if reaper.ImGui_Button(ctx, "Зберегти", 120) then
-                    cfg_glos.glossary_data.entries[cfg_glos.edit_entry_idx].name = cfg_glos.edit_entry_data.name
-                    cfg_glos.glossary_data.entries[cfg_glos.edit_entry_idx].tags = cfg_glos.edit_entry_data.tags
-                    cfg_glos.glossary_data.entries[cfg_glos.edit_entry_idx].desc = cfg_glos.edit_entry_data.desc
+                    local target_entry = cfg_glos.glossary_data.entries[cfg_glos.edit_entry_idx]
+                    target_entry.name = cfg_glos.edit_entry_data.name
+                    target_entry.tags = cfg_glos.edit_entry_data.tags
+                    target_entry.desc = cfg_glos.edit_entry_data.desc
+                    
+                    -- Обробити зображення
+                    if cfg_glos.edit_entry_data.delete_image then
+                        if target_entry.image then
+                            os.remove(data_path .. target_entry.image)
+                            target_entry.image = nil
+                        end
+                    elseif cfg_glos.edit_entry_data.temp_image_path then
+                        -- Видалити старе зображення
+                        if target_entry.image then
+                            os.remove(data_path .. target_entry.image)
+                        end
+                        -- Скинути кешовану текстуру щоб вона перестворилась з нового файлу
+                        if target_entry.image_texture then
+                            reaper.ImGui_Detach(ctx, target_entry.image_texture)
+                            target_entry.image_texture = nil
+                        end
+                        -- Зберегти нове
+                        local saved_img = UTILS.save_image_for_entry(target_entry, cfg_glos.edit_entry_data.temp_image_path)
+                        if saved_img then
+                            target_entry.image = saved_img
+                        end
+                    end
+                    
                     UTILS.save_glossary()
+                    
+                    -- Очистити
+                    if cfg_glos.edit_entry_data.current_image_tex then
+                        reaper.ImGui_Detach(ctx, cfg_glos.edit_entry_data.current_image_tex)
+                    end
                     reaper.ImGui_CloseCurrentPopup(ctx)
                 end
                 reaper.ImGui_SameLine(ctx)
                 if reaper.ImGui_Button(ctx, "Скасувати", 120) then
+                    if cfg_glos.edit_entry_data.current_image_tex then
+                        reaper.ImGui_Detach(ctx, cfg_glos.edit_entry_data.current_image_tex)
+                    end
                     reaper.ImGui_CloseCurrentPopup(ctx)
                 end
                 reaper.ImGui_EndPopup(ctx)
