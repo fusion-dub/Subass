@@ -1,6 +1,6 @@
 -- @description Subass PDF Reader (ReaImGui PDF Module)
--- @version 1.2
--- @author Fusion (Fusion Dub)
+-- @version 1.3
+-- @author Fusion
 -- @about Displays PDF pages in REAPER with interactive metadata. Requires ReaImGui and Python with PyMuPDF.
 
 if not reaper.ImGui_CreateContext then
@@ -11,6 +11,93 @@ end
 -- =============================================================================
 -- JSON UTILS (Native Lua Decoder)
 -- =============================================================================
+local language = "ua"
+
+-- i18n: translations for UA / EN
+local translations = {
+    ua = {
+        ready = "Готово",
+        switched_to = "Переключено на: ",
+        processing = "Обробка...",
+        save_proj_first = "Спочатку збережіть ваш проект!",
+        error = "Помилка",
+        warning_doc_format = "Плагін може не розпізнати цей файл, рекомендуємо вручну конвертувати його в PDF",
+        warning = "Попередження",
+        err_no_python = "Помилка: Python не знайдено",
+        err_metadata = "Помилка завантаження метаданих",
+        file_filter = "Усі підтримувані файли\0*.pdf;*.docx;*.doc;*.epub;*.mobi;*.txt;*.html;*.xps;*.fb2;*.cbz;*.svg;*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0PDF файли (*.pdf)\0*.pdf\0Word файли (*.docx, *.doc)\0*.docx;*.doc\0Зображення (*.png, *.jpg, *.webp, etc)\0*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0Електронні книги (*.epub, *.mobi, *.fb2)\0*.epub;*.mobi;*.fb2\0Інші (*.txt, *.html, *.svg, *.xps, *.cbz)\0*.txt;*.html;*.svg;*.xps;*.cbz\0Всі файли (*.*)\0*.*\0",
+        select_file_import = "Оберіть файл для імпорту",
+        import_doc = "Імпорт документа",
+        file_path_prompt = "Шлях до файлу (PDF, Word, EBook, etc):",
+        quick_jump = "Швидке переміщення на: ",
+        open_link = "Відкрити посилання",
+        copy = "Скопіювати",
+        search = "Шукати",
+        search_hint = "Шукати...",
+        show_in_glossary = "Переглянути у ГОРОСі",
+        import_pdf = "Імпортувати PDF",
+        zoom = "Зум: %d%%",
+        close_doc = "Закрити документ",
+        doc_closed = "Документ закрито",
+        processing_wait = "Обробка... зачекайте, будь ласка.",
+        no_pdf_loaded = "PDF не завантажено. Натисніть 'Імпортувати PDF'.",
+        drop_to_import = "Відпустіть файл для імпорту",
+        lang_label = "Мова / Language",
+        loaded = "Завантажено: ",
+    },
+    en = {
+        ready = "Ready",
+        switched_to = "Switched to: ",
+        processing = "Processing...",
+        save_proj_first = "Please save your project first!",
+        error = "Error",
+        warning_doc_format = "The plugin may not recognize this file, we recommend converting it to PDF manually",
+        warning = "Warning",
+        err_no_python = "Error: Python not found",
+        err_metadata = "Error loading metadata",
+        file_filter = "All supported files\0*.pdf;*.docx;*.doc;*.epub;*.mobi;*.txt;*.html;*.xps;*.fb2;*.cbz;*.svg;*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0PDF files (*.pdf)\0*.pdf\0Word files (*.docx, *.doc)\0*.docx;*.doc\0Images (*.png, *.jpg, *.webp, etc)\0*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0E-books (*.epub, *.mobi, *.fb2)\0*.epub;*.mobi;*.fb2\0Others (*.txt, *.html, *.svg, *.xps, *.cbz)\0*.txt;*.html;*.svg;*.xps;*.cbz\0All files (*.*)\0*.*\0",
+        select_file_import = "Select file to import",
+        import_doc = "Import Document",
+        file_path_prompt = "File path (PDF, Word, EBook, etc):",
+        quick_jump = "Quick jump to: ",
+        open_link = "Open link",
+        copy = "Copy",
+        search = "Search",
+        search_hint = "Search...",
+        show_in_glossary = "View in Glossary",
+        import_pdf = "Import PDF",
+        zoom = "Zoom: %d%%",
+        close_doc = "Close document",
+        doc_closed = "Document closed",
+        processing_wait = "Processing... please wait.",
+        no_pdf_loaded = "PDF is not loaded. Click 'Import PDF'.",
+        drop_to_import = "Release mouse button to import",
+        lang_label = "Language / Мова",
+        loaded = "Loaded: ",
+    }
+}
+
+-- Returns translated string for the current language (falls back to EN)
+local function T(key)
+    local lang = (language == "ua") and "ua" or "en"
+    local t = translations[lang]
+    return (t and t[key]) or (translations["en"] and translations["en"][key]) or key
+end
+
+local function load_language()
+    local lang = reaper.GetExtState("Subass_PDF", "language")
+    if lang == "ua" or lang == "en" then
+        language = lang
+    else
+        language = "ua"
+    end
+end
+
+local function save_language(lang)
+    language = lang
+    reaper.SetExtState("Subass_PDF", "language", lang, true)
+end
+
 local function json_decode(str)
     if not str or str == "" then return nil end
     local pos = 1
@@ -146,7 +233,7 @@ local STATE = {
     active_doc_idx = 0,
     
     is_loading = 0,
-    status_msg = "Готово",
+    status_msg = "Ready",
     window_open = true,
     show_debug_boxes = false,
     async_pool = {},
@@ -274,7 +361,7 @@ local function switch_to_document(idx)
     STATE.active_doc_idx = idx
     local new_doc = get_active_doc()
     if new_doc then
-        STATE.status_msg = "Переключено на: " .. new_doc.pdf_name
+        STATE.status_msg = T("switched_to") .. new_doc.pdf_name
         new_doc.needs_scroll_restore = 20 -- Retry restoration for 20 frames
         
         -- Trigger search re-calculation if search was open
@@ -593,7 +680,7 @@ local function load_metadata(output_dir, pdf_name, saved_state, no_switch)
         end
         
         if not no_switch then save_project_state(nil, true) end
-        STATE.status_msg = "Завантажено: " .. pdf_name
+        STATE.status_msg = T("loaded") .. pdf_name
         return true
     end
     return false
@@ -605,11 +692,11 @@ local function process_pdf(pdf_file)
     pdf_file = normalize_path(pdf_file)
     
     STATE.is_loading = STATE.is_loading + 1
-    STATE.status_msg = "Обробка..."
+    STATE.status_msg = T("processing")
     
     local prj_cache = get_project_cache_dir()
     if not prj_cache then
-        reaper.ShowMessageBox("Спочатку збережіть ваш проект!", "Помилка", 0)
+        reaper.ShowMessageBox(T("save_proj_first"), T("error"), 0)
         STATE.is_loading = STATE.is_loading - 1
         return
     end
@@ -621,7 +708,7 @@ local function process_pdf(pdf_file)
     if ext then
         ext = ext:lower()
         if ext == "doc" or ext == "docx" then
-            reaper.MB("Плагін може не розпізнати цей файл, рекомендуємо вручну конвертувати його в PDF", "Попередження", 0)
+            reaper.MB(T("warning_doc_format"), T("warning"), 0)
         end
     end
     
@@ -640,20 +727,20 @@ local function process_pdf(pdf_file)
     run_async_command(cmd, function(output)
         if not load_metadata(output_dir, pdf_name) then
             if output:match("not found") or output:match("not recognized") then
-                STATE.status_msg = "Помилка: Python не знайдено"
+                STATE.status_msg = T("err_no_python")
             else
-                STATE.status_msg = "Помилка завантаження метаданих"
+                STATE.status_msg = T("err_metadata")
             end
         end
         STATE.is_loading = math.max(0, STATE.is_loading - 1)
-        if STATE.is_loading == 0 then STATE.status_msg = "Готово" end
+        if STATE.is_loading == 0 then STATE.status_msg = T("ready") end
     end)
 end
 
 local function pick_pdf()
     if reaper.APIExists('JS_Dialog_BrowseForOpenFiles') then
-        local filter = "Усі підтримувані файли\0*.pdf;*.docx;*.doc;*.epub;*.mobi;*.txt;*.html;*.xps;*.fb2;*.cbz;*.svg;*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0PDF файли (*.pdf)\0*.pdf\0Word файли (*.docx, *.doc)\0*.docx;*.doc\0Зображення (*.png, *.jpg, *.webp, etc)\0*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0Електронні книги (*.epub, *.mobi, *.fb2)\0*.epub;*.mobi;*.fb2\0Інші (*.txt, *.html, *.svg, *.xps, *.cbz)\0*.txt;*.html;*.svg;*.xps;*.cbz\0Всі файли (*.*)\0*.*\0"
-        local retval, files_str = reaper.JS_Dialog_BrowseForOpenFiles("Оберіть файл для імпорту", "", "", filter, true)
+        local filter = T("file_filter")
+        local retval, files_str = reaper.JS_Dialog_BrowseForOpenFiles(T("select_file_import"), "", "", filter, true)
         
         if retval > 0 and files_str ~= "" then 
             local entries = {}
@@ -693,7 +780,7 @@ local function pick_pdf()
             end
         end
     else
-        local retval, file = reaper.GetUserInputs("Імпорт документа", 1, "Шлях до файлу (PDF, Word, EBook, etc):", "")
+        local retval, file = reaper.GetUserInputs(T("import_doc"), 1, T("file_path_prompt"), "")
         if retval and file ~= "" then return {file} end
     end
     return nil
@@ -884,28 +971,28 @@ local function draw_gui()
                 local time = parse_timecode(item.text)
                 local url = item.url or parse_url(item.text)
                 if time then
-                    if reaper.ImGui_MenuItem(ctx, "Швидке переміщення на: " .. item.text) then
+                    if reaper.ImGui_MenuItem(ctx, T("quick_jump") .. item.text) then
                         reaper.SetEditCurPos(time, true, false)
                     end
                     reaper.ImGui_Separator(ctx)
                 end
                 if url then
-                    if reaper.ImGui_MenuItem(ctx, "Відкрити посилання") then
+                    if reaper.ImGui_MenuItem(ctx, T("open_link")) then
                         if reaper.CF_ShellExecute then reaper.CF_ShellExecute(url) end
                     end
                     reaper.ImGui_Separator(ctx)
                 end
-                if reaper.ImGui_MenuItem(ctx, "Скопіювати") then
+                if reaper.ImGui_MenuItem(ctx, T("copy")) then
                     if reaper.ImGui_SetClipboardText then reaper.ImGui_SetClipboardText(ctx, item.text) end
                 end
-                if reaper.ImGui_MenuItem(ctx, "Шукати") then
+                if reaper.ImGui_MenuItem(ctx, T("search")) then
                     d.search_open = true
                     d.search_text = item.text
                     perform_search(d)
                     save_project_state()
                 end
                 if not time and not url then
-                    if reaper.ImGui_MenuItem(ctx, "Переглянути у ГОРОСі") then
+                    if reaper.ImGui_MenuItem(ctx, T("show_in_glossary")) then
                         local dict_word = item.text:gsub("[%p]+$", ""):gsub("^[%p]+", "")
                         reaper.SetExtState("SubassSync", "WORD", dict_word, false)
                         reaper.gmem_write(0, 2)
@@ -919,7 +1006,7 @@ local function draw_gui()
         reaper.ImGui_PopID(ctx)
 
         -- Header
-        if reaper.ImGui_Button(ctx, "Імпортувати PDF") then
+        if reaper.ImGui_Button(ctx, T("import_pdf")) then
             local files = pick_pdf()
             if files then 
                 for _, file in ipairs(files) do
@@ -930,7 +1017,7 @@ local function draw_gui()
         if doc and doc.metadata then
             -- Search Toggle Button
             reaper.ImGui_SameLine(ctx)
-            if reaper.ImGui_Button(ctx, "Шукати") then 
+            if reaper.ImGui_Button(ctx, T("search")) then 
                 doc.search_open = not doc.search_open
                 if not doc.search_open then
                     doc.search_results = {}
@@ -941,7 +1028,7 @@ local function draw_gui()
             end
             
             reaper.ImGui_SameLine(ctx, 0, 20)
-            reaper.ImGui_Text(ctx, string.format("Зум: %d%%", math.floor(doc.zoom * 100 + 0.5)))
+            reaper.ImGui_Text(ctx, string.format(T("zoom"), math.floor(doc.zoom * 100 + 0.5)))
             reaper.ImGui_SameLine(ctx)
             if reaper.ImGui_Button(ctx, "-", 24, 0) then doc.zoom = math.max(0.1, doc.zoom - 0.1); save_project_state() end
             reaper.ImGui_SameLine(ctx)
@@ -971,7 +1058,18 @@ local function draw_gui()
                 end
                 
                 reaper.ImGui_Separator(ctx)
-                if reaper.ImGui_MenuItem(ctx, "Закрити документ") then
+                if reaper.ImGui_BeginMenu(ctx, T("lang_label")) then
+                    if reaper.ImGui_MenuItem(ctx, "English", nil, language == "en") then
+                        save_language("en")
+                    end
+                    if reaper.ImGui_MenuItem(ctx, "Українська", nil, language == "ua") then
+                        save_language("ua")
+                    end
+                    reaper.ImGui_EndMenu(ctx)
+                end
+                
+                reaper.ImGui_Separator(ctx)
+                if reaper.ImGui_MenuItem(ctx, T("close_doc")) then
                     unload_textures(doc.textures)
                     table.remove(STATE.documents, STATE.active_doc_idx)
                     if #STATE.documents > 0 then
@@ -987,7 +1085,7 @@ local function draw_gui()
                     doc.search_index = 0
                     
                     save_project_state()
-                    STATE.status_msg = "Документ закрито"
+                    STATE.status_msg = T("doc_closed")
                 end
                 reaper.ImGui_EndPopup(ctx)
             end
@@ -1000,7 +1098,7 @@ local function draw_gui()
             reaper.ImGui_SetNextItemWidth(ctx, 200)
             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBg(), 0xFFFFFFFF)
             reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x000000FF)
-            local changed, new_text = reaper.ImGui_InputTextWithHint(ctx, "##SearchInput", "Шукати...", doc.search_text)
+            local changed, new_text = reaper.ImGui_InputTextWithHint(ctx, "##SearchInput", T("search_hint"), doc.search_text)
             reaper.ImGui_PopStyleColor(ctx, 2)
             
             if changed then
@@ -1047,7 +1145,7 @@ local function draw_gui()
         -- Content Area
         reaper.ImGui_BeginGroup(ctx) -- Start group to catch drops for any item inside
         if STATE.is_loading and STATE.is_loading > 0 then
-            reaper.ImGui_Text(ctx, "Обробка... зачекайте, будь ласка.")
+            reaper.ImGui_Text(ctx, T("processing_wait"))
             local aw, ah = reaper.ImGui_GetContentRegionAvail(ctx)
             if ah > 0 then reaper.ImGui_InvisibleButton(ctx, "##LoadingTarget", aw, ah) end
         elseif doc and doc.metadata then
@@ -1086,7 +1184,7 @@ local function draw_gui()
             end
             reaper.ImGui_PopStyleVar(ctx)
         else
-            reaper.ImGui_Text(ctx, "PDF не завантажено. Натисніть 'Імпортувати PDF'.")
+            reaper.ImGui_Text(ctx, T("no_pdf_loaded"))
             local aw, ah = reaper.ImGui_GetContentRegionAvail(ctx)
             if ah > 0 then reaper.ImGui_InvisibleButton(ctx, "##EmptyTarget", aw, ah) end
         end
@@ -1107,7 +1205,7 @@ local function draw_gui()
                 -- 2. If not dropped, show hover feedback
                 local hovered, h_count = reaper.ImGui_AcceptDragDropPayloadFiles(ctx, reaper.ImGui_DragDropFlags_AcceptBeforeDelivery())
                 if hovered then
-                    reaper.ImGui_SetTooltip(ctx, "Відпустіть файл для імпорту")
+                    reaper.ImGui_SetTooltip(ctx, T("drop_to_import"))
                 end
             end
             reaper.ImGui_EndDragDropTarget(ctx)
@@ -1119,6 +1217,8 @@ local function draw_gui()
 end
 
 local function init_from_project()
+    load_language()
+    STATE.status_msg = T("ready")
     STATE.current_proj = reaper.EnumProjects(-1)
     if not STATE.current_proj or not reaper.ValidatePtr(STATE.current_proj, "ReaProject*") then return end
     
@@ -1192,7 +1292,7 @@ local function loop()
         end
         STATE.documents = {}
         STATE.active_doc_idx = 0
-        STATE.status_msg = "Готово"
+        STATE.status_msg = T("ready")
         STATE.is_loading = 0
         init_from_project()
     end
