@@ -1,562 +1,314 @@
--- @description Subass Dictionary
--- @version 2.1
+-- @description Subass PDF Reader (ReaImGui PDF Module)
+-- @version 1.3
 -- @author Fusion
--- @about Dictionary of slang, idioms and terminology for dubbing.
+-- @about Displays PDF pages in REAPER with interactive metadata. Requires ReaImGui and Python with PyMuPDF.
 
-local ctx = reaper.ImGui_CreateContext('Subass Dictionary')
-local font_main = reaper.ImGui_CreateFont('sans-serif', 15)
-local font_tabs = reaper.ImGui_CreateFont('sans-serif', 17)
+if not reaper.ImGui_CreateContext then
+    reaper.ShowMessageBox('ReaImGui extension is required for this script.\n\nPlease install it via ReaPack (cfillion repository).', 'Subass PDF', 0)
+    return
+end
 
-reaper.ImGui_Attach(ctx, font_main)
-reaper.ImGui_Attach(ctx, font_tabs)
-
--- Initial window size
-local WIN_W, WIN_H = 600, 500
-local dict_open = true
-local section_name = "Subass_Dictionary"
-
--- Color Constants (Hex)
-local C_BTN_OK = 0x50C850FF
-local C_BTN_MEDIUM = 0x4B824BFF
-local C_BTN_CLOSE = 0x0000000F
-local C_SEL_BG = 0x4CA6FFFF
-
--- Load dictionary data
-local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
-
--- Language System
+-- =============================================================================
+-- JSON UTILS (Native Lua Decoder)
+-- =============================================================================
 local language = "ua"
 
+-- i18n: translations for UA / EN
 local translations = {
     ua = {
-        tab_reference     = "Довідник",
-        tab_glossary      = "Звуковий Глосарій",
-        tab_dictionaries  = "Словники",
-        tab_download      = "Центр Завантажень",
-        lang_label        = "Мова / Language",
-        search_reference  = "Пошук у довіднику...",
-        search_glossary   = "Пошук у глосарії...",
-        add_from_reaper   = "Додати з REAPER",
-        insert_into_proj  = "Вставити в проєкт",
-        edit              = "✎ Редагувати",
-        delete            = "× Видалити",
-        confirm_del_audio = "Видалити цей звук?",
-        confirm           = "Підтвердження",
-        select_track_err  = "Будь ласка, виберіть трек для вставки.",
-        error             = "Помилка",
-        sound_settings    = "Налаштування нового звуку:",
-        name_lbl          = "Назва",
-        tags_lbl          = "Теги (через кому)",
-        desc_lbl          = "Опис",
-        image_lbl         = "Зображення (80x80):",
-        select_image      = "Вибрати зображення##new_img",
-        clear_image       = "Очистити##new_img_clear",
-        save              = "Зберегти",
-        cancel            = "Скасувати",
-        edit_lbl          = "Редагування:",
-        tags_edit         = "Теги",
-        change_image      = "Змінити зображення##edit_img",
-        remove_image      = "Видалити зображення##edit_img_del",
-        user_dicts        = "Користувацькі словники",
-        create_new        = "Створити новий",
-        import_csv        = "Імпорт з .csv",
-        new_dict_name_lbl = "Назва нового словника:",
-        create            = "Створити",
-        dict_exists_err   = "Словник з такою назвою вже існує!",
-        rename_dict_lbl   = "Перейменувати словник:",
-        rename            = "Перейменувати",
-        export_csv        = "Експорт у .csv",
-        delete_dict       = "Видалити",
-        confirm_del_dict  = "Словник '%s' містить записів: %d.\nВи впевнені, що хочете видалити його?",
-        confirm_del_title = "Підтвердження видалення",
-        dict_header       = "Словник: ",
-        add_entry         = "+ Додати запис",
-        search_dict       = "Пошук у словнику...",
-        col_word          = "Слово",
-        col_replacement   = "Заміна (в суфлер)",
-        col_comment       = "Коментар",
-        col_action        = "Дія",
-        paste             = "Вставити",
-        search_hint_dl    = "Введіть назву (напр. Inception) або посилання...",
-        search_btn        = "Шукати",
-        searching         = "Пошук... Зачекайте, будь ласка...",
-        close             = "Закрити",
-        copy_link         = "Скопіювати посилання",
-        save_as           = "Зберегти як...",
-        save_file_title   = "Зберегти файл",
-        no_id_err         = "Не вдалося знайти ID або посилання для цього елемента.",
-        save_success      = "Успішно збережено за шляхом:\n",
-        save_fail         = "Помилка при завантаженні. Перевірте subass_debug.log\n\n",
-        save_err_log      = "Помилка: Файл не був збережений. Перевірте subass_debug.log",
-        confirm_del_entry   = "Видалити цей запис?",
-        confirm_del_entries = "Видалити %d виділених записів?",
-        delete_selected     = "Видалити (%d)",
-        select_dict_hint  = "Виберіть словник зліва або створіть новий для редагування записів.",
-        api_key_prompt    = "Введіть ваш API ключ для ",
-        no_results        = "Нічого не знайдено.",
-        enter_query       = "Введіть пошуковий запит для початку.",
-        unknown_video     = "Невідоме відео",
-        unknown_item      = "Невідомо",
-        embedded_subs     = "Субтитри (вбудовані)",
-        media_only        = "Медіа (тільки відео/аудіо)",
-        duration_fmt      = "Тривалість: %d:%02d",
-        err_timeout       = "Помилка: Час очікування вичерпано.",
-        err_prefix        = "Помилка: ",
-        err_json          = "Помилка розбору JSON: ",
-        err_empty         = "Скрипт повернув порожню відповідь.",
-        change_api_key    = "Змінити API ключ##",
-        enter_api_popup   = "Введіть API Ключ",
-        download_btn      = "Завантажити",
-        save_media_title  = "Зберегти медіа",
-        save_as_path_lbl  = "Повний шлях до файлу:,extrawidth=400",
-        folder_close_btn  = "▼ ЗАКРИТИ",
-        folder_open_btn   = "► ФАЙЛИ",
-        preview_btn       = "ПЕРЕГЛЯД",
-        video_fallback    = "Відео",
-        select_csv_file   = "Виберіть .csv файл",
-        imported_dict     = "Імпортований словник",
-        imported_entries_msg = "Імпортовано %d записів.",
-        import            = "Імпорт",
-        no_entries_to_import_err = "Не знайдено записів для імпорту.",
-        export_default_name = "Словник",
-        export_dict_title = "Експорт Словника",
-        export_select_file = "Виберіть папку та введіть ім'я для збереження (напр. word.csv)",
-        save_file_err     = "Помилка збереження файлу.",
-        select_item_err   = "Будь ласка, виберіть айтем у REAPER",
-        process_file_err  = "Не вдалося обробити файл (Glue/Copy failed).",
-        load_err_category = "Помилка завантаження",
-        save_project_first_err = "Спершу збережіть проект!",
-        save_file_failed_err = "Не вдалося зберегти файл: %s",
-        unknown_response  = "невідома відповідь",
-        unknown_error     = "невідома помилка",
-        err_get_files_prefix = "Помилка отримання файлів: ",
-        subs_not_found_err = "Субтитри не знайдено.",
-        select_image_dialog_title = "Виберіть зображення",
-        save_project_save_as_err = "Спершу збережіть проект або використовуйте 'Зберегти як'!",
-        file_download_success = "Файл успішно завантажено",
-        download_failed_err = "Завантаження не вдалося.",
-        preview_subs_title = "Перегляд субтитрів",
-        import_to_project_btn = "Імпортувати в проект",
-        save_subs_title   = "Зберегти субтитри",
-        subs_filter_fmt   = "%s файли (*.%s)\0*.%s\0Всі файли (*.*)\0*.*\0",
-        folder_filter     = "Папки\0*.*\0",
-        file_filter_fmt   = "%s файли (*.%s)\0*.%s\0Всі файли (*.*)\0*.*\0",
-        save_title_prefix = "Зберегти ",
-        folder_noun       = "папку",
-        file_noun         = "файл",
-        err_failed_to_delete = "Не вдалося видалити: ",
-        copy_count_lbl    = "Копіювати (%d)",
-        cut_count_lbl     = "Вирізати (%d)",
-        auto_sub_suffix   = " (Авто)",
-        cat_dialect       = "Діалектизми / Говірка",
-        cat_assimilation  = "Асиміляція",
-        cat_declensions   = "Відмінки",
-        cat_slang         = "Лайка / Сленг",
-        cat_idioms        = "Фразеологізми",
+        ready = "Готово",
+        switched_to = "Переключено на: ",
+        processing = "Обробка...",
+        save_proj_first = "Спочатку збережіть ваш проект!",
+        error = "Помилка",
+        warning_doc_format = "Плагін може не розпізнати цей файл, рекомендуємо вручну конвертувати його в PDF",
+        warning = "Попередження",
+        err_no_python = "Помилка: Python не знайдено",
+        err_metadata = "Помилка завантаження метаданих",
+        file_filter = "Усі підтримувані файли\0*.pdf;*.docx;*.doc;*.epub;*.mobi;*.txt;*.html;*.xps;*.fb2;*.cbz;*.svg;*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0PDF файли (*.pdf)\0*.pdf\0Word файли (*.docx, *.doc)\0*.docx;*.doc\0Зображення (*.png, *.jpg, *.webp, etc)\0*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0Електронні книги (*.epub, *.mobi, *.fb2)\0*.epub;*.mobi;*.fb2\0Інші (*.txt, *.html, *.svg, *.xps, *.cbz)\0*.txt;*.html;*.svg;*.xps;*.cbz\0Всі файли (*.*)\0*.*\0",
+        select_file_import = "Оберіть файл для імпорту",
+        import_doc = "Імпорт документа",
+        file_path_prompt = "Шлях до файлу (PDF, Word, EBook, etc):",
+        quick_jump = "Швидке переміщення на: ",
+        open_link = "Відкрити посилання",
+        copy = "Скопіювати",
+        search = "Шукати",
+        search_hint = "Шукати...",
+        show_in_glossary = "Переглянути у ГОРОСі",
+        import_pdf = "Імпортувати PDF",
+        zoom = "Зум: %d%%",
+        close_doc = "Закрити документ",
+        doc_closed = "Документ закрито",
+        processing_wait = "Обробка... зачекайте, будь ласка.",
+        no_pdf_loaded = "PDF не завантажено. Натисніть 'Імпортувати PDF'.",
+        drop_to_import = "Відпустіть файл для імпорту",
+        lang_label = "Мова / Language",
+        loaded = "Завантажено: ",
     },
     en = {
-        tab_reference     = "Reference",
-        tab_glossary      = "Sound Glossary",
-        tab_dictionaries  = "Dictionaries",
-        tab_download      = "Download Center",
-        lang_label        = "Language / Мова",
-        search_reference  = "Search in reference...",
-        search_glossary   = "Search in glossary...",
-        add_from_reaper   = "Add from REAPER",
-        insert_into_proj  = "Insert into project",
-        edit              = "✎ Edit",
-        delete            = "× Delete",
-        confirm_del_audio = "Delete this sound?",
-        confirm           = "Confirm",
-        select_track_err  = "Please select a track to insert into.",
-        error             = "Error",
-        sound_settings    = "New sound settings:",
-        name_lbl          = "Name",
-        tags_lbl          = "Tags (comma separated)",
-        desc_lbl          = "Description",
-        image_lbl         = "Image (80x80):",
-        select_image      = "Select image##new_img",
-        clear_image       = "Clear##new_img_clear",
-        save              = "Save",
-        cancel            = "Cancel",
-        edit_lbl          = "Editing:",
-        tags_edit         = "Tags",
-        change_image      = "Change image##edit_img",
-        remove_image      = "Remove image##edit_img_del",
-        user_dicts        = "User Dictionaries",
-        create_new        = "Create New",
-        import_csv        = "Import .csv",
-        new_dict_name_lbl = "New dictionary name:",
-        create            = "Create",
-        dict_exists_err   = "A dictionary with this name already exists!",
-        rename_dict_lbl   = "Rename dictionary:",
-        rename            = "Rename",
-        export_csv        = "Export .csv",
-        delete_dict       = "Delete",
-        confirm_del_dict  = "Dictionary '%s' has %d entries.\nAre you sure you want to delete it?",
-        confirm_del_title = "Confirm Delete",
-        dict_header       = "Dictionary: ",
-        add_entry         = "+ Add Entry",
-        search_dict       = "Search in dictionary...",
-        col_word          = "Word",
-        col_replacement   = "Replacement (prompter)",
-        col_comment       = "Comment",
-        col_action        = "Action",
-        paste             = "Paste",
-        search_hint_dl    = "Enter title (e.g. Inception) or link...",
-        search_btn        = "Search",
-        searching         = "Searching... Please wait...",
-        close             = "Close",
-        copy_link         = "Copy link",
-        save_as           = "Save as...",
-        save_file_title   = "Save file",
-        no_id_err         = "Could not find ID or link for this item.",
-        save_success      = "Successfully saved to:\n",
-        save_fail         = "Download error. Check subass_debug.log\n\n",
-        save_err_log      = "Error: File was not saved. Check subass_debug.log",
-        confirm_del_entry   = "Delete this entry?",
-        confirm_del_entries = "Delete %d selected entries?",
-        delete_selected     = "Delete (%d)",
-        select_dict_hint  = "Select a dictionary on the left or create a new one to edit entries.",
-        api_key_prompt    = "Enter your API key for ",
-        no_results        = "Nothing found.",
-        enter_query       = "Enter a search query to begin.",
-        unknown_video     = "Unknown video",
-        unknown_item      = "Unknown",
-        embedded_subs     = "Subtitles (embedded)",
-        media_only        = "Media (video/audio only)",
-        duration_fmt      = "Duration: %d:%02d",
-        err_timeout       = "Error: Request timed out.",
-        err_prefix        = "Error: ",
-        err_json          = "JSON parse error: ",
-        err_empty         = "Script returned an empty response.",
-        change_api_key    = "Change API key##",
-        enter_api_popup   = "Enter API Key",
-        download_btn      = "Download",
-        save_media_title  = "Save media",
-        save_as_path_lbl  = "Full file path:,extrawidth=400",
-        folder_close_btn  = "▼ CLOSE",
-        folder_open_btn   = "► FILES",
-        preview_btn       = "PREVIEW",
-        video_fallback    = "Video",
-        select_csv_file   = "Select .csv file",
-        imported_dict     = "Imported Dictionary",
-        imported_entries_msg = "Imported %d entries.",
-        import            = "Import",
-        no_entries_to_import_err = "No entries found to import.",
-        export_default_name = "Dictionary",
-        export_dict_title = "Export Dictionary",
-        export_select_file = "Select folder and enter file name to save (e.g. word.csv)",
-        save_file_err     = "Error saving file.",
-        select_item_err   = "Please select an item in REAPER",
-        process_file_err  = "Failed to process file (Glue/Copy failed).",
-        load_err_category = "Loading Error",
-        save_project_first_err = "Save the project first!",
-        save_file_failed_err = "Failed to save file: %s",
-        unknown_response  = "unknown response",
-        unknown_error     = "unknown error",
-        err_get_files_prefix = "Error getting files: ",
-        subs_not_found_err = "Subtitles not found.",
-        select_image_dialog_title = "Select Image",
-        save_project_save_as_err = "Save the project first or use 'Save as'!",
-        file_download_success = "File downloaded successfully",
-        download_failed_err = "Download failed.",
-        preview_subs_title = "Subtitle Preview",
-        import_to_project_btn = "Import to project",
-        save_subs_title   = "Save Subtitles",
-        subs_filter_fmt   = "%s files (*.%s)\0*.%s\0All files (*.*)\0*.*\0",
-        folder_filter     = "Folders\0*.*\0",
-        file_filter_fmt   = "%s files (*.%s)\0*.%s\0All files (*.*)\0*.*\0",
-        save_title_prefix = "Save ",
-        folder_noun       = "folder",
-        file_noun         = "file",
-        err_failed_to_delete = "Failed to delete: ",
-        copy_count_lbl    = "Copy (%d)",
-        cut_count_lbl     = "Cut (%d)",
-        auto_sub_suffix   = " (Auto)",
-        cat_dialect       = "Dialectisms",
-        cat_assimilation  = "Assimilation",
-        cat_declensions   = "Declensions",
-        cat_slang         = "Slang",
-        cat_idioms        = "Idioms",
+        ready = "Ready",
+        switched_to = "Switched to: ",
+        processing = "Processing...",
+        save_proj_first = "Please save your project first!",
+        error = "Error",
+        warning_doc_format = "The plugin may not recognize this file, we recommend converting it to PDF manually",
+        warning = "Warning",
+        err_no_python = "Error: Python not found",
+        err_metadata = "Error loading metadata",
+        file_filter = "All supported files\0*.pdf;*.docx;*.doc;*.epub;*.mobi;*.txt;*.html;*.xps;*.fb2;*.cbz;*.svg;*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0PDF files (*.pdf)\0*.pdf\0Word files (*.docx, *.doc)\0*.docx;*.doc\0Images (*.png, *.jpg, *.webp, etc)\0*.png;*.jpg;*.jpeg;*.gif;*.tiff;*.webp\0E-books (*.epub, *.mobi, *.fb2)\0*.epub;*.mobi;*.fb2\0Others (*.txt, *.html, *.svg, *.xps, *.cbz)\0*.txt;*.html;*.svg;*.xps;*.cbz\0All files (*.*)\0*.*\0",
+        select_file_import = "Select file to import",
+        import_doc = "Import Document",
+        file_path_prompt = "File path (PDF, Word, EBook, etc):",
+        quick_jump = "Quick jump to: ",
+        open_link = "Open link",
+        copy = "Copy",
+        search = "Search",
+        search_hint = "Search...",
+        show_in_glossary = "View in Glossary",
+        import_pdf = "Import PDF",
+        zoom = "Zoom: %d%%",
+        close_doc = "Close document",
+        doc_closed = "Document closed",
+        processing_wait = "Processing... please wait.",
+        no_pdf_loaded = "PDF is not loaded. Click 'Import PDF'.",
+        drop_to_import = "Release mouse button to import",
+        lang_label = "Language / Мова",
+        loaded = "Loaded: ",
     }
 }
 
+-- Returns translated string for the current language (falls back to EN)
 local function T(key)
-    local t = translations[language] or translations["ua"]
-    return (t and t[key]) or (translations["ua"] and translations["ua"][key]) or key
-end
-
-local function translate_category(name)
-    if name == "Діалектизми / Говірка" then return T("cat_dialect") end
-    if name == "Асиміляція" then return T("cat_assimilation") end
-    if name == "Відмінки" then return T("cat_declensions") end
-    if name == "Лайка / Сленг" then return T("cat_slang") end
-    if name == "Фразеологізми" then return T("cat_idioms") end
-    return name
+    local lang = (language == "ua") and "ua" or "en"
+    local t = translations[lang]
+    return (t and t[key]) or (translations["en"] and translations["en"][key]) or key
 end
 
 local function load_language()
-    local lang = reaper.GetExtState("Subass_Dictionary", "language")
-    if lang == "" then lang = "ua" end
-    language = (lang == "ua" or lang == "en") and lang or "ua"
+    local lang = reaper.GetExtState("Subass_PDF", "language")
+    if lang == "ua" or lang == "en" then
+        language = lang
+    else
+        language = "ua"
+    end
 end
 
 local function save_language(lang)
     language = lang
-    reaper.SetExtState("Subass_Dictionary", "language", lang, true)
+    reaper.SetExtState("Subass_PDF", "language", lang, true)
 end
 
--- Global ImGui Style
-local Style = dofile(script_path .. "Subass_ReaImGuiGlobalStyle.lua")
-
--- Data paths for Glossary
-local data_path = script_path .. "data/"
-local glossary_file = data_path .. "glossary.json"
-
-local user_dicts_file = data_path .. "user_dictionaries.json"
-
-local UTILS = {}
-
-local cfg = {
-    -- Tab Persistence
-    last_tab = tonumber(reaper.GetExtState(section_name, "last_tab")) or 0,
-    restore_tab = true,
-}
-
-local cfg_ref = {
-    categories = {},
-    cached_results = {},
-    last_filter = nil,
-    ref_filter = "",
-}
-
-local cfg_glos = {
-    glossary_data = { entries = {} },
-    add_entry_pending = nil,
-    edit_entry_idx = nil,
-    edit_entry_data = {},
-    open_edit_popup = false,
-    current_preview_source = nil,
-    layout_has_player = false,
-    current_preview_name = "",
-    current_preview_file = "",
-    current_preview_paused = false,
-    current_preview_pause_pos = 0,
-    current_preview_length = 0,
-    active_tags = {},  -- Set of active tags: { ["tag"] = true }
-    glos_filter = "",
-}
-
-local cfg_dict = {
-    udd = { dictionaries = {} },
-    dict_filter = "",
-    entry_selection = {}, -- { index = true }
-    last_selected_idx = nil,
-    new_dict_name = "",
-    rename_dict_idx = nil,
-    rename_dict_name = "",
-    sd_inx = nil,
-}
-
-local cfg_dwn = {
-    dwn_search = reaper.GetExtState(section_name, "dwn_search"),
-    search_data = nil,
-    is_searching = false,
-    preview_data = nil,
-    loading_item = nil,
-    error_tooltip = nil,
-    thumbnail_tex = nil,
-    thumbnail_path = nil,
-    opensubtitles_key = reaper.GetExtState(section_name, "key_opensubtitles"),
-    subdl_key = reaper.GetExtState(section_name, "key_subdl"),
-    jimaku_key = reaper.GetExtState(section_name, "key_jimaku"),
-    pending_key_src = nil, -- { id = "id", label = "label" }
-    temp_key_val = "",
-    source_filters = {
-        opensubtitles = reaper.GetExtState(section_name, "src_osub") == "1",
-        subdl = reaper.GetExtState(section_name, "src_subdl") ~= "0",
-        jimaku = reaper.GetExtState(section_name, "src_jimaku") ~= "0",
-        tvsubtitles = reaper.GetExtState(section_name, "src_tvsubtitles") ~= "0",
-        gestdown = reaper.GetExtState(section_name, "src_gestdown") ~= "0",
-    },
-    lang_filter = reaper.GetExtState(section_name, "dwn_lang_filter") ~= "" and reaper.GetExtState(section_name, "dwn_lang_filter") or "ALL",
-    search_history = {}
-}
-
-
-local temp_path = script_path .. "temp/"
-reaper.RecursiveCreateDirectory(temp_path, 0)
-
--- Read last selected dict from ExtState
-local last_dict = tonumber(reaper.GetExtState(section_name, "last_dict_idx"))
-if last_dict and last_dict > 0 and last_dict <= #cfg_dict.udd.dictionaries then
-    cfg_dict.sd_inx = last_dict
-elseif #cfg_dict.udd.dictionaries > 0 then
-    cfg_dict.sd_inx = 1
-end
-
--- Async Command Execution
-UTILS.async_pool = {}
-
-function UTILS.draw_meta_tag(ctx, text, color)
-    local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
-    local x, y = reaper.ImGui_GetCursorScreenPos(ctx)
-    local th = reaper.ImGui_GetTextLineHeight(ctx)
-    local padding_x, padding_y = 5, 1
-    
-    local tw, _ = reaper.ImGui_CalcTextSize(ctx, text)
-    local rect_w = tw + padding_x * 2
-    local rect_h = th + padding_y * 2
-    
-    reaper.ImGui_DrawList_AddRectFilled(draw_list, x, y, x + rect_w, y + rect_h, color, 4)
-    reaper.ImGui_SetCursorPosX(ctx, reaper.ImGui_GetCursorPosX(ctx) + padding_x)
-    reaper.ImGui_Text(ctx, text)
-end
-
-function UTILS.sanitize_filename(name)
-    if not name then return "subtitle" end
-    -- Decode common HTML entities
-    name = name:gsub("&amp;", "&"):gsub("&quot;", '"'):gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&#39;", "'")
-    -- Remove characters that are illegal in filenames or problematic in shell
-    name = name:gsub('[\\/:"*?<>|]', "_")
-    return name
-end
-
-function UTILS.item_matches_lang(item)
-    if not item then return false end
-    if not cfg_dwn.lang_filter or cfg_dwn.lang_filter == "ALL" then return true end
-    
-    local l = item.lang and item.lang:upper() or ""
-    if l == "ALL" or l == "ERR" or l == "" then return true end
-    
-    if l:find(cfg_dwn.lang_filter) then return true end
-    if cfg_dwn.lang_filter == "SP" and (l:find("ES") or l:find("SPA")) then return true end
-    if cfg_dwn.lang_filter == "JP" and (l:find("JA") or l:find("JPN")) then return true end
-    if cfg_dwn.lang_filter == "UA" and (l:find("UK") or l:find("UKR") or l:find("UA")) then return true end
-    if cfg_dwn.lang_filter == "EN" and (l:find("ENG")) then return true end
-    if cfg_dwn.lang_filter == "FR" and (l:find("FRE") or l:find("FRA")) then return true end
-    
-    return false
-end
-
-function UTILS.get_api_keys_args()
-    local args = ""
-    if cfg_dwn.opensubtitles_key and cfg_dwn.opensubtitles_key ~= "" then args = args .. ' --osub-key "' .. cfg_dwn.opensubtitles_key .. '"' end
-    if cfg_dwn.jimaku_key and cfg_dwn.jimaku_key ~= "" then args = args .. ' --jimaku-key "' .. cfg_dwn.jimaku_key .. '"' end
-    if cfg_dwn.subdl_key and cfg_dwn.subdl_key ~= "" then args = args .. ' --subdl-key "' .. cfg_dwn.subdl_key .. '"' end
-    return args .. " "
-end
-
-function UTILS.get_python_cmd(args)
-    local script = script_path .. "../stats/subass_download.py"
-    if reaper.GetOS():match("Win") then
-        return string.format('py -3 "%s" %s || python "%s" %s', script, args, script, args)
-    else
-        -- On Mac, ensure homebrew paths are available
-        return string.format('export PATH=$PATH:/opt/homebrew/bin:/usr/local/bin; python3 "%s" %s', script, args)
+local function json_decode(str)
+    if not str or str == "" then return nil end
+    local pos = 1
+    local function skip_whitespace()
+        while pos <= #str and str:sub(pos, pos):match("%s") do pos = pos + 1 end
     end
-end
-
-function UTILS.run_async_command(shell_cmd, callback)
-    local id = tostring(os.time()) .. "_" .. math.random(1000, 9999)
-    local path = reaper.GetResourcePath() .. "/Scripts/"
-    local out_file = path .. "subass_dict_out_" .. id .. ".tmp"
-    local done_file = path .. "subass_dict_done_" .. id .. ".marker"
-    
-    if reaper.GetOS():match("Win") then
-        out_file = out_file:gsub("/", "\\")
-        done_file = done_file:gsub("/", "\\")
-        local bat_file = (path .. "subass_dict_exec_" .. id .. ".bat"):gsub("/", "\\")
-
-        local f_bat = io.open(bat_file, "w")
-        if f_bat then
-            f_bat:write("@echo off\r\n")
-            f_bat:write("chcp 65001 > NUL\r\n")
-            local bat_cmd = shell_cmd:gsub("%%", "%%%%")
-            -- Wrap in parentheses to capture output from both sides of the || operator
-            f_bat:write('(' .. bat_cmd .. ') > "' .. out_file .. '" 2>&1\r\n')
-            f_bat:write('echo DONE > "' .. done_file .. '"\r\n')
-            f_bat:write('del "%~f0"\r\n')
-            f_bat:close()
-
-            local safe_bat = bat_file:gsub("'", "''")
-            local ps_cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process \'' .. safe_bat .. '\' -WindowStyle Hidden"'
-            reaper.ExecProcess(ps_cmd, 0)
+    local decode_value
+    local function decode_string()
+        pos = pos + 1 -- skip opening "
+        local res = ""
+        while pos <= #str do
+            local char = str:sub(pos, pos)
+            if char == '"' then pos = pos + 1 return res
+            elseif char == '\\' then
+                local next_char = str:sub(pos + 1, pos + 1)
+                if next_char == 'n' then res = res .. "\n"
+                elseif next_char == 'r' then res = res .. "\r"
+                elseif next_char == 't' then res = res .. "\t"
+                else res = res .. next_char end
+                pos = pos + 2
+            else res = res .. char pos = pos + 1 end
         end
-    else
-        local env_path = "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; "
-        local full_cmd = '( ' .. env_path .. shell_cmd .. ' > "' .. out_file .. '" 2>&1 ; touch "' .. done_file .. '" ) &'
-        os.execute(full_cmd)
+        return res
     end
-    
-    table.insert(UTILS.async_pool, {
-        id = id,
-        out_file = out_file,
-        done_file = done_file,
-        callback = callback,
-        start_time = os.time()
-    })
-end
-
-function UTILS.check_async_tasks()
-    local now = os.time()
-    for i = #UTILS.async_pool, 1, -1 do
-        local task = UTILS.async_pool[i]
-        if reaper.file_exists(task.done_file) then
-            local f = io.open(task.out_file, "r")
-            local output = ""
-            if f then output = f:read("*all"); f:close() end
-            
-            os.remove(task.out_file)
-            os.remove(task.done_file)
-            
-            if task.callback then task.callback(output) end
-            table.remove(UTILS.async_pool, i)
-        elseif task.start_time and (now - task.start_time > 30) then
-            os.remove(task.out_file)
-            os.remove(task.done_file)
-            if task.callback then task.callback("TIMEOUT") end
-            table.remove(UTILS.async_pool, i)
+    local function decode_number()
+        local start = pos
+        while pos <= #str and str:sub(pos, pos):match("[%d%.%-%+eE]") do pos = pos + 1 end
+        return tonumber(str:sub(start, pos - 1)) or 0
+    end
+    local function decode_array()
+        pos = pos + 1 -- [
+        local res = {}
+        skip_whitespace()
+        if str:sub(pos, pos) == "]" then pos = pos + 1 return res end
+        while pos <= #str do
+            table.insert(res, decode_value())
+            skip_whitespace()
+            local char = str:sub(pos, pos)
+            if char == "]" then pos = pos + 1 return res
+            elseif char == "," then pos = pos + 1 end
         end
+        return res
     end
-end
-
-function UTILS.update_search_history(query)
-    if not query or query == "" then return end
-    
-    -- Remove if already exists (to move to top)
-    for i = #cfg_dwn.search_history, 1, -1 do
-        if cfg_dwn.search_history[i] == query then
-            table.remove(cfg_dwn.search_history, i)
+    local function decode_object()
+        pos = pos + 1 -- {
+        local res = {}
+        skip_whitespace()
+        if str:sub(pos, pos) == "}" then pos = pos + 1 return res end
+        while pos <= #str do
+            skip_whitespace()
+            local key = decode_value()
+            if key == nil then break end
+            skip_whitespace()
+            if str:sub(pos, pos) == ":" then pos = pos + 1 end
+            skip_whitespace()
+            res[tostring(key)] = decode_value()
+            skip_whitespace()
+            local char = str:sub(pos, pos)
+            if char == "}" then pos = pos + 1 return res
+            elseif char == "," then pos = pos + 1
+            else break end
         end
+        return res
     end
-    
-    -- Add to front
-    table.insert(cfg_dwn.search_history, 1, query)
-    
-    -- Limit to 10
-    while #cfg_dwn.search_history > 10 do
-        table.remove(cfg_dwn.search_history, #cfg_dwn.search_history)
+    decode_value = function()
+        skip_whitespace()
+        local char = str:sub(pos, pos)
+        if char == "{" then return decode_object()
+        elseif char == "[" then return decode_array()
+        elseif char == '"' then return decode_string()
+        elseif char == "t" and str:sub(pos, pos+3) == "true" then pos = pos + 4 return true
+        elseif char == "f" and str:sub(pos, pos+4) == "false" then pos = pos + 5 return false
+        elseif char == "n" and str:sub(pos, pos+3) == "null" then pos = pos + 4 return nil
+        else return decode_number() end
     end
-    
-    -- Save to ExtState
-    reaper.SetExtState(section_name, "dwn_history", UTILS.json_encode(cfg_dwn.search_history), true)
+    local ok, res = pcall(decode_value)
+    return ok and res or nil
 end
 
--- Simple JSON Helpers
-function UTILS.json_encode(v)
-    if type(v) == "string" then return string.format("%q", v)
-    elseif type(v) == "number" or type(v) == "boolean" then return tostring(v)
+-- =============================================================================
+-- CONFIG & STATE
+-- =============================================================================
+local ctx = reaper.ImGui_CreateContext('Subass PDF Reader')
+local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])")
+local function normalize_path(p)
+    if not p then return p end
+    local sep = reaper.GetOS():match("Win") and "\\" or "/"
+    return p:gsub("[/\\]", sep)
+end
+local python_script = normalize_path(script_path .. "subass_pdf_processor.py")
+reaper.gmem_attach("SubassSync")
+
+-- =============================================================================
+-- STYLES
+-- =============================================================================
+local UI_COLORS = {
+    WindowBg        = 0x444444FF,
+    TitleBg         = 0x303030FF,
+    TitleBgActive   = 0x505050FF,
+    Text            = 0xE0E0E0FF,
+    Button          = 0x353535FF,
+    ButtonHovered   = 0x606060FF,
+    ButtonActive    = 0x707070FF
+}
+
+local UI_VARS = {
+    WindowRounding  = 12.0,
+    FrameRounding   = 6.0
+}
+
+local function push_theme(ctx)
+    local c = UI_COLORS
+    local v = UI_VARS
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(),      c.WindowBg)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_TitleBg(),       c.TitleBg)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_TitleBgActive(), c.TitleBgActive)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(),          c.Text)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(),        c.Button)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), c.ButtonHovered)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(),  c.ButtonActive)
+
+    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowRounding(), v.WindowRounding)
+    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(),  v.FrameRounding)
+end
+
+local function pop_theme(ctx)
+    reaper.ImGui_PopStyleColor(ctx, 7)
+    reaper.ImGui_PopStyleVar(ctx, 2)
+end
+
+local STATE = {
+    documents = {}, -- List of {pdf_name, metadata, cache_dir, current_page, textures, zoom, last_scroll_y}
+    active_doc_idx = 0,
+    
+    is_loading = 0,
+    status_msg = "Ready",
+    window_open = true,
+    show_debug_boxes = false,
+    async_pool = {},
+    current_proj = nil,
+    search_open = false,
+    search_text = "",
+    search_results = {},
+    search_index = 0,
+    scroll_to_search = false,
+    scroll_to_search_target = nil,
+    
+    context_item = nil,
+    context_doc = nil,
+    trigger_context_menu = false,
+    notes_cmd_id = nil,
+}
+
+-- =============================================================================
+-- UTILS
+-- =============================================================================
+
+local function truncate_text(text, max_len)
+    if not text then return "" end
+    if #text <= max_len then return text end
+    
+    local name = text:match("(.*)%.") or text
+    local ext = text:match("%.([^%.]+)$") or ""
+    if ext ~= "" then ext = "." .. ext end
+    
+    local available_for_name = max_len - #ext - 3 -- 3 for "..."
+    if available_for_name < 3 then 
+        -- If extension is too long or name is too short, just do simple truncation
+        return text:sub(1, max_len - 3) .. "..."
+    end
+    
+    local truncated_name = name:sub(1, available_for_name)
+    -- Simple UTF-8 aware truncation
+    while #truncated_name > 0 and (truncated_name:byte(-1) >= 128 and truncated_name:byte(-1) < 192) do
+        truncated_name = truncated_name:sub(1, -2)
+    end
+    
+    return truncated_name .. "..." .. ext
+end
+
+local function unload_textures(textures)
+    if not textures then return end
+    for _, tex in pairs(textures) do
+        if reaper.ImGui_Detach then pcall(reaper.ImGui_Detach, ctx, tex) end
+        if reaper.ImGui_DeleteTexture then pcall(reaper.ImGui_DeleteTexture, tex) end
+    end
+end
+
+local function get_active_doc()
+    if STATE.active_doc_idx > 0 and STATE.documents[STATE.active_doc_idx] then
+        return STATE.documents[STATE.active_doc_idx]
+    end
+    return nil
+end
+
+local function simple_json_encode(v)
+    if type(v) == "string" then
+        return '"' .. v:gsub('\\', '\\\\'):gsub('"', '\\"') .. '"'
+    elseif type(v) == "number" or type(v) == "boolean" then
+        return tostring(v)
     elseif type(v) == "table" then
         local is_array = #v > 0
         local parts = {}
         if is_array then
-            for _, val in ipairs(v) do table.insert(parts, UTILS.json_encode(val)) end
+            for _, item in ipairs(v) do
+                table.insert(parts, simple_json_encode(item))
+            end
             return "[" .. table.concat(parts, ",") .. "]"
         else
             for k, val in pairs(v) do
-                table.insert(parts, string.format("%q:%s", tostring(k), UTILS.json_encode(val)))
+                table.insert(parts, string.format('"%s":%s', k, simple_json_encode(val)))
             end
             return "{" .. table.concat(parts, ",") .. "}"
         end
@@ -564,3402 +316,1018 @@ function UTILS.json_encode(v)
     return "null"
 end
 
-function UTILS.json_decode_robust(s)
-    if not s or s == "" then return nil end
-    local json_str = s:match("({.+})") or s:match("(%[.+%])")
-    return UTILS.json_decode(json_str or s)
-end
+local function save_project_state(proj, mark_dirty)
+    local target_proj = proj or STATE.current_proj
+    if not target_proj or not reaper.ValidatePtr(target_proj, "ReaProject*") then
+        target_proj = reaper.EnumProjects(-1)
+    end
+    if not target_proj then return end
 
-function UTILS.json_decode(s)
-    local pos = 1
-    
-    local skip_ws = function()
-        local next_pos = s:find("[^%s]", pos)
-        if next_pos then pos = next_pos end
+    local docs_to_save = {}
+    for _, doc in ipairs(STATE.documents) do
+        table.insert(docs_to_save, {
+            pdf_name = doc.pdf_name,
+            current_page = doc.current_page,
+            zoom = doc.zoom,
+            scroll_y = doc.scroll_y or 0,
+            search_text = doc.search_text or "",
+            search_index = doc.search_index or 0,
+            search_open = doc.search_open or false
+        })
     end
     
-    local parse_val -- forward declaration
+    local history = simple_json_encode(docs_to_save)
+    reaper.SetProjExtState(target_proj, "Subass_PDF", "doc_history", history)
     
-    local function parse_string()
-        local result = {}
-        pos = pos + 1 -- skip "
-        while pos <= #s do
-            local char = s:sub(pos, pos)
-            if char == '"' then
-                pos = pos + 1
-                return table.concat(result)
-            elseif char == "\\" then
-                local next_char = s:sub(pos + 1, pos + 1)
-                if next_char == '"' then table.insert(result, '"')
-                elseif next_char == "\\" then table.insert(result, "\\")
-                elseif next_char == "/" then table.insert(result, "/")
-                elseif next_char == "b" then table.insert(result, "\b")
-                elseif next_char == "f" then table.insert(result, "\f")
-                elseif next_char == "n" then table.insert(result, "\n")
-                elseif next_char == "r" then table.insert(result, "\r")
-                elseif next_char == "t" then table.insert(result, "\t")
-                elseif next_char == "u" then
-                    local hex = s:sub(pos + 2, pos + 5)
-                    local cp = tonumber(hex, 16)
-                    if cp then
-                        -- Simple conversion for basic plane
-                        if cp < 128 then table.insert(result, string.char(cp))
-                        elseif cp < 2048 then table.insert(result, string.char(192 + (cp >> 6), 128 + (cp & 63)))
-                        else table.insert(result, string.char(224 + (cp >> 12), 128 + ((cp >> 6) & 63), 128 + (cp & 63))) end
-                    end
-                    pos = pos + 4
-                end
-                pos = pos + 2
-            else
-                table.insert(result, char)
-                pos = pos + 1
-            end
+    local active = get_active_doc()
+    reaper.SetProjExtState(target_proj, "Subass_PDF", "last_pdf", active and active.pdf_name or "")
+    
+    if mark_dirty then
+        reaper.MarkProjectDirty(target_proj)
+    end
+end
+
+
+local function switch_to_document(idx)
+    if idx == STATE.active_doc_idx then return end
+    
+    -- Save current scroll before switching (captured continuously in draw_gui)
+    local current = get_active_doc()
+    if current then
+        unload_textures(current.textures)
+        current.textures = {}
+    end
+    
+    STATE.active_doc_idx = idx
+    local new_doc = get_active_doc()
+    if new_doc then
+        STATE.status_msg = T("switched_to") .. new_doc.pdf_name
+        new_doc.needs_scroll_restore = 20 -- Retry restoration for 20 frames
+        
+        -- Trigger search re-calculation if search was open
+        if new_doc.search_open and new_doc.search_text ~= "" and (not new_doc.search_results or #new_doc.search_results == 0) then
+            perform_search(new_doc)
         end
-        return table.concat(result)
+
+        save_project_state()
     end
+end
+
+local function get_notes_cmd_id()
+    if STATE.notes_cmd_id then return STATE.notes_cmd_id end
+    local kb_path = reaper.GetResourcePath() .. "/reaper-kb.ini"
+    local f = io.open(kb_path, "r")
+    if not f then return nil end
     
-    local parse_object = function()
-        local obj = {}
-        pos = pos + 1 -- skip {
-        while pos <= #s do
-            skip_ws()
-            if s:sub(pos, pos) == "}" then pos = pos + 1 return obj end
-            
-            local key = parse_string()
-            skip_ws()
-            if s:sub(pos, pos) ~= ":" then break end
-            pos = pos + 1
-            obj[key] = parse_val()
-            
-            skip_ws()
-            local sep = s:sub(pos, pos)
-            if sep == "," then 
-                pos = pos + 1
-            elseif sep == "}" then 
-                pos = pos + 1
-                return obj
-            else
-                break
-            end
-        end
-        return obj
-    end
-    
-    local parse_array = function()
-        local arr = {}
-        pos = pos + 1 -- skip [
-        while pos <= #s do
-            skip_ws()
-            if s:sub(pos, pos) == "]" then pos = pos + 1 return arr end
-            
-            table.insert(arr, parse_val())
-            
-            skip_ws()
-            local sep = s:sub(pos, pos)
-            if sep == "," then
-                pos = pos + 1
-            elseif sep == "]" then
-                pos = pos + 1
-                return arr
-            else
-                break
-            end
-        end
-        return arr
-    end
-    
-    parse_val = function()
-        skip_ws()
-        local char = s:sub(pos, pos)
-        if char == "{" then
-            return parse_object()
-        elseif char == "[" then
-            return parse_array()
-        elseif char == '"' then
-            return parse_string()
-        elseif s:match('^true', pos) then 
-            pos = pos + 4
-            return true
-        elseif s:match('^false', pos) then 
-            pos = pos + 5
-            return false
-        elseif s:match('^null', pos) then 
-            pos = pos + 4
-            return nil
-        else
-            local val = s:match('^[%d%.%-eE]+', pos)
-            if val then
-                pos = pos + #val
-                return tonumber(val)
-            end
-        end
-        pos = pos + 1
-        return nil
-    end
-    
-    local ok, res = pcall(parse_val)
-    if ok and type(res) == "table" then return res end
-    return {}
-end
-
-function UTILS.load_glossary()
-    local f = io.open(glossary_file, "r")
-    if f then
-        local content = f:read("*a")
-        f:close()
-        cfg_glos.glossary_data = UTILS.json_decode(content)
-        if not cfg_glos.glossary_data.entries then cfg_glos.glossary_data = { entries = {} } end
-    end
-end
-
-function UTILS.save_glossary()
-    local f = io.open(glossary_file, "w")
-    if f then
-        f:write(UTILS.json_encode(cfg_glos.glossary_data))
-        f:close()
-    end
-end
-
-UTILS.load_glossary()
-
-function UTILS.load_user_dicts()
-    local f = io.open(user_dicts_file, "r")
-    if f then
-        local content = f:read("*a")
-        f:close()
-        cfg_dict.udd = UTILS.json_decode(content)
-        if type(cfg_dict.udd) ~= "table" or type(cfg_dict.udd.dictionaries) ~= "table" then 
-            cfg_dict.udd = { dictionaries = {} } 
-        else
-            -- Migration: assign IDs to existing entries
-            for _, dict in ipairs(cfg_dict.udd.dictionaries) do
-                if not dict.next_id then
-                    local max_id = 0
-                    for i, entry in ipairs(dict.entries) do
-                        if not entry.uid then
-                            entry.uid = i
-                        end
-                        if entry.uid > max_id then max_id = entry.uid end
-                    end
-                    dict.next_id = max_id + 1
-                end
-            end
-        end
-    end
-end
-
-local function utf8_lower(s)
-    if not s then return "" end
-    local res = {}
-    local len = #s
-    local i = 1
-    while i <= len do
-        local b = s:byte(i)
-        if b < 128 then
-            if b >= 65 and b <= 90 then table.insert(res, string.char(b + 32))
-            else table.insert(res, string.char(b)) end
-            i = i + 1
-        else
-            local seq_len = 0
-            if b >= 240 then seq_len = 4
-            elseif b >= 224 then seq_len = 3
-            elseif b >= 192 then seq_len = 2 end
-            
-            if seq_len > 0 and i + seq_len - 1 <= len then
-                local codepoint = 0
-                if seq_len == 2 then codepoint = ((b & 31) << 6) | (s:byte(i+1) & 63)
-                elseif seq_len == 3 then codepoint = ((b & 15) << 12) | ((s:byte(i+1) & 63) << 6) | (s:byte(i+2) & 63)
-                elseif seq_len == 4 then codepoint = ((b & 7) << 18) | ((s:byte(i+1) & 63) << 12) | ((s:byte(i+2) & 63) << 6) | (s:byte(i+3) & 63) end
-                
-                -- Cyrillic Case Mapping
-                if codepoint >= 1040 and codepoint <= 1071 then codepoint = codepoint + 32 
-                elseif codepoint == 1025 then codepoint = 1105 -- Yo
-                elseif codepoint == 1028 then codepoint = 1108 -- Ye
-                elseif codepoint == 1030 then codepoint = 1110 -- I
-                elseif codepoint == 1031 then codepoint = 1111 -- Yi
-                elseif codepoint == 1168 then codepoint = 1169 -- Ghe
-                end
-                
-                if utf8 and utf8.char then
-                    table.insert(res, utf8.char(codepoint))
-                else
-                    -- Fallback to string.char if only ASCII, or just skip if missing utf8 library for high codes
-                    if codepoint < 128 then table.insert(res, string.char(codepoint)) end
-                end
-                i = i + seq_len
-            else
-                table.insert(res, string.char(b))
-                i = i + 1
-            end
-        end
-    end
-    return table.concat(res)
-end
-
-function UTILS.entry_exists(entries, word, rep, com)
-    for _, e in ipairs(entries) do
-        if e.word == word and e.replacement == rep and e.comment == com then
-            return true
-        end
-    end
-    return false
-end
-
-function UTILS.save_user_dicts()
-    local f = io.open(user_dicts_file, "w")
-    if f then
-        f:write(UTILS.json_encode(cfg_dict.udd))
-        f:close()
-    end
-end
-
-UTILS.load_user_dicts()
-
-function UTILS.update_last_selected_dict(idx)
-    cfg_dict.sd_inx = idx
-    cfg_dict.entry_selection = {}
-    cfg_dict.last_selected_idx = nil
-    if idx then
-        reaper.SetExtState(section_name, "last_dict_idx", tostring(idx), true)
-    else
-        reaper.SetExtState(section_name, "last_dict_idx", "", true) -- Clear if no dictionary is selected
-    end
-end
-
-function UTILS.move_dict_to_top(idx)
-    if idx and idx > 1 and cfg_dict.udd.dictionaries[idx] then
-        local dict = table.remove(cfg_dict.udd.dictionaries, idx)
-        table.insert(cfg_dict.udd.dictionaries, 1, dict)
-        if cfg_dict.sd_inx == idx then
-            cfg_dict.sd_inx = 1
-        elseif cfg_dict.sd_inx and cfg_dict.sd_inx < idx then
-            cfg_dict.sd_inx = cfg_dict.sd_inx + 1
-        end
-        UTILS.save_user_dicts()
-        UTILS.update_last_selected_dict(cfg_dict.sd_inx)
-    end
-end
-
-function UTILS.check_dict_name_exists(name, exclude_idx)
-    if not name or name == "" then return false end
-    for i, d in ipairs(cfg_dict.udd.dictionaries) do
-        if i ~= exclude_idx and d.name == name then
-            return true
-        end
-    end
-    return false
-end
-
-function UTILS.import_dict_csv()
-    local retval, filename = reaper.GetUserFileNameForRead(data_path, T("select_csv_file"), ".csv")
-    if not retval or filename == "" then return end
-    
-    local f = io.open(filename, "r")
-    if not f then return end
-    
-    local base_name = filename:match("([^/\\]+)%.[a-zA-Z0-9]+$") or T("imported_dict")
-    base_name = base_name:match("^%s*(.-)%s*$") -- Trim whitespace
-    local name = base_name
-    local counter = 1
-    while UTILS.check_dict_name_exists(name) do
-        name = base_name .. " (" .. counter .. ")"
-        counter = counter + 1
-    end
-    local counter_id = 1
-    local new_dict = { id = "dict_" .. os.time(), name = name, entries = {} }
-    
-    local is_first = true
     for line in f:lines() do
-        -- Skip empty lines
-        if line:match("^%s*$") then goto continue end
-        
-        -- Try to detect separator (, or ;) 
-        -- Fallback to tab if none found but tabs exist
-        local sep = ","
-        if line:find(";") then sep = ";" end
-        if not line:find(",") and not line:find(";") and line:find("\t") then sep = "\t" end
-        
-        -- Simple CSV split ignoring quotes (for basic glossaries this is usually enough)
-        local parts = {}
-        for part in string.gmatch(line .. sep, "(.-)" .. sep) do
-            -- Remove surrounding quotes if they exist
-            part = part:match('^"(.*)"$') or part
-            -- Strip \r\n and trim surrounding whitespace
-            part = part:gsub("[\r\n]", ""):match("^%s*(.-)%s*$")
-            table.insert(parts, part)
-        end
-        
-        local word, rep, com = parts[1], parts[2], parts[3]
-        if not word or not rep then goto continue end
-        
-        -- Skip header row if it looks like one
-        if is_first then
-            is_first = false
-            -- Use utf8_lower for Cyrillic support
-            local dummy_lower = utf8_lower(word)
-            if dummy_lower:find("word") or dummy_lower:find("слово") or dummy_lower:find(utf8_lower(T("col_word"))) then 
-                goto continue 
+        if line:find("Subass_Notes.lua", 1, true) then
+            local id = line:match("RS([%a%d ]+)")
+            if id then
+                id = id:match("^([%a%d]+)")
+                STATE.notes_cmd_id = "_RS" .. id
+                f:close()
+                return STATE.notes_cmd_id
             end
         end
-        
-        -- Skip empty words and duplicates
-        if word and word:gsub("%s+", "") ~= "" then
-            if not UTILS.entry_exists(new_dict.entries, word, rep or "", com or "") then
-                table.insert(new_dict.entries, {
-                    uid = counter_id,
-                    word = word, 
-                    replacement = rep or "", 
-                    comment = com or ""
-                })
-                counter_id = counter_id + 1
-            end
-        end
-        ::continue::
     end
     f:close()
-    
-    if #new_dict.entries > 0 then
-        new_dict.next_id = counter_id
-        table.insert(cfg_dict.udd.dictionaries, 1, new_dict)
-        UTILS.save_user_dicts()
-        UTILS.update_last_selected_dict(1)
-        reaper.MB(string.format(T("imported_entries_msg"), #new_dict.entries), T("import"), 0)
-    else
-        reaper.MB(T("no_entries_to_import_err"), T("error"), 0)
-    end
+    return nil
 end
 
-function UTILS.export_dict_csv(dict)
-    local safe_name = (dict.name or T("export_default_name")):gsub("[^%wА-Яа-яІіЇїЄєҐґ-]", "_")
-    local default_filename = safe_name .. "_Dictionary.csv"
-    local path = ""
+local function focus_notes_window()
+    if not reaper.JS_Window_ArrayAllChild then return false end
     
-    -- Check for js_ReaScriptAPI
-    if reaper.JS_Dialog_BrowseForSaveFile then
-        local initial_dir = script_path
-        local retval, filename = reaper.JS_Dialog_BrowseForSaveFile(T("export_dict_title"), initial_dir, default_filename, "CSV Files (*.csv)\0*.csv\0All Files (*.*)\0*.*\0")
-        if retval and filename ~= "" then
-            if not filename:lower():match("%.csv$") then filename = filename .. ".csv" end
-            path = filename
-        else
-            return -- Cancelled
+    -- Helper for recursive search (docked windows are nested children in REAPER)
+    local function find_recursively(parent_hwnd)
+        local arr = reaper.new_array({}, 1024)
+        reaper.JS_Window_ArrayAllChild(parent_hwnd, arr)
+        local children = arr.table()
+        for _, ptr in ipairs(children) do
+            local child = reaper.JS_Window_HandleFromAddress(ptr)
+            local title = reaper.JS_Window_GetTitle(child)
+            if title:find("Subass Notes", 1, true) then
+                return child
+            end
+            local found = find_recursively(child)
+            if found then return found end
         end
-    else
-        -- Fallback to basic API if JS is not installed (no initial name though)
-        local retval, filename = reaper.GetUserFileNameForRead(script_path, T("export_select_file"), ".csv")
-        if retval and filename ~= "" then
-            if not filename:lower():match("%.csv$") then filename = filename .. ".csv" end
-            path = filename
-        else
-            return -- Cancelled
-        end
-    end
-    
-    local f = io.open(path, "w")
-    if f then
-        local function clean(s)
-            return (s or ""):gsub("[\r\n]", ""):match("^%s*(.-)%s*$")
-        end
-        f:write(string.format("%s,%s,%s\n", T("col_word"), T("col_replacement"), T("col_comment")))
-        for _, entry in ipairs(dict.entries) do
-            local w = clean(entry.word):gsub('"', '""')
-            local r = clean(entry.replacement):gsub('"', '""')
-            local c = clean(entry.comment):gsub('"', '""')
-            f:write(string.format('"%s","%s","%s"\n', w, r, c))
-        end
-        f:close()
-    else
-        reaper.MB(T("save_file_err"), T("error"), 0)
-    end
-end
-
-function UTILS.copy_file(src, dst)
-    local f_src = io.open(src, "rb")
-    if not f_src then return false end
-    local content = f_src:read("*a")
-    f_src:close()
-    
-    local f_dst = io.open(dst, "wb")
-    if not f_dst then return false end
-    f_dst:write(content)
-    f_dst:close()
-    return true
-end
-
-function UTILS.add_from_reaper()
-    local item = reaper.GetSelectedMediaItem(0, 0)
-    if not item then
-        reaper.MB(T("select_item_err"), T("error"), 0)
         return nil
     end
+
+    -- 1. Search throughout the entire REAPER window hierarchy
+    local found_hwnd = find_recursively(reaper.GetMainHwnd())
     
-    -- 1. Capture Name
-    local take = reaper.GetActiveTake(item)
-    local name = ""
-    if take then
-        local retval, take_name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
-        if retval then name = take_name end
+    -- 2. Fallback: Search top-level OS windows (if floating)
+    if not found_hwnd and reaper.JS_Window_ArrayAllTop then
+        local arr = reaper.new_array({}, 1024)
+        reaper.JS_Window_ArrayAllTop(arr)
+        for _, ptr in ipairs(arr.table()) do
+            local hwnd = reaper.JS_Window_HandleFromAddress(ptr)
+            if reaper.JS_Window_GetTitle(hwnd):find("Subass Notes", 1, true) then
+                found_hwnd = hwnd
+                break
+            end
+        end
+    end
+
+    if found_hwnd then
+        -- Native REAPER API to switch tabs in Docker
+        reaper.DockWindowActivate(found_hwnd)
+        reaper.JS_Window_SetFocus(found_hwnd)
+        reaper.JS_Window_SetForeground(found_hwnd)
+        return true
     end
     
-    -- 2. Glue (Render trimmed version)
-    -- Use Undo block to safely revert the project change
-    reaper.Undo_BeginBlock()
-    reaper.PreventUIRefresh(1)
+    -- 3. If truly not found, it might be closed. Launch it.
+    local cmd_id = get_notes_cmd_id()
+    if cmd_id then
+        local cmd = reaper.NamedCommandLookup(cmd_id)
+        if cmd ~= 0 then
+            reaper.Main_OnCommand(cmd, 0)
+            return true
+        end
+    end
+    return false
+end
+
+local function run_async_command(shell_cmd, callback)
+    local id = tostring(os.time()) .. "_" .. math.random(1000, 9999)
+    local path = reaper.GetResourcePath() .. "/Scripts/"
+    local out_file = path .. "subass_pdf_out_" .. id .. ".tmp"
+    local done_file = path .. "subass_pdf_done_" .. id .. ".marker"
     
-    reaper.Main_OnCommand(41588, 0) -- Item: Glue items
+    if reaper.GetOS():match("Win") then
+        out_file = out_file:gsub("/", "\\")
+        done_file = done_file:gsub("/", "\\")
+        local bat_file = (path .. "subass_pdf_exec_" .. id .. ".bat"):gsub("/", "\\")
+
+        local f_bat = io.open(bat_file, "w")
+        if not f_bat then return end
+
+        f_bat:write("@echo off\r\n")
+        f_bat:write("chcp 65001 > NUL\r\n")
+        local bat_cmd = shell_cmd:gsub("%%", "%%%%")
+        f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
+        f_bat:write('echo DONE > "' .. done_file .. '"\r\n')
+        f_bat:write('del "%~f0"\r\n')
+        f_bat:close()
+
+        -- Use a simpler PowerShell call or just ExecProcess if possible
+        local safe_bat = bat_file:gsub("'", "''")
+        local ps_cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Process \'' .. safe_bat .. '\' -WindowStyle Hidden"'
+        reaper.ExecProcess(ps_cmd, 0)
+    else
+        -- Mac/Linux background execution
+        local full_cmd = '( ' .. shell_cmd .. ' > "' .. out_file .. '" 2>&1 ; touch "' .. done_file .. '" ) &'
+        os.execute(full_cmd)
+    end
     
-    -- 3. Get new glued file
-    local new_item = reaper.GetSelectedMediaItem(0, 0)
-    local success = false
-    local filename_result = nil
-    
-    local duration = 0
-    if new_item then
-        local new_take = reaper.GetActiveTake(new_item)
-        if new_take then
-            local source = reaper.GetMediaItemTake_Source(new_take)
-            local src_path = reaper.GetMediaSourceFileName(source, "")
-            duration = reaper.GetMediaSourceLength(source)
+    table.insert(STATE.async_pool, {
+        id = id,
+        out_file = out_file,
+        done_file = done_file,
+        callback = callback
+    })
+end
+
+local function check_async_tasks()
+    for i = #STATE.async_pool, 1, -1 do
+        local task = STATE.async_pool[i]
+        if reaper.file_exists(task.done_file) then
+            -- Read output if needed
+            local f = io.open(task.out_file, "r")
+            local output = ""
+            if f then output = f:read("*all"); f:close() end
             
-            if src_path and src_path ~= "" then
-                local ext = src_path:match("%.([^%.]+)$") or "wav"
-                local filename = "snd_" .. os.time() .. "_" .. math.random(100,999) .. "." .. ext
-                local dst_path = data_path .. filename
-                
-                -- 4. Copy to data
-                if UTILS.copy_file(src_path, dst_path) then
-                    success = true
-                    filename_result = filename
+            -- Cleanup
+            os.remove(task.out_file)
+            os.remove(task.done_file)
+            
+            -- Callback
+            if task.callback then task.callback(output) end
+            table.remove(STATE.async_pool, i)
+        end
+    end
+end
+
+local function get_project_cache_dir()
+    local prj_path, _ = reaper.GetProjectPath("")
+    if prj_path == "" then return nil end
+    local cache = normalize_path(prj_path .. "/subass_pdf_cache")
+    if not reaper.RecursiveCreateDirectory(cache, 0) then return nil end
+    return cache
+end
+
+local function parse_timecode(str)
+    -- Clean string
+    local s_text = str:gsub("^%s+", ""):gsub("%s+$", "")
+    
+    -- Format: HH:MM:SS.ms or HH:MM:SS,ms or HH.MM.SS
+    local h, m, s, ms = s_text:match("^(%d+)[%.:](%d+)[%.:](%d+)[%.,](%d+)$")
+    if h then return tonumber(h) * 3600 + tonumber(m) * 60 + tonumber(s) + (tonumber(ms) / 1000) end
+    
+    -- Format: HH:MM:SS or HH.MM.SS
+    h, m, s = s_text:match("^(%d+)[%.:](%d+)[%.:](%d+)$")
+    if h then return tonumber(h) * 3600 + tonumber(m) * 60 + tonumber(s) end
+    
+    -- Format: MM:SS.ms or MM:SS,ms or MM.SS.ms
+    m, s, ms = s_text:match("^(%d+)[%.:](%d+)[%.,](%d+)$")
+    if m then return tonumber(m) * 60 + tonumber(s) + (tonumber(ms) / 1000) end
+    
+    -- Format: MM:SS or MM.SS or M.S
+    m, s = s_text:match("^(%d+)[%.:](%d+)$")
+    if m then return tonumber(m) * 60 + tonumber(s) end
+
+    return nil
+end
+
+local function parse_url(str)
+    local s_text = str:gsub("^%s+", ""):gsub("%s+$", "")
+    if s_text:match("^https?://") or s_text:match("^www%.") then
+        if s_text:match("^www%.") then
+            return "https://" .. s_text
+        end
+        return s_text
+    end
+    return nil
+end
+
+local function scroll_to_search(search_result)
+    if search_result then
+        STATE.scroll_to_search = true
+        STATE.scroll_to_search_target = search_result
+    end
+end
+
+local function perform_search(doc)
+    doc = doc or get_active_doc()
+    if not doc or not doc.metadata then return end
+
+    doc.search_results = {}
+    doc.search_index = 0
+    if not doc.search_text or doc.search_text == "" then return end
+
+    local upper_to_lower = {
+        ["А"]="а",["Б"]="б",["В"]="в",["Г"]="г",["Ґ"]="ґ",["Д"]="д",["Е"]="е",["Є"]="є",
+        ["Ж"]="ж",["З"]="з",["И"]="и",["І"]="і",["Ї"]="ї",["Й"]="й",["К"]="к",
+        ["Л"]="л",["М"]="м",["Н"]="н",["О"]="о",["П"]="п",["Р"]="р",["С"]="с",
+        ["Т"]="т",["У"]="у",["Ф"]="ф",["Х"]="х",["Ц"]="ц",["Ч"]="ч",["Ш"]="ш",
+        ["Щ"]="щ",["Ь"]="ь",["Ю"]="ю",["Я"]="я", 
+    }
+    local function lower_unicode(s)
+        s = s:lower()
+        return (s:gsub("([%z\1-\127\194-\244][\128-\191]*)", function(c)
+            return upper_to_lower[c] or c
+        end))
+    end
+
+    local query = lower_unicode(doc.search_text)
+    for p_idx, page in ipairs(doc.metadata.pages) do
+        local items = page.items or {}
+        local full_text = ""
+        local item_starts = {}
+        local item_ends = {}
+
+        for i_idx, item in ipairs(items) do
+            local start_pos = #full_text + 1
+            full_text = full_text .. (item.text or "") .. " "
+            item_starts[i_idx] = start_pos
+            item_ends[i_idx] = #full_text - 1
+        end
+
+        full_text = lower_unicode(full_text)
+
+        local search_pos = 1
+        while true do
+            local s, e = full_text:find(query, search_pos, true)
+            if not s then break end
+
+            local start_item, end_item
+            for i_idx = 1, #items do
+                if not start_item and s <= item_ends[i_idx] then
+                    start_item = i_idx
+                end
+                if e >= item_starts[i_idx] then
+                    end_item = i_idx
                 end
             end
-        end
-    end
-    
-    reaper.PreventUIRefresh(-1)
-    reaper.Undo_EndBlock("Glossary Temp Glue", -1)
-    
-    -- 5. Undo the Glue (Restore project state)
-    reaper.Undo_DoUndo2(0)
-    
-    if success and filename_result then
-         return {
-            name = name,
-            filename = filename_result,
-            duration = duration,
-            tags = "",
-            desc = "",
-            date = os.date("%Y-%m-%d %H:%M:%S")
-        }
-    else
-        reaper.MB(T("process_file_err"), T("error"), 0)
-        return nil
-    end
-end
 
-function UTILS.format_time(seconds)
-    if not seconds then return "0:00" end
-    local mins = math.floor(seconds / 60)
-    local secs = math.floor(seconds % 60)
-    return string.format("%d:%02d", mins, secs)
-end
-
-function UTILS.stop_preview()
-    if cfg_glos.current_preview_source and reaper.CF_Preview_Stop then
-        reaper.CF_Preview_Stop(cfg_glos.current_preview_source)
-    end
-    cfg_glos.current_preview_source = nil
-    cfg_glos.current_preview_name = ""
-    cfg_glos.current_preview_paused = false
-    cfg_glos.current_preview_pause_pos = 0
-end
-
-function UTILS.load_data()
-    local f, err = loadfile(script_path .. "dictionary_data.lua")
-    if f then
-        cfg_ref.categories = f()
-    else
-        reaper.ShowConsoleMsg("Error loading dictionary data: " .. tostring(err) .. "\n")
-        cfg_ref.categories = { { name = T("load_err_category"), entries = {} } }
-    end
-    cfg_ref.last_filter = nil -- Force cache rebuild
-end
-
-function UTILS.update_search_cache(filter)
-    local search_term = utf8_lower(filter)
-    cfg_ref.cached_results = {}
-    
-    -- Categories can be an array or a map
-    local sorted_categories = {}
-    for k, v in pairs(cfg_ref.categories) do
-        local cat_name, entries
-        if type(k) == "number" then
-            cat_name = v.name
-            entries = v.entries
-        else
-            cat_name = k
-            entries = v
-        end
-        
-        if cat_name and entries then
-            local items = {}
-            for _, entry in ipairs(entries) do
-                local word = entry.title or entry.word or ""
-                local meaning = entry.definition or entry.meaning or ""
-                
-                if filter == "" or 
-                   utf8_lower(word):find(search_term, 1, true) or 
-                   utf8_lower(meaning):find(search_term, 1, true) then
-                    table.insert(items, {word = word, meaning = meaning})
-                end
+            if start_item and end_item then
+                table.insert(doc.search_results, {
+                    page = p_idx,
+                    items = {start_item, end_item}
+                })
             end
-            if #items > 0 then
-                table.insert(sorted_categories, { name = cat_name, entries = items })
-            end
+            search_pos = e + 1
         end
     end
-    
-    -- Sort categories by name
-    table.sort(sorted_categories, function(a, b) return a.name < b.name end)
-    cfg_ref.cached_results = sorted_categories
-    cfg_ref.last_filter = filter
-end
 
-UTILS.load_data()
-
--- Load search history AFTER JSON functions are defined
-local history_raw = reaper.GetExtState(section_name, "dwn_history")
-if history_raw and history_raw ~= "" then
-    local success, history_data = pcall(UTILS.json_decode, history_raw)
-    if success and type(history_data) == "table" then
-        cfg_dwn.search_history = history_data
+    local res_count = #doc.search_results
+    if res_count > 0 then
+        doc.search_index = 1
+        scroll_to_search(doc.search_results[1])
     end
 end
 
-function UTILS.import_subtitle_to_project(content, title, fmt)
-    local prj_path = reaper.GetProjectPath("")
-    if prj_path == "" then
-        cfg_dwn.error_tooltip = { text = T("save_project_first_err"), t = reaper.time_precise() }
-        return
-    end
-    
-    local ext = (fmt and fmt:lower():match("^%a+$") and fmt:lower()) or "srt"
-    local filename = title:gsub('[\\/:*?"<>|]', "_") .. "." .. ext
-    local full_path = prj_path .. "/" .. filename
-    
-    local f = io.open(full_path, "w")
+-- =============================================================================
+-- PDF ENGINE & CACHE
+-- =============================================================================
+local function load_metadata(output_dir, pdf_name, saved_state, no_switch)
+    local meta_path = normalize_path(output_dir .. "/metadata.json")
+    local f = io.open(meta_path, "r")
     if f then
-        f:write(content)
+        local meta = json_decode(f:read("*all"))
         f:close()
-        -- Signal Subass_Notes to import the saved file
-        reaper.SetExtState("Subass_Notes", "import_request", full_path, false)
-    else
-        cfg_dwn.error_tooltip = { text = string.format(T("save_file_failed_err"), filename), t = reaper.time_precise() }
+        
+        -- Check if document already exists in history
+        local existing_idx = 0
+        for i, d in ipairs(STATE.documents) do
+            if d.pdf_name == pdf_name then existing_idx = i; break end
+        end
+        
+        local doc_data = {
+            pdf_name = pdf_name,
+            metadata = meta,
+            cache_dir = output_dir,
+            current_page = saved_state and saved_state.current_page or 1,
+            textures = {},
+            zoom = saved_state and saved_state.zoom or 1.0,
+            scroll_y = saved_state and saved_state.scroll_y or 0,
+            needs_scroll_restore = (saved_state and saved_state.scroll_y and saved_state.scroll_y > 0) and 20 or 0,
+            skip_scroll_capture = 0,
+            search_text = saved_state and saved_state.search_text or "",
+            search_index = saved_state and saved_state.search_index or 0,
+            search_open = saved_state and saved_state.search_open or false,
+            search_results = {}
+        }
+        
+        if doc_data.search_open and doc_data.search_text ~= "" then
+            perform_search(doc_data)
+            if saved_state and saved_state.search_index then
+                doc_data.search_index = math.min(saved_state.search_index, #doc_data.search_results)
+            end
+        end
+        
+        if existing_idx > 0 then
+            -- Update existing
+            unload_textures(STATE.documents[existing_idx].textures)
+            STATE.documents[existing_idx] = doc_data
+            if not no_switch then switch_to_document(existing_idx) end
+        else
+            -- Add new
+            table.insert(STATE.documents, doc_data)
+            if not no_switch then switch_to_document(#STATE.documents) end
+        end
+        
+        if not no_switch then save_project_state(nil, true) end
+        STATE.status_msg = T("loaded") .. pdf_name
+        return true
     end
+    return false
 end
 
-function UTILS.trigger_subtitle_download(item, source, mode, item_key)
-    local cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-subtitle --source "%s"', source)
+local function process_pdf(pdf_file)
+    if not pdf_file or pdf_file == "" then return end
     
-    if item.file_id then
-        cmd_args = cmd_args .. string.format(' --id "%s"', item.file_id)
-    elseif item.download_url or item.url then
-        cmd_args = cmd_args .. string.format(' --url "%s"', item.download_url or item.url)
-    elseif item.files_url then
-        cmd_args = cmd_args .. string.format(' --url "%s"', item.files_url)
+    pdf_file = normalize_path(pdf_file)
+    
+    STATE.is_loading = STATE.is_loading + 1
+    STATE.status_msg = T("processing")
+    
+    local prj_cache = get_project_cache_dir()
+    if not prj_cache then
+        reaper.ShowMessageBox(T("save_proj_first"), T("error"), 0)
+        STATE.is_loading = STATE.is_loading - 1
+        return
     end
     
-    if item.zip_internal_file then
-        cmd_args = cmd_args .. string.format(' --zip-file "%s"', item.zip_internal_file)
+    local pdf_name = pdf_file:match("([^/\\]+)$") or "temp_doc"
+    
+    -- Warning for Word files
+    local ext = pdf_file:match("%.([^%.]+)$")
+    if ext then
+        ext = ext:lower()
+        if ext == "doc" or ext == "docx" then
+            reaper.MB(T("warning_doc_format"), T("warning"), 0)
+        end
     end
     
-    local cmd = UTILS.get_python_cmd(cmd_args)
+    local output_dir = normalize_path(prj_cache .. "/" .. pdf_name)
+    reaper.RecursiveCreateDirectory(output_dir, 0)
     
-    -- Mark this specific button as loading
-    cfg_dwn.loading_item = item_key
+    local cmd = string.format('python3 "%s" "%s" "%s"', python_script, pdf_file, output_dir)
+    if reaper.GetOS():match("Win") then 
+        -- On Windows, 'py' (Python Launcher) is often more reliable than 'python'
+        -- We'll use a CMD trick to try 'py' and fallback to 'python'
+        cmd = string.format('py -3 "%s" "%s" "%s" || python "%s" "%s" "%s"', 
+            python_script, pdf_file, output_dir,
+            python_script, pdf_file, output_dir) 
+    end
     
-    UTILS.run_async_command(cmd, function(output)
-        cfg_dwn.loading_item = nil
-        if output == "TIMEOUT" then
-            cfg_dwn.error_tooltip = { text = T("err_timeout"), t = reaper.time_precise() }
-        else
-            local success, res = pcall(UTILS.json_decode_robust, output)
-            if success and res and res.status == "success" then
-                if res.files and #res.files > 0 then
-                    -- If it returned a list of files, transform the item into a folder
-                    item.is_folder = true
-                    item.files = res.files
-                    item.expanded = true
-                elseif mode == "preview" then
-                    cfg_dwn.preview_data = {
-                        title = item.title or item.file_name or "Subtitle",
-                        content = res.content,
-                        cmd = cmd
-                    }
-                else
-                    UTILS.import_subtitle_to_project(res.content, item.title or item.file_name or "Subtitle", res.format or item.format)
-                end
+    run_async_command(cmd, function(output)
+        if not load_metadata(output_dir, pdf_name) then
+            if output:match("not found") or output:match("not recognized") then
+                STATE.status_msg = T("err_no_python")
             else
-                local err_detail = res and (res.error or T("unknown_response")) or T("unknown_error")
-                cfg_dwn.error_tooltip = { text = T("err_prefix") .. err_detail, t = reaper.time_precise() }
+                STATE.status_msg = T("err_metadata")
             end
         end
+        STATE.is_loading = math.max(0, STATE.is_loading - 1)
+        if STATE.is_loading == 0 then STATE.status_msg = T("ready") end
     end)
 end
 
-function UTILS.get_folder_files(item, source, item_key)
-    local cmd_args = ""
-    if source == "jimaku" then
-        local id = item.files_url and item.files_url:match("/entries/([^/]+)/files")
-        if not id then return end
-        cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-jimaku-files --id "%s"', id)
-    elseif source == "subdl" then
-        if item.sd_id then
-            cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-subtitle --source subdl --id "%s"', item.sd_id)
-        else
-            local target_url = item.download_url or item.url
-            if not target_url then return end
-            cmd_args = UTILS.get_api_keys_args() .. string.format(' --list-zip --target "%s"', target_url)
+local function pick_pdf()
+    if reaper.APIExists('JS_Dialog_BrowseForOpenFiles') then
+        local filter = T("file_filter")
+        local retval, files_str = reaper.JS_Dialog_BrowseForOpenFiles(T("select_file_import"), "", "", filter, true)
+        
+        if retval > 0 and files_str ~= "" then 
+            local entries = {}
+            for entry in files_str:gmatch("[^\n\r%z]+") do
+                table.insert(entries, entry)
+            end
+            
+            if #entries == 0 then return nil end
+            if #entries == 1 then return {entries[1]} end
+            
+            -- Detect format: 
+            --   On Mac it usually returns full paths: /Path/File1, /Path/File2
+            --   On Win it returns: Dir, File1, File2
+            -- Heuristic: If the second entry is NOT an absolute path, it's Windows style (Dir + Filenames)
+            local first = entries[1]
+            local second = entries[2]
+            local is_windows_style = false
+            
+            if second and not (second:match("^/") or second:match("^%a:")) then
+                is_windows_style = true
+            end
+
+            if is_windows_style then
+                local dir = first
+                if not dir:match("[/\\]$") then
+                    local sep = dir:match("\\") and "\\" or "/"
+                    dir = dir .. sep
+                end
+                local paths = {}
+                for i = 2, #entries do
+                    table.insert(paths, dir .. entries[i])
+                end
+                return paths
+            else
+                -- Already full paths (macOS style or multiple absolute paths)
+                return entries
+            end
         end
-    elseif source == "tvsubtitles" then
-        if item.id then
-            cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-tvsub-files --id "%s"', item.id)
-        else
-            return
-        end
-    elseif source == "gestdown" then
-        local target_url = item.download_url
-        if not target_url then return end
-        cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-subtitle --source gestdown --url "%s"', target_url)
-    elseif source == "opensubtitles" then
-        local target_url = item.download_url or item.url
-        if not target_url then return end
-        cmd_args = UTILS.get_api_keys_args() .. string.format(' --list-zip --target "%s"', target_url)
     else
-        return
-    end
-
-    local cmd = UTILS.get_python_cmd(cmd_args)
-    cfg_dwn.loading_item = item_key
-    
-    UTILS.run_async_command(cmd, function(output)
-        cfg_dwn.loading_item = nil
-        local success, res = pcall(UTILS.json_decode_robust, output)
-        if success and res and res.status == "success" then
-            item.files = res.files
-            item.expanded = true
-        else
-            cfg_dwn.error_tooltip = { text = T("err_get_files_prefix") .. (res and res.error or T("unknown_error")), t = reaper.time_precise() }
-        end
-    end)
-end
-
-function UTILS.trigger_subtitle_from_url(url, lang, item_key)
-    local cmd_args = string.format('--get-sub-from-url --target "%s" --sub-lang "%s"', url, lang)
-    local cmd = UTILS.get_python_cmd(cmd_args)
-    
-    cfg_dwn.loading_item = item_key
-    
-    UTILS.run_async_command(cmd, function(output)
-        cfg_dwn.loading_item = nil
-        local success, res = pcall(UTILS.json_decode_robust, output)
-        if success and res and res.status == "success" then
-            UTILS.import_subtitle_to_project(res.content, "Subtitle_" .. lang, res.format)
-        else
-            local err_msg = (res and res.error) or T("subs_not_found_err")
-            cfg_dwn.error_tooltip = { text = T("err_prefix") .. err_msg, t = reaper.time_precise() }
-        end
-    end)
-end
-
-function UTILS.download_thumbnail(url, callback)
-    if not url or url == "" then return end
-    local ext = url:match("%.([^%.%?]+)($|%?)") or "jpg"
-    local filename = "thumb_" .. reaper.genGuid():gsub("[{}-]", "") .. "." .. ext
-    local full_path = temp_path .. filename
-    
-    local cmd_args = string.format('--download-thumb --target "%s" --output "%s"', url, full_path)
-    local cmd = UTILS.get_python_cmd(cmd_args)
-    
-    UTILS.run_async_command(cmd, function(output)
-        local success, res = pcall(UTILS.json_decode_robust, output)
-        if success and res and res.status == "success" then
-            if callback then callback(full_path) end
-        end
-    end)
-end
-
-function UTILS.save_image_for_entry(entry, source_path)
-    if not source_path or source_path == "" then return nil end
-    if not entry.filename then return nil end
-    
-    -- Створюємо унікальне ім'я для зображення
-    local base_name = entry.filename:gsub("%.[^%.]+$", "")
-    local img_filename = base_name .. "_thumb.jpg"
-    local img_path = data_path .. img_filename
-    
-    -- Просто копіюємо файл без зміни розміру (швидко)
-    if reaper.file_exists(source_path) then
-        if UTILS.copy_file(source_path, img_path) then
-            return img_filename
-        end
+        local retval, file = reaper.GetUserInputs(T("import_doc"), 1, T("file_path_prompt"), "")
+        if retval and file ~= "" then return {file} end
     end
     return nil
 end
 
--- Функція для відкриття діалогу вибору зображення
-function UTILS.pick_image_file()
-    local retval, filename = reaper.GetUserFileNameForRead("", T("select_image_dialog_title"), ".jpg;.jpeg;.png;.bmp;.gif")
-    if retval and filename ~= "" then
-        return filename
-    end
-    return nil
-end
-
--- Функція для завантаження текстури зображення
-function UTILS.load_entry_image(entry)
-    if not entry or not entry.image then return nil end
+-- =============================================================================
+-- DRAWING
+-- =============================================================================
+local function draw_page(page_index, page_data, avail_w, doc)
+    if not doc then return end
+    local tex_path = doc.cache_dir .. "/" .. page_data.image
+    local tex = doc.textures[page_index]
     
-    local img_path = data_path .. entry.image
-    if not reaper.file_exists(img_path) then return nil end
-    
-    -- Створюємо текстуру для ImGui
-    if reaper.ImGui_CreateImage then
-        local img = reaper.ImGui_CreateImage(img_path)
-        if reaper.ImGui_Attach then reaper.ImGui_Attach(ctx, img) end
-        return img
-    end
-    return nil
-end
-
-function UTILS.download_media(url, format_id, title, ext, m_type, item_key, custom_path, skip_insert)
-    local full_path = custom_path
-    
-    if not full_path then
-        local prj_path = reaper.GetProjectPath("")
-        if prj_path == "" then
-            cfg_dwn.error_tooltip = { text = T("save_project_save_as_err"), t = reaper.time_precise() }
-            return
-        end
-        
-        local base_filename = title:gsub('[\\/:*?"<>|]', "_")
-        local ext_str = "." .. (ext or "mp4")
-        full_path = prj_path .. "/" .. base_filename .. ext_str
-        
-        local counter = 1
-        while reaper.file_exists(full_path) do
-            full_path = prj_path .. "/" .. base_filename .. " (" .. counter .. ")" .. ext_str
-            counter = counter + 1
-        end
+    local tw, th = page_data.width * 2, page_data.height * 2
+    if tex and reaper.ImGui_Image_GetSize then
+        local ok, w_sz, h_sz = pcall(reaper.ImGui_Image_GetSize, tex)
+        if ok and type(w_sz) == "number" then tw, th = w_sz, h_sz end
     end
     
-    local cmd_args = string.format('--download --target "%s" --format "%s" --type "%s" --output "%s"', 
-        url, format_id, m_type or "", full_path)
-    local cmd = UTILS.get_python_cmd(cmd_args)
+    local padding = 0
+    local scale = ((avail_w - padding * 2) / (page_data.width or tw/2)) * doc.zoom
+    local draw_w = (page_data.width or tw/2) * scale
+    local draw_h = (page_data.height or th/2) * scale
     
-    cfg_dwn.loading_item = item_key
-    cfg_dwn.loading_path = full_path
+    -- Track current visible page
+    local cursor_y = reaper.ImGui_GetCursorPosY(ctx)
+    local scroll_y = reaper.ImGui_GetScrollY(ctx)
+    local win_h = reaper.ImGui_GetWindowHeight(ctx)
+    local view_center = scroll_y + (win_h / 2)
     
-    UTILS.run_async_command(cmd, function(output)
-        cfg_dwn.loading_item = nil
-        cfg_dwn.loading_path = nil
-        -- Cleanup progress file if exists
-        os.remove(full_path .. ".progress")
-        
-        local success, res = pcall(UTILS.json_decode_robust, output)
-        if success and res and res.status == "success" then
-            if not skip_insert then
-                reaper.defer(function()
-                    local final_path = res.path or full_path
-                    if reaper.file_exists(final_path) then
-                        reaper.InsertMedia(final_path, 0) -- 0: add to new track
-                    end
-                end)
+    if view_center >= cursor_y and view_center <= (cursor_y + draw_h) then
+        doc.current_page = page_index
+    end
+    
+    -- Handle scrolling to search result even if page is off-screen
+    if STATE.scroll_to_search and STATE.scroll_to_search_target then
+        local active_res = STATE.scroll_to_search_target
+        if active_res.page == page_index then
+            local item_idx = active_res.items and active_res.items[1] or 1
+            local item = page_data.items and page_data.items[item_idx]
+            if item then
+                local target_y = cursor_y + (item.y * scale)
+                reaper.ImGui_SetScrollY(ctx, target_y - (win_h / 2))
+                STATE.scroll_to_search = false
+                STATE.scroll_to_search_target = nil
             end
-            cfg_dwn.error_tooltip = { text = T("file_download_success"), t = reaper.time_precise(), type = "success" }
-        else
-            local err_msg = (res and res.error) or T("download_failed_err")
-            cfg_dwn.error_tooltip = { text = T("err_prefix") .. err_msg, t = reaper.time_precise() }
         end
-    end)
-end
+    end
 
-local function draw_preview_popup()
-    if not cfg_dwn.preview_data then return end
-    
-    local center = {reaper.ImGui_Viewport_GetCenter(reaper.ImGui_GetMainViewport(ctx))}
-    reaper.ImGui_SetNextWindowPos(ctx, center[1], center[2], reaper.ImGui_Cond_Appearing(), 0.5, 0.5)
-    reaper.ImGui_SetNextWindowSize(ctx, 700, 500, reaper.ImGui_Cond_FirstUseEver())
-    
-    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 20, 20)
-    local visible, open = reaper.ImGui_Begin(ctx, T("preview_subs_title"), true, reaper.ImGui_WindowFlags_NoCollapse())
-    reaper.ImGui_PopStyleVar(ctx)
-    
-    if not open then
-        cfg_dwn.preview_data = nil
-        reaper.ImGui_End(ctx)
+    -- Visibility Check for Lazy Loading
+    if not reaper.ImGui_IsRectVisible(ctx, draw_w, draw_h) then
+        reaper.ImGui_Dummy(ctx, draw_w, draw_h)
+        -- Unload texture if it goes out of view to save memory
+        if tex then
+            unload_textures({tex})
+            doc.textures[page_index] = nil
+        end
         return
     end
 
+    if not tex then
+        if reaper.file_exists(tex_path) then
+            if reaper.ImGui_CreateImage then
+                -- ReaImGui 0.9+ API
+                local img = reaper.ImGui_CreateImage(tex_path)
+                if reaper.ImGui_Attach then reaper.ImGui_Attach(ctx, img) end
+                doc.textures[page_index] = img
+            elseif reaper.ImGui_CreateTextureFromFile then
+                -- ReaImGui 0.8.x
+                local ok, img = pcall(reaper.ImGui_CreateTextureFromFile, ctx, tex_path)
+                if not ok or not img then ok, img = pcall(reaper.ImGui_CreateTextureFromFile, tex_path) end
+                doc.textures[page_index] = img
+            elseif reaper.ImGui_CreateTexture then
+                -- Legacy (v0.7 and older)
+                local ok, img = pcall(reaper.ImGui_CreateTexture, ctx, tex_path)
+                if not ok or not img then ok, img = pcall(reaper.ImGui_CreateTexture, tex_path) end
+                doc.textures[page_index] = img
+            end
+        end
+        tex = doc.textures[page_index]
+    end
+    
+    if not tex then 
+        reaper.ImGui_Dummy(ctx, draw_w, draw_h)
+        return 
+    end
+    
+    local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
+    local start_x, start_y = reaper.ImGui_GetCursorScreenPos(ctx)
+    local draw_x = start_x + padding
+    local draw_y = start_y
+    
+    reaper.ImGui_SetCursorScreenPos(ctx, draw_x, draw_y)
+    
+    -- Draw Page Image
+    reaper.ImGui_Image(ctx, tex, draw_w, draw_h)
+    
+    -- Draw Interactive Elements
+    for i, item in ipairs(page_data.items or {}) do
+        local x = draw_x + (item.x * scale)
+        local y = draw_y + (item.y * scale)
+        local w = item.w * scale
+        local h = item.h * scale
+        
+        -- Highlight Search Results
+        local is_search_match = false
+        local is_active_search = false
+        if doc.search_open and #doc.search_results > 0 then
+            for r_idx, res in ipairs(doc.search_results) do
+                if res.page == page_index then
+                    -- Phrase support: match if index is within start/end range
+                    local in_range = false
+                    if res.items and #res.items == 2 then
+                        in_range = (i >= res.items[1] and i <= res.items[2])
+                    end
+
+                    if in_range then
+                        is_search_match = true
+                        if r_idx == doc.search_index then
+                            is_active_search = true
+                        end
+                        -- Don't break here, we need to check if it's ALSO an active search 
+                        -- (another result might cover this item and NOT be active)
+                    end
+                end
+            end
+        end
+
+        if is_active_search then
+            reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + w, y + h, 0xFFFF00AA, 0, 0, 3)
+        elseif is_search_match then
+            reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + w, y + h, 0xFFFF0055, 0, 0, 2)
+        end
+        
+        -- Create invisible button for interaction (only if size is valid)
+        if w > 0 and h > 0 then
+            reaper.ImGui_SetCursorScreenPos(ctx, x, y)
+            reaper.ImGui_InvisibleButton(ctx, "##item_"..page_index.."_"..i, w, h)
+            
+            -- Trigger Context Menu
+            if reaper.ImGui_IsItemHovered(ctx) and reaper.ImGui_IsMouseClicked(ctx, 1) then
+                STATE.context_item = item
+                STATE.context_doc = doc
+                STATE.trigger_context_menu = true
+            end
+        end
+        
+        if reaper.ImGui_IsItemHovered(ctx) then
+            -- Highlight on hover
+            reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + w, y + h, 0x44FFFF88, 0, 0, 2)
+            if reaper.ImGui_IsItemClicked(ctx, 0) then -- Left click
+                local time = parse_timecode(item.text)
+                if time then
+                    reaper.SetEditCurPos(time, true, false)
+                end
+            end
+        end
+    end
+    
+    -- Restore cursor position below the image
+    reaper.ImGui_SetCursorScreenPos(ctx, start_x, start_y + draw_h)
+end
+
+local function draw_gui()
+    reaper.ImGui_SetNextWindowSize(ctx, 600, 800, reaper.ImGui_Cond_FirstUseEver())
+    
+    push_theme(ctx)
+    local visible, open = reaper.ImGui_Begin(ctx, 'Subass PDF Reader', STATE.window_open)
+    if not open then STATE.window_open = false end
+    
     if visible then
-        reaper.ImGui_PushFont(ctx, font_main, 20)
-        reaper.ImGui_Text(ctx, cfg_dwn.preview_data.title)
-        reaper.ImGui_PopFont(ctx)
-        reaper.ImGui_Separator(ctx)
-        reaper.ImGui_Dummy(ctx, 0, 10)
+        local doc = get_active_doc()
+
+        -- Item Context Menu (Global scope - stable definition)
+        reaper.ImGui_PushID(ctx, "GlobalContextScope")
         
-        if reaper.ImGui_BeginChild(ctx, "preview_text_child", 0, -50, 1) then
-            reaper.ImGui_TextWrapped(ctx, cfg_dwn.preview_data.content)
-            reaper.ImGui_EndChild(ctx)
+        -- Trigger (must be in same scope as BeginPopup)
+        if STATE.trigger_context_menu then
+            reaper.ImGui_OpenPopup(ctx, "ItemContextMenu")
+            STATE.trigger_context_menu = false
         end
-        
-        reaper.ImGui_Dummy(ctx, 0, 10)
-        if reaper.ImGui_Button(ctx, T("import_to_project_btn"), 170) then
-            UTILS.import_subtitle_to_project(cfg_dwn.preview_data.content, cfg_dwn.preview_data.title)
-            cfg_dwn.preview_data = nil
-        end
-        
-        reaper.ImGui_SameLine(ctx)
-        if reaper.ImGui_Button(ctx, T("save_as"), 120) then
-            local default_name = UTILS.sanitize_filename(cfg_dwn.preview_data.title)
-            local default_ext = default_name:match("%.(%w+)$") or "srt"
-            local initial_dir = reaper.GetProjectPath("")
-            local retval, filename = 0, ""
-            
-            if reaper.JS_Dialog_BrowseForSaveFile then
-                local filter = string.format(T("subs_filter_fmt"), default_ext:upper(), default_ext, default_ext)
-                retval, filename = reaper.JS_Dialog_BrowseForSaveFile(T("save_subs_title"), initial_dir, default_name, filter)
-            else
-                retval, filename = reaper.GetUserFileNameForRead(initial_dir .. "/" .. default_name, T("save_subs_title"), default_ext)
-            end
-            
-            if retval == 1 and filename ~= "" then
-                local content = cfg_dwn.preview_data.content
-                local is_binary_placeholder = content:sub(1,1) == "[" and content:find("Бінарні дані")
-                
-                if is_binary_placeholder then
-                    -- This is a binary placeholder, MUST re-run Python to get actual data
-                    local save_cmd = cfg_dwn.preview_data.cmd .. string.format(' --output "%s"', filename)
-                    os.execute(save_cmd)
-                else
-                    -- This is actual text, save directly from Lua memory (instant)
-                    local f = io.open(filename, "w")
-                    if f then
-                        f:write(content)
-                        f:close()
+
+        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 10, 10)
+        if reaper.ImGui_BeginPopup(ctx, "ItemContextMenu") then
+            local item = STATE.context_item
+            local d = STATE.context_doc
+            if item and d then
+                local time = parse_timecode(item.text)
+                local url = item.url or parse_url(item.text)
+                if time then
+                    if reaper.ImGui_MenuItem(ctx, T("quick_jump") .. item.text) then
+                        reaper.SetEditCurPos(time, true, false)
                     end
+                    reaper.ImGui_Separator(ctx)
                 end
-                
-                if reaper.file_exists(filename) then
-                    reaper.MB(T("save_success") .. filename, "Subass", 0)
-                    cfg_dwn.preview_data = nil
-                else
-                    reaper.MB(T("save_err_log"), "Subass", 0)
+                if url then
+                    if reaper.ImGui_MenuItem(ctx, T("open_link")) then
+                        if reaper.CF_ShellExecute then reaper.CF_ShellExecute(url) end
+                    end
+                    reaper.ImGui_Separator(ctx)
+                end
+                if reaper.ImGui_MenuItem(ctx, T("copy")) then
+                    if reaper.ImGui_SetClipboardText then reaper.ImGui_SetClipboardText(ctx, item.text) end
+                end
+                if reaper.ImGui_MenuItem(ctx, T("search")) then
+                    d.search_open = true
+                    d.search_text = item.text
+                    perform_search(d)
+                    save_project_state()
+                end
+                if not time and not url then
+                    if reaper.ImGui_MenuItem(ctx, T("show_in_glossary")) then
+                        local dict_word = item.text:gsub("[%p]+$", ""):gsub("^[%p]+", "")
+                        reaper.SetExtState("SubassSync", "WORD", dict_word, false)
+                        reaper.gmem_write(0, 2)
+                        focus_notes_window()
+                    end
                 end
             end
-        end
-        
-        reaper.ImGui_SameLine(ctx)
-        if reaper.ImGui_Button(ctx, T("close"), 100) then
-            cfg_dwn.preview_data = nil
-        end
-        
-        reaper.ImGui_End(ctx)
-    end
-end
-
-
-local function draw_menu_contents(item, source, unique_key)
-    local url = item.download_url or item.url or item.files_url
-    
-    if reaper.ImGui_Selectable(ctx, T("copy_link")) then
-        if url then
-            local final_url = url
-            if source == "gestdown" then
-                final_url = "https://api.gestdown.info/subtitles/download/" .. url
-            end
-            reaper.ImGui_SetClipboardText(ctx, final_url)
-        end
-    end
-    
-    if reaper.ImGui_Selectable(ctx, T("save_as")) then
-        local default_name = UTILS.sanitize_filename(item.file_name or item.title or "subtitle")
-        if item.is_folder then
-            -- Strip extensions for folders to avoid "name.srt" being a directory
-            default_name = default_name:gsub("%.[Aa][Ss][Ss]$", ""):gsub("%.[Ss][Rr][Tt]$", ""):gsub("%.[Vv][Tt][Tt]$", "")
-        end
-        local default_ext = item.is_folder and "" or (default_name:match("%.(%w+)$") or "srt")
-        local initial_dir = reaper.GetProjectPath("")
-        
-        local retval, filename = 0, ""
-        if reaper.JS_Dialog_BrowseForSaveFile then
-            local filter = item.is_folder and T("folder_filter") or string.format(T("file_filter_fmt"), default_ext:upper(), default_ext, default_ext)
-            local save_title = T("save_title_prefix") .. (item.is_folder and T("folder_noun") or T("file_noun"))
-            retval, filename = reaper.JS_Dialog_BrowseForSaveFile(save_title, initial_dir, default_name, filter)
-        else
-            retval, filename = reaper.GetUserFileNameForRead(initial_dir .. "/" .. default_name, T("save_file_title"), default_ext)
-        end
-        
-        if retval == 1 and filename ~= "" then
-            -- If it's a folder/collection, use the chosen name as a directory
-            if item.is_folder then
-                -- Remove common extensions if the user kept them by mistake
-                filename = filename:gsub("%.[Aa][Ss][Ss]$", ""):gsub("%.[Ss][Rr][Tt]$", ""):gsub("%.[Vv][Tt][Tt]$", "")
-            end
-
-            -- Build download command with keys
-            local cmd_args = UTILS.get_api_keys_args() .. string.format(' --get-subtitle --source "%s"', source)
-            
-            local download_id = item.file_id or item.sd_id
-            if download_id then
-                cmd_args = cmd_args .. string.format(' --id "%s"', download_id)
-            elseif url then
-                cmd_args = cmd_args .. string.format(' --url "%s"', url)
-            end
-            
-            if not download_id and not url then
-                reaper.MB(T("no_id_err"), "Subass", 0)
-                return
-            end
-
-            if item.zip_internal_file then
-                cmd_args = cmd_args .. string.format(' --zip-file "%s"', item.zip_internal_file)
-            end
-            
-            cmd_args = cmd_args .. string.format(' --output "%s"', filename)
-            local cmd = UTILS.get_python_cmd(cmd_args)
-            local loading_key = "save_as_" .. unique_key
-            cfg_dwn.loading_item = loading_key
-            
-            UTILS.run_async_command(cmd, function(output)
-                cfg_dwn.loading_item = nil
-                if reaper.file_exists(filename) then
-                    reaper.MB(T("save_success") .. filename, "Subass", 0)
-                else
-                    reaper.MB(T("save_fail") .. (output or ""), "Subass", 0)
-                end
-            end)
-        end
-    end
-end
-
-local function draw_inline_entry(ctx, title, meaning, title_size, meaning_size)
-    local tokens = {}
-    
-    -- Title tokens
-    for word in title:gmatch("%S+") do
-        table.insert(tokens, { text = word, color = Style.colors.WordHighlight, size = title_size })
-    end
-    
-    -- Separator token
-    table.insert(tokens, { text = " —", color = Style.colors.MeaningText, size = meaning_size })
-    
-    -- Meaning tokens
-    for word in meaning:gmatch("%S+") do
-        table.insert(tokens, { text = word, color = Style.colors.MeaningText, size = meaning_size })
-    end
-    
-    -- Calculate height difference for alignment
-    local h_title, h_meaning = 0, 0
-    if title_size > meaning_size then
-        reaper.ImGui_PushFont(ctx, font_main, title_size)
-        _, h_title = reaper.ImGui_CalcTextSize(ctx, "A")
-        reaper.ImGui_PopFont(ctx)
-        
-        reaper.ImGui_PushFont(ctx, font_main, meaning_size)
-        _, h_meaning = reaper.ImGui_CalcTextSize(ctx, "A")
-        reaper.ImGui_PopFont(ctx)
-    end
-    local align_offset = math.max(0, h_title - h_meaning - 3) -- -3 for visual baseline correction
-    
-    local line_has_large_text = false 
-    
-    for i, token in ipairs(tokens) do
-        -- Detect if current line has large text (Title)
-        if token.size == title_size and title_size > meaning_size then
-            line_has_large_text = true
-        end
-
-        -- 1. Speculatively attempt to stay on SameLine if not first item
-        if i > 1 then
-            reaper.ImGui_SameLine(ctx, 0, 0)
-            reaper.ImGui_PushFont(ctx, font_main, token.size) 
-            reaper.ImGui_Text(ctx, " ")
-            reaper.ImGui_PopFont(ctx)
-            reaper.ImGui_SameLine(ctx, 0, 0)
-        else
-            -- First item on a fresh block starts a new line logic
-            line_has_large_text = (token.size == title_size and title_size > meaning_size)
-        end
-        
-        -- 2. Measure word
-        reaper.ImGui_PushFont(ctx, font_main, token.size)
-        local w, h = reaper.ImGui_CalcTextSize(ctx, token.text)
-        reaper.ImGui_PopFont(ctx)
-        
-        local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
-        
-        -- 3. Check fit
-        if w > (avail_w - 5) then
-            -- Force NewLine with correct font height context
-            reaper.ImGui_PushFont(ctx, font_main, token.size)
-            reaper.ImGui_NewLine(ctx)
-            reaper.ImGui_PopFont(ctx)
-            
-            -- Reset line state
-            if token.size == title_size and title_size > meaning_size then
-                line_has_large_text = true
-            else
-                line_has_large_text = false
-            end
-        end
-        
-        -- 4. Align Calculation
-        local current_y = reaper.ImGui_GetCursorPosY(ctx)
-        local need_offset = (line_has_large_text and token.size == meaning_size)
-        
-        if need_offset then
-             reaper.ImGui_SetCursorPosY(ctx, current_y + align_offset)
-        end
-
-        -- 5. Render
-        reaper.ImGui_PushFont(ctx, font_main, token.size)
-        reaper.ImGui_TextColored(ctx, token.color, token.text)
-        reaper.ImGui_PopFont(ctx)
-        
-        if need_offset then
-            reaper.ImGui_SetCursorPosY(ctx, current_y) -- Restore Y for next elements
-        end
-    end
-    
-    if line_has_large_text then
-        local extra = title_size - meaning_size
-        if extra > 0 then
-            reaper.ImGui_Dummy(ctx, 0, extra)
-        end
-    end
-    
-    if line_has_large_text then
-        local extra = title_size - meaning_size
-        if extra > 0 then
-           reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + extra)
-        end
-    end
-
-    -- Separator
-    -- 1. Padding BEFORE separator (Only for large types)
-    if title_size > meaning_size then 
-        reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + 15)
-    else
-        reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + 5)
-    end
-    
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Separator(), 0xFFFFFF0B) 
-    reaper.ImGui_Separator(ctx)
-    reaper.ImGui_PopStyleColor(ctx)
-    
-    -- 2. Padding AFTER separator 
-    reaper.ImGui_SetCursorPosY(ctx, reaper.ImGui_GetCursorPosY(ctx) + 5)
-end
-
-local function draw_mini_player(ctx)
-    if not cfg_glos.layout_has_player or not cfg_glos.current_preview_source then return end
-
-    local ok_p, pos = reaper.CF_Preview_GetValue(cfg_glos.current_preview_source, "D_POSITION")
-    local ok_l, len = reaper.CF_Preview_GetValue(cfg_glos.current_preview_source, "D_LENGTH")
-    local ok_pause, is_paused = reaper.CF_Preview_GetValue(cfg_glos.current_preview_source, "B_PAUSE")
-    
-    -- Check if playback has finished
-    if not cfg_glos.current_preview_paused and ok_p and ok_l and pos >= len - 0.1 then
-        -- Playback finished, auto-pause at the end
-        cfg_glos.current_preview_pause_pos = 0  -- Reset to beginning for replay
-        cfg_glos.current_preview_length = len
-        if reaper.CF_Preview_Stop then
-            reaper.CF_Preview_Stop(cfg_glos.current_preview_source)
-        end
-        cfg_glos.current_preview_paused = true
-    end
-    
-    -- Use saved values when paused
-    if cfg_glos.current_preview_paused then
-        pos = cfg_glos.current_preview_pause_pos
-        len = cfg_glos.current_preview_length
-    end
-
-    reaper.ImGui_Separator(ctx)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ChildBg(), 0x222222FF)
-    
-    -- Height 70
-    if reaper.ImGui_BeginChild(ctx, "mini_player_ui", 0, 70, 1, reaper.ImGui_WindowFlags_NoScrollbar()) then
-        -- Left column: Play/Pause button
-        local play_icon = cfg_glos.current_preview_paused and "▶" or "Ⅱ"
-        reaper.ImGui_PushFont(ctx, font_main, 22)
-        reaper.ImGui_SetCursorPosY(ctx, 15) -- Center 40px button in 70px height child
-        if reaper.ImGui_Button(ctx, play_icon .. "##playpause", 40, 40) then
-            if cfg_glos.current_preview_paused then
-                -- Resume: recreate preview from file and seek to saved position
-                if reaper.PCM_Source_CreateFromFile and reaper.CF_CreatePreview then
-                    local source = reaper.PCM_Source_CreateFromFile(cfg_glos.current_preview_file)
-                    cfg_glos.current_preview_source = reaper.CF_CreatePreview(source)
-                    if cfg_glos.current_preview_pause_pos > 0 then
-                        reaper.CF_Preview_SetValue(cfg_glos.current_preview_source, "D_POSITION", cfg_glos.current_preview_pause_pos)
-                    end
-                    if reaper.CF_Preview_Play then
-                        reaper.CF_Preview_Play(cfg_glos.current_preview_source)
-                    end
-                end
-                cfg_glos.current_preview_paused = false
-            else
-                -- Pause: save position, length and stop preview
-                cfg_glos.current_preview_pause_pos = pos or 0
-                cfg_glos.current_preview_length = len or 0
-                if reaper.CF_Preview_Stop then
-                    reaper.CF_Preview_Stop(cfg_glos.current_preview_source)
-                end
-                cfg_glos.current_preview_paused = true
-            end
-        end
-        reaper.ImGui_PopFont(ctx)
-        
-        -- Right column: Name, Progress, Timing (always show, even when paused)
-        reaper.ImGui_SameLine(ctx, 0, 14)  -- Add 14px spacing from play button
-        reaper.ImGui_SetCursorPosY(ctx, 16) -- Start of right column
-        
-        local start_right_y = reaper.ImGui_GetCursorPosY(ctx)
-        reaper.ImGui_BeginGroup(ctx)
-            
-        -- Name row with timing at the end
-        reaper.ImGui_PushFont(ctx, font_main, 13)
-        local time_str = string.format("%s / %s", UTILS.format_time(pos), UTILS.format_time(len))
-        local time_w = reaper.ImGui_CalcTextSize(ctx, time_str)
-        local avail_row_w = reaper.ImGui_GetContentRegionAvail(ctx) - 32 -- Space for 23px button + margin
-        local max_name_width = avail_row_w - time_w - 15 -- Gap between name and time
-        local name_width = reaper.ImGui_CalcTextSize(ctx, cfg_glos.current_preview_name)
-        
-        if name_width > max_name_width then
-            -- Truncate and add ellipsis
-            local truncated = cfg_glos.current_preview_name
-            while reaper.ImGui_CalcTextSize(ctx, truncated .. "...") > max_name_width and #truncated > 0 do
-                truncated = truncated:sub(1, -2)
-            end
-            reaper.ImGui_Text(ctx, truncated .. "...")
-        else
-            reaper.ImGui_Text(ctx, cfg_glos.current_preview_name)
-        end
-        
-        reaper.ImGui_SameLine(ctx, avail_row_w - time_w)
-        reaper.ImGui_TextColored(ctx, 0xAAAAAAFF, time_str)
-        reaper.ImGui_PopFont(ctx)
-        -- Progress bar (clickable for seeking)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_PlotHistogram(), 0x50C850AA)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBg(), 0x333333FF)
-        local progress = (len and len > 0) and pos/len or 0
-        local avail_bar_w = avail_row_w
-        
-        -- Make progress bar interactive
-        local cursor_x, cursor_y = reaper.ImGui_GetCursorScreenPos(ctx)
-        reaper.ImGui_ProgressBar(ctx, progress, avail_bar_w, 6, "")
-        
-        -- Check if progress bar was clicked
-        if reaper.ImGui_IsItemClicked(ctx, 0) then
-            local mouse_x, mouse_y = reaper.ImGui_GetMousePos(ctx)
-            local click_pos = (mouse_x - cursor_x) / avail_bar_w
-            click_pos = math.max(0, math.min(1, click_pos))
-            local new_time = click_pos * len
-            
-            if cfg_glos.current_preview_paused then
-                -- When paused, just update the saved position
-                cfg_glos.current_preview_pause_pos = new_time
-            else
-                -- When playing, seek the preview
-                if cfg_glos.current_preview_source then
-                    reaper.CF_Preview_SetValue(cfg_glos.current_preview_source, "D_POSITION", new_time)
-                end
-            end
-        end
-        
-        reaper.ImGui_PopStyleColor(ctx, 2)
-        reaper.ImGui_EndGroup(ctx)
-        
-        -- Close button aligned with name row
-        reaper.ImGui_SameLine(ctx, reaper.ImGui_GetWindowWidth(ctx) - 32)
-        reaper.ImGui_SetCursorPosY(ctx, start_right_y - 3)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_CLOSE)
-        if reaper.ImGui_Button(ctx, "✕", 23, 23) then
-            UTILS.stop_preview()
-        end
-        reaper.ImGui_PopStyleColor(ctx)
-
-        reaper.ImGui_EndChild(ctx)
-    end
-    reaper.ImGui_PopStyleColor(ctx)
-end
-
-local function RenderTab_Reference()
-    local ref_flags = (cfg.restore_tab and cfg.last_tab == 0) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-    if reaper.ImGui_BeginTabItem(ctx, T("tab_reference"), nil, ref_flags) then
-        if not cfg.restore_tab and cfg.last_tab ~= 0 then
-            cfg.last_tab = 0
-            reaper.SetExtState(section_name, "last_tab", "0", true)
-            UTILS.stop_preview()
-        end
-        reaper.ImGui_PopFont(ctx)
-        reaper.ImGui_PopStyleVar(ctx)
-
-        -- Search inside Tab
-        reaper.ImGui_SetNextItemWidth(ctx, -5)
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
-        local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search_ref', T("search_reference"), cfg_ref.ref_filter)
-        if changed then cfg_ref.ref_filter = new_filter end
-        if cfg_ref.ref_filter ~= cfg_ref.last_filter then UTILS.update_search_cache(cfg_ref.ref_filter) end
-        reaper.ImGui_PopStyleVar(ctx) -- Pop FramePadding for search bar
-        reaper.ImGui_Separator(ctx)
-        reaper.ImGui_Dummy(ctx, 0, 5)
-        -- Content
-        local child_h = cfg_glos.layout_has_player and -82 or -5
-        if reaper.ImGui_BeginChild(ctx, "content_reference", 0, child_h) then
-            for _, cat in ipairs(cfg_ref.cached_results) do
-                local header_flags = 0
-                local header_name = string.format("%s (%d)###%s", translate_category(cat.name), #cat.entries, cat.name)
-                
-                reaper.ImGui_PushFont(ctx, font_main, 16)
-                local header_open = reaper.ImGui_CollapsingHeader( ctx, header_name, header_flags )
-                reaper.ImGui_PopFont(ctx)
-                
-                if header_open then
-                    reaper.ImGui_Indent(ctx, 29)
-                    reaper.ImGui_Dummy(ctx, 0, 5)
-                    for _, entry in ipairs(cat.entries) do
-                        if cat.name == "Асиміляція" or cat.name == "Відмінки" then
-                            draw_inline_entry(ctx, entry.word, entry.meaning, 18, 18)
-                        else
-                            draw_inline_entry(ctx, entry.word, entry.meaning, 30, 16)
-                        end
-                    end
-                    reaper.ImGui_Dummy(ctx, 0, 10)
-                    reaper.ImGui_Unindent(ctx, 29)
-                end
-            end
-            reaper.ImGui_EndChild(ctx)
-        end
-        reaper.ImGui_EndTabItem(ctx)
-        reaper.ImGui_PushFont(ctx, font_tabs, 17)
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
-    end
-end
-
-local function RenderTab_Glossary()
-    local glos_flags = (cfg.restore_tab and cfg.last_tab == 1) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-    if reaper.ImGui_BeginTabItem(ctx, T("tab_glossary"), nil, glos_flags) then
-        if not cfg.restore_tab and cfg.last_tab ~= 1 then
-            cfg.last_tab = 1
-            reaper.SetExtState(section_name, "last_tab", "1", true)
-            UTILS.stop_preview()
-        end
-        reaper.ImGui_PopFont(ctx)
-        reaper.ImGui_PopStyleVar(ctx)
-
-        -- Search and Add on one line (Increased height)
-        reaper.ImGui_SetNextItemWidth(ctx, -145)
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
-        local changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, '##search_glos', T("search_glossary"), cfg_glos.glos_filter)
-        if changed then cfg_glos.glos_filter = new_filter end
-        
-        reaper.ImGui_SameLine(ctx)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
-        if reaper.ImGui_Button(ctx, T("add_from_reaper"), 135) then
-            local new_entry = UTILS.add_from_reaper()
-            if new_entry then
-                cfg_glos.add_entry_pending = new_entry
-                reaper.ImGui_OpenPopup(ctx, "GlossaryMetadata")
-            end
-        end
-        reaper.ImGui_PopStyleColor(ctx)
-        reaper.ImGui_PopStyleVar(ctx) -- Pop FramePadding for search/add bar
-        -- Quick Tags
-        local all_tags = {}
-        local tag_map = {}
-        for _, entry in ipairs(cfg_glos.glossary_data.entries) do
-            for tag in entry.tags:gmatch("([^,]+)") do
-                tag = tag:gsub("^%s+", ""):gsub("%s+$", "")
-                if tag ~= "" and not tag_map[tag] then
-                    tag_map[tag] = true
-                    table.insert(all_tags, tag)
-                end
-            end
-        end
-        table.sort(all_tags)
-
-        if #all_tags > 0 then
-            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_ItemSpacing(), 5, 5)
-            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 6, 4) -- Slightly larger tag buttons
-            
-            for i, tag in ipairs(all_tags) do
-                local is_active = cfg_glos.active_tags[tag]
-                
-                -- Style: Transparent bg with border if inactive, Filled if active
-                if is_active then
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
-                    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 0)
-                else
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x00000000) -- Transparent
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Border(), C_BTN_MEDIUM)
-                    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 1)
-                end
-                
-                -- Calculate button width to check for wrap
-                local button_w = reaper.ImGui_CalcTextSize(ctx, tag) + 12 + 10 -- + padding + spacing safety
-                local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
-                
-                if i > 1 and button_w > avail_w then
-                    reaper.ImGui_NewLine(ctx)
-                end
-
-                if reaper.ImGui_Button(ctx, tag .. "##tag") then
-                    if is_active then
-                        cfg_glos.active_tags[tag] = nil -- Toggle off
-                    else
-                        cfg_glos.active_tags[tag] = true -- Toggle on
-                    end
-                end
-                
-                if is_active then
-                    reaper.ImGui_PopStyleColor(ctx, 1) -- Button
-                    reaper.ImGui_PopStyleVar(ctx, 1)   -- BorderSize
-                else
-                    reaper.ImGui_PopStyleColor(ctx, 2) -- Button, Border
-                    reaper.ImGui_PopStyleVar(ctx, 1)   -- BorderSize
-                end
-                
-                reaper.ImGui_SameLine(ctx)
-            end
-            reaper.ImGui_NewLine(ctx)
-            reaper.ImGui_PopStyleVar(ctx, 2) -- ItemSpacing, FramePadding
-        end
-
-        reaper.ImGui_Separator(ctx)
-        reaper.ImGui_Dummy(ctx, 0, 5)
-
-        local child_h = cfg_glos.layout_has_player and -82 or -5
-        if reaper.ImGui_BeginChild(ctx, "content_glossary", 0, child_h) then
-            -- Glossary List
-            for i, entry in ipairs(cfg_glos.glossary_data.entries) do
-                local match = true
-                -- 1. Check text filter
-                if cfg_glos.glos_filter ~= "" then
-                    local s = utf8_lower(cfg_glos.glos_filter)
-                    if not (utf8_lower(entry.name):find(s, 1, true) or utf8_lower(entry.tags):find(s, 1, true) or utf8_lower(entry.desc):find(s, 1, true)) then
-                        match = false
-                    end
-                end
-                        
-                -- 2. Check tag filter (ALL selected tags must be present)
-                if match then
-                    for needed_tag, _ in pairs(cfg_glos.active_tags) do
-                        local has_tag = false
-                        for entry_tag in entry.tags:gmatch("([^,]+)") do
-                            entry_tag = entry_tag:gsub("^%s+", ""):gsub("%s+$", "")
-                            if entry_tag == needed_tag then
-                                has_tag = true
-                                break
-                            end
-                        end
-                        if not has_tag then
-                            match = false
-                            break
-                        end
-                    end
-                end
-
-                if match then
-                    -- Відображення зображення (80x80) зліва (тільки якщо запис відповідає фільтру)
-                    if entry.image then
-                        local img_path = data_path .. entry.image
-                        if reaper.file_exists(img_path) then
-                            -- Створити або використати кешовану текстуру
-                            if not entry.image_texture then
-                                if reaper.ImGui_CreateImage then
-                                    entry.image_texture = reaper.ImGui_CreateImage(img_path)
-                                    if entry.image_texture and reaper.ImGui_Attach then
-                                        reaper.ImGui_Attach(ctx, entry.image_texture)
-                                    end
-                                end
-                            end
-                            
-                            if entry.image_texture then
-                                reaper.ImGui_Image(ctx, entry.image_texture, 80, 80)
-                                reaper.ImGui_SameLine(ctx)
-                            end
-                        end
-                    end
-
-                    -- Main Interaction Group
-                    reaper.ImGui_BeginGroup(ctx)
-                    
-                    
-                    -- 1. Name & Playback (Top)
-                    local play_icon = (cfg_glos.current_preview_name == entry.name and not cfg_glos.current_preview_paused) and "Ⅱ" or "▶"
-                            
-                    -- Play/Pause Logic (Extraction)
-                    local function toggle_playback()
-                        local full_path = data_path .. entry.filename
-                        
-                        -- If same file is playing: toggle pause
-                        if cfg_glos.current_preview_name == entry.name and cfg_glos.current_preview_source then
-                            if cfg_glos.current_preview_paused then
-                                -- Resume
-                                if reaper.PCM_Source_CreateFromFile and reaper.CF_CreatePreview then
-                                    local source = reaper.PCM_Source_CreateFromFile(cfg_glos.current_preview_file)
-                                    cfg_glos.current_preview_source = reaper.CF_CreatePreview(source)
-                                    if cfg_glos.current_preview_pause_pos > 0 then
-                                        reaper.CF_Preview_SetValue(cfg_glos.current_preview_source, "D_POSITION", cfg_glos.current_preview_pause_pos)
-                                    end
-                                    if reaper.CF_Preview_Play then reaper.CF_Preview_Play(cfg_glos.current_preview_source) end
-                                end
-                                cfg_glos.current_preview_paused = false
-                            else
-                                -- Pause
-                                local ok_p, pos = reaper.CF_Preview_GetValue(cfg_glos.current_preview_source, "D_POSITION")
-                                local ok_l, len = reaper.CF_Preview_GetValue(cfg_glos.current_preview_source, "D_LENGTH")
-                                
-                                cfg_glos.current_preview_pause_pos = pos or 0
-                                cfg_glos.current_preview_length = len or 0
-                                if reaper.CF_Preview_Stop then reaper.CF_Preview_Stop(cfg_glos.current_preview_source) end
-                                cfg_glos.current_preview_paused = true
-                            end
-                        else
-                            -- Play new file
-                            cfg_glos.current_preview_name = entry.name
-                            cfg_glos.current_preview_file = full_path
-                            cfg_glos.current_preview_paused = false
-                            cfg_glos.current_preview_pause_pos = 0
-                            if cfg_glos.current_preview_source then
-                                if reaper.CF_Preview_Stop then reaper.CF_Preview_Stop(cfg_glos.current_preview_source) end
-                            end
-                            if reaper.PCM_Source_CreateFromFile and reaper.CF_CreatePreview then
-                                local source = reaper.PCM_Source_CreateFromFile(full_path)
-                                cfg_glos.current_preview_source = reaper.CF_CreatePreview(source)
-                                if reaper.CF_Preview_Play then reaper.CF_Preview_Play(cfg_glos.current_preview_source) end
-                            end
-                        end
-                    end
-
-                    -- 0. Layout Requirements & Widths
-                    local img_offset = reaper.ImGui_GetCursorPosX(ctx) -- зміщення через фото (0 якщо фото немає)
-                    local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
-                    local raw_tags = entry.tags or ""
-                    local tag_str = raw_tags:gsub(",", ", ")
-                    local is_ultra = (tag_str == "") and (not entry.desc or entry.desc == "")
-                    
-                    reaper.ImGui_PushFont(ctx, font_main, 15)
-                    local insert_btn_w = reaper.ImGui_CalcTextSize(ctx, T("insert_into_proj"))
-                    reaper.ImGui_PopFont(ctx)
-                    local actions_btn_w = 30
-                    local total_btns_w = insert_btn_w + actions_btn_w + 8
-
-                    reaper.ImGui_PushFont(ctx, font_main, 13)
-                    local tag_w = (tag_str ~= "") and reaper.ImGui_CalcTextSize(ctx, tag_str) or 0
-                    reaper.ImGui_PopFont(ctx)
-                    
-                    local right_margin_w = 0
-                    if is_ultra then
-                        right_margin_w = total_btns_w
-                    else
-                        if tag_w > 0 then right_margin_w = right_margin_w + tag_w end
-                    end
-
-                    -- Fixed width Play Button
-                    local entry_start_y = reaper.ImGui_GetCursorPosY(ctx)
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x4B824B50)
-                    if reaper.ImGui_Button(ctx, play_icon .. "##playbtn"..i, 30, 30) then
-                        toggle_playback()
-                    end
-                    reaper.ImGui_PopStyleColor(ctx)
-                    
-                    -- Clickable Name with Truncation
-                    reaper.ImGui_SameLine(ctx)
-                    reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 3) -- Adjusted for 30px button height
-                    local name_avail_w = math.max(50, avail_w - 30 - 8 - (right_margin_w > 0 and (right_margin_w + 15) or 0))
-                    
-                    -- 1.1 Calculate/Lazy-load Duration
-                    if not entry.duration then
-                        local full_path = data_path .. (entry.filename or "")
-                        if entry.filename and entry.filename ~= "" then
-                            local src = reaper.PCM_Source_CreateFromFile(full_path)
-                            if src then
-                                entry.duration = reaper.GetMediaSourceLength(src)
-                                reaper.PCM_Source_Destroy(src)
-                                UTILS.save_glossary()
-                            end
-                        end
-                    end
-                    
-                    local base_name = (entry.name or "Unnamed"):gsub("%s+$", "")
-                    local display_name = base_name
-                    reaper.ImGui_PushFont(ctx, font_main, 18)
-                    local name_w = reaper.ImGui_CalcTextSize(ctx, display_name)
-                    
-                    if name_w > name_avail_w then
-                        local truncated = ""
-                        -- Safe UTF-8 iteration
-                        local ok, f, s, i = pcall(utf8.codes, base_name)
-                        if ok then
-                            for _, code in f, s, i do
-                                local char = utf8.char(code)
-                                if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > name_avail_w then
-                                    display_name = truncated .. "..."
-                                    break
-                                end
-                                truncated = truncated .. char
-                            end
-                        else
-                            display_name = base_name:sub(1, 10) .. "..."
-                        end
-                    end
-                    
-                    -- 1.2 Rendering Title Row
-                    reaper.ImGui_TextColored(ctx, C_BTN_OK, display_name)
-                    if reaper.ImGui_IsItemClicked(ctx, 0) then toggle_playback() end
-                    reaper.ImGui_PopFont(ctx)
-
-                    if is_ultra then
-                        -- ULTRA-COMPACT: Name, Buttons all on ONE line
-                        reaper.ImGui_SameLine(ctx, avail_w - right_margin_w)
-                        reaper.ImGui_BeginGroup(ctx)
-                            -- Action Buttons - Centered vertically
-                            reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 6) -- Match title offset
-                            if reaper.ImGui_Button(ctx, T("insert_into_proj").."##"..i, insert_btn_w) then
-                                local full_path = data_path .. entry.filename
-                                local track = reaper.GetSelectedTrack(0, 0)
-                                if track then
-                                    local cursor_pos = reaper.GetCursorPosition()
-                                    reaper.InsertMedia(full_path, 0)
-                                    local new_item = reaper.GetSelectedMediaItem(0, 0)
-                                    if new_item then
-                                        reaper.MoveMediaItemToTrack(new_item, track)
-                                        reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor_pos)
-                                        reaper.UpdateArrange()
-                                    end
-                                else
-                                    reaper.MB(T("select_track_err"), T("error"), 0)
-                                end
-                            end
-                            reaper.ImGui_SameLine(ctx)
-                            reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 6)
-                            if reaper.ImGui_Button(ctx, "⋮##btn"..i, actions_btn_w) then
-                                reaper.ImGui_OpenPopup(ctx, "glossary_actions_popup"..i)
-                            end
-                        reaper.ImGui_EndGroup(ctx)
-                    else
-                        -- STANDARD: Multi-line layout
-                        -- Tags Row (Right Aligned on title row) - Centered vertically
-                        if right_margin_w > 0 then
-                            reaper.ImGui_SameLine(ctx)
-                            reaper.ImGui_SetCursorPosX(ctx, img_offset + avail_w - right_margin_w)
-                            reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 7) -- Center font 13 in 30px height
-                            reaper.ImGui_PushFont(ctx, font_main, 13)
-                            
-                            if tag_w > 0 then
-                                reaper.ImGui_TextColored(ctx, 0xAAAAAAFF, tag_str)
-                            end
-                            
-                            reaper.ImGui_PopFont(ctx)
-                        end
-                        
-                        reaper.ImGui_SetCursorPosY(ctx, entry_start_y + 32) -- Bottom of the 30px button + gap
-                        reaper.ImGui_Dummy(ctx, 0, 4)
-                        
-                        -- Description & Actions Row
-                        if entry.desc ~= "" then
-                            reaper.ImGui_PushTextWrapPos(ctx, avail_w - total_btns_w - 15)
-                            reaper.ImGui_Text(ctx, entry.desc)
-                            reaper.ImGui_PopTextWrapPos(ctx)
-                            reaper.ImGui_SameLine(ctx, avail_w - total_btns_w)
-                        else
-                            reaper.ImGui_SetCursorPosX(ctx, reaper.ImGui_GetCursorPosX(ctx) + avail_w - total_btns_w)
-                        end
-                        
-                        reaper.ImGui_BeginGroup(ctx)
-                            local insert_label = T("insert_into_proj").."##"..i
-                            if reaper.ImGui_Button(ctx, insert_label, insert_btn_w) then
-                                local full_path = data_path .. entry.filename
-                                local track = reaper.GetSelectedTrack(0, 0)
-                                if track then
-                                    local cursor_pos = reaper.GetCursorPosition()
-                                    reaper.InsertMedia(full_path, 0)
-                                    local new_item = reaper.GetSelectedMediaItem(0, 0)
-                                    if new_item then
-                                        reaper.MoveMediaItemToTrack(new_item, track)
-                                        reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", cursor_pos)
-                                        reaper.UpdateArrange()
-                                    end
-                                else
-                                    reaper.MB(T("select_track_err"), T("error"), 0)
-                                end
-                            end
-                            
-                            reaper.ImGui_SameLine(ctx)
-                            if reaper.ImGui_Button(ctx, "⋮##btn"..i, actions_btn_w) then
-                                reaper.ImGui_OpenPopup(ctx, "glossary_actions_popup"..i)
-                            end
-                        reaper.ImGui_EndGroup(ctx)
-                    end
-
-                    -- Common Actions Popup
-                    if reaper.ImGui_BeginPopup(ctx, "glossary_actions_popup"..i) then
-                        if reaper.ImGui_Selectable(ctx, T("edit")) then
-                            cfg_glos.edit_entry_idx = i
-                            cfg_glos.edit_entry_data = {
-                                name = entry.name,
-                                tags = entry.tags,
-                                desc = entry.desc,
-                                delete_image = false,
-                                temp_image_path = nil,
-                                current_image_tex = nil
-                            }
-                            
-                            -- Завантажити поточне зображення якщо є
-                            if entry.image then
-                                local img_path = data_path .. entry.image
-                                if reaper.file_exists(img_path) and reaper.ImGui_CreateImage then
-                                    local img = reaper.ImGui_CreateImage(img_path)
-                                    if img and reaper.ImGui_Attach then
-                                        reaper.ImGui_Attach(ctx, img)
-                                        cfg_glos.edit_entry_data.current_image_tex = img
-                                    end
-                                end
-                            end
-                            
-                            cfg_glos.open_edit_popup = true
-                        end
-                        
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
-                        if reaper.ImGui_Selectable(ctx, T("delete")) then
-                            if reaper.MB(T("confirm_del_audio"), T("confirm"), 1) == 1 then
-                                -- Зупинити програвання якщо цей файл грає
-                                if cfg_glos.current_preview_name == entry.name then
-                                    UTILS.stop_preview()
-                                end
-                                
-                                -- Зачекати момент для звільнення файлу
-                                reaper.defer(function()
-                                    -- Видалити аудіо файл
-                                    local audio_file = data_path .. entry.filename
-                                    if audio_file and audio_file ~= "" and reaper.file_exists(audio_file) then
-                                        local success = os.remove(audio_file)
-                                        if not success then
-                                            reaper.ShowConsoleMsg(T("err_failed_to_delete") .. audio_file .. "\n")
-                                        end
-                                    end
-                                    
-                                    -- Видалити зображення
-                                    if entry.image then
-                                        local img_file = data_path .. entry.image
-                                        if reaper.file_exists(img_file) then
-                                            os.remove(img_file)
-                                        end
-                                    end
-                                    
-                                    -- Видалити текстуру
-                                    if entry.image_texture then
-                                        reaper.ImGui_Detach(ctx, entry.image_texture)
-                                    end
-                                    
-                                    -- Видалити запис
-                                    table.remove(cfg_glos.glossary_data.entries, i)
-                                    UTILS.save_glossary()
-                                end)
-                            end
-                        end
-                        reaper.ImGui_PopStyleColor(ctx)
-                        reaper.ImGui_EndPopup(ctx)
-                    end
-                        
-                        reaper.ImGui_EndGroup(ctx)
-                        
-                        reaper.ImGui_Dummy(ctx, 0, 3)
-                        reaper.ImGui_Separator(ctx)
-                        reaper.ImGui_Dummy(ctx, 0, 2)
-                    end
-                end
-
-                reaper.ImGui_EndChild(ctx) -- Close glossary list child
-
-                -- Modals (Moved outside child)
-                if cfg_glos.open_edit_popup then
-                    reaper.ImGui_OpenPopup(ctx, "EditGlossary")
-                    cfg_glos.open_edit_popup = false
-                end
-            if reaper.ImGui_BeginPopupModal(ctx, "GlossaryMetadata", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
-                reaper.ImGui_Text(ctx, T("sound_settings"))
-                reaper.ImGui_Dummy(ctx, 0, 5)
-                
-                _, cfg_glos.add_entry_pending.name = reaper.ImGui_InputText(ctx, T("name_lbl"), cfg_glos.add_entry_pending.name)
-                _, cfg_glos.add_entry_pending.tags = reaper.ImGui_InputText(ctx, T("tags_lbl"), cfg_glos.add_entry_pending.tags)
-                _, cfg_glos.add_entry_pending.desc = reaper.ImGui_InputTextMultiline(ctx, T("desc_lbl"), cfg_glos.add_entry_pending.desc, 300, 100)
-                
-                -- Додати блок вибору зображення
-                reaper.ImGui_Dummy(ctx, 0, 5)
-                reaper.ImGui_Separator(ctx)
-                reaper.ImGui_Text(ctx, T("image_lbl"))
-                
-                if cfg_glos.add_entry_pending.image_preview then
-                    if reaper.ImGui_ImageButton then
-                        reaper.ImGui_Image(ctx, cfg_glos.add_entry_pending.image_preview, 50, 50)
-                    end
-                    reaper.ImGui_SameLine(ctx)
-                end
-                
-                if reaper.ImGui_Button(ctx, T("select_image"), 150) then
-                    local img_path = UTILS.pick_image_file()
-                    if img_path then
-                        -- Тимчасово зберігаємо шлях, зображення буде скопійовано при збереженні
-                        cfg_glos.add_entry_pending.temp_image_path = img_path
-                        
-                        -- Показати прев'ю
-                        if reaper.ImGui_CreateImage then
-                            if cfg_glos.add_entry_pending.image_preview then
-                                reaper.ImGui_Detach(ctx, cfg_glos.add_entry_pending.image_preview)
-                            end
-                            local img = reaper.ImGui_CreateImage(img_path)
-                            if img and reaper.ImGui_Attach then
-                                reaper.ImGui_Attach(ctx, img)
-                                cfg_glos.add_entry_pending.image_preview = img
-                            end
-                        end
-                    end
-                end
-                
-                reaper.ImGui_SameLine(ctx)
-                if cfg_glos.add_entry_pending.temp_image_path and reaper.ImGui_Button(ctx, T("clear_image"), 100) then
-                    cfg_glos.add_entry_pending.temp_image_path = nil
-                    if cfg_glos.add_entry_pending.image_preview then
-                        reaper.ImGui_Detach(ctx, cfg_glos.add_entry_pending.image_preview)
-                        cfg_glos.add_entry_pending.image_preview = nil
-                    end
-                end
-                
-                reaper.ImGui_Dummy(ctx, 0, 10)
-                
-                if reaper.ImGui_Button(ctx, T("save"), 120) then
-                    -- Зберегти зображення якщо вибрано
-                    if cfg_glos.add_entry_pending.temp_image_path then
-                        local saved_img = UTILS.save_image_for_entry(cfg_glos.add_entry_pending, cfg_glos.add_entry_pending.temp_image_path)
-                        if saved_img then
-                            cfg_glos.add_entry_pending.image = saved_img
-                        end
-                    end
-                    
-                    table.insert(cfg_glos.glossary_data.entries, cfg_glos.add_entry_pending)
-                    UTILS.save_glossary()
-                    
-                    -- Очистити тимчасові дані
-                    if cfg_glos.add_entry_pending.image_preview then
-                        reaper.ImGui_Detach(ctx, cfg_glos.add_entry_pending.image_preview)
-                    end
-                    cfg_glos.add_entry_pending = nil
-                    reaper.ImGui_CloseCurrentPopup(ctx)
-                end
-                reaper.ImGui_SameLine(ctx)
-                if reaper.ImGui_Button(ctx, T("cancel"), 120) then
-                    if cfg_glos.add_entry_pending.image_preview then
-                        reaper.ImGui_Detach(ctx, cfg_glos.add_entry_pending.image_preview)
-                    end
-                    os.remove(data_path .. cfg_glos.add_entry_pending.filename)
-                    cfg_glos.add_entry_pending = nil
-                    reaper.ImGui_CloseCurrentPopup(ctx)
-                end
-                reaper.ImGui_EndPopup(ctx)
-            end
-
-            if reaper.ImGui_BeginPopupModal(ctx, "EditGlossary", nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
-                reaper.ImGui_Text(ctx, T("edit_lbl"))
-                reaper.ImGui_Dummy(ctx, 0, 5)
-                
-                _, cfg_glos.edit_entry_data.name = reaper.ImGui_InputText(ctx, T("name_lbl"), cfg_glos.edit_entry_data.name)
-                _, cfg_glos.edit_entry_data.tags = reaper.ImGui_InputText(ctx, T("tags_edit"), cfg_glos.edit_entry_data.tags)
-                _, cfg_glos.edit_entry_data.desc = reaper.ImGui_InputTextMultiline(ctx, T("desc_lbl"), cfg_glos.edit_entry_data.desc, 300, 100)
-                
-                -- Додати блок редагування зображення
-                reaper.ImGui_Dummy(ctx, 0, 5)
-                reaper.ImGui_Separator(ctx)
-                reaper.ImGui_Text(ctx, T("image_lbl"))
-                
-                -- Показати поточне зображення якщо є
-                if cfg_glos.edit_entry_data.current_image_tex then
-                    if reaper.ImGui_ImageButton then
-                        reaper.ImGui_Image(ctx, cfg_glos.edit_entry_data.current_image_tex, 50, 50)
-                    end
-                    reaper.ImGui_SameLine(ctx)
-                end
-                
-                if reaper.ImGui_Button(ctx, T("change_image"), 150) then
-                    local img_path = UTILS.pick_image_file()
-                    if img_path then
-                        cfg_glos.edit_entry_data.temp_image_path = img_path
-                        
-                        -- Показати прев'ю
-                        if cfg_glos.edit_entry_data.current_image_tex then
-                            reaper.ImGui_Detach(ctx, cfg_glos.edit_entry_data.current_image_tex)
-                        end
-                        if reaper.ImGui_CreateImage then
-                            local img = reaper.ImGui_CreateImage(img_path)
-                            if img and reaper.ImGui_Attach then
-                                reaper.ImGui_Attach(ctx, img)
-                                cfg_glos.edit_entry_data.current_image_tex = img
-                            end
-                        end
-                    end
-                end
-                
-                reaper.ImGui_SameLine(ctx)
-                if reaper.ImGui_Button(ctx, T("remove_image"), 130) then
-                    cfg_glos.edit_entry_data.delete_image = true
-                    if cfg_glos.edit_entry_data.current_image_tex then
-                        reaper.ImGui_Detach(ctx, cfg_glos.edit_entry_data.current_image_tex)
-                        cfg_glos.edit_entry_data.current_image_tex = nil
-                    end
-                end
-                
-                reaper.ImGui_Dummy(ctx, 0, 10)
-                
-                if reaper.ImGui_Button(ctx, T("save"), 120) then
-                    local target_entry = cfg_glos.glossary_data.entries[cfg_glos.edit_entry_idx]
-                    target_entry.name = cfg_glos.edit_entry_data.name
-                    target_entry.tags = cfg_glos.edit_entry_data.tags
-                    target_entry.desc = cfg_glos.edit_entry_data.desc
-                    
-                    -- Обробити зображення
-                    if cfg_glos.edit_entry_data.delete_image then
-                        if target_entry.image then
-                            os.remove(data_path .. target_entry.image)
-                            target_entry.image = nil
-                        end
-                    elseif cfg_glos.edit_entry_data.temp_image_path then
-                        -- Видалити старе зображення
-                        if target_entry.image then
-                            os.remove(data_path .. target_entry.image)
-                        end
-                        -- Скинути кешовану текстуру щоб вона перестворилась з нового файлу
-                        if target_entry.image_texture then
-                            reaper.ImGui_Detach(ctx, target_entry.image_texture)
-                            target_entry.image_texture = nil
-                        end
-                        -- Зберегти нове
-                        local saved_img = UTILS.save_image_for_entry(target_entry, cfg_glos.edit_entry_data.temp_image_path)
-                        if saved_img then
-                            target_entry.image = saved_img
-                        end
-                    end
-                    
-                    UTILS.save_glossary()
-                    
-                    -- Очистити
-                    if cfg_glos.edit_entry_data.current_image_tex then
-                        reaper.ImGui_Detach(ctx, cfg_glos.edit_entry_data.current_image_tex)
-                    end
-                    reaper.ImGui_CloseCurrentPopup(ctx)
-                end
-                reaper.ImGui_SameLine(ctx)
-                if reaper.ImGui_Button(ctx, T("cancel"), 120) then
-                    if cfg_glos.edit_entry_data.current_image_tex then
-                        reaper.ImGui_Detach(ctx, cfg_glos.edit_entry_data.current_image_tex)
-                    end
-                    reaper.ImGui_CloseCurrentPopup(ctx)
-                end
-                reaper.ImGui_EndPopup(ctx)
-            end
-        end
-        reaper.ImGui_EndTabItem(ctx)
-        reaper.ImGui_PushFont(ctx, font_tabs, 17)
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
-    end
-end
-
-local function RenderTab_Dictionaries()
-    local dict_flags = (cfg.restore_tab and cfg.last_tab == 2) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-    if reaper.ImGui_BeginTabItem(ctx, T("tab_dictionaries"), nil, dict_flags) then
-        if not cfg.restore_tab and cfg.last_tab ~= 2 then
-            cfg.last_tab = 2
-            reaper.SetExtState(section_name, "last_tab", "2", true)
-            UTILS.stop_preview()
-        end
-        reaper.ImGui_PopFont(ctx)
-        reaper.ImGui_PopStyleVar(ctx)
-
-        local avail_h = cfg_glos.layout_has_player and -82 or -5
-                
-        -- Split view Left: Dictionary List
-        if reaper.ImGui_BeginChild(ctx, "dict_split_left", 200, avail_h, 1) then
-            reaper.ImGui_Text(ctx, T("user_dicts"))
-            reaper.ImGui_Separator(ctx)
-            reaper.ImGui_Dummy(ctx, 0, 5)
-            
-            if reaper.ImGui_Button(ctx, T("create_new"), -1) then
-                reaper.ImGui_OpenPopup(ctx, "new_dict_popup")
-            end
-            if reaper.ImGui_Button(ctx, T("import_csv"), -1) then
-                UTILS.import_dict_csv()
-            end
-            reaper.ImGui_Dummy(ctx, 0, 5)
-            
-            if reaper.ImGui_BeginPopup(ctx, "new_dict_popup") then
-                reaper.ImGui_Text(ctx, T("new_dict_name_lbl"))
-                _, cfg_dict.new_dict_name = reaper.ImGui_InputText(ctx, "##new_dict_name", cfg_dict.new_dict_name)
-                if reaper.ImGui_Button(ctx, T("create"), 130) then
-                    local trimmed_name = (cfg_dict.new_dict_name or ""):match("^%s*(.-)%s*$")
-                    if trimmed_name and trimmed_name ~= "" then
-                        if UTILS.check_dict_name_exists(trimmed_name) then
-                            reaper.MB(T("dict_exists_err"), T("error"), 0)
-                        else
-                            table.insert(cfg_dict.udd.dictionaries, 1, {
-                                id = "dict_" .. os.time(),
-                                name = trimmed_name,
-                                entries = {}
-                            })
-                            UTILS.save_user_dicts()
-                            UTILS.update_last_selected_dict(1)
-                            cfg_dict.new_dict_name = ""
-                            reaper.ImGui_CloseCurrentPopup(ctx)
-                        end
-                    end
-                end
-                reaper.ImGui_EndPopup(ctx)
-            end
-
-            if cfg_dict.rename_dict_idx then
-                reaper.ImGui_OpenPopup(ctx, "rename_dict_popup")
-            end
-
-            if reaper.ImGui_BeginPopup(ctx, "rename_dict_popup") then
-                reaper.ImGui_Text(ctx, T("rename_dict_lbl"))
-                _, cfg_dict.rename_dict_name = reaper.ImGui_InputText(ctx, "##rename_dict_name", cfg_dict.rename_dict_name)
-                if reaper.ImGui_Button(ctx, T("save"), 100) then
-                    local trimmed_name = (cfg_dict.rename_dict_name or ""):match("^%s*(.-)%s*$")
-                    if cfg_dict.rename_dict_idx and trimmed_name and trimmed_name ~= "" and cfg_dict.udd.dictionaries[cfg_dict.rename_dict_idx] then
-                        if UTILS.check_dict_name_exists(trimmed_name, cfg_dict.rename_dict_idx) then
-                            reaper.MB(T("dict_exists_err"), T("error"), 0)
-                        else
-                            cfg_dict.udd.dictionaries[cfg_dict.rename_dict_idx].name = trimmed_name
-                            UTILS.save_user_dicts()
-                            UTILS.move_dict_to_top(cfg_dict.rename_dict_idx)
-                            cfg_dict.rename_dict_idx = nil
-                            cfg_dict.rename_dict_name = ""
-                            reaper.ImGui_CloseCurrentPopup(ctx)
-                        end
-                    end
-                end
-                reaper.ImGui_SameLine(ctx)
-                if reaper.ImGui_Button(ctx, T("cancel"), 100) then
-                    cfg_dict.rename_dict_idx = nil
-                    cfg_dict.rename_dict_name = ""
-                    reaper.ImGui_CloseCurrentPopup(ctx)
-                end
-                reaper.ImGui_EndPopup(ctx)
-            end
-                    
-            reaper.ImGui_Dummy(ctx, 0, 2)
-            reaper.ImGui_Separator(ctx)
-
-            -- Pre-calculate list width for truncation
-            local list_w = reaper.ImGui_GetContentRegionAvail(ctx) - 5
-            
-            for i, dict in ipairs(cfg_dict.udd.dictionaries) do
-                local is_selected = (cfg_dict.sd_inx == i)
-                
-                -- Truncate name if it's too long
-                local display_name = dict.name or "Unnamed"
-                local name_w = reaper.ImGui_CalcTextSize(ctx, display_name)
-                
-                if name_w > list_w then
-                    local truncated = ""
-                    local ok, f, s, idx = pcall(function() return utf8.codes(display_name) end)
-                    if ok and f then
-                        for _, code in f, s, idx do
-                            local char = utf8.char(code)
-                            if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > list_w then
-                                display_name = truncated .. "..."
-                                break
-                            end
-                            truncated = truncated .. char
-                        end
-                    else
-                        display_name = display_name:sub(1, 15) .. "..."
-                    end
-                end
-                
-                if reaper.ImGui_Selectable(ctx, display_name .. "##dict" .. i, is_selected) then
-                    if cfg_dict.sd_inx ~= i then cfg_dict.dict_filter = "" end -- Clear filter on dict switch
-                    UTILS.update_last_selected_dict(i)
-                end
-                if reaper.ImGui_IsItemHovered(ctx) and display_name ~= dict.name then
-                    reaper.ImGui_SetTooltip(ctx, dict.name) -- Show full name on hover if truncated
-                end
-                if reaper.ImGui_IsItemClicked(ctx, 1) then -- Right click
-                    reaper.ImGui_OpenPopup(ctx, "dict_context_" .. i)
-                end
-                reaper.ImGui_Separator(ctx)
-                
-                if reaper.ImGui_BeginPopup(ctx, "dict_context_" .. i) then
-                    if reaper.ImGui_Selectable(ctx, T("rename")) then
-                        cfg_dict.rename_dict_idx = i
-                        cfg_dict.rename_dict_name = dict.name
-                    end
-                    if reaper.ImGui_Selectable(ctx, T("export_csv")) then
-                        UTILS.export_dict_csv(dict)
-                    end
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
-                    if reaper.ImGui_Selectable(ctx, T("delete_dict")) then
-                        local confirm = true
-                        if #dict.entries > 0 then
-                            local resp = reaper.MB(string.format(T("confirm_del_dict"), dict.name, #dict.entries), T("confirm_del_title"), 4) -- 4 = Yes/No
-                            if resp ~= 6 then confirm = false end -- 6 = Yes
-                        end
-                        
-                        if confirm then
-                            table.remove(cfg_dict.udd.dictionaries, i)
-                            UTILS.save_user_dicts()
-                            if cfg_dict.sd_inx == i then
-                                UTILS.update_last_selected_dict(cfg_dict.udd.dictionaries[1] and 1 or nil)
-                            elseif cfg_dict.sd_inx and cfg_dict.sd_inx > i then
-                                UTILS.update_last_selected_dict(cfg_dict.sd_inx - 1)
-                            end
-                        end
-                    end
-                    reaper.ImGui_PopStyleColor(ctx)
-                    reaper.ImGui_EndPopup(ctx)
-                end
-            end
-                    
-            reaper.ImGui_EndChild(ctx)
-        end
-                
-        reaper.ImGui_SameLine(ctx)
-        
-        -- Split view Right: Editor
-        if reaper.ImGui_BeginChild(ctx, "dict_split_right", 0, avail_h, 1) then
-            if cfg_dict.sd_inx and cfg_dict.udd.dictionaries[cfg_dict.sd_inx] then
-                local active_dict = cfg_dict.udd.dictionaries[cfg_dict.sd_inx]
-                
-                -- Truncate header dictionary name
-                local header_prefix = T("dict_header")
-                local header_prefix_w = reaper.ImGui_CalcTextSize(ctx, header_prefix)
-                -- Available width minus the button space (110 button + 10 padding roughly)
-                local header_avail_w = reaper.ImGui_GetContentRegionAvail(ctx) - 120 - header_prefix_w
-                
-                local header_dict_name = active_dict.name or "Unnamed"
-                local header_dict_w = reaper.ImGui_CalcTextSize(ctx, header_dict_name)
-                
-                if header_dict_w > header_avail_w and header_avail_w > 0 then
-                    local truncated = ""
-                    local ok, f, s, idx = pcall(function() return utf8.codes(header_dict_name) end)
-                    if ok and f then
-                        for _, code in f, s, idx do
-                            local char = utf8.char(code)
-                            if reaper.ImGui_CalcTextSize(ctx, truncated .. char .. "...") > header_avail_w then
-                                header_dict_name = truncated .. "..."
-                                break
-                            end
-                            truncated = truncated .. char
-                        end
-                    else
-                        header_dict_name = header_dict_name:sub(1, 15) .. "..."
-                    end
-                end
-                
-                reaper.ImGui_Text(ctx, header_prefix .. header_dict_name)
-                if header_dict_name ~= active_dict.name and reaper.ImGui_IsItemHovered(ctx) then
-                    reaper.ImGui_SetTooltip(ctx, active_dict.name)
-                end
-                
-                reaper.ImGui_SameLine(ctx, reaper.ImGui_GetContentRegionAvail(ctx) - 100)
-                if reaper.ImGui_Button(ctx, T("add_entry"), 110) then
-                    local nid = active_dict.next_id or (#active_dict.entries + 1)
-                    table.insert(active_dict.entries, 1, {uid = nid, word = "", replacement = "", comment = ""})
-                    active_dict.next_id = nid + 1
-                    cfg_dict.dict_filter = "" -- Clear filter on add
-                    UTILS.save_user_dicts()
-                    UTILS.move_dict_to_top(cfg_dict.sd_inx)
-                end
-                reaper.ImGui_Separator(ctx)
-                
-                -- Search Filter
-                reaper.ImGui_SetNextItemWidth(ctx, -5)
-                local filter_changed, new_filter = reaper.ImGui_InputTextWithHint(ctx, "##dict_filter_input", T("search_dict"), cfg_dict.dict_filter)
-                if filter_changed then 
-                    cfg_dict.dict_filter = new_filter 
-                    cfg_dict.entry_selection = {} -- Clear selection on filter change
-                end
-                
-                reaper.ImGui_Dummy(ctx, 0, 5)
-                
-                local table_flags = reaper.ImGui_TableFlags_Borders() | reaper.ImGui_TableFlags_RowBg() | reaper.ImGui_TableFlags_Resizable() | reaper.ImGui_TableFlags_ScrollY() | reaper.ImGui_TableFlags_Sortable()
-                if reaper.ImGui_BeginTable(ctx, 'dict_entries_table', 5, table_flags) then
-                    reaper.ImGui_TableSetupScrollFreeze(ctx, 0, 1)
-                    reaper.ImGui_TableSetupColumn(ctx, "#", reaper.ImGui_TableColumnFlags_WidthFixed() | reaper.ImGui_TableColumnFlags_DefaultSort(), 30)
-                    reaper.ImGui_TableSetupColumn(ctx, T("col_word"), reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
-                    reaper.ImGui_TableSetupColumn(ctx, T("col_replacement"), reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
-                    reaper.ImGui_TableSetupColumn(ctx, T("col_comment"), reaper.ImGui_TableColumnFlags_WidthStretch(), 1)
-                    reaper.ImGui_TableSetupColumn(ctx, T("col_action"), reaper.ImGui_TableColumnFlags_WidthFixed() | reaper.ImGui_TableColumnFlags_NoSort(), 30)
-                    reaper.ImGui_TableHeadersRow(ctx)
-
-                    -- Handle Sorting
-                    if reaper.ImGui_TableNeedSort(ctx) then
-                        local ok, col_idx, user_id, sort_dir = reaper.ImGui_TableGetColumnSortSpecs(ctx, 0)
-                        
-                        if ok then
-                            table.sort(active_dict.entries, function(a, b)
-                                local val_a, val_b
-                                if col_idx == 0 then
-                                    val_a = a.uid or 0
-                                    val_b = b.uid or 0
-                                elseif col_idx == 1 then
-                                    val_a = (a.word or ""):lower()
-                                    val_b = (b.word or ""):lower()
-                                elseif col_idx == 2 then
-                                    val_a = (a.replacement or ""):lower()
-                                    val_b = (b.replacement or ""):lower()
-                                elseif col_idx == 3 then
-                                    val_a = (a.comment or ""):lower()
-                                    val_b = (b.comment or ""):lower()
-                                end
-                                
-                                if val_a == nil or val_b == nil then return false end
-                                
-                                if sort_dir == 1 then -- Ascending
-                                    return val_a < val_b
-                                else -- Descending
-                                    return val_a > val_b
-                                end
-                            end)
-                            UTILS.save_user_dicts() -- Save the new sorted order
-                        end
-                    end
-
-                    local to_remove = nil
-                    local filter_lower = utf8_lower(cfg_dict.dict_filter)
-                    local open_entry_popup = false
-                    
-                    for e_i, entry in ipairs(active_dict.entries) do
-                        -- 0. Safety Guard: Ensure UID exists (Fix for "table index is nil" crash)
-                        if not entry.uid then
-                            entry.uid = active_dict.next_id or (#active_dict.entries + 100)
-                            active_dict.next_id = entry.uid + 1
-                            UTILS.save_user_dicts()
-                        end
-
-                        -- Filtering logic
-                        if filter_lower ~= "" then
-                            local match = false
-                            local w_lower = utf8_lower(entry.word or "")
-                            local r_lower = utf8_lower(entry.replacement or "")
-                            local c_lower = utf8_lower(entry.comment or "")
-                            
-                            if w_lower:find(filter_lower, 1, true) or 
-                               r_lower:find(filter_lower, 1, true) or 
-                               c_lower:find(filter_lower, 1, true) then
-                                match = true
-                            end
-                            
-                            if not match then goto next_entry end
-                        end
-
-                        reaper.ImGui_TableNextRow(ctx)
-                        reaper.ImGui_PushID(ctx, "entry_" .. e_i)
-
-                        local row_selected = cfg_dict.entry_selection[entry.uid] == true
-                        
-                        -- 1. Highlighting Row (Visual)
-                        if row_selected then
-                            reaper.ImGui_TableSetBgColor(ctx, reaper.ImGui_TableBgTarget_RowBg0(), 0x22AA2244, -1)
-                        end
-
-                        -- 2. Selection Hit Area (Logical)
-                        reaper.ImGui_TableSetColumnIndex(ctx, 0)
-                        local row_y = reaper.ImGui_GetCursorPosY(ctx)
-                        local frame_h = reaper.ImGui_GetFrameHeight(ctx)
-                        local row_padding = 4
-                        local row_h = frame_h + row_padding
-                        local content_y = row_y + (row_padding / 2)
-                        
-                        -- Fix: Push transparent selection colors to avoid "grey over green" visual glitch on Mac
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Header(), 0)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0x22AA2222) -- Subtle hover
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderActive(), 0x22AA2233)
-                        
-                        -- Selectable spanning all columns
-                        if reaper.ImGui_Selectable(ctx, "##row_sel" .. e_i, row_selected, reaper.ImGui_SelectableFlags_SpanAllColumns() | reaper.ImGui_SelectableFlags_AllowOverlap(), 0, row_h) then
-                            local is_shift = reaper.ImGui_GetKeyMods(ctx) == reaper.ImGui_Mod_Shift()
-                            local is_ctrl = (reaper.ImGui_GetKeyMods(ctx) == reaper.ImGui_Mod_Ctrl()) or (reaper.ImGui_GetKeyMods(ctx) == reaper.ImGui_Mod_Super())
-                            
-                            if is_shift and cfg_dict.last_selected_idx then
-                                -- For Shift, we still need to know the VISUAL range [cfg_dict.last_selected_idx, e_i]
-                                local start_idx = math.min(cfg_dict.last_selected_idx, e_i)
-                                local end_idx = math.max(cfg_dict.last_selected_idx, e_i)
-                                if not is_ctrl then cfg_dict.entry_selection = {} end
-                                for i = start_idx, end_idx do 
-                                    local ent = active_dict.entries[i]
-                                    if ent and ent.uid then cfg_dict.entry_selection[ent.uid] = true end
-                                end
-                            elseif is_ctrl then
-                                cfg_dict.entry_selection[entry.uid] = not row_selected
-                                if cfg_dict.entry_selection[entry.uid] then cfg_dict.last_selected_idx = e_i end
-                            else
-                                cfg_dict.entry_selection = { [entry.uid] = true }
-                                cfg_dict.last_selected_idx = e_i
-                            end
-                        end
-                        reaper.ImGui_PopStyleColor(ctx, 3)
-
-                        if reaper.ImGui_IsItemClicked(ctx, 1) then
-                            if not row_selected then
-                                cfg_dict.entry_selection = { [entry.uid] = true }
-                                cfg_dict.last_selected_idx = e_i
-                            end
-                            open_entry_popup = true
-                        end
-
-                        -- 3. Draw Columns (RESET CURSOR Y with calculated balance)
-                        local content_y = row_y + (row_padding / 2)
-                        reaper.ImGui_SetCursorPosY(ctx, content_y)
-
-                        -- Column 0: Index
-                        reaper.ImGui_TableSetColumnIndex(ctx, 0)
-                        local col0_x, col0_y = reaper.ImGui_GetCursorScreenPos(ctx)
-                        reaper.ImGui_SetCursorScreenPos(ctx, col0_x, col0_y)
-                        reaper.ImGui_TextDisabled(ctx, "#" .. (entry.uid or e_i))
-                        
-                        -- Column 1: Word
-                        reaper.ImGui_TableSetColumnIndex(ctx, 1)
-                        reaper.ImGui_SetCursorPosY(ctx, content_y)
-                        reaper.ImGui_SetNextItemWidth(ctx, -1)
-                        local changed_w, new_w = reaper.ImGui_InputText(ctx, "##w", entry.word)
-                        if reaper.ImGui_IsItemFocused(ctx) and not row_selected then
-                            cfg_dict.entry_selection = { [entry.uid] = true }
-                            cfg_dict.last_selected_idx = e_i
-                        end
-                        if changed_w then entry.word = new_w; UTILS.save_user_dicts(); UTILS.move_dict_to_top(cfg_dict.sd_inx) end
-
-                        -- Column 2: Replacement
-                        reaper.ImGui_TableSetColumnIndex(ctx, 2)
-                        reaper.ImGui_SetCursorPosY(ctx, content_y)
-                        reaper.ImGui_SetNextItemWidth(ctx, -1)
-                        local changed_r, new_r = reaper.ImGui_InputText(ctx, "##r", entry.replacement)
-                        if reaper.ImGui_IsItemFocused(ctx) and not row_selected then
-                            cfg_dict.entry_selection = { [entry.uid] = true }
-                            cfg_dict.last_selected_idx = e_i
-                        end
-                        if changed_r then entry.replacement = new_r; UTILS.save_user_dicts(); UTILS.move_dict_to_top(cfg_dict.sd_inx) end
-
-                        -- Column 3: Comment
-                        reaper.ImGui_TableSetColumnIndex(ctx, 3)
-                        reaper.ImGui_SetCursorPosY(ctx, content_y)
-                        reaper.ImGui_SetNextItemWidth(ctx, -1)
-                        local changed_c, new_c = reaper.ImGui_InputText(ctx, "##c", entry.comment)
-                        if reaper.ImGui_IsItemFocused(ctx) and not row_selected then
-                            cfg_dict.entry_selection = { [entry.uid] = true }
-                            cfg_dict.last_selected_idx = e_i
-                        end
-                        if changed_c then entry.comment = new_c; UTILS.save_user_dicts(); UTILS.move_dict_to_top(cfg_dict.sd_inx) end
-
-                        -- Column 4: Delete Button
-                        reaper.ImGui_TableSetColumnIndex(ctx, 4)
-                        reaper.ImGui_SetCursorPosY(ctx, content_y)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_CLOSE)
-                        if reaper.ImGui_Button(ctx, "×##del", 25, 0) then
-                            to_remove = e_i
-                        end
-                        reaper.ImGui_PopStyleColor(ctx)
-                        
-                        reaper.ImGui_PopID(ctx)
-                        
-                        ::next_entry::
-                    end
-                    
-                    reaper.ImGui_EndTable(ctx)
-                    
-                    -- Table Context Menu (for empty space) 
-                    if reaper.ImGui_IsWindowHovered(ctx, reaper.ImGui_HoveredFlags_ChildWindows()) and reaper.ImGui_IsMouseClicked(ctx, 1) and not reaper.ImGui_IsAnyItemHovered(ctx) then
-                        reaper.ImGui_OpenPopup(ctx, "table_bg_popup")
-                    end
-                            
-                    if reaper.ImGui_BeginPopup(ctx, "table_bg_popup") then
-                        if reaper.ImGui_Selectable(ctx, T("paste")) then
-                            local text = reaper.ImGui_GetClipboardText(ctx)
-                            if text and text ~= "" and active_dict then
-                                local added = 0
-                                local nid = active_dict.next_id or (#active_dict.entries + 1)
-                                for line in text:gmatch("[^\r\n]+") do
-                                    local skip = false
-                                    local l_lower = utf8_lower(line)
-                                    if (l_lower:find("word") and l_lower:find("replacement")) or (l_lower:find("слово") and l_lower:find("заміна")) or (l_lower:find(utf8_lower(T("col_word"))) and l_lower:find(utf8_lower(T("col_replacement")))) then skip = true end
-                                    
-                                    if not skip then
-                                        local parts = {}
-                                        local current_line = line .. ","
-                                        local i = 1
-                                        while i <= #current_line do
-                                            local s, e, cap = current_line:find('^%s*"([^"]*)"%s*[, \t]', i)
-                                            if not s then
-                                                s, e, cap = current_line:find('^([^,\t]*)%s*[, \t]', i)
-                                            end
-                                            if s then
-                                                table.insert(parts, cap or "")
-                                                i = e + 1
-                                            else
-                                                break
-                                            end
-                                        end
-                                        
-                                        local w, r, c = parts[1], parts[2], parts[3]
-                                        if w and w:gsub("%s+", "") ~= "" then
-                                            w = w:gsub('""', '"')
-                                            r = (r or ""):gsub('""', '"')
-                                            c = (c or ""):gsub('""', '"')
-                                            if not UTILS.entry_exists(active_dict.entries, w, r, c) then
-                                                table.insert(active_dict.entries, 1, {uid = nid, word = w, replacement = r, comment = c})
-                                                nid = nid + 1
-                                                added = added + 1
-                                            end
-                                        end
-                                    end
-                                end
-                                if added > 0 then
-                                    active_dict.next_id = nid
-                                    UTILS.save_user_dicts()
-                                    UTILS.move_dict_to_top(cfg_dict.sd_inx)
-                                end
-                            end
-                        end
-                        reaper.ImGui_EndPopup(ctx)
-                    end
-
-                    if open_entry_popup then
-                        reaper.ImGui_OpenPopup(ctx, "entry_context_menu")
-                    end
-
-                    -- Entry Context Menu
-                    if reaper.ImGui_BeginPopup(ctx, "entry_context_menu") then
-                        local selected_count = 0
-                        for _ in pairs(cfg_dict.entry_selection) do selected_count = selected_count + 1 end
-                        
-                        if reaper.ImGui_Selectable(ctx, string.format(T("copy_count_lbl"), selected_count)) then
-                            local lines = {}
-                            -- We need to find entries by UIDs now
-                            for _, e in ipairs(active_dict.entries) do
-                                if cfg_dict.entry_selection[e.uid] then
-                                    local w = (e.word or ""):gsub('"', '""')
-                                    local r = (e.replacement or ""):gsub('"', '""')
-                                    local c = (e.comment or ""):gsub('"', '""')
-                                    table.insert(lines, string.format('"%s","%s","%s"', w, r, c))
-                                end
-                            end
-                            reaper.ImGui_SetClipboardText(ctx, table.concat(lines, "\n"))
-                        end
-                        
-                        if reaper.ImGui_Selectable(ctx, string.format(T("cut_count_lbl"), selected_count)) then
-                            local lines = {}
-                            local to_del_uids = {}
-                            for uid, sel in pairs(cfg_dict.entry_selection) do if sel then to_del_uids[uid] = true end end
-                            
-                            for _, e in ipairs(active_dict.entries) do
-                                if to_del_uids[e.uid] then
-                                    local w = (e.word or ""):gsub('"', '""')
-                                    local r = (e.replacement or ""):gsub('"', '""')
-                                    local c = (e.comment or ""):gsub('"', '""')
-                                    table.insert(lines, string.format('"%s","%s","%s"', w, r, c))
-                                end
-                            end
-                            reaper.ImGui_SetClipboardText(ctx, table.concat(lines, "\n"))
-                            
-                            -- Actual remove logic (backwards)
-                            for i = #active_dict.entries, 1, -1 do
-                                if to_del_uids[active_dict.entries[i].uid] then
-                                    table.remove(active_dict.entries, i)
-                                end
-                            end
-                            cfg_dict.entry_selection = {}
-                            UTILS.save_user_dicts()
-                            UTILS.move_dict_to_top(cfg_dict.sd_inx)
-                        end
-
-                        if reaper.ImGui_Selectable(ctx, T("paste")) then
-                            local text = reaper.ImGui_GetClipboardText(ctx)
-                            if text and text ~= "" then
-                                local added = 0
-                                local nid = active_dict.next_id or (#active_dict.entries + 1)
-                                for line in text:gmatch("[^\r\n]+") do
-                                    local skip = false
-                                    local l_lower = utf8_lower(line)
-                                    if (l_lower:find("word") and l_lower:find("replacement")) or (l_lower:find("слово") and l_lower:find("заміна")) or (l_lower:find(utf8_lower(T("col_word"))) and l_lower:find(utf8_lower(T("col_replacement")))) then skip = true end
-                                    
-                                    if not skip then
-                                        local parts = {}
-                                        -- Robust CSV/TSV parser for clipboard
-                                        -- Matches: "field",field, or field followed by , or tab
-                                        local pattern = '[ \t]*"([^"]*)"[ \t]*' -- Quoted
-                                        local alt_pattern = '([^,\t]+)' -- Unquoted
-                                        
-                                        local current_line = line .. ","
-                                        local i = 1
-                                        while i <= #current_line do
-                                            local s, e, cap = current_line:find('^%s*"([^"]*)"%s*[, \t]', i)
-                                            if not s then
-                                                s, e, cap = current_line:find('^([^,\t]*)%s*[, \t]', i)
-                                            end
-                                            if s then
-                                                table.insert(parts, cap or "")
-                                                i = e + 1
-                                            else
-                                                break
-                                            end
-                                        end
-                                        
-                                        local w, r, c = parts[1], parts[2], parts[3]
-                                        if w and w:gsub("%s+", "") ~= "" then
-                                            w = w:gsub('""', '"')
-                                            r = (r or ""):gsub('""', '"')
-                                            c = (c or ""):gsub('""', '"')
-                                            if not UTILS.entry_exists(active_dict.entries, w, r, c) then
-                                                table.insert(active_dict.entries, 1, {uid = nid, word = w, replacement = r, comment = c})
-                                                nid = nid + 1
-                                                added = added + 1
-                                            end
-                                        end
-                                    end
-                                end
-                                if added > 0 then
-                                    active_dict.next_id = nid
-                                    UTILS.save_user_dicts()
-                                    UTILS.move_dict_to_top(cfg_dict.sd_inx)
-                                end
-                            end
-                        end
-
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF5050FF)
-                        if reaper.ImGui_Selectable(ctx, string.format(T("delete_selected"), selected_count)) then
-                            local do_confirm = true
-                            if selected_count > 1 then
-                                local resp = reaper.MB(string.format(T("confirm_del_entries"), selected_count), T("confirm"), 4)
-                                if resp ~= 6 then do_confirm = false end
-                            end
-                            
-                            if do_confirm then
-                                local to_del_uids = {}
-                                for uid, sel in pairs(cfg_dict.entry_selection) do if sel then to_del_uids[uid] = true end end
-                                
-                                for i = #active_dict.entries, 1, -1 do
-                                    if to_del_uids[active_dict.entries[i].uid] then
-                                        table.remove(active_dict.entries, i)
-                                    end
-                                end
-                                cfg_dict.entry_selection = {}
-                                UTILS.save_user_dicts()
-                                UTILS.move_dict_to_top(cfg_dict.sd_inx)
-                            end
-                        end
-                        reaper.ImGui_PopStyleColor(ctx)
-                        
-                        reaper.ImGui_EndPopup(ctx)
-                    end
-
-                    if to_remove then
-                        local entry = active_dict.entries[to_remove]
-                        local is_empty = true
-                        if entry then
-                            if (entry.word and entry.word:gsub("%s+", "") ~= "") or
-                               (entry.replacement and entry.replacement:gsub("%s+", "") ~= "") or
-                               (entry.comment and entry.comment:gsub("%s+", "") ~= "") then
-                                is_empty = false
-                            end
-                        end
-
-                        if is_empty or reaper.MB(T("confirm_del_entry"), T("confirm"), 1) == 1 then
-                            if entry and entry.uid then
-                                cfg_dict.entry_selection[entry.uid] = nil
-                            end
-                            table.remove(active_dict.entries, to_remove)
-                            UTILS.save_user_dicts()
-                            UTILS.move_dict_to_top(cfg_dict.sd_inx)
-                        end
-                    end
-                 end
-            else
-                reaper.ImGui_TextWrapped(ctx, T("select_dict_hint"))
-            end
-            reaper.ImGui_EndChild(ctx)
-        end
-                
-        reaper.ImGui_EndTabItem(ctx)
-        reaper.ImGui_PushFont(ctx, font_tabs, 17)
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
-    end
-end
-
-local function RenderTab_DownloadCenter()
-    -- Download Center Tab
-    local dl_flags = (cfg.restore_tab and cfg.last_tab == 3) and reaper.ImGui_TabItemFlags_SetSelected() or 0
-    if reaper.ImGui_BeginTabItem(ctx, T("tab_download"), nil, dl_flags) then
-        if not cfg.restore_tab and cfg.last_tab ~= 3 then
-            cfg.last_tab = 3
-            reaper.SetExtState(section_name, "last_tab", "3", true)
-            UTILS.stop_preview()
-        end
-        reaper.ImGui_PopFont(ctx)
-        reaper.ImGui_PopStyleVar(ctx)
-
-        if not cfg_dwn.dwn_search then cfg_dwn.dwn_search = "" end
-        
-        local show_history = #cfg_dwn.search_history > 0
-        local hist_btn_w = show_history and 32 or 0
-        reaper.ImGui_SetNextItemWidth(ctx, -120 - hist_btn_w - (show_history and 4 or 0))
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 8) -- Increased padding for taller input
-        local changed, new_query = reaper.ImGui_InputTextWithHint(ctx, "##dl_search", T("search_hint_dl"), cfg_dwn.dwn_search)
-        if changed then 
-            cfg_dwn.dwn_search = new_query 
-            reaper.SetExtState(section_name, "dwn_search", new_query, true)
-        end
-
-        if show_history then
-            reaper.ImGui_SameLine(ctx, nil, 4)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
-            if reaper.ImGui_Button(ctx, "▼##hist", hist_btn_w) then
-                reaper.ImGui_OpenPopup(ctx, "history_popup")
-            end
-            reaper.ImGui_PopStyleColor(ctx)
-            if reaper.ImGui_BeginPopup(ctx, "history_popup") then
-                for i, h_query in ipairs(cfg_dwn.search_history) do
-                    if reaper.ImGui_Selectable(ctx, h_query .. "##hist_" .. i) then
-                        cfg_dwn.dwn_search = h_query
-                        reaper.SetExtState(section_name, "dwn_search", h_query, true)
-                    end
-                end
-                reaper.ImGui_EndPopup(ctx)
-            end
-        end
-
-        reaper.ImGui_SameLine(ctx)
-        local is_searching = (dl_search_results ~= nil and dl_search_results:find(T("searching"), 1, true))
-        local spinner_chars = { "|" , "/", "-", "\\" }
-        local spin_label = is_searching
-            and (spinner_chars[math.floor(reaper.time_precise() * 6) % 4 + 1] .. " ...")
-            or T("search_btn")
-
-        if is_searching then
-            reaper.ImGui_BeginDisabled(ctx)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x88888844)
-        else
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
-        end
-
-        if reaper.ImGui_Button(ctx, spin_label, 110) then
-            if cfg_dwn.dwn_search ~= "" then
-                -- Cleanup old thumbnail
-                if cfg_dwn.thumbnail_tex then
-                    if reaper.ImGui_Detach then reaper.ImGui_Detach(ctx, cfg_dwn.thumbnail_tex) end
-                    cfg_dwn.thumbnail_tex = nil
-                end
-                if cfg_dwn.thumbnail_path then
-                    os.remove(cfg_dwn.thumbnail_path)
-                    cfg_dwn.thumbnail_path = nil
-                end
-
-                cfg_dwn.search_data = nil
-                dl_search_results = T("searching")
-                
-                local query = cfg_dwn.dwn_search:gsub('"', '\\"')
-                
-                -- Build exclude list
-                local excluded = {}
-                for k, v in pairs(cfg_dwn.source_filters) do
-                    if not v then table.insert(excluded, k) end
-                end
-                
-                local cmd_args = UTILS.get_api_keys_args() .. string.format(' --info --target "%s"', query)
-                if #excluded > 0 then
-                    cmd_args = cmd_args .. ' --exclude "' .. table.concat(excluded, ",") .. '"'
-                end
-                
-                local cmd = UTILS.get_python_cmd(cmd_args)
-
-                UTILS.run_async_command(cmd, function(output)
-                    if output == "TIMEOUT" then
-                        dl_search_results = nil
-                        cfg_dwn.error_tooltip = { text = T("err_timeout"), t = reaper.time_precise() }
-                    elseif output and output ~= "" then
-                        local success, data = pcall(UTILS.json_decode_robust, output)
-                        if success and type(data) == "table" and not data.error then
-                            cfg_dwn.search_data = data
-                            dl_search_results = nil
-                            UTILS.update_search_history(cfg_dwn.dwn_search)
-                        elseif data and data.error then
-                            dl_search_results = nil
-                            cfg_dwn.error_tooltip = { text = T("err_prefix") .. tostring(data.error), t = reaper.time_precise() }
-                        else
-                            dl_search_results = nil
-                            -- Show the actual output in the tooltip for debugging
-                            local short_out = output:sub(1, 100):gsub("\n", " ")
-                            cfg_dwn.error_tooltip = { text = T("err_json") .. short_out, t = reaper.time_precise() }
-                        end
-                    else
-                        dl_search_results = nil
-                        cfg_dwn.error_tooltip = { text = T("err_empty"), t = reaper.time_precise() }
-                    end
-                end)
-            end
-        end
-        reaper.ImGui_PopStyleColor(ctx)
-        if is_searching then reaper.ImGui_EndDisabled(ctx) end
-        reaper.ImGui_PopStyleVar(ctx) -- Pop FramePadding for search/add bar
-
-        -- Source Filters (matching Glossary style)
-        local sources = {
-            { id = "opensubtitles", label = "OpenSubtitles.com" },
-            { id = "subdl", label = "SubDL" },
-            { id = "tvsubtitles", label = "TVSubtitles" },
-            { id = "gestdown", label = "Gestdown" },
-            { id = "jimaku", label = "Jimaku" },
-        }
-
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_ItemSpacing(), 5, 5)
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 6, 4)
-        
-        for i, src in ipairs(sources) do
-            local is_active = cfg_dwn.source_filters[src.id]
-            -- TVSubtitles, Gestdown use scraping/open APIs; SubDL and Jimaku have built-in default keys
-            local has_key = (cfg_dwn[src.id .. "_key"] ~= "") or 
-                            (src.id == "tvsubtitles") or 
-                            (src.id == "gestdown") or
-                            (src.id == "subdl") or 
-                            (src.id == "jimaku")
-            
-            if is_active then
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), C_BTN_MEDIUM)
-                reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 0)
-            else
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x00000000)
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Border(), has_key and C_BTN_MEDIUM or 0x88888844)
-                reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 1)
-            end
-
-            if reaper.ImGui_Button(ctx, src.label .. "##filter") then
-                if src.id == "opensubtitles" and not has_key then
-                    cfg_dwn.pending_key_src = src
-                    cfg_dwn.temp_key_val = cfg_dwn[src.id .. "_key"] or ""
-                    -- Ensure it stays disabled if key is missing
-                    cfg_dwn.source_filters[src.id] = false
-                    reaper.SetExtState(section_name, "src_osub", "0", true)
-                else
-                    cfg_dwn.source_filters[src.id] = not is_active
-                    local save_key = src.id == "opensubtitles" and "src_osub" or ("src_" .. src.id)
-                    reaper.SetExtState(section_name, save_key, cfg_dwn.source_filters[src.id] and "1" or "0", true)
-                end
-            end
-            
-            if src.id ~= "tvsubtitles" and src.id ~= "gestdown" and reaper.ImGui_BeginPopupContextItem(ctx, "src_ctx_" .. src.id) then
-                if reaper.ImGui_MenuItem(ctx, T("change_api_key") .. src.id) then
-                    cfg_dwn.pending_key_src = src
-                    cfg_dwn.temp_key_val = cfg_dwn[src.id .. "_key"] or ""
-                end
-                reaper.ImGui_EndPopup(ctx)
-            end
-            
-            reaper.ImGui_PopStyleVar(ctx)
-            reaper.ImGui_PopStyleColor(ctx, is_active and 1 or 2)
-            if i < #sources then reaper.ImGui_SameLine(ctx) end
-        end
-        reaper.ImGui_PopStyleVar(ctx, 2)
-
-        -- Language Filters
-        local lang_filters = {"ALL", "EN", "JP", "FR", "SP", "UA"}
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_ItemSpacing(), 5, 5)
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 6, 4)
-        for i, lang in ipairs(lang_filters) do
-            local is_active = (cfg_dwn.lang_filter == lang)
-            if is_active then
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3C5A78FF)
-                reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 0)
-            else
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x00000000)
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Border(), 0x3C5A78AA)
-                reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameBorderSize(), 1)
-            end
-            if reaper.ImGui_Button(ctx, lang .. "##lang") then
-                cfg_dwn.lang_filter = lang
-                reaper.SetExtState(section_name, "dwn_lang_filter", lang, true)
-            end
-            reaper.ImGui_PopStyleVar(ctx)
-            reaper.ImGui_PopStyleColor(ctx, is_active and 1 or 2)
-            if i < #lang_filters then reaper.ImGui_SameLine(ctx) end
-        end
-        reaper.ImGui_PopStyleVar(ctx, 2)
-
-        reaper.ImGui_Separator(ctx)
-        reaper.ImGui_Dummy(ctx, 0, 0)
-
-        -- Error banner: fixed at bottom-center of the current window, auto-dismiss after 4s
-        if cfg_dwn.error_tooltip then
-            local elapsed = reaper.time_precise() - cfg_dwn.error_tooltip.t
-            if elapsed < 4.0 then
-                local wx, wy = reaper.ImGui_GetWindowPos(ctx)
-                local ww, wh = reaper.ImGui_GetWindowSize(ctx)
-                local is_success = cfg_dwn.error_tooltip.type == "success"
-                local msg = (is_success and "✓  " or "⚠  ") .. cfg_dwn.error_tooltip.text
-                local msg_w = reaper.ImGui_CalcTextSize(ctx, msg) + 32
-                local banner_h = 32
-                local bx = wx + (ww - msg_w) * 0.5
-                local by = wy + wh - banner_h - 10
-                reaper.ImGui_SetNextWindowPos(ctx, bx, by)
-                reaper.ImGui_SetNextWindowSize(ctx, msg_w, banner_h)
-                reaper.ImGui_SetNextWindowBgAlpha(ctx, 0.93)
-                local wflags = reaper.ImGui_WindowFlags_NoDecoration()
-                             | reaper.ImGui_WindowFlags_NoInputs()
-                             | reaper.ImGui_WindowFlags_NoNav()
-                             | reaper.ImGui_WindowFlags_NoMove()
-                
-                local bg_col = is_success and 0x306030EE or 0x882222EE
-                local txt_col = is_success and 0xCCFFCCFF or 0xFFCCCCFF
-                
-                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), bg_col)
-                reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowRounding(), 6)
-                if reaper.ImGui_Begin(ctx, "##err_banner", nil, wflags) then
-                    reaper.ImGui_SetCursorPosY(ctx, (banner_h - reaper.ImGui_GetTextLineHeight(ctx)) * 0.5)
-                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), txt_col)
-                    reaper.ImGui_Text(ctx, msg)
-                    reaper.ImGui_PopStyleColor(ctx)
-                    reaper.ImGui_End(ctx)
-                end
-                reaper.ImGui_PopStyleVar(ctx)
-                reaper.ImGui_PopStyleColor(ctx)
-            else
-                cfg_dwn.error_tooltip = nil
-            end
-        end
-
-        local avail_h = cfg_glos.layout_has_player and -82 or -5
-        
-        -- API Key Input Modal
-        if cfg_dwn.pending_key_src then
-            reaper.ImGui_OpenPopup(ctx, T("enter_api_popup"))
-        end
-        
-        local wx_m, wy_m = reaper.ImGui_GetWindowPos(ctx)
-        local ww_m, wh_m = reaper.ImGui_GetWindowSize(ctx)
-        reaper.ImGui_SetNextWindowPos(ctx, wx_m + ww_m * 0.5, wy_m + wh_m * 0.5, reaper.ImGui_Cond_Appearing(), 0.5, 0.5)
-        reaper.ImGui_SetNextWindowSize(ctx, 400, 0)
-        
-        if reaper.ImGui_BeginPopupModal(ctx, T("enter_api_popup"), nil, reaper.ImGui_WindowFlags_AlwaysAutoResize()) then
-            local src = cfg_dwn.pending_key_src
-            reaper.ImGui_Text(ctx, T("api_key_prompt") .. src.label .. ":")
-            reaper.ImGui_Dummy(ctx, 0, 5)
-            
-            reaper.ImGui_SetNextItemWidth(ctx, -1)
-            local changed, new_val = reaper.ImGui_InputText(ctx, "##key_input", cfg_dwn.temp_key_val)
-            if changed then cfg_dwn.temp_key_val = new_val end
-            
-            reaper.ImGui_Dummy(ctx, 0, 10)
-            
-            if reaper.ImGui_Button(ctx, T("save"), 120) or reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Enter()) then
-                cfg_dwn[src.id .. "_key"] = cfg_dwn.temp_key_val
-                reaper.SetExtState(section_name, "key_" .. src.id, cfg_dwn.temp_key_val, true)
-                -- Auto-enable source if key is set
-                if cfg_dwn.temp_key_val ~= "" then
-                    cfg_dwn.source_filters[src.id] = true
-                    local save_key = src.id == "opensubtitles" and "src_osub" or ("src_" .. src.id)
-                    reaper.SetExtState(section_name, save_key, "1", true)
-                end
-                cfg_dwn.pending_key_src = nil
-                reaper.ImGui_CloseCurrentPopup(ctx)
-            end
-            reaper.ImGui_SameLine(ctx)
-            if reaper.ImGui_Button(ctx, T("cancel"), 120) or reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Escape()) then
-                cfg_dwn.pending_key_src = nil
-                reaper.ImGui_CloseCurrentPopup(ctx)
-            end
-            
             reaper.ImGui_EndPopup(ctx)
         end
+        reaper.ImGui_PopStyleVar(ctx)
+        reaper.ImGui_PopID(ctx)
 
-        if reaper.ImGui_BeginChild(ctx, "dl_center_child", 0, avail_h) then
-            reaper.ImGui_Dummy(ctx, 0, 10)
-            if dl_search_results then
-                reaper.ImGui_TextWrapped(ctx, dl_search_results)
-            elseif cfg_dwn.search_data then
-                local has_results = false
-                
-                if cfg_dwn.search_data.formats then
-                    -- =========================================================
-                    -- LARGE CARD (URL INFO)
-                    -- =========================================================
-                    local data = cfg_dwn.search_data
-                    
-                    -- Load thumbnail if available
-                    if data.thumbnail and not cfg_dwn.thumbnail_tex and not cfg_dwn.is_loading_thumb then
-                        cfg_dwn.is_loading_thumb = true
-                        UTILS.download_thumbnail(data.thumbnail, function(path)
-                            cfg_dwn.thumbnail_path = path
-                            if reaper.ImGui_CreateImage then
-                                local img = reaper.ImGui_CreateImage(path)
-                                if reaper.ImGui_Attach then reaper.ImGui_Attach(ctx, img) end
-                                cfg_dwn.thumbnail_tex = img
-                            end
-                            cfg_dwn.is_loading_thumb = false
-                        end)
-                    end
-
-                    reaper.ImGui_BeginGroup(ctx)
-                    
-                    -- Header Section: Thumbnail + Title
-                    local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
-                    local thumb_w = math.min(180, avail_w * 0.4)
-                    local thumb_h = thumb_w * 9 / 16
-                    
-                    if cfg_dwn.thumbnail_tex then
-                        reaper.ImGui_Image(ctx, cfg_dwn.thumbnail_tex, thumb_w, thumb_h)
-                        reaper.ImGui_SameLine(ctx, nil, 15)
-                    else
-                        reaper.ImGui_Dummy(ctx, thumb_w, thumb_h)
-                        reaper.ImGui_SameLine(ctx, nil, 15)
-                    end
-                    
-                    reaper.ImGui_BeginGroup(ctx)
-                    reaper.ImGui_PushFont(ctx, font_main, 19)
-                    reaper.ImGui_TextWrapped(ctx, data.title or T("unknown_video"))
-                    reaper.ImGui_PopFont(ctx)
-                    if data.duration then
-                        local m = math.floor(data.duration / 60)
-                        local s = math.floor(data.duration % 60)
-                        reaper.ImGui_TextDisabled(ctx, string.format(T("duration_fmt"), m, s))
-                    end
-                    reaper.ImGui_EndGroup(ctx)
-                    
-                    reaper.ImGui_Dummy(ctx, 0, 10)
-                    reaper.ImGui_Separator(ctx)
-                    reaper.ImGui_Dummy(ctx, 0, 10)
-                    
-                    -- Subtitles Section
-                    if data.subtitles and #data.subtitles > 0 then
-                        reaper.ImGui_PushFont(ctx, font_main, 17)
-                        reaper.ImGui_Text(ctx, T("embedded_subs"))
-                        reaper.ImGui_PopFont(ctx)
-                        reaper.ImGui_Dummy(ctx, 0, 5)
-                        
-                        local spin_chars = { "|", "/", "-", "\\" }
-                        local spin = spin_chars[math.floor(reaper.time_precise() * 6) % 4 + 1]
-                        
-                        for i, s in ipairs(data.subtitles) do
-                            local label = s.lang:upper() .. (s.is_auto and T("auto_sub_suffix") or "")
-                            local btn_key = "url_sub_" .. s.lang
-                            local is_loading = (cfg_dwn.loading_item == btn_key)
-                            
-                            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 3)
-                            reaper.ImGui_Text(ctx, label)
-                            reaper.ImGui_SameLine(ctx, avail_w - 90)
-                            
-                            local is_any_loading = (cfg_dwn.loading_item ~= nil)
-                            
-                            if is_loading then
-                                reaper.ImGui_BeginDisabled(ctx)
-                                reaper.ImGui_Button(ctx, spin .. "##" .. btn_key, 90)
-                                reaper.ImGui_EndDisabled(ctx)
-                            else
-                                if is_any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                if reaper.ImGui_Button(ctx, T("download_btn").."##" .. btn_key, 90) then
-                                    UTILS.trigger_subtitle_from_url(cfg_dwn.dwn_search, s.lang, btn_key)
-                                end
-                                if is_any_loading then reaper.ImGui_EndDisabled(ctx) end
-                            end
-                            reaper.ImGui_PopStyleVar(ctx)
-                            reaper.ImGui_Separator(ctx)
-                        end
-                        reaper.ImGui_Dummy(ctx, 0, 10)
-                    end
-                    
-                    -- Formats Section (Media download)
-                    if data.formats and #data.formats > 0 then
-                        reaper.ImGui_PushFont(ctx, font_main, 17)
-                        reaper.ImGui_Text(ctx, T("media_only"))
-                        reaper.ImGui_PopFont(ctx)
-                        reaper.ImGui_Dummy(ctx, 0, 5)
-                        
-                        local spin_chars = { "|", "/", "-", "\\" }
-                        local spin = spin_chars[math.floor(reaper.time_precise() * 6) % 4 + 1]
-                        
-                        for i, f in ipairs(data.formats) do
-                            local f_label = string.format("[%s] %s %s", f.ext:upper(), f.type:upper(), f.note or f.resolution or "")
-                            local btn_key = "url_fmt_" .. (f.format_id or i)
-                            local is_loading = (cfg_dwn.loading_item == btn_key)
-                            
-                            reaper.ImGui_Text(ctx, f_label)
-                            reaper.ImGui_SameLine(ctx, avail_w - 205 - 8)
-                            
-                            local is_any_loading = (cfg_dwn.loading_item ~= nil)
-
-                            if is_loading then
-                                reaper.ImGui_BeginDisabled(ctx)
-                                local prog_val = 0
-                                if cfg_dwn.loading_path then
-                                    local pf = io.open(cfg_dwn.loading_path .. ".progress", "r")
-                                    if pf then
-                                        local content = pf:read("*all")
-                                        pf:close()
-                                        prog_val = (tonumber(content) or 0) / 100
-                                    end
-                                end
-                                
-                                if prog_val > 0 then
-                                    reaper.ImGui_ProgressBar(ctx, prog_val, 205 + 8, 20, string.format("%d%%", math.floor(prog_val * 100)))
-                                else
-                                    reaper.ImGui_Button(ctx, spin .. "##" .. btn_key, 205 + 8)
-                                end
-                                reaper.ImGui_EndDisabled(ctx)
-                            else
-                                if is_any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                if reaper.ImGui_Button(ctx, T("save_as").."##" .. btn_key, 115) then
-                                    local def_ext = f.ext or "mp4"
-                                    local initial_dir = reaper.GetProjectPath("")
-                                    local default_name = (data.title or T("video_fallback")) .. "." .. def_ext
-                                    
-                                    if reaper.JS_Dialog_BrowseForSaveFile then
-                                        local filter = def_ext:upper() .. " Files (*." .. def_ext .. ")\0*." .. def_ext .. "\0All Files (*.*)\0*.*\0"
-                                        local retval, filename = reaper.JS_Dialog_BrowseForSaveFile(T("save_media_title"), initial_dir, default_name, filter)
-                                        if retval == 1 then
-                                            UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or T("video_fallback"), f.ext, f.type, btn_key, filename, true)
-                                        end
-                                    else
-                                        local ok, filename = reaper.GetUserInputs(T("save_as"), 1, T("save_as_path_lbl"), initial_dir .. "/" .. default_name)
-                                        if ok then
-                                            UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or T("video_fallback"), f.ext, f.type, btn_key, filename, true)
-                                        end
-                                    end
-                                end
-                                reaper.ImGui_SameLine(ctx, avail_w - 90)
-                                if reaper.ImGui_Button(ctx, T("download_btn").."##" .. btn_key, 90) then
-                                    UTILS.download_media(cfg_dwn.dwn_search, f.format_id, data.title or T("video_fallback"), f.ext, f.type, btn_key)
-                                end
-                                if is_any_loading then reaper.ImGui_EndDisabled(ctx) end
-                            end
-                            reaper.ImGui_Separator(ctx)
-                        end
-                    end
-                    
-                    reaper.ImGui_EndGroup(ctx)
-                    has_results = true
+        -- Header
+        if reaper.ImGui_Button(ctx, T("import_pdf")) then
+            local files = pick_pdf()
+            if files then 
+                for _, file in ipairs(files) do
+                    process_pdf(file) 
                 end
-
-                for _, source_group in ipairs(cfg_dwn.search_data.sources or {}) do
-                    local items = source_group.items or {}
-                    
-                    local filtered_items = {}
-                    for _, item in ipairs(items) do
-                        if UTILS.item_matches_lang(item) then 
-                            table.insert(filtered_items, item) 
-                        end
-                    end
-                    items = filtered_items
-
-                    if #items > 0 then
-                        has_results = true
-                        reaper.ImGui_PushFont(ctx, font_main, 18)
-                        reaper.ImGui_Text(ctx, string.upper(source_group.source))
-                        reaper.ImGui_PopFont(ctx)
-                        reaper.ImGui_Separator(ctx)
-                        reaper.ImGui_Dummy(ctx, 0, 10)
-                        
-                        for i, item in ipairs(items) do
-                            reaper.ImGui_PushID(ctx, source_group.source .. "_" .. i)
-                            local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
-                            local btn_w = 56
-                            local btn_gap = 4
-                            local spin_chars = { "|", "/", "-", "\\" }
-                            local spin = spin_chars[math.floor(reaper.time_precise() * 6) % 4 + 1]
-                            local prev_key = i .. source_group.source .. "preview"
-                            local add_key  = i .. source_group.source .. "import"
-                            local prev_loading = (cfg_dwn.loading_item == prev_key)
-                            local add_loading  = (cfg_dwn.loading_item == add_key)
-                            local any_loading  = (cfg_dwn.loading_item ~= nil)
-
-                            local info_parts = {}
-                            if item.lang then table.insert(info_parts, item.lang:upper()) end
-                            if item.format then table.insert(info_parts, item.format:upper()) end
-                            if item.year and item.year ~= "" then table.insert(info_parts, item.year) end
-                            if item.downloads and item.downloads > 0 then table.insert(info_parts, "↓ " .. item.downloads) end
-                            if item.rating and item.rating > 0 then table.insert(info_parts, "★ " .. item.rating) end
-                            local meta = table.concat(info_parts, "  ")
-
-                            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 3)
-                            
-                            -- Create a hitbox for the entire row
-                            local cur_x, cur_y = reaper.ImGui_GetCursorPos(ctx)
-                            local start_x, start_y = reaper.ImGui_GetCursorScreenPos(ctx)
-                            local url = item.download_url or item.url or item.files_url
-                            local loading_key_save = "save_as_" .. add_key
-                            local is_loading_save = (cfg_dwn.loading_item == loading_key_save)
-                            
-                            -- Dynamic Height Calculation
-                            local wrap_w = avail_w - btn_w * 2 - btn_gap - 15
-                            reaper.ImGui_PushFont(ctx, font_main, 14)
-                            local title_txt = item.title or item.file_name or T("unknown_item")
-                            local t_w, t_lh = reaper.ImGui_CalcTextSize(ctx, title_txt)
-                            local title_h = math.ceil(t_w / (wrap_w - 5)) * t_lh
-                            reaper.ImGui_PopFont(ctx)
-                            local meta_h = 0
-                            if meta ~= "" then
-                                local m_w, m_lh = reaper.ImGui_CalcTextSize(ctx, meta)
-                                meta_h = math.ceil(m_w / (wrap_w - 5)) * m_lh
-                            end
-                            local row_h = title_h + meta_h + 11
-                            if row_h < 43 then row_h = 43 end
-                            
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderActive(), 0xFFFFFF22)
-                            
-                            local label = "##row_hitbox" .. i
-                            if reaper.ImGui_Selectable(ctx, label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, row_h) then
-                                -- Left click action: Open folder or Preview file
-                                if not any_loading then
-                                    if item.is_folder or source_group.source == "jimaku" then
-                                        if not item.expanded then
-                                            if item.files then item.expanded = true
-                                            else UTILS.get_folder_files(item, source_group.source, add_key) end
-                                        else item.expanded = false end
-                                    else
-                                        UTILS.trigger_subtitle_download(item, source_group.source, "preview", prev_key)
-                                    end
-                                end
-                            end
-                            
-                            if reaper.ImGui_BeginPopupContextItem(ctx, "item_context_menu" .. i) then
-                                draw_menu_contents(item, source_group.source, add_key)
-                                reaper.ImGui_EndPopup(ctx)
-                            end
-                            reaper.ImGui_PopStyleColor(ctx, 2)
-                            reaper.ImGui_SetCursorPos(ctx, cur_x, cur_y)
-
-                            -- Main Title
-                            reaper.ImGui_PushFont(ctx, font_main, 14)
-                            reaper.ImGui_PushTextWrapPos(ctx, avail_w - btn_w * 2 - btn_gap - 15)
-                            reaper.ImGui_Text(ctx, item.title or item.file_name or T("unknown_item"))
-                            reaper.ImGui_PopTextWrapPos(ctx)
-                            reaper.ImGui_PopFont(ctx)
-                            
-                            -- Metadata
-                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xAAAAAAFF)
-                            reaper.ImGui_PushTextWrapPos(ctx, avail_w - btn_w * 2 - btn_gap - 15)
-                            
-                            if item.season and item.episode then
-                                UTILS.draw_meta_tag(ctx, string.format("S%02d E%02d", item.season, item.episode), 0x4CA6FF44)
-                                reaper.ImGui_SameLine(ctx, nil, 12)
-                            elseif item.episode then
-                                UTILS.draw_meta_tag(ctx, string.format("E%02d", item.episode), 0x4CA6FF44)
-                                reaper.ImGui_SameLine(ctx, nil, 12)
-                            end
-                            
-                            reaper.ImGui_Text(ctx, meta)
-                            reaper.ImGui_PopTextWrapPos(ctx)
-                            reaper.ImGui_PopStyleColor(ctx)
- 
-                            -- Folder / Pack handling (Generic)
-                            if item.is_folder or source_group.source == "jimaku" then
-                                reaper.ImGui_SameLine(ctx, avail_w - 115 - 4)
-                                if item.expanded then
-                                    if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x6B423CFF)
-                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x82524AFF)
-                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x54342FFF)
-                                    if reaper.ImGui_Button(ctx, T("folder_close_btn").."##fld" .. i .. source_group.source, 115) then
-                                        item.expanded = false
-                                    end
-                                    reaper.ImGui_PopStyleColor(ctx, 3)
-                                    if any_loading then reaper.ImGui_EndDisabled(ctx) end
-                                else
-                                    if add_loading or is_loading_save then
-                                        reaper.ImGui_BeginDisabled(ctx)
-                                        reaper.ImGui_Button(ctx, spin .. "##fld" .. i .. source_group.source, 115)
-                                        reaper.ImGui_EndDisabled(ctx)
-                                    else
-                                        if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3C5A78FF)
-                                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4B6D8FFF)
-                                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2D455CFF)
-                                        if reaper.ImGui_Button(ctx, T("folder_open_btn").."##fld" .. i .. source_group.source, 115) then
-                                            if item.files then
-                                                item.expanded = true
-                                            else
-                                                UTILS.get_folder_files(item, source_group.source, add_key) 
-                                            end
-                                        end
-                                        reaper.ImGui_PopStyleColor(ctx, 3)
-                                        if any_loading then reaper.ImGui_EndDisabled(ctx) end
-                                    end
-                                end
-                            else
-                                -- Standard Preview button
-                                reaper.ImGui_SameLine(ctx, avail_w - 105 - 4)
-                                if prev_loading or is_loading_save then
-                                    reaper.ImGui_BeginDisabled(ctx)
-                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x444444FF)
-                                    reaper.ImGui_Button(ctx, spin .. "##prev" .. i .. source_group.source, 105)
-                                    reaper.ImGui_PopStyleColor(ctx)
-                                    reaper.ImGui_EndDisabled(ctx)
-                                else
-                                    if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
-                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4A4A4AFF)
-                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2A2A2AFF)
-                                    if reaper.ImGui_Button(ctx, T("preview_btn").."##prev" .. i .. source_group.source, 105) then
-                                        UTILS.trigger_subtitle_download(item, source_group.source, "preview", prev_key)
-                                    end
-                                    reaper.ImGui_PopStyleColor(ctx, 3)
-                                    if any_loading then reaper.ImGui_EndDisabled(ctx) end
-                                end
-                            end
-
-                            reaper.ImGui_PopStyleVar(ctx)
-                            reaper.ImGui_Separator(ctx)
-                            local _, end_y = reaper.ImGui_GetCursorScreenPos(ctx)
-                            if item.expanded then
-                                local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
-                                if draw_list then
-                                    reaper.ImGui_DrawList_AddRectFilled(draw_list, start_x, start_y - 5, start_x + avail_w, end_y - 5, 0x0000001A)
-                                end
-                            end
-
-                            local function render_item_list(files, depth, parent_id)
-                                if not files then return end
-                                reaper.ImGui_Indent(ctx, 24)
-                                local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
-                                for f_idx, f in ipairs(files) do
-                                    if UTILS.item_matches_lang(f) then
-                                        reaper.ImGui_PushID(ctx, f_idx)
-                                        local current_id = (parent_id or (source_group.source .. "_" .. i)) .. "_" .. f_idx
-                                        local f_key = current_id .. "_" .. (depth or 0)
-                                        local f_name = (f.file_name or f.title or T("unknown_item"))
-                                        
-                                        local f_meta = ""
-                                        if f.lang then f_meta = f_meta .. "[" .. f.lang:upper() .. "] " end
-                                        if f.hi then f_meta = f_meta .. "[HI] " end
-                                        if f.rating and f.rating > 0 then f_meta = f_meta .. "★ " .. f.rating .. " " end
-                                        
-                                        -- Hitbox for nested file
-                                        local f_x, f_y = reaper.ImGui_GetCursorPos(ctx)
-                                        local start_x, start_y = reaper.ImGui_GetCursorScreenPos(ctx)
-                                        local row_w = reaper.ImGui_GetContentRegionAvail(ctx)
-                                        local f_url = f.download_url or f.url or f.files_url
-                                        local f_loading_key = "save_as_" .. f_key
-                                        local f_is_loading_save = (cfg_dwn.loading_item == f_loading_key)
-                                        
-                                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_HeaderHovered(), 0xFFFFFF11)
-                                        
-                                        local f_label = "##f_hitbox" .. f_key
-                                        if reaper.ImGui_Selectable(ctx, f_label, false, reaper.ImGui_SelectableFlags_AllowOverlap() | reaper.ImGui_SelectableFlags_SpanAllColumns(), 0, 20) then
-                                            -- Left click action: Open nested folder or Preview nested file
-                                            if not any_loading then
-                                                if f.is_folder then
-                                                    if not f.expanded then
-                                                        if f.files then f.expanded = true
-                                                        else UTILS.get_folder_files(f, source_group.source, f_key) end
-                                                    else f.expanded = false end
-                                                else
-                                                    UTILS.trigger_subtitle_download(f, source_group.source, "preview", f_key)
-                                                end
-                                            end
-                                        end
-                                        
-                                        if reaper.ImGui_BeginPopupContextItem(ctx, "item_context_menu_f" .. f_key) then
-                                            draw_menu_contents(f, source_group.source, f_key)
-                                            reaper.ImGui_EndPopup(ctx)
-                                        end
-                                        reaper.ImGui_PopStyleColor(ctx)
-                                        reaper.ImGui_SetCursorPos(ctx, f_x, f_y)
-
-                                        reaper.ImGui_PushTextWrapPos(ctx, avail_w - btn_w * 2 - btn_gap - 35)
-                                        
-                                        if f.season and f.episode then
-                                            UTILS.draw_meta_tag(ctx, string.format("S%02d E%02d", f.season, f.episode), 0x4CA6FF44)
-                                            reaper.ImGui_SameLine(ctx, nil, 12)
-                                        elseif f.episode then
-                                            UTILS.draw_meta_tag(ctx, string.format("E%02d", f.episode), 0x4CA6FF44)
-                                            reaper.ImGui_SameLine(ctx, nil, 12)
-                                        end
-                                        
-                                        reaper.ImGui_Text(ctx, f_name)
-                                        
-                                        if f_meta ~= "" then
-                                            reaper.ImGui_SameLine(ctx)
-                                            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xAAAAAAFF)
-                                            reaper.ImGui_Text(ctx, f_meta)
-                                            reaper.ImGui_PopStyleColor(ctx)
-                                        end
-                                        reaper.ImGui_PopTextWrapPos(ctx)
-                                        
-                                        
-                                        if f.is_folder then
-                                            reaper.ImGui_SameLine(ctx, avail_w - 115 - 4)
-                                            if f.expanded then
-                                                if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x6B423CFF)
-                                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x82524AFF)
-                                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x54342FFF)
-                                                if reaper.ImGui_Button(ctx, T("folder_close_btn").."##f" .. f_key, 115) then
-                                                    f.expanded = false
-                                                end
-                                                reaper.ImGui_PopStyleColor(ctx, 3)
-                                                if any_loading then reaper.ImGui_EndDisabled(ctx) end
-                                                render_item_list(f.files, (depth or 0) + 1, current_id)
-                                            else
-                                                if cfg_dwn.loading_item == f_key or f_is_loading_save then
-                                                    reaper.ImGui_BeginDisabled(ctx)
-                                                    reaper.ImGui_Button(ctx, spin .. "##f" .. f_key, 115)
-                                                    reaper.ImGui_EndDisabled(ctx)
-                                                else
-                                                    if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3C5A78FF)
-                                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4B6D8FFF)
-                                                    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2D455CFF)
-                                                    if reaper.ImGui_Button(ctx, T("folder_open_btn").."##f" .. f_key, 115) then
-                                                        if f.files then
-                                                            f.expanded = true
-                                                        else
-                                                            UTILS.get_folder_files(f, source_group.source, f_key)
-                                                        end
-                                                    end
-                                                    reaper.ImGui_PopStyleColor(ctx, 3)
-                                                    if any_loading then reaper.ImGui_EndDisabled(ctx) end
-                                                end
-                                            end
-                                        else
-                                            -- Standard buttons for files
-                                            reaper.ImGui_SameLine(ctx, avail_w - 105 - 4)
-                                            if cfg_dwn.loading_item == f_key or f_is_loading_save then
-                                                reaper.ImGui_BeginDisabled(ctx)
-                                                reaper.ImGui_Button(ctx, spin .. "##p" .. f_key, 105)
-                                                reaper.ImGui_EndDisabled(ctx)
-                                            else
-                                                if any_loading then reaper.ImGui_BeginDisabled(ctx) end
-                                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x3A3A3AFF)
-                                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x4A4A4AFF)
-                                                reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x2A2A2AFF)
-                                                if reaper.ImGui_Button(ctx, T("preview_btn").."##p" .. f_key, 105) then
-                                                    UTILS.trigger_subtitle_download(f, source_group.source, "preview", f_key)
-                                                end
-                                                reaper.ImGui_PopStyleColor(ctx, 3)
-                                                if any_loading then reaper.ImGui_EndDisabled(ctx) end
-                                            end
-                                        end
-                                        reaper.ImGui_Separator(ctx)
-                                        local _, end_y = reaper.ImGui_GetCursorScreenPos(ctx)
-                                        if draw_list then
-                                            -- Expanded folder highlight
-                                            if f.is_folder and f.expanded then
-                                                reaper.ImGui_DrawList_AddRectFilled(draw_list, start_x - 24, start_y - 5, start_x + row_w, end_y - 5, 0x0000001A)
-                                            end
-                                            -- Zebra background
-                                            if f_idx % 2 == 0 then
-                                                reaper.ImGui_DrawList_AddRectFilled(draw_list, start_x - 24, start_y - 5, start_x + row_w, end_y - 5, 0xFFFFFF07)
-                                            end
-                                            -- Vertical tree line
-                                            reaper.ImGui_DrawList_AddRectFilled(draw_list, start_x - 14, start_y - 5, start_x - 12, end_y - 5, 0x4CA6FF66)
-                                        end
-                                        reaper.ImGui_PopID(ctx)
-                                    end
-                                end
-                                reaper.ImGui_Unindent(ctx, 24)
-                            end
-
-                            if item.expanded and item.files then
-                                render_item_list(item.files, 1, source_group.source .. "_" .. i)
-                            end
-                            reaper.ImGui_PopID(ctx)
-                        end
-                        reaper.ImGui_Dummy(ctx, 0, 10)
-                    end
-                end
-                if not has_results then
-                    reaper.ImGui_TextDisabled(ctx, T("no_results"))
-                end
-            else
-                reaper.ImGui_TextDisabled(ctx, T("enter_query"))
             end
-
-            reaper.ImGui_EndChild(ctx)
+        end
+        if doc and doc.metadata then
+            -- Search Toggle Button
+            reaper.ImGui_SameLine(ctx)
+            if reaper.ImGui_Button(ctx, T("search")) then 
+                doc.search_open = not doc.search_open
+                if not doc.search_open then
+                    doc.search_results = {}
+                    doc.search_text = ""
+                    doc.search_index = 0
+                end
+                save_project_state()
+            end
+            
+            reaper.ImGui_SameLine(ctx, 0, 20)
+            reaper.ImGui_Text(ctx, string.format(T("zoom"), math.floor(doc.zoom * 100 + 0.5)))
+            reaper.ImGui_SameLine(ctx)
+            if reaper.ImGui_Button(ctx, "-", 24, 0) then doc.zoom = math.max(0.1, doc.zoom - 0.1); save_project_state() end
+            reaper.ImGui_SameLine(ctx)
+            if reaper.ImGui_Button(ctx, "+", 24, 0) then doc.zoom = math.min(5.0, doc.zoom + 0.1); save_project_state() end
+            
+            -- Right aligned page indicator and menu
+            local page_str = string.format("%d / %d", doc.current_page, doc.metadata.page_count)
+            local btn_w = 24
+            local text_w = reaper.ImGui_CalcTextSize(ctx, page_str)
+            local avail_xw = reaper.ImGui_GetContentRegionAvail(ctx)
+            
+            reaper.ImGui_SameLine(ctx, avail_xw - text_w - btn_w - 5)
+            reaper.ImGui_Text(ctx, page_str)
+            
+            reaper.ImGui_SameLine(ctx)
+            if reaper.ImGui_Button(ctx, "≡", btn_w, 0) then
+                reaper.ImGui_OpenPopup(ctx, "DocMenu")
+            end
+            
+            if reaper.ImGui_BeginPopup(ctx, "DocMenu") then
+                -- List all documents
+                for i, d in ipairs(STATE.documents) do
+                    local label = truncate_text(d.pdf_name, 50)
+                    if reaper.ImGui_MenuItem(ctx, label, nil, i == STATE.active_doc_idx) then
+                        switch_to_document(i)
+                    end
+                end
+                
+                reaper.ImGui_Separator(ctx)
+                if reaper.ImGui_BeginMenu(ctx, T("lang_label")) then
+                    if reaper.ImGui_MenuItem(ctx, "English", nil, language == "en") then
+                        save_language("en")
+                    end
+                    if reaper.ImGui_MenuItem(ctx, "Українська", nil, language == "ua") then
+                        save_language("ua")
+                    end
+                    reaper.ImGui_EndMenu(ctx)
+                end
+                
+                reaper.ImGui_Separator(ctx)
+                if reaper.ImGui_MenuItem(ctx, T("close_doc")) then
+                    unload_textures(doc.textures)
+                    table.remove(STATE.documents, STATE.active_doc_idx)
+                    if #STATE.documents > 0 then
+                        STATE.active_doc_idx = math.min(STATE.active_doc_idx, #STATE.documents)
+                    else
+                        STATE.active_doc_idx = 0
+                    end
+                    
+                    -- Hide search when closing documents
+                    doc.search_open = false
+                    doc.search_results = {}
+                    doc.search_text = ""
+                    doc.search_index = 0
+                    
+                    save_project_state()
+                    STATE.status_msg = T("doc_closed")
+                end
+                reaper.ImGui_EndPopup(ctx)
+            end
+        else
+            -- Right aligned menu (кнопка меню завжди відображається)
+            local btn_w = 24
+            local avail_xw = reaper.ImGui_GetContentRegionAvail(ctx)
+            
+            reaper.ImGui_SameLine(ctx, avail_xw - btn_w)
+            if reaper.ImGui_Button(ctx, "≡", btn_w, 0) then
+                reaper.ImGui_OpenPopup(ctx, "DocMenu")
+            end
+            
+            if reaper.ImGui_BeginPopup(ctx, "DocMenu") then                
+                if reaper.ImGui_BeginMenu(ctx, T("lang_label")) then
+                    if reaper.ImGui_MenuItem(ctx, "English", nil, language == "en") then
+                        save_language("en")
+                    end
+                    if reaper.ImGui_MenuItem(ctx, "Українська", nil, language == "ua") then
+                        save_language("ua")
+                    end
+                    reaper.ImGui_EndMenu(ctx)
+                end
+                
+                reaper.ImGui_EndPopup(ctx)
+            end
         end
         
-        reaper.ImGui_EndTabItem(ctx)
-        reaper.ImGui_PushFont(ctx, font_tabs, 17)
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
+        reaper.ImGui_Separator(ctx)
+        
+        -- Search Bar Row
+        if doc and doc.search_open then
+            reaper.ImGui_SetNextItemWidth(ctx, 200)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_FrameBg(), 0xFFFFFFFF)
+            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x000000FF)
+            local changed, new_text = reaper.ImGui_InputTextWithHint(ctx, "##SearchInput", T("search_hint"), doc.search_text)
+            reaper.ImGui_PopStyleColor(ctx, 2)
+            
+            if changed then
+                doc.search_text = new_text
+                perform_search(doc)
+                save_project_state()
+            end
+            
+            reaper.ImGui_SameLine(ctx)
+            local res_count = doc.search_results and #doc.search_results or 0
+            if res_count > 0 then
+                reaper.ImGui_Text(ctx, string.format("%d / %d", doc.search_index, res_count))
+                reaper.ImGui_SameLine(ctx)
+                if reaper.ImGui_Button(ctx, "<", 24, 0) then
+                    doc.search_index = doc.search_index - 1
+                    if doc.search_index < 1 then doc.search_index = res_count end
+                    scroll_to_search(doc.search_results[doc.search_index])
+                    save_project_state()
+                end
+                reaper.ImGui_SameLine(ctx)
+                if reaper.ImGui_Button(ctx, ">", 24, 0) then
+                    doc.search_index = doc.search_index + 1
+                    if doc.search_index > res_count then doc.search_index = 1 end
+                    scroll_to_search(doc.search_results[doc.search_index])
+                    save_project_state()
+                end
+            else
+                reaper.ImGui_Text(ctx, "0 / 0")
+            end
+            
+            local avail_xw = reaper.ImGui_GetContentRegionAvail(ctx)
+            reaper.ImGui_SameLine(ctx, avail_xw - 20)
+            if reaper.ImGui_Button(ctx, "X", 24, 0) then
+                doc.search_open = false
+                doc.search_results = {}
+                doc.search_text = ""
+                doc.search_index = 0
+                save_project_state()
+            end
+            
+            reaper.ImGui_Separator(ctx)
+        end
+
+        -- Content Area
+        reaper.ImGui_BeginGroup(ctx) -- Start group to catch drops for any item inside
+        if STATE.is_loading and STATE.is_loading > 0 then
+            reaper.ImGui_Text(ctx, T("processing_wait"))
+            local aw, ah = reaper.ImGui_GetContentRegionAvail(ctx)
+            if ah > 0 then reaper.ImGui_InvisibleButton(ctx, "##LoadingTarget", aw, ah) end
+        elseif doc and doc.metadata then
+            local child_flags = reaper.ImGui_ChildFlags_Border and reaper.ImGui_ChildFlags_Border() or 1
+            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 0, 0)
+            
+            -- Use unique ID per document to avoid scroll bleeding between docs
+            local viewer_id = "Viewer_" .. doc.pdf_name
+            if reaper.ImGui_BeginChild(ctx, viewer_id, 0, 0, child_flags, reaper.ImGui_WindowFlags_HorizontalScrollbar()) then
+                local avail_w = reaper.ImGui_GetContentRegionAvail(ctx)
+                for i, page in ipairs(doc.metadata.pages) do
+                    draw_page(i, page, avail_w, doc)
+                    reaper.ImGui_Dummy(ctx, 0, 10)
+                end
+                
+                -- Robust scroll restoration (retry for several frames as layout stabilizes)
+                -- We do this AFTER drawing content so ImGui knows the total height
+                if doc.needs_scroll_restore and doc.needs_scroll_restore > 0 then
+                    reaper.ImGui_SetScrollY(ctx, doc.scroll_y)
+                    doc.needs_scroll_restore = doc.needs_scroll_restore - 1
+                    doc.skip_scroll_capture = 30 -- Wait 30 frames after last restore attempt
+                end
+
+                -- Capture current scroll for persistence (unless we just restored)
+                if not doc.skip_scroll_capture or doc.skip_scroll_capture <= 0 then
+                    local current_scroll = reaper.ImGui_GetScrollY(ctx)
+                    -- Only capture if we are NOT in restoration mode
+                    if not doc.needs_scroll_restore or doc.needs_scroll_restore <= 0 then
+                        doc.scroll_y = current_scroll
+                    end
+                else
+                    doc.skip_scroll_capture = doc.skip_scroll_capture - 1
+                end
+
+                reaper.ImGui_EndChild(ctx)
+            end
+            reaper.ImGui_PopStyleVar(ctx)
+        else
+            reaper.ImGui_Text(ctx, T("no_pdf_loaded"))
+            local aw, ah = reaper.ImGui_GetContentRegionAvail(ctx)
+            if ah > 0 then reaper.ImGui_InvisibleButton(ctx, "##EmptyTarget", aw, ah) end
+        end
+        reaper.ImGui_EndGroup(ctx)
+
+        -- Drag & Drop Target for the content group
+        if reaper.ImGui_BeginDragDropTarget(ctx) then
+            -- 1. Try to accept the drop (released)
+            local dropped, d_count = reaper.ImGui_AcceptDragDropPayloadFiles(ctx)
+            if dropped then
+                for i = 0, d_count - 1 do
+                    local ok, file = reaper.ImGui_GetDragDropPayloadFile(ctx, i)
+                    if ok and file ~= "" then
+                        process_pdf(file)
+                    end
+                end
+            else
+                -- 2. If not dropped, show hover feedback
+                local hovered, h_count = reaper.ImGui_AcceptDragDropPayloadFiles(ctx, reaper.ImGui_DragDropFlags_AcceptBeforeDelivery())
+                if hovered then
+                    reaper.ImGui_SetTooltip(ctx, T("drop_to_import"))
+                end
+            end
+            reaper.ImGui_EndDragDropTarget(ctx)
+        end
+        
+        reaper.ImGui_End(ctx)
     end
+    pop_theme(ctx)
 end
 
-local is_mac = reaper.GetOS():match("OSX") or reaper.GetOS():match("macOS")
+local function init_from_project()
+    load_language()
+    STATE.status_msg = T("ready")
+    STATE.current_proj = reaper.EnumProjects(-1)
+    if not STATE.current_proj or not reaper.ValidatePtr(STATE.current_proj, "ReaProject*") then return end
+    
+    local retval_hist, history_json = reaper.GetProjExtState(STATE.current_proj, "Subass_PDF", "doc_history")
+    
+    local history_data = {}
+    if retval_hist > 0 and history_json ~= "" then
+        history_data = json_decode(history_json) or {}
+    end
+    
+    -- Fallback for migration from older versions (single string list or just last_pdf)
+    if #history_data > 0 and type(history_data[1]) == "string" then
+        local old_names = history_data
+        history_data = {}
+        for _, name in ipairs(old_names) do
+            table.insert(history_data, {pdf_name = name})
+        end
+    elseif #history_data == 0 then
+        local r, last_pdf = reaper.GetProjExtState(STATE.current_proj, "Subass_PDF", "last_pdf")
+        if r > 0 and last_pdf ~= "" then table.insert(history_data, {pdf_name = last_pdf}) end
+    end
+
+    local prj_cache = get_project_cache_dir()
+
+    for _, doc_state in ipairs(history_data) do
+        local pdf_name = doc_state.pdf_name
+        if prj_cache then
+            local output_dir = normalize_path(prj_cache .. "/" .. pdf_name)
+            if reaper.file_exists(normalize_path(output_dir .. "/metadata.json")) then
+                -- Use silent load (no_switch=true) to avoid overwriting last_pdf state during bulk load
+                load_metadata(output_dir, pdf_name, doc_state, true)
+            end
+        end
+    end
+    
+    -- Set correct active doc from last_pdf
+    local retval_last, last_pdf = reaper.GetProjExtState(STATE.current_proj, "Subass_PDF", "last_pdf")
+    if retval_last > 0 and last_pdf ~= "" then
+        for i, d in ipairs(STATE.documents) do
+            if d.pdf_name == last_pdf then
+                -- Final switch to the correct last document
+                STATE.active_doc_idx = i
+                local active = get_active_doc()
+                if active then active.needs_scroll_restore = 20 end
+                break
+            end
+        end
+    end
+end
 
 local function loop()
     if not ctx or not reaper.ImGui_ValidatePtr(ctx, 'ImGui_Context*') then return end
-    load_language()
     local force_close = reaper.GetExtState("Subass_Global", "ForceCloseComplementary")
-    if force_close == "1" or force_close == "Subass_Dictionary.lua" then 
-        if force_close == "Subass_Dictionary.lua" then
+    if force_close == "1" or force_close == "Subass_PDF.lua" then 
+        if force_close == "Subass_PDF.lua" then
             reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "0", false)
         end
-        dict_open = false
+        STATE.window_open = false
     end
-
-    reaper.ImGui_SetNextWindowSize(ctx, WIN_W, WIN_H, reaper.ImGui_Cond_FirstUseEver())
-
-    -- APPLY GLOBAL STYLE
-    Style.push(ctx)
-
-    local visible, open = reaper.ImGui_Begin(ctx, 'Subass Dictionary', dict_open, reaper.ImGui_WindowFlags_NoScrollbar())
-    if not open then dict_open = false end
-
-    if visible then
-        cfg_glos.layout_has_player = (cfg_glos.current_preview_source ~= nil)
-
-        -- TABS
-        reaper.ImGui_PushFont(ctx, font_tabs, 17)
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 9, 6)
-        local tabs_visible = reaper.ImGui_BeginTabBar(ctx, "DictionaryTabs")
-
-        if tabs_visible then
-            RenderTab_Reference()
-            RenderTab_Glossary()
-            RenderTab_Dictionaries()
-            RenderTab_DownloadCenter()
-
-            -- Language switcher button (trailing, right side of tab bar)
-            if reaper.ImGui_TabItemButton(ctx, is_mac and "⛭" or "⚙", reaper.ImGui_TabItemFlags_Trailing()) then
-                reaper.ImGui_OpenPopup(ctx, "lang_popup_dict")
-            end
-            if reaper.ImGui_BeginPopup(ctx, "lang_popup_dict") then
-                reaper.ImGui_Text(ctx, T("lang_label"))
-                reaper.ImGui_Separator(ctx)
-                if reaper.ImGui_Selectable(ctx, "English", language == "en") then
-                    save_language("en")
-                end
-                if reaper.ImGui_Selectable(ctx, "Українська", language == "ua") then
-                    save_language("ua")
-                end
-                reaper.ImGui_EndPopup(ctx)
-            end
-
-            reaper.ImGui_EndTabBar(ctx)
-            cfg.restore_tab = false
+    -- Check for project tab switch
+    local active_proj, proj_fn = reaper.EnumProjects(-1)
+    if active_proj ~= STATE.current_proj then
+        -- Save state of the project we are leaving
+        if STATE.current_proj and reaper.ValidatePtr(STATE.current_proj, "ReaProject*") then
+            save_project_state()
         end
-        reaper.ImGui_PopStyleVar(ctx)
-        reaper.ImGui_PopFont(ctx)
-
-        draw_mini_player(ctx)
-        draw_preview_popup()
-        reaper.ImGui_End(ctx)
+        
+        -- Project changed, clear everything
+        for _, doc in ipairs(STATE.documents) do
+            unload_textures(doc.textures)
+        end
+        STATE.documents = {}
+        STATE.active_doc_idx = 0
+        STATE.status_msg = T("ready")
+        STATE.is_loading = 0
+        init_from_project()
     end
 
-    -- POP GLOBAL STYLE
-    Style.pop(ctx)
-    
-    UTILS.check_async_tasks()
-
-    if dict_open then
-        reaper.defer(loop)
-    end
+    check_async_tasks()
+    draw_gui()
+    if STATE.window_open then reaper.defer(loop) end
 end
 
-reaper.defer(loop)
+reaper.atexit(function()
+    save_project_state() -- Flush final scroll positions/zoom
+end)
+
+init_from_project()
+loop()
