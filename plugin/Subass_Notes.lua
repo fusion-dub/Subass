@@ -153,13 +153,13 @@ local cfg = {
         ["Goroh: Оксана (Wavenet)"] = { engine = "goroh", voice = "uk-UA-Wavenet-A" },
         ["ElevenLabs: Ярослава (Yaroslava)"] = { engine = "eleven", voice = "Yaroslava" },
         ["ElevenLabs: Антон (Anton)"] = { engine = "eleven", voice = "Anton" },
-        ["Системний"]  = { engine = "", voice = "System" }
+        ["System"]  = { engine = "", voice = "System" }
     },
     tts_voices_order = {
         "Goroh: Оксана (Wavenet)",
         "ElevenLabs: Ярослава (Yaroslava)",
         "ElevenLabs: Антон (Anton)",
-        "Системний"
+        "System"
     },
     search_item_path = get_set("search_item_path", ""),
 
@@ -329,17 +329,17 @@ local OTHER = {
     },
     SEPARATOR = package.config:sub(1,1),
     AI_TASKS = {
-        { id="ref", name = "Перефразувати", task = "Перефразуй (збережи сенс, але використай інші слова та синоніми)" },
-        { id="long", name = "Зробити довше", task = "Зроби довшим (надай варіанти різної довжини: деякі лише на 1-3 слова довші, інші — значно довші)" },
-        { id="short", name = "Зробити коротше", task = "Зроби коротшим (надай варіанти різної довжини: деякі лише на 1-3 слова коротші, інші — значно коротші)" },
-        { id="stress", name = "Перевірити наголоси", count = 1, task = "Перевір наголоси в словах відповідно до норм сучасної української мови. Поверни текст, де наголошена голосна у кожному слові (крім односкладних) виділена ВЕЛИКОЮ літерою ТА постав після неї символ наголосу (наприклад: розмО́ва, договІ́р). Особливу увагу приділи словам з подвійним наголосом або складним випадкам (наприклад: завждИ, фенОмен)." },
-        { id="main_word", name = "Визначити головне слово", count = 1, task = "Проаналізуй наступну репліку. Знайди ОДНЕ головне слово, яке є смисловим центром (ремою) речення, і постав після нього тег {Головне слово} без пробілу.\n\nКритерії вибору:\n1. Логічний наголос: Слово, яке несе основну вагу. У питаннях — це суть запиту, у наказах — суть дії.\n2. Тільки повнозначні слова: Ігноруй прийменники, сполучники та частки (не, і, на, б).\n3. Контекст: У звертаннях головним є поняття або дія, а не ім'я (наприклад: \"Вілл, СОВІСТЬ май\").\n4. Рема: Шукай «нове» у реченні, те, заради чого воно сказане.\n\nФормат відповіді: Поверни ТІЛЬКИ текст репліки з коментарем {Головне слово} одразу за словом (приклад: слово{Головне слово}). Жодних пояснень." },
-        { id="fun", name = "Веселіше", task = "Зроби тон більш позитивним, жартівливим або життєрадісним" },
-        { id="drama", name = "Більше драми", task = "Зроби репліку більш емоційною, напруженою або трагічною" },
-        { id="sarcasm", name = "Більше сарказму", task = "Додай іронії, сарказму або насмішкуватості" },
-        { id="threat", name = "Більш погрозливо", task = "Зроби тон небезпечним, суворим або таким, що залякує" },
-        { id="simple", name = "Максимально просто", task = "Використовуй прості слова та розмовну лексику, зроби репліку максимально природною для повсякденної мови" },
-        { id="custom", name = "<Свій варіант>", task = "CUSTOM" },
+        { id="ref", name = "AI_TASK_ref", task = "Перефразуй (збережи сенс, але використай інші слова та синоніми)" },
+        { id="long", name = "AI_TASK_long", task = "Зроби довшим (надай варіанти різної довжини: деякі лише на 1-3 слова довші, інші — значно довші)" },
+        { id="short", name = "AI_TASK_short", task = "Зроби коротшим (надай варіанти різної довжини: деякі лише на 1-3 слова коротші, інші — значно коротші)" },
+        { id="stress", name = "AI_TASK_stress", count = 1, task = "Перевір наголоси в словах відповідно до норм сучасної української мови. Поверни текст, де наголошена голосна у кожному слові (крім односкладних) виділена ВЕЛИКОЮ літерою ТА постав після неї символ наголосу (наприклад: розмО́ва, договІ́р). Особливу увагу приділи словам з подвійним наголосом або складним випадкам (наприклад: завждИ, фенОмен)." },
+        { id="main_word", name = "AI_TASK_main_word", count = 1, task = "Проаналізуй наступну репліку. Знайди ОДНЕ головне слово, яке є смисловим центром (ремою) речення, і постав після нього тег {Головне слово} без пробілу.\n\nКритерії вибору:\n1. Логічний наголос: Слово, яке несе основну вагу. У питаннях — це суть запиту, у наказах — суть дії.\n2. Тільки повнозначні слова: Ігноруй прийменники, сполучники та частки (не, і, на, б).\n3. Контекст: У звертаннях головним є поняття або дія, а не ім'я (наприклад: \"Вілл, СОВІСТЬ май\").\n4. Рема: Шукай «нове» у реченні, те, заради чого воно сказане.\n\nФормат відповіді: Поверни ТІЛЬКИ текст репліки з коментарем {Головне слово} одразу за словом (приклад: слово{Головне слово}). Жодних пояснень." },
+        { id="fun", name = "AI_TASK_fun", task = "Зроби тон більш позитивним, жартівливим або життєрадісним" },
+        { id="drama", name = "AI_TASK_drama", task = "Зроби репліку більш емоційною, напруженою або трагічною" },
+        { id="sarcasm", name = "AI_TASK_sarcasm", task = "Додай іронії, сарказму або насмішкуватості" },
+        { id="threat", name = "AI_TASK_threat", task = "Зроби тон небезпечним, суворим або таким, що залякує" },
+        { id="simple", name = "AI_TASK_simple", task = "Використовуй прості слова та розмовну лексику, зроби репліку максимально природною для повсякденної мови" },
+        { id="custom", name = "AI_TASK_custom", task = "CUSTOM" },
     }
 }
 
@@ -399,6 +399,7 @@ local I18N = {
     TAB_FILE_START_WORDS_TIME = { en = " words, time: ", ua = " слів, час: " },
     TAB_FILE_COPY_START = { en = "Copy statistics||Copy statistics with time", ua = "Копіювати статистику||Копіювати статистику з часом" },
     AI_PROCESSING = { en = "AI processing...", ua = "AI обробка..." },
+    PROCESSING = { en = "Processing...", ua = "Oбробка..." },
     APPLY_ACCENTS = { en = ">  Apply accents (UA language)  <", ua = ">  Застосувати наголоси  <" },
     APPLY_ACCENTS_UNDO = { en = "Apply accents", ua = "Застосування наголосів" },
     USER = { en = "User", ua = "Користувач" },
@@ -415,6 +416,7 @@ local I18N = {
     REMOVE_ACCENTS_FROM_LINES = { en = "Remove accents from the lines", ua = "Очистити репліки від наголосів" },
     COMPACT_RENDER_WAV = { en = "Compact render (WAV)", ua = "Компактний рендер (WAV)" },
     SPLIT_BY_DUBBERS = { en = "Distribution by Dubbers", ua = "Розподіл по Даберам" },
+    OPEN_M_SPLIT_BY_DUBBERS = { en = "Open distribution by Dubbers", ua = "Відкрити розподіл по Даберам" },
     VIEW_MY_DEADLINES = { en = "View My Deadlines", ua = "Відкрити мої Дедлайни" },
     MY_DEADLINES = { en = "My Deadlines", ua = "Мої Дедлайни" },
     EXPORT_SUBTITLES = { en = "Export subtitles", ua = "Експортувати субтитри" },
@@ -541,7 +543,7 @@ local I18N = {
     TABLE_MENU_REMOVE_COLORING = { en = "Remove the coloring", ua = "Прибрати розфарбування" },
     TABLE_MENU_REMOVE_ITEM_DUP = { en = "Remove item duplicate", ua = "Прибрати дублікати реплік" },
     TABLE_MENU_STT = { en = "Speech-to-Text", ua = "Мова в текст (Speech-to-Text)" },
-    TABLE_MENU_VN = { en = "Volume normalization (Custom)", ua = "Нормалізація гучності реплік (Кастомна)" },
+    TABLE_MENU_VN = { en = "Volume normalization (LUFS)", ua = "Нормалізація гучності реплік (Кастомна)" },
     TABLE_MENU_AI_TRANSLATE = { en = "AI Translation", ua = "Переклад з ШІ" },
     TABLE_MENU_AI_TRANSLATE_P1 = { en = "Generate a prompt for the selected lines (dubbing)", ua = "Згенерувати промпт для виділених реплік (дубляж)" },
     TABLE_MENU_AI_TRANSLATE_P2 = { en = "Generate a prompt for the selected lines (voiceover)", ua = "Згенерувати промпт для виділених реплік (озвучка)" },
@@ -1245,19 +1247,96 @@ local I18N = {
     CON_OR_SCRIPT_ERR = { en = "Connection or script error", ua = "Помилка з'єднання або скрипта" },
     SYNCHRONIZING_DOTS = { en = "Synchronizing...", ua = "Синхронізація..." },
     SYNC_ERR_RANKS = { en = "Synchronization error: ", ua = "Помилка синхронізації: " },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-
+    FU_WAVE_SELECT_2 = { en = "Select exactly 2 tracks to compare", ua = "Виберіть рівно 2 треки для порівняння" },
+    FU_WAVE_HOW_WORKS = { en = "HOW IT WORKS:\nThis feature compares the waveforms of the items on the two selected tracks.\nDuplicates will be automatically removed from the TARGET track if they match the MAIN track by 96% or more.\n\nSelect the MAIN (reference) track:\n\n", ua = "ЯК ЦЕ ПРАЦЮЄ:\nЦя функція порівняє форму хвилі (waveform) айтемів на двох вибраних треках.\nДублікати будуть автоматично видалені з ТАРГЕТ-треку, якщо вони збігаються з ОСНОВНИМ треком на 96% і більше.\n\nВиберіть ОСНОВНИЙ (еталонний) трек:\n\n" },
+    FU_WAVE_S_MAIN_T = { en = "Waveform Match: Selecting the Main Track", ua = "Waveform Match: Вибір основного треку" },
+    FU_WAVE_REMOVE_UNDO = { en = "Removing Duplicates (Waveform Match)", ua = "Видалення дублікатів (Waveform Match)" },
+    FU_WAVE_NO_DUP_FOUND = { en = "No duplicates found. (Best match: ", ua = "Дублікатів не знайдено. (Найкраща схожість: " },
+    FU_WAVE_DONE_1 = { en = "", ua = "Видалено " },
+    FU_WAVE_DONE_2 = { en = " duplicates have been removed.", ua = " дублікатів." },
+    EBU_ERR_SWS_1 = { en = "The SWS Extension is required for LUFS normalization", ua = "SWS Extension потрібен для LUFS нормалізації" },
+    EBU_ERR_SWS_2 = { en = "This feature requires the SWS Extension.\n\nDownload and install it from:\nhttps://www.sws-extension.org/", ua = "Ця функція потребує SWS Extension.\n\nЗавантажте та встановіть з:\nhttps://www.sws-extension.org/" },
+    EBU_ERR_SWS_3 = { en = "SWS Extension not found", ua = "SWS Extension не знайдено" },
+    EBU_SELECT_M_ITEMS_T = { en = "Select Media Item or Tracks", ua = "Виберіть Media Item або Треки" },
+    EBU_DIALOG_S_1 = { en = "LUFS Normalization", ua = "Нормалізація реплік (LUFS)" },
+    EBU_DIALOG_S_2 = { en = "Target LUFS level (-5 to -40):,extrawidth=50", ua = "Цільова гучність LUFS (-5 до -40):,extrawidth=50" },
+    EBU_DIALOG_ERR_1 = { en = "Please enter a number between -5 and -40 LUFS", ua = "Будь ласка, введіть число від -5 до -40 LUFS" },
+    EBU_HB_INTERRAP = { en = "Normalization has been interrupted", ua = "Нормалізацію перервано" },
+    IMPORT_OF_COMPACT_RENDER_DG = { en = "Import a compact render (Drag & Drop)", ua = "Імпорт компактного рендеру (Drag & Drop)" },
+    UNABLE_PARSE_METADATA = { en = "Unable to parse the metadata.", ua = "Не вдалося розпарсити метадані." },
+    NO_RECORDS_IN_META_FOUND = { en = "No records for the items were found in the metadata.", ua = "В метаданих не знайдено записів про айтеми." },
+    UNPUCK_CR_MSG_1 = { en = "", ua = "Розпаковано " },
+    UNPUCK_CR_MSG_2 = { en = " comments on the new track '", ua = " реплік на новий трек '" },
+    NO_SUBASS_META_IN_FILE = { en = "The file does not contain Subass metadata.", ua = "Файл не містить метаданих Subass." },
+    INVALID_WAV_FORMAT_SHORT = { en = "Invalid WAV file format (too short)", ua = "Некоректний формат WAV файлу (занадто короткий)" },
+    THE_FILE_IS_NOT_VALID_WAV = { en = "The file is not a valid WAV file", ua = "Файл не є валідним WAV файлом" },
+    ERR_READ_IXML_DATA = { en = "Error reading iXML data", ua = "Помилка читання iXML даних" },
+    ERR_NO_IXML_FOUND_IN_FILE = { en = "No iXML metadata was found in this WAV file.", ua = "iXML метадані не знайдені в цьому WAV файлі." },
+    CR_COMPLETE_BUT_ERR_SAVE_META = { en = "Rendering is complete, but metadata could not be saved:\n", ua = "Рендеринг завершено, але не вдалося записати метадані:\n" },
+    CR_SUCC_DONE = { en = "Compact rendering completed successfully! Metadata saved in WAV.", ua = "Компактний рендер успішно завершено! Метадані збережено в WAV." },
+    CR_UNABLE_OPEN_TO_WRITE_META = { en = "Unable to open the file to write metadata: ", ua = "Не вдалося відкрити файл для запису метаданих: " },
+    CR_SAVE_CR = { en = "Save the compact render", ua = "Зберегти компактний рендер" },
+    CR_ERR_NO_MEDIA_ON_TRACK = { en = "There are no media elements on the selected track.", ua = "На обраному треку немає медіа-елементів." },
+    CR_ERR_TRACK_SERVICE = { en = "You cannot run a compact render for the SUBASS_RENDER service track.\nPlease select a working track for the actor.", ua = "Не можна запускати компактний рендер для службового треку SUBASS_RENDER.\nБудь ласка, оберіть робочий трек актора." },
+    CR_ERR_SELECT_ONE_T = { en = "The compact renderer supports only one track at a time.\nSelect only one track.", ua = "Компактний рендер підтримує лише один трек за раз.\nОберіть тільки один трек." },
+    CR_ERR_SELECT_TRACK = { en = "Please select a track for the compact render.", ua = "Будь ласка, оберіть трек для компактного рендеру." },
+    IN_TEXT_I_SUCC = { en = "%d text items have been created on the track '%s'", ua = "Створено %d Text Items на треку '%s'" },
+    NO_REGIONS_IN_PROJ = { en = "There are no regions in the project", ua = "У проєкті немає регіонів" },
+    NO_ACCENTS_WERE_FOUND_FOR_A = { en = "No accents were found for the selected actors", ua = "Наголосів не знайдено для вибраних акторів" },
+    ACCENTS_REMOVED_N_1 = { en = "Accents removed (", ua = "Наголоси видалено (" },
+    COLOR_CODER_ITEM_INFO = { en = "This feature will color-code items on the selected tracks (including child tracks).\n\nNOTE: Color-coding only works for items within VISIBLE regions.\nHidden regions (due to actor filters) will be ignored.\n\nDo you want to continue?", ua = "Ця функція розфарбує айтеми на вибраних треках (включаючи дочірні).\n\nУВАГА: Розфарбовування працює тільки для айтемів у межах ВИДИМИХ регіонів.\nПриховані регіони (через фільтр акторів) будуть ігноруватися.\n\nБажаєте продовжити?" },
+    COLOR_CODER_S_1 = { en = "", ua = "Розфарбовано " },
+    COLOR_CODER_S_2 = { en = " items have been colored", ua = " айтемів" },
+    COLOR_CODER_REMOVE_1 = { en = "The coloring has been removed (", ua = "Розфарбування скинуто (" },
+    REDO_SNC = { en = "Redo: ", ua = "Повторено: " },
+    UNDO_SNC = { en = "Undo: ", ua = "Відмінено: " },
+    NEED_SWS_FOR_COPY_F = { en = "For optimal clipboard performance, we recommend installing the SWS Extension.", ua = "Для кращої роботи буфера обміну рекомендується встановити SWS Extension." },
+    SWITCH_EDITOR_MODE = { en = "Switch to Editor Mode", ua = "Перейти в Режим Редактора" },
+    SWITCH_DIRECTOR_MODE = { en = "Switch to Director Mode", ua = "Перейти в Режим Режисера" },
+    GO_TO_TAB = { en = "Go to tab ", ua = "Перейти на табу " },
+    AI_ASSIST_PREV_L = { en = "Previous lines:\n", ua = "Попередні репліки:\n" },
+    AI_ASSIST_NEXT_L = { en = "Next lines:\n", ua = "Наступні репліки:\n" },
+    AI_ASSIST_TEXT_PROCESS = { en = "Text to process: \"", ua = "Текст для обробки: \"" },
+    AI_ASSIST_PROMPT_1 = { en = "Return a JSON array (array of strings) containing exactly %d %s in English. Do not include any other text, explanations, or comments. Just plain JSON.", ua = "Поверни JSON масив (array of strings), що містить рівно %d %s українською мовою. Не додавай ніякого іншого тексту, пояснень чи коментарів. Тільки чистий JSON." },
+    AI_ASSIST_PROMPT_OPTION = { en = "option", ua = "варіант" },
+    AI_ASSIST_PROMPT_OPTIONS = { en = "options", ua = "варіанти" },
+    AI_ASSIST_PROMPT_TASK = { en = "Task: ", ua = "Завдання: " },
+    AI_ASSIST_ERR_1 = { en = "The AI didn't return any results.", ua = "AI не повернув варіантів." },
+    AI_ASSIST_ERR_2 = { en = "The AI's response could not be recognized.", ua = "Не вдалося розпізнати відповідь AI." },
+    AI_ASSIST_ERR_3 = { en = "Request error: ", ua = "Помилка запиту: " },
+    CHECK_KEY_S = { en = "Checking the %s key...", ua = "Перевірка %s ключа..." },
+    AI_CHECK_IS_VALID_KEY = { en = " key is valid", ua = " ключ валідний" },
+    AI_ERR_429 = { en = "Limits have been reached (429)", ua = "Ліміти вичерпані (429)" },
+    AI_ERR_CODE_IS = { en = "API key error (code: ", ua = "Помилка API ключа (код: " },
+    DICT_UNABLE_TO_LOAD_1 = { en = "Unable to load data (or nothing found).", ua = "Не вдалося завантажити дані (або нічого не знайдено)." },
+    DICT_COMMENT_PROM_1 = { en = "A word from the \"", ua = "Слово з \"" },
+    DICT_COMMENT_PROM_2 = { en = "\" dictionary; the original word was: ", ua = "\" словника, початкове слово було: " },
+    PROMPT_MENU_SELECT_T_TO_C = { en = "Select a track for check!", ua = "Виберіть трек для перевірки!" },
+    PROMPT_MENU_SKIP_TO_F_ER = { en = "Skip to the first unrecorded line", ua = "Перехід до першої незаписаної репліки" },
+    PROMPT_MENU_ALL_RECORDED = { en = "All the lines have been recorded!", ua = "Всі репліки записані!" },
+    PROMPT_MENU_R_MORE_SPEED = { en = "# ⚡ Speed: (record more lines)", ua = "# ⚡ Швидкість: (запишіть більше реплік)" },
+    PROMPT_MENU_R_MORE_FORECAST = { en = "# ⌚ Forecast: (record more lines)", ua = "# ⌚ Прогноз: (запишіть більше реплік)" },
+    PROMPT_MENU_CL_1 = { en = "%.1f line/min", ua = "%.1f репл./хв" },
+    PROMPT_MENU_CL_2 = { en = "1 line / ~%d min", ua = "1 репл. / ~%d хв" },
+    PROMPT_MENU_CL_3 = { en = "# ⌚ Forecast: All done!", ua = "# ⌚ Прогноз: Все готово!" },
+    PROMPT_MENU_CL_4 = { en = "# ⚡ Speed: ", ua = "# ⚡ Швидкість: " },
+    PROMPT_MENU_CL_5 = { en = "~%d hours %d minutes", ua = "~%d год %d хв" },
+    PROMPT_MENU_CL_6 = { en = "~%d min", ua = "~%d хв" },
+    PROMPT_MENU_CL_7 = { en = "< 1 min", ua = "< 1 хв" },
+    PROMPT_MENU_CL_8 = { en = "# ⌚ Forecast: ", ua = "# ⌚ Прогноз: " },
+    ERR_DEADLINE_NO_OPEN_TEMP = { en = "The temporary project is no longer open.", ua = "Тимчасовий проєкт більше не відкритий." },
+    DEADLINE_SAVE_UPDATE_PATH = { en = "The path has been updated and saved!", ua = "Шлях оновлено та збережено!" },
+    UNTITLED_UNSEVED = { en = "Untitled (unsaved)", ua = "Без назви (unsaved)" },
+    EXPORT_SUB_STAT_POSTFIX = { en = "_%d_lines_%d_words", ua = "_%d_реплік_%d_слів" },
+    HMS_F_0_S = { en = "0 s", ua = "0 с" },
+    HMS_F_H_M = { en = "%d h %d min", ua = "%d год %d хв" },
+    HMS_F_H = { en = "%d h", ua = "%d год" },
+    HMS_F_M_S = { en = "%d min %d s", ua = "%d хв %d с" },
+    HMS_F_M = { en = "%d min", ua = "%d хв" },
+    HMS_F_S = { en = "%d s", ua = "%d с" },
+    REMOVE_STATS_1 = { en = "Are your statistics really so dismal that you've decided to destroy all the evidence?\n\nWarning: this “act of mercy” cannot be undone.", ua = "Невже ваша статистика настільки ганебна, що ви вирішили знищити всі докази?\n\nОбережно: цей \"акт милосердя\" неможливо скасувати." },
+    REMOVE_STATS_2 = { en = "Cleaning up the statistics", ua = "Очищення статистики" },
+    NEW_ACH_UNBLOCK = { en = "New achievement unlocked", ua = "Відкрито нове досягнення" },
 }
 
 function T(key)
@@ -2256,11 +2335,11 @@ function ACHIEVEMENTS.add_stat(key, amount)
             local ach_name = ""
             for _, ach in ipairs(OTHER.ACH_CFG) do
                 if ach.id == prefix then
-                    ach_name = ": " .. ach.name
+                    ach_name = ": " .. T("ACH_NAME_" .. ach.id)
                     break
                 end
             end
-            ACHIEVEMENTS.ach_snackbar_state.text = "Відкрито нове досягнення" .. ach_name .. "!"
+            ACHIEVEMENTS.ach_snackbar_state.text = T("NEW_ACH_UNBLOCK") .. ach_name .. "!"
         end
     end
 end
@@ -3056,7 +3135,7 @@ end
 
 --- Clear statistics
 function STATS.clear_stats()
-    local res = reaper.MB("Невже ваша статистика настільки ганебна, що ви вирішили знищити всі докази?\n\nОбережно: цей \"акт милосердя\" неможливо скасувати.", "Очищення статистики", 4)
+    local res = reaper.MB(T("REMOVE_STATS_1"), T("REMOVE_STATS_2"), 4)
     if res == 6 then -- Yes (6)
         STATS.data = {
             meta_version = 1,
@@ -3105,25 +3184,25 @@ end
 
 --- Format duration in Ukrainian (HH год MM хв or MM хв SS с)
 function STATS.format_hms(s)
-    if not s or s <= 0 then return "0 с" end
+    if not s or s <= 0 then return T("HMS_F_0_S") end
     local h = math.floor(s / 3600)
     local m = math.floor((s % 3600) / 60)
     local sec = math.floor(s % 60)
     
     if h > 0 then
         if m > 0 then
-            return string.format("%d год %d хв", h, m)
+            return string.format(T("HMS_F_H_M"), h, m)
         else
-            return string.format("%d год", h)
+            return string.format(T("HMS_F_H"), h)
         end
     elseif m > 0 then
         if sec > 0 then
-            return string.format("%d хв %d с", m, sec)
+            return string.format(T("HMS_F_M_S"), m, sec)
         else
-            return string.format("%d хв", m)
+            return string.format(T("HMS_F_M"), m)
         end
     else
-        return string.format("%d с", sec)
+        return string.format(T("HMS_F_S"), sec)
     end
 end
 
@@ -4344,7 +4423,7 @@ local function run_async_command(shell_cmd, callback, is_silent, loading_text, i
         local bat_cmd = shell_cmd:gsub("%%", "%%%%")
 
         if is_visible then
-            if is_tracking then f_bat:write("echo [AI] Початок аналізу... \r\n") end
+            if is_tracking then f_bat:write("echo [AI] Start of analysis... \r\n") end
             
             if is_tracking then
                 f_bat:write(bat_cmd .. ' > "' .. out_file .. '" 2>&1\r\n')
@@ -4365,7 +4444,7 @@ local function run_async_command(shell_cmd, callback, is_silent, loading_text, i
         end
         
         if is_visible and is_tracking then
-            f_bat:write("echo [AI] Аналіз завершено. Це вікно можна закрити.\r\n")
+            f_bat:write("echo [AI] The analysis is complete. You can close this window.\r\n")
             f_bat:write("pause\r\n")
         end
 
@@ -4388,12 +4467,12 @@ local function run_async_command(shell_cmd, callback, is_silent, loading_text, i
             if f_sh then
                 f_sh:write("#!/bin/bash\n")
                 if is_tracking then
-                    f_sh:write('echo "[AI] Whisper Аналіз..." \n')
+                    f_sh:write('echo "[AI] Whisper Analysis..." \n')
                     f_sh:write(shell_cmd .. ' 2>&1 | tee "' .. out_file .. '"\n')
                     f_sh:write('echo DONE > "' .. done_file .. '"\n')
                     f_sh:write('echo ""\n')
-                    f_sh:write('echo "[AI] Аналіз завершено. Це вікно можна закрити."\n')
-                    f_sh:write('read -p "Натисніть Enter для виходу..."\n')
+                    f_sh:write('echo "[AI] The analysis is complete. You can close this window."\n')
+                    f_sh:write('read -p "Press Enter to exit..."\n')
                 else
                     f_sh:write(shell_cmd .. "\n")
                 end
@@ -4427,7 +4506,7 @@ local function run_async_command(shell_cmd, callback, is_silent, loading_text, i
     
     if is_tracking and not is_silent then
         UI_STATE.script_loading_state.active = true
-        UI_STATE.script_loading_state.text = loading_text or "Почекайте..."
+        UI_STATE.script_loading_state.text = loading_text or T("PROCESSING")
     end
 end
 
@@ -4809,7 +4888,7 @@ local function set_clipboard(text)
     end
     
     if not sws_alert_shown then
-        reaper.MB("Для кращої роботи буфера обміну рекомендується встановити SWS Extension.", "Subass", 0)
+        reaper.MB(T("NEED_SWS_FOR_COPY_F"), "Subass", 0)
         sws_alert_shown = true
     end
     
@@ -5342,7 +5421,7 @@ function UTILS.prepare_export_data(ext)
     suffix = suffix:gsub("[<>:\"/\\|?*]", "_")
     
     local total_replicas, total_words = UTILS.calculate_lines_stats(out_lines)
-    local stats_suffix = string.format("_%d_реплік_%d_слів", total_replicas, total_words)
+    local stats_suffix = string.format(T("EXPORT_SUB_STAT_POSTFIX"), total_replicas, total_words)
     
     local default_filename = proj_name .. suffix .. stats_suffix .. ext
     
@@ -5397,7 +5476,7 @@ function DEADLINE.get_project_info()
     if not full_path or full_path == "" then
         -- Return project pointer as a stable ID for unsaved tabs
         local ptr_id = "PTR:" .. tostring(proj)
-        return ptr_id, "Без назви (unsaved)"
+        return ptr_id, T("UNTITLED_UNSEVED")
     end
     
     local proj_name = reaper.GetProjectName(0)
@@ -5440,7 +5519,7 @@ function DEADLINE.open_project_smart(proj_data)
             i = i + 1
         end
         -- If we are here, the unsaved project tab was closed
-        reaper.MB("Тимчасовий проєкт більше не відкритий.", T("ERROR"), 0)
+        reaper.MB(T("ERR_DEADLINE_NO_OPEN_TEMP"), T("ERROR"), 0)
         return
     end
 
@@ -5503,7 +5582,7 @@ function DEADLINE.open_project_smart(proj_data)
                 -- Update Database
                 DEADLINE.save_global(target_path, proj_data.name, nil) -- Delete old
                 DEADLINE.save_global(new_path, proj_data.name, proj_data.deadline) -- Save new
-                show_snackbar("Шлях оновлено та збережено!", "success")
+                show_snackbar(T("DEADLINE_SAVE_UPDATE_PATH"), "success")
             end
         end
     end
@@ -6119,7 +6198,6 @@ function DEADLINE.parse_from_name(name)
     return nil
 end
 
-
 function UTILS.get_tracks_to_check()
     local tracks_to_check = {}
     local processed_tracks = {}
@@ -6260,7 +6338,7 @@ end
 function STATS.get_etc_strings()
     local buf = STATS.etc.buffer
     if not buf or #buf < 2 then
-        return "# ⚡ Швидкість: (запишіть більше реплік)", "# ⌚ Прогноз: (запишіть більше реплік)"
+        return T("PROMPT_MENU_R_MORE_SPEED"), T("PROMPT_MENU_R_MORE_FORECAST")
     end
     
     local first = buf[1]
@@ -6278,7 +6356,7 @@ function STATS.get_etc_strings()
     local diff_count = last.count - first.count
     
     if diff_time <= 0 or diff_count <= 0 then
-        return "# ⚡ Швидкість: (замало даних)", "# ⌚ Прогноз: (замало даних)"
+        return T("PROMPT_MENU_R_MORE_SPEED"), T("PROMPT_MENU_R_MORE_FORECAST")
     end
     
     -- Speed in replicas per minute
@@ -6287,17 +6365,17 @@ function STATS.get_etc_strings()
     -- Format speed string: if slow (< 1 replica/min), show as "1 репл. / ~N хв" for clarity
     local speed_str
     if speed >= 1 then
-        speed_str = string.format("%.1f репл./хв", speed)
+        speed_str = string.format(T("PROMPT_MENU_CL_1"), speed)
     else
         local mins_per_replica = math.ceil(1 / speed)
-        speed_str = string.format("1 репл. / ~%d хв", mins_per_replica)
+        speed_str = string.format(T("PROMPT_MENU_CL_2"), mins_per_replica)
     end
 
     local _, current_count, total_count = UTILS.get_recording_progress()
     local work_left = (total_count or 0) - (current_count or 0)
     
     if work_left <= 0 then
-        return "# ⚡ Швидкість: " .. speed_str, "# ⌚ Прогноз: Все готово!"
+        return T("PROMPT_MENU_CL_4") .. speed_str, T("PROMPT_MENU_CL_3")
     end
     
     local minutes_left = work_left / speed
@@ -6306,14 +6384,14 @@ function STATS.get_etc_strings()
     
     local time_str = ""
     if hours > 0 then
-        time_str = string.format("~%d год %d хв", hours, mins)
+        time_str = string.format(T("PROMPT_MENU_CL_5"), hours, mins)
     elseif mins > 0 then
-        time_str = string.format("~%d хв", mins)
+        time_str = string.format(T("PROMPT_MENU_CL_6"), mins)
     else
-        time_str = "< 1 хв"
+        time_str = T("PROMPT_MENU_CL_7")
     end
     
-    return "# ⚡ Швидкість: " .. speed_str, "# ⌚ Прогноз: " .. time_str
+    return T("PROMPT_MENU_CL_4") .. speed_str, T("PROMPT_MENU_CL_8") .. time_str
 end
 
 function UTILS.jump_to_first_unrecorded_region()
@@ -6321,7 +6399,7 @@ function UTILS.jump_to_first_unrecorded_region()
     
     local tracks_to_check = UTILS.get_tracks_to_check()
     if #tracks_to_check == 0 then 
-        show_snackbar("Виберіть трек для перевірки!", "warning")
+        show_snackbar(T("PROMPT_MENU_SELECT_T_TO_C"), "warning")
         return 
     end
     
@@ -6351,12 +6429,12 @@ function UTILS.jump_to_first_unrecorded_region()
         
         if not rgn_recorded then
             reaper.SetEditCurPos(rgn.pos, true, false)
-            show_snackbar("Перехід до першої незаписаної репліки", "info")
+            show_snackbar(T("PROMPT_MENU_SKIP_TO_F_ER"), "info")
             return
         end
     end
     
-    show_snackbar("Всі репліки записані!", "info")
+    show_snackbar(T("PROMPT_MENU_ALL_RECORDED"), "info")
 end
 
 -- =============================================================================
@@ -6721,7 +6799,6 @@ local function apply_accent_caps(text)
     return table.concat(res)
 end
 
-
 -- =============================================================================
 -- DICT: User Dictionary module (reads from Subass_Dictionary data)
 -- =============================================================================
@@ -6871,7 +6948,7 @@ function DICT.get_lookup_table()
                     local raw_comment = entry.comment and entry.comment:gsub("[\r\n]", ""):match("^%s*(.-)%s*$") or ""
                     local comment = (raw_comment ~= "")
                         and raw_comment
-                        or ("Слово з \"" .. d.name .. "\" словника, початкове слово було: " .. w)
+                        or (T("DICT_COMMENT_PROM_1") .. d.name .. T("DICT_COMMENT_PROM_2") .. w)
                     local repl = (entry.replacement and entry.replacement ~= "") and entry.replacement or w
                     local key = utf8_lower(w):gsub(acute, "")
                     lookup[key] = { replacement = repl, comment = comment }
@@ -6890,7 +6967,6 @@ function DICT.get_lookup_table()
     DICT.last_update_ts = current_ts
     return lookup
 end
-
 
 function UTILS.apply_text_transforms(line_spans, no_assimilation)
     if not line_spans or line_spans.transformed then return line_spans end
@@ -7965,7 +8041,7 @@ local function fetch_dictionary_category(word, display_name)
             end
         else
             if dict_modal.show then
-                dict_modal.content[display_name] = "Не вдалося завантажити дані (або нічого не знайдено)."
+                dict_modal.content[display_name] = T("DICT_UNABLE_TO_LOAD_1")
             end
         end
     end)
@@ -8185,18 +8261,18 @@ end
 --- Validate Gemini API Key with a simple prompt
 --- @param key string API Key
 function UTILS.validate_gemini_key(key)
-    show_snackbar("Перевірка ключа Gemini...", "info")
+    show_snackbar(string.format(T("CHECK_KEY_S"), "Gemini"), "info")
     ai_api_call_async("gemini", key, "hi", function(status, body)
         cfg.gemini_key_status = status
         reaper.SetExtState(section_name, "gemini_key_status", tostring(status), true)
         
         if status == 200 then
-            show_snackbar("Gemini API ключ валідний", "success")
+            show_snackbar("Gemini API" .. T("AI_CHECK_IS_VALID_KEY"), "success")
             ACHIEVEMENTS.check_api_keys_ach_27()
         elseif status == 429 then
-            show_snackbar("Ліміти вичерпані (429)", "error")
+            show_snackbar(T("AI_ERR_429"), "error")
         else
-            show_snackbar("Помилка API ключа (код: " .. tostring(status) .. ")", "error")
+            show_snackbar(T("AI_ERR_CODE_IS") .. tostring(status) .. ")", "error")
         end
     end)
 end
@@ -8204,18 +8280,18 @@ end
 --- Validate Mistral API Key
 --- @param key string API Key
 function UTILS.validate_mistral_key(key)
-    show_snackbar("Перевірка ключа Mistral...", "info")
+    show_snackbar(string.format(T("CHECK_KEY_S"), "Mistral"), "info")
     ai_api_call_async("mistral", key, "hi", function(status, body)
         cfg.mistral_key_status = status
         reaper.SetExtState(section_name, "mistral_key_status", tostring(status), true)
         
         if status == 200 then
-            show_snackbar("Mistral API ключ валідний", "success")
+            show_snackbar("Mistral API" .. T("AI_CHECK_IS_VALID_KEY"), "success")
             ACHIEVEMENTS.check_api_keys_ach_27()
         elseif status == 429 then
-            show_snackbar("Ліміти вичерпані (429)", "error")
+            show_snackbar(T("AI_ERR_429"), "error")
         else
-            show_snackbar("Помилка Mistral ключа (код: " .. tostring(status) .. ")", "error")
+            show_snackbar(T("AI_ERR_CODE_IS") .. tostring(status) .. ")", "error")
         end
     end)
 end
@@ -8223,18 +8299,18 @@ end
 --- Validate Groq API Key
 --- @param key string API Key
 function UTILS.validate_groq_key(key)
-    show_snackbar("Перевірка ключа Groq...", "info")
+    show_snackbar(string.format(T("CHECK_KEY_S"), "Groq"), "info")
     ai_api_call_async("groq", key, "hi", function(status, body)
         cfg.groq_key_status = status
         reaper.SetExtState(section_name, "groq_key_status", tostring(status), true)
         
         if status == 200 then
-            show_snackbar("Groq API ключ валідний", "success")
+            show_snackbar("Groq API" .. T("AI_CHECK_IS_VALID_KEY"), "success")
             ACHIEVEMENTS.check_api_keys_ach_27()
         elseif status == 429 then
-            show_snackbar("Ліміти вичерпані (429)", "error")
+            show_snackbar(T("AI_ERR_429"), "error")
         else
-            show_snackbar("Помилка Groq ключа (код: " .. tostring(status) .. ")", "error")
+            show_snackbar(T("AI_ERR_CODE_IS") .. tostring(status) .. ")", "error")
         end
     end)
 end
@@ -8243,7 +8319,7 @@ end
 --- @param key string API Key
 function UTILS.validate_eleven_key(key)
     local trimmed_key = key:gsub("^%s*(.-)%s*$", "%1")
-    show_snackbar("Перевірка ElevenLabs ключа...", "info")
+    show_snackbar(string.format(T("CHECK_KEY_S"), "ElevenLabs"), "info")
     eleven_api_call_async(trimmed_key, function(status, body)
         local is_valid = (status == 200)
         
@@ -8258,10 +8334,10 @@ function UTILS.validate_eleven_key(key)
         reaper.SetExtState(section_name, "eleven_key_status", tostring(status), true)
         
         if is_valid then
-            show_snackbar("ElevenLabs ключ валідний", "success")
+            show_snackbar("ElevenLabs" .. T("AI_CHECK_IS_VALID_KEY"), "success")
             ACHIEVEMENTS.check_api_keys_ach_27()
         else
-            show_snackbar("Помилка ElevenLabs ключа (код: " .. tostring(status) .. ")", "error")
+            show_snackbar(T("AI_ERR_CODE_IS") .. tostring(status) .. ")", "error")
         end
     end)
 end
@@ -8288,7 +8364,7 @@ local function request_ai_assistant_task(ai_task_id_ach, task_name, text, varian
         -- Get 3 previous replicas
         for i = math.max(1, idx - 3), idx - 1 do
             if lines[i] then
-                local actor = lines[i].actor or "Невідомо"
+                local actor = lines[i].actor or "Unknown"
                 context_before = context_before .. string.format("[%s]: %s\n", actor, lines[i].text)
             end
         end
@@ -8296,29 +8372,29 @@ local function request_ai_assistant_task(ai_task_id_ach, task_name, text, varian
         -- Get 3 next replicas
         for i = idx + 1, math.min(#lines, idx + 3) do
             if lines[i] then
-                local actor = lines[i].actor or "Невідомо"
+                local actor = lines[i].actor or "Unknown"
                 context_after = context_after .. string.format("[%s]: %s\n", actor, lines[i].text)
             end
         end
     end
     
     -- Build prompt with context
-    local instruction_suffix = (count == 1) and "варіант" or "варіанти"
-    local instruction = string.format("Поверни JSON масив (array of strings), що містить рівно %d %s українською мовою. Не додавай ніякого іншого тексту, пояснень чи коментарів. Тільки чистий JSON.", 
+    local instruction_suffix = (count == 1) and T("AI_ASSIST_PROMPT_OPTION") or T("AI_ASSIST_PROMPT_OPTIONS")
+    local instruction = string.format(T("AI_ASSIST_PROMPT_1"), 
         count, instruction_suffix)
     
-    local prompt = "Завдання: " .. task_name .. ".\n\n"
+    local prompt = T("AI_ASSIST_PROMPT_TASK") .. task_name .. ".\n\n"
     
     if context_before ~= "" then
-        prompt = prompt .. "Попередні репліки:\n" .. context_before .. "\n"
+        prompt = prompt .. T("AI_ASSIST_PREV_L") .. context_before .. "\n"
     end
     
     if text then
-        prompt = prompt .. "Текст для обробки: \"" .. text .. "\"\n\n"
+        prompt = prompt .. T("AI_ASSIST_TEXT_PROCESS") .. text .. "\"\n\n"
     end
     
     if context_after ~= "" then
-        prompt = prompt .. "Наступні репліки:\n" .. context_after .. "\n"
+        prompt = prompt .. T("AI_ASSIST_NEXT_L") .. context_after .. "\n"
     end
     
     prompt = prompt .. instruction
@@ -8361,15 +8437,15 @@ local function request_ai_assistant_task(ai_task_id_ach, task_name, text, varian
                     
                     ai_modal.current_step = "RESULTS"
                 else
-                    ai_modal.error_msg = "AI не повернув варіантів."
+                    ai_modal.error_msg = T("AI_ASSIST_ERR_1")
                     ai_modal.current_step = "ERROR"
                 end
             else
-                ai_modal.error_msg = "Не вдалося розпізнати відповідь AI."
+                ai_modal.error_msg = T("AI_ASSIST_ERR_2")
                 ai_modal.current_step = "ERROR"
             end
         else
-            ai_modal.error_msg = "Помилка запиту: " .. status .. "\n" .. (response or "")
+            ai_modal.error_msg = T("AI_ASSIST_ERR_3") .. status .. "\n" .. (response or "")
             ai_modal.current_step = "ERROR"
         end
  
@@ -8444,37 +8520,37 @@ function UTILS.close_all_modals()
 end
 
 UTILS.GLOBAL_HOTKEY_ACTIONS = {
-    { label = "Перейти на табу Файл", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 1 end },
-    { label = "Перейти на табу Репліки", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 2 end },
-    { label = "Перейти на табу Суфлер", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 3 end },
-    { label = "Перейти на табу Налаштування", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 4 end },
-    { label = T("VIEW_MY_DEADLINES"), action = function() 
+    { label = function() return T("GO_TO_TAB") .. T("FILE") end, action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 1 end },
+    { label = function() return T("GO_TO_TAB") .. T("REPLICS") end, action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 2 end },
+    { label = function() return T("GO_TO_TAB") .. T("PROMPTER") end, action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 3 end },
+    { label = function() return T("GO_TO_TAB") .. T("Settings") end, action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 4 end },
+    { label = function() return T("VIEW_MY_DEADLINES") end, action = function() 
         local state = not DEADLINE.dashboard_show
         UTILS.close_all_modals()
         DEADLINE.dashboard_show = state
     end },
-    { label = "Відкрити Розділення по Даберам", action = function()
+    { label = function() return T("OPEN_M_SPLIT_BY_DUBBERS") end, action = function()
         local state = not DUBBERS.show_dashboard
         UTILS.close_all_modals()
         DUBBERS.show_dashboard = state
         if state then DUBBERS.load() end
     end },
-    { label = "Перейти в Режим Режисера", action = function()
+    { label = function() return T("SWITCH_DIRECTOR_MODE") end, action = function()
         UTILS.close_all_modals()
         UI_STATE.current_tab = 2
         cfg.director_mode = not cfg.director_mode
         cfg.editor_mode = false
         save_settings()
     end },
-    { label = "Відобразити SubOverlay від Lionzz", action = function() UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end },
-    { label = T("FIND_NEW_G_PCX"), action = function() 
+    { label = function() return T("DISPLAY_SUBOVERLAY_PCX") end, action = function() UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Overlay") end },
+    { label = function() return T("FIND_NEW_G_PCX") end, action = function() 
         local ok, input = reaper.GetUserInputs(T("GOROH"), 1, T("SEARCH_TERM_200"), "")
         if ok and input ~= "" then 
             UTILS.close_all_modals()
             trigger_dictionary_lookup(input) 
         end
     end },
-    { label = T("GLOBAL_SEARCH_FOR_TAKES"), action = function()
+    { label = function() return T("GLOBAL_SEARCH_FOR_TAKES") end, action = function()
         local state = not SEARCH_ITEM.show
         UTILS.close_all_modals()
         if state then
@@ -8482,9 +8558,9 @@ UTILS.GLOBAL_HOTKEY_ACTIONS = {
             SEARCH_ITEM.input.focus = true 
         end
     end },
-    { label = "Відкрити Нотатник", action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_Notepad.lua", "Нотатник") end },
-    { label = "Відкрити Словник", action = function() UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end },
-    { label = "Перейти в Режим Редактора", action = function()
+    { label = function() return T("OPEN_NOTEPAD") end, action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_Notepad.lua", "Notepad") end },
+    { label = function() return T("OPEN_DICTIONARY") end, action = function() UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Dictionary") end },
+    { label = function() return T("SWITCH_EDITOR_MODE") end, action = function()
         UTILS.close_all_modals()
         UI_STATE.current_tab = 2
         cfg.editor_mode = not cfg.editor_mode
@@ -8509,7 +8585,7 @@ local function get_clipboard()
     if reaper.CF_GetClipboard then return reaper.CF_GetClipboard("") end
 
     if not sws_alert_shown then
-        reaper.MB("Для кращої роботи буфера обміну рекомендується встановити SWS Extension.", "Subass", 0)
+        reaper.MB(T("NEED_SWS_FOR_COPY_F"), "Subass", 0)
         sws_alert_shown = true
     end
     local os_name = reaper.GetOS()
@@ -9875,7 +9951,7 @@ local function undo_action()
     cleanup_actors()
     rebuild_regions()
     save_project_data(UI_STATE.last_project_id) -- Sync to metadata
-    show_snackbar("Відмінено: " .. last_state.label, "info")
+    show_snackbar(T("UNDO_SNC") .. last_state.label, "info")
 end
 
 local function redo_action()
@@ -9922,7 +9998,7 @@ local function redo_action()
     cleanup_actors()
     rebuild_regions()
     save_project_data(UI_STATE.last_project_id) -- Sync to metadata
-    show_snackbar("Повторено: " .. next_state.label, "info")
+    show_snackbar(T("REDO_SNC") .. next_state.label, "info")
 end
 
 local function apply_item_coloring(reset)
@@ -9962,16 +10038,13 @@ local function apply_item_coloring(reset)
     end
 
     if #items == 0 then
-        show_snackbar("Виберіть Media Item або Треки", "info")
+        show_snackbar(T("EBU_SELECT_M_ITEMS_T"), "info")
         return
     end
 
     if not reset then
-        local msg = "Ця функція розфарбує айтеми на вибраних треках (включаючи дочірні).\n\n" ..
-                    "УВАГА: Розфарбовування працює тільки для айтемів у межах ВИДИМИХ регіонів.\n" ..
-                    "Приховані регіони (через фільтр акторів) будуть ігноруватися.\n\n" ..
-                    "Бажаєте продовжити?"
-        local res = reaper.MB(msg, "Розфарбувати за акторами", 1) -- 1 = OK/Cancel
+        local msg = T("COLOR_CODER_ITEM_INFO")
+        local res = reaper.MB(msg, T("TABLE_MENU_COLOR_BY_ACTOR"), 1) -- 1 = OK/Cancel
         if res ~= 1 then return end
     end
 
@@ -10023,9 +10096,9 @@ local function apply_item_coloring(reset)
     
     reaper.UpdateArrange()
     if not reset then
-        show_snackbar("Розфарбовано " .. colored .. " айтемів", "success")
+        show_snackbar(T("COLOR_CODER_S_1") .. colored .. T("COLOR_CODER_S_2"), "success")
     else
-        show_snackbar("Розфарбування скинуто (" .. colored .. ")", "success")
+        show_snackbar(T("COLOR_CODER_REMOVE_1") .. colored .. ")", "success")
     end
 end
 
@@ -10043,14 +10116,14 @@ function UTILS.remove_all_acute_for_selected_actors()
     end
     
     if #lines_to_change > 0 then
-        push_undo("Видалення наголосів (" .. #lines_to_change .. ")")
+        push_undo(T("ACCENTS_REMOVED_N_1") .. #lines_to_change .. ")")
         for _, line in ipairs(lines_to_change) do
             line.text = line.text:gsub(acute, "")
         end
         rebuild_regions()
-        show_snackbar("Наголоси видалено (" .. #lines_to_change .. ")", "success")
+        show_snackbar(T("ACCENTS_REMOVED_N_1") .. #lines_to_change .. ")", "success")
     else
-        show_snackbar("Наголосів не знайдено для вибраних акторів", "info")
+        show_snackbar(T("NO_ACCENTS_WERE_FOUND_FOR_A"), "info")
     end
 end
 
@@ -10128,7 +10201,7 @@ function UTILS.create_text_items_from_regions()
     end
 
     if #rgns == 0 then
-        show_snackbar("У проєкті немає регіонів", "warning")
+        show_snackbar(T("NO_REGIONS_IN_PROJ"), "warning")
         return
     end
 
@@ -10452,7 +10525,7 @@ strlen(#text) > 0 ? (
     reaper.PreventUIRefresh(-1)
     reaper.UpdateArrange()
     reaper.Undo_EndBlock("Create text items from regions", -1)
-    show_snackbar(string.format("Створено %d Text Items на треку '%s'", #rgns, track_name), "success")
+    show_snackbar(string.format(T("IN_TEXT_I_SUCC"), #rgns, track_name), "success")
 end
 
 --- Compact render for selected tracks
@@ -10464,26 +10537,26 @@ function UTILS.compact_render()
     local sel_count = reaper.CountSelectedTracks(0)
 
     if sel_count == 0 then
-        reaper.MB("Будь ласка, оберіть трек для компактного рендеру.", "Компактний рендер", 0)
+        reaper.MB(T("CR_ERR_SELECT_TRACK"), T("COMPACT_RENDER"), 0)
         return
     end
     if sel_count > 1 then
         reaper.MB(
-            "Компактний рендер підтримує лише один трек за раз.\nОберіть тільки один трек.",
-            "Компактний рендер", 0)
+            T("CR_ERR_SELECT_ONE_T"),
+            T("COMPACT_RENDER"), 0)
         return
     end
 
     local src_track  = reaper.GetSelectedTrack(0, 0)
     local _, trk_name = reaper.GetTrackName(src_track)
     if trk_name == "SUBASS_RENDER" then
-        reaper.MB("Не можна запускати компактний рендер для службового треку SUBASS_RENDER.\nБудь ласка, оберіть робочий трек актора.", "Компактний рендер", 0)
+        reaper.MB(T("CR_ERR_TRACK_SERVICE"), T("COMPACT_RENDER"), 0)
         return
     end
     local item_count = reaper.CountTrackMediaItems(src_track)
 
     if item_count == 0 then
-        reaper.MB("На обраному треку немає медіа-елементів.", "Компактний рендер", 0)
+        reaper.MB(T("CR_ERR_NO_MEDIA_ON_TRACK"), T("COMPACT_RENDER"), 0)
         return
     end
 
@@ -10515,7 +10588,7 @@ function UTILS.compact_render()
     local default_path = default_dir .. "/" .. default_filename
 
     -- ── 2. Ask user where to save the rendered WAV file ───────────────────
-    local retval, file_path = reaper.JS_Dialog_BrowseForSaveFile("Зберегти компактний рендер", default_dir, default_filename, "WAV files (.wav)\0*.wav\0All Files (*.*)\0*.*\0")
+    local retval, file_path = reaper.JS_Dialog_BrowseForSaveFile(T("CR_SAVE_CR"), default_dir, default_filename, "WAV files (.wav)\0*.wav\0All Files (*.*)\0*.*\0")
     if retval ~= 1 or file_path == "" then
         return -- User cancelled
     end
@@ -10650,7 +10723,7 @@ function UTILS.compact_render()
     reaper.TrackList_AdjustWindows(false)
     reaper.UpdateArrange()
 
-    reaper.Undo_EndBlock("Компактний рендер: " .. trk_name, -1)
+    reaper.Undo_EndBlock(T("COMPACT_RENDER") .. ": " .. trk_name, -1)
 
     -- ── 13. Perform Render ────────────────────────────────────────────────
     -- File: Render project, using the most recent render settings (silent/immediate)
@@ -10688,20 +10761,20 @@ function UTILS.compact_render()
     local function append_ixml_to_wav(filepath, xml_str)
         local f, err = io.open(filepath, "r+b")
         if not f then
-            return false, "Не вдалося відкрити файл для запису метаданих: " .. tostring(err)
+            return false, T("CR_UNABLE_OPEN_TO_WRITE_META") .. tostring(err)
         end
 
         local header = f:read(12)
         if not header or #header < 12 then
             f:close()
-            return false, "Некоректний формат WAV файлу (занадто короткий)"
+            return false, T("INVALID_WAV_FORMAT_SHORT")
         end
 
         local riff_sig = header:sub(1, 4)
         local wave_sig = header:sub(9, 12)
         if riff_sig ~= "RIFF" or wave_sig ~= "WAVE" then
             f:close()
-            return false, "Файл не є валідною WAVE-аудіозаписом"
+            return false, T("THE_FILE_IS_NOT_VALID_WAV")
         end
 
         -- Get current RIFF payload size (bytes 5-8, little-endian)
@@ -10769,9 +10842,9 @@ function UTILS.compact_render()
     -- Run embedding
     local ok, err = append_ixml_to_wav(file_path, xml_data)
     if ok then
-        show_snackbar("Компактний рендер успішно завершено! Метадані збережено в WAV.", "success")
+        show_snackbar(T("CR_SUCC_DONE"), "success")
     else
-        reaper.MB("Рендеринг завершено, але не вдалося записати метадані:\n" .. tostring(err), "Компактний рендер", 0)
+        reaper.MB(T("CR_COMPLETE_BUT_ERR_SAVE_META") .. tostring(err), T("COMPACT_RENDER"), 0)
     end
 end
 
@@ -10780,20 +10853,20 @@ end
 function UTILS.read_ixml_from_wav(filepath)
     local f, err = io.open(filepath, "rb")
     if not f then
-        return nil, "Не вдалося відкрити файл: " .. tostring(err)
+        return nil, T("UNABLE_TO_OPEN_FILE") .. ": " .. tostring(err)
     end
 
     local header = f:read(12)
     if not header or #header < 12 then
         f:close()
-        return nil, "Некоректний формат WAV файлу (занадто короткий)"
+        return nil, T("INVALID_WAV_FORMAT_SHORT")
     end
 
     local riff_sig = header:sub(1, 4)
     local wave_sig = header:sub(9, 12)
     if riff_sig ~= "RIFF" or wave_sig ~= "WAVE" then
         f:close()
-        return nil, "Файл не є валідним WAV файлом"
+        return nil, T("THE_FILE_IS_NOT_VALID_WAV")
     end
 
     while true do
@@ -10810,7 +10883,7 @@ function UTILS.read_ixml_from_wav(filepath)
             local xml_data = f:read(chunk_size)
             f:close()
             if not xml_data or #xml_data < chunk_size then
-                return nil, "Помилка читання iXML даних"
+                return nil, T("ERR_READ_IXML_DATA")
             end
             return xml_data
         else
@@ -10826,12 +10899,12 @@ function UTILS.read_ixml_from_wav(filepath)
     end
 
     f:close()
-    return nil, "iXML метадані не знайдені в цьому WAV файлі."
+    return nil, T("ERR_NO_IXML_FOUND_IN_FILE")
 end
 
 function UTILS.parse_subass_xml(xml_str)
     if not xml_str:find("<SUBASS_METADATA>") then
-        return nil, nil, "Файл не містить метаданих Subass."
+        return nil, nil, T("NO_SUBASS_META_IN_FILE")
     end
     local items = {}
     local trk_name = xml_str:match("<SOURCE_TRACK>(.-)</SOURCE_TRACK>") or "Restored Track"
@@ -10899,11 +10972,11 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
 
     local trk_name, metadata_items = UTILS.parse_subass_xml(xml_data)
     if not metadata_items then
-        return false, trk_name or "Не вдалося розпарсити метадані."
+        return false, trk_name or T("UNABLE_PARSE_METADATA")
     end
 
     if #metadata_items == 0 then
-        return false, "В метаданих не знайдено записів про айтеми."
+        return false, T("NO_RECORDS_IN_META_FOUND")
     end
 
     -- Sort items chronologically by original position
@@ -10977,18 +11050,18 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
     reaper.TrackList_AdjustWindows(false)
     reaper.UpdateArrange()
 
-    return true, "Розпаковано " .. #metadata_items .. " реплік на новий трек '" .. track_name .. "'!"
+    return true, T("UNPUCK_CR_MSG_1") .. #metadata_items .. T("UNPUCK_CR_MSG_2") .. track_name .. "'!"
 end
 
 function UTILS.import_compact_wav(dropped_file)
     reaper.Undo_BeginBlock()
     local ok, msg = UTILS.reconstruct_compact_render(dropped_file, nil)
     if ok then
-        reaper.Undo_EndBlock("Імпорт компактного рендеру (Drag & Drop)", -1)
+        reaper.Undo_EndBlock(T("IMPORT_OF_COMPACT_RENDER_DG"), -1)
         show_snackbar(msg, "success")
         return true
     else
-        reaper.Undo_EndBlock("Імпорт компактного рендеру (Drag & Drop)", -1)
+        reaper.Undo_EndBlock(T("IMPORT_OF_COMPACT_RENDER_DG"), -1)
         return false, msg
     end
 end
@@ -11007,8 +11080,8 @@ end
 local function ebu_r128_replicas_normalize()
     -- Check SWS Extension availability
     if not reaper.APIExists("NF_AnalyzeTakeLoudness_IntegratedOnly") then
-        show_snackbar("SWS Extension потрібен для LUFS нормалізації", "error")
-        reaper.MB("Ця функція потребує SWS Extension.\n\nЗавантажте та встановіть з:\nhttps://www.sws-extension.org/", "SWS Extension не знайдено", 0)
+        show_snackbar(T("EBU_ERR_SWS_1"), "error")
+        reaper.MB(T("EBU_ERR_SWS_2"), T("EBU_ERR_SWS_3"), 0)
         return
     end
 
@@ -11048,19 +11121,19 @@ local function ebu_r128_replicas_normalize()
     end
 
     if #items == 0 then
-        show_snackbar("Виберіть Media Item або Треки", "error")
+        show_snackbar(T("EBU_SELECT_M_ITEMS_T"), "error")
         return
     end
 
     local last_val = reaper.GetExtState(section_name, "lufs_norm_target")
-    if last_val == "" then last_val = "-16.0" end
+    if last_val == "" then last_val = "-20.0" end
 
-    local ok, ret_val = reaper.GetUserInputs("Нормалізація реплік (LUFS)", 1, "Цільова гучність LUFS (-5 до -40):,extrawidth=50", last_val)
+    local ok, ret_val = reaper.GetUserInputs(T("EBU_DIALOG_S_1"), 1, T("EBU_DIALOG_S_2"), last_val)
     if not ok then return end
     
     local target_lufs = tonumber(ret_val)
     if not target_lufs or target_lufs > -5 or target_lufs < -40 then
-        show_snackbar("Будь ласка, введіть число від -5 до -40 LUFS", "error")
+        show_snackbar(T("EBU_DIALOG_ERR_1"), "error")
         return
     end
     
@@ -11215,7 +11288,7 @@ local function ebu_r128_replicas_normalize()
             
             if not retval then
                 reaper.ShowConsoleMsg("\n⚠️ Analysis cancelled.\n")
-                show_snackbar("Нормалізацію перервано", "error")
+                show_snackbar(T("EBU_HB_INTERRAP"), "error")
                 -- Restore original volumes (both take and item)
                 for _, d in ipairs(take_data) do
                     reaper.SetMediaItemTakeInfo_Value(d.take, "D_VOL", d.original_take_vol)
@@ -11460,18 +11533,12 @@ local function ebu_r128_replicas_normalize()
     reaper.ShowConsoleMsg(string.format("═══════════════════════\nTOTAL: %d items normalized in %.2f seconds.\n", normalized_count, elapsed))
     reaper.UpdateArrange()
     reaper.Undo_EndBlock("LUFS Normalization (Track-Smart)", -1)
-    
-    if normalized_count > 0 then
-        show_snackbar("Оброблено " .. normalized_count .. " айтемів. Див. консоль.", "success")
-    else
-        show_snackbar("Помилка: нічого не оброблено", "error")
-    end
 end
 
 local function filter_unique_item_replicas()
     local track_count = reaper.CountSelectedTracks(0)
     if track_count ~= 2 then
-        show_snackbar("Виберіть рівно 2 треки для порівняння", "error")
+        show_snackbar(T("FU_WAVE_SELECT_2"), "error")
         return
     end
 
@@ -11480,14 +11547,11 @@ local function filter_unique_item_replicas()
     local _, tr1_name = reaper.GetTrackName(tr1)
     local _, tr2_name = reaper.GetTrackName(tr2)
 
-    local msg = "ЯК ЦЕ ПРАЦЮЄ:\n" ..
-                "Ця функція порівняє форму хвилі (waveform) айтемів на двох вибраних треках.\n" ..
-                "Дублікати будуть автоматично видалені з ТАРГЕТ-треку, якщо вони збігаються з ОСНОВНИМ треком на 96% і більше.\n\n" ..
-                "Виберіть ОСНОВНИЙ (еталонний) трек:\n\n" ..
+    local msg = T("FU_WAVE_HOW_WORKS") ..
                 "YES: " .. tr1_name .. "\n" ..
                 "NO: " .. tr2_name .. "\n" ..
-                "CANCEL: Скасувати"
-    local ret = reaper.ShowMessageBox(msg, "Waveform Match: Вибір основного треку", 3)
+                "CANCEL: " .. T("CANCEL")
+    local ret = reaper.ShowMessageBox(msg, T("FU_WAVE_S_MAIN_T"), 3)
 
     local main_tr, target_tr
     if ret == 6 then main_tr, target_tr = tr1, tr2
@@ -11625,7 +11689,6 @@ local function filter_unique_item_replicas()
     end
 
     -- Process Main Track
-    show_snackbar("Аналіз основного треку... (Track AA)", "info")
     local main_sigs = {}
     local main_count = reaper.CountTrackMediaItems(main_tr)
     for i = 0, main_count - 1 do
@@ -11637,7 +11700,6 @@ local function filter_unique_item_replicas()
     reaper.ShowConsoleMsg("HEALTH: Loaded " .. #main_sigs .. " signatures from main track.\n\n")
 
     -- Process Target Track
-    show_snackbar("Аналіз другорядного треку...", "info")
     local to_delete = {}
     local target_count = reaper.CountTrackMediaItems(target_tr)
     local global_max_sim = 0
@@ -11681,13 +11743,13 @@ local function filter_unique_item_replicas()
     reaper.DestroyAudioAccessor(target_aa)
 
     if #to_delete > 0 then
-        push_undo("Видалення дублікатів (Waveform Match)")
+        push_undo(T("FU_WAVE_REMOVE_UNDO"))
         for _, item in ipairs(to_delete) do reaper.DeleteTrackMediaItem(target_tr, item) end
         reaper.UpdateArrange()
-        show_snackbar("Видалено " .. #to_delete .. " дублікатів.", "success")
+        show_snackbar(T("FU_WAVE_DONE_1") .. #to_delete .. T("FU_WAVE_DONE_2"), "success")
     else
         local pct = math.floor(global_max_sim * 100)
-        show_snackbar("Дублікатів не знайдено. (Найкраща схожість: " .. pct .. "%)", "info")
+        show_snackbar(T("FU_WAVE_NO_DUP_FOUND") .. pct .. "%)", "info")
     end
 end
 
@@ -15368,9 +15430,9 @@ function DRAW_WINDOW.draw_ai_modal(skip_draw)
                 gfx.rect(bx, by, bw, btn_h, 1)
                 set_color(UI.C_TXT)
                 gfx.setfont(F.std)
-                local sw, sh = gfx.measurestr(t.name)
+                local sw, sh = gfx.measurestr(T(t.name))
                 gfx.x, gfx.y = bx + (bw - sw) / 2, by + (btn_h - sh) / 2
-                gfx.drawstr(t.name)
+                gfx.drawstr(T(t.name))
             end
         end
         
@@ -26435,12 +26497,12 @@ function DRAW_TABS.draw_settings()
         local menu_str = ""
         for i, item in ipairs(UTILS.GLOBAL_HOTKEY_ACTIONS) do
             local key = (keys[i] and keys[i] ~= "") and keys[i] or "?"
-            menu_str = menu_str .. "[" .. key .. "] " .. item.label .. "||"
+            menu_str = menu_str .. "[" .. key .. "] " .. item.label() .. "||"
         end
         local ret = gfx.showmenu(menu_str)
         if ret > 0 then
             UI_STATE.hotkey_capture_idx = ret
-            show_snackbar(T("PRESS_THE_KEY_FOR") .. UTILS.GLOBAL_HOTKEY_ACTIONS[ret].label, "info")
+            show_snackbar(T("PRESS_THE_KEY_FOR") .. UTILS.GLOBAL_HOTKEY_ACTIONS[ret].label(), "info")
         end
     end
     y_cursor = y_cursor + S(60)
