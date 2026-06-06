@@ -79,7 +79,7 @@ local line_spacing_main = 6             -- міжрядковий інтерва
 local line_spacing_corr = 6             -- міжрядковий інтервал для правок
 local line_spacing_next = 6             -- міжрядковий інтервал для другого рядка
 
-local source_mode = nil                 -- 0 = регіони, >0 = номер трека з ітемами
+local language = "en"
 local window_bg_color = 0x00000088      -- чорний з прозорістю
 local border = true                    -- малювати фон під текстом
 local enable_wrap = true                -- переносити текст по словах
@@ -1105,6 +1105,8 @@ local function save_settings()
     reaper.SetExtState(SETTINGS_SECTION, "show_assimilation", tostring(show_assimilation), true)
     reaper.SetExtState(SETTINGS_SECTION, "show_euphonics", tostring(show_euphonics), true)
     reaper.SetExtState(SETTINGS_SECTION, "always_show_next", tostring(always_show_next), true)
+    reaper.SetExtState(SETTINGS_SECTION, "language", language, true)
+
     reaper.SetExtState(SETTINGS_SECTION, "fill_gaps", tostring(fill_gaps), true)
     reaper.SetExtState(SETTINGS_SECTION, "all_caps", tostring(all_caps), true)
     reaper.SetExtState(SETTINGS_SECTION, "all_caps_acute", tostring(all_caps_acute), true)
@@ -1193,6 +1195,7 @@ local function load_settings()
     show_assimilation = (reaper.GetExtState(SETTINGS_SECTION, "show_assimilation") ~= "false")
     show_euphonics = (reaper.GetExtState(SETTINGS_SECTION, "show_euphonics") == "true")
     always_show_next = (reaper.GetExtState(SETTINGS_SECTION, "always_show_next") ~= "false")
+    language = reaper.GetExtState(SETTINGS_SECTION, "language")
     fill_gaps = (reaper.GetExtState(SETTINGS_SECTION, "fill_gaps") == "true")
     all_caps = (reaper.GetExtState(SETTINGS_SECTION, "all_caps") == "true")
     all_caps_acute = (reaper.GetExtState(SETTINGS_SECTION, "all_caps_acute") == "true")
@@ -1226,64 +1229,6 @@ local function load_settings()
 end
 
 load_settings()
-
--- Функція збору списку джерел
-local function collect_source_modes()
-    local modes = {}
-
-    -- спочатку перевіряємо наявність регіонів
-    local _, num_markers, num_regions = reaper.CountProjectMarkers(0)
-    if num_regions > 0 then
-        table.insert(modes, { id = 0, label = "0: Регіони" })
-    end
-
-    -- пробігаємо всі треки та шукаємо ітеми з текстом
-    local track_count = reaper.CountTracks(0)
-    for t = 0, track_count-1 do
-        local tr = reaper.GetTrack(0, t)
-        local items = reaper.CountTrackMediaItems(tr)
-        local has_text = false
-        for i = 0, items-1 do
-            local it = reaper.GetTrackMediaItem(tr, i)
-            local take = reaper.GetActiveTake(it)
-            if not (take and reaper.ValidatePtr(take, "MediaItem_Take*")) then
-                local notes = reaper.ULT_GetMediaItemNote(it)
-                if notes and notes ~= "" then
-                    has_text = true
-                    break
-                end
-            end
-        end
-        if has_text then
-            table.insert(modes, {
-                id = t+1,
-                label = (t+1) .. ": Ітеми (трек " .. (t+1) .. ")"
-            })
-        end
-    end
-
-    return modes
-end
-
--- переконатися, що вибраний source_mode реально доступний
-local function ensure_valid_source_mode()
-    local modes = collect_source_modes()
-    local valid = false
-    for _, m in ipairs(modes) do
-        if m.id == source_mode then
-            valid = true
-            break
-        end
-    end
-    if not valid then
-        if #modes > 0 then
-            source_mode = modes[1].id
-        else
-            source_mode = 0 -- fallback: нічого немає
-        end
-    end
-end
-ensure_valid_source_mode()
 
 -- функція відображення підказки
 local function tooltip(text)
@@ -1399,20 +1344,16 @@ local function draw_context_menu()
             return new_value
         end
 
-        -- Режим джерела
-        local label = (source_mode == 0) and "0: Регіони"
-                    or (source_mode .. ": Ітеми (трек " .. source_mode .. ")")
-
-        if reaper.ImGui_BeginCombo(ctx, "Режим", label) then
-            local modes = collect_source_modes() -- <== ось тут збираємо список
-            for _, mode in ipairs(modes) do
-                if reaper.ImGui_Selectable(ctx, mode.label, source_mode == mode.id) then
-                    source_mode = mode.id
-                end
+        if reaper.ImGui_BeginCombo(ctx, "Language/Мова", language) then
+            if reaper.ImGui_Selectable(ctx, "English", language == "en") then
+                language = "en"
+            end
+            if reaper.ImGui_Selectable(ctx, "Українська", language == "ua") then
+                language = "ua"
             end
             reaper.ImGui_EndCombo(ctx)
         end
-        tooltip("Дозволяє вибрати режим відображення виходячи з доступності регіонів або ітемів на треках")
+        tooltip("Дозволяє вибрати мову інтерфейсу")
 
         -- Прапорці вікна
         reaper.ImGui_Separator(ctx)
@@ -2787,7 +2728,6 @@ local function loop()
             end
         end
         
-        ensure_valid_source_mode()
         sync_external_data() -- Синхронізуємо дані з Subass_Notes
         
         -- Визначаємо поточну позицію плейхеда/курсора
@@ -2807,17 +2747,7 @@ local function loop()
             last_proj_change_count = cur_proj_change_count
             
             -- Keep track of next/prev regions for timer
-            local current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start, main_region_ids
-            if source_mode == 0 then
-                current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start, main_region_ids = get_current_and_next_region_names()
-            else
-                local track = reaper.GetTrack(0, source_mode - 1)
-                if track then
-                    current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start, main_region_ids = get_current_and_next_items(track)
-                else
-                    current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start, main_region_ids = "", "", 0, 0, "", 0, 0, nil
-                end
-            end
+            local current, nextreg, start_pos, stop_pos, nextreg2, prev_rgn_end, next_rgn_start, main_region_ids = get_current_and_next_region_names()
             -- Зберігаємо в кеш
             cached_current, cached_next, cached_next2, cached_start, cached_stop = current, nextreg, nextreg2, start_pos, stop_pos
             -- Also cache timer data? Ideally yes, but let's keep it simple for now as we force update.
