@@ -965,6 +965,7 @@ local I18N = {
     TF_VOCALS = { en = "Vocals", ua = "Вокал" },
     TF_SPECIALIZATION = { en = "Specialization", ua = "Спеціалізація" },
     TF_ROLE = { en = "Role", ua = "Амплуа" },
+    TF_LANGUAGES = { en = "Language", ua = "Мова" },
     PROFILE_NAME = { en = "Name:", ua = "Ім'я:" },
     PROFILE_BIO = { en = "Bio:", ua = "Опис:" },
     PROFILE_CONTACT = { en = "Contact:", ua = "Зв'язок:" },
@@ -1400,6 +1401,7 @@ cfg.dubber_voice = UTILS.unicode_unescape(get_set("dubber_voice", ""))
 cfg.dubber_timbre = UTILS.unicode_unescape(get_set("dubber_timbre", ""))
 cfg.dubber_specialization = UTILS.unicode_unescape(get_set("dubber_specialization", ""))
 cfg.dubber_archetypes = UTILS.unicode_unescape(get_set("dubber_archetypes", ""))
+cfg.dubber_languages = UTILS.unicode_unescape(get_set("dubber_languages", ""))
 cfg.dubber_vocals = UTILS.unicode_unescape(get_set("dubber_vocals", ""))
 cfg.dubber_status = UTILS.unicode_unescape(get_set("dubber_status", "Звичайний аккаунт"))
 
@@ -1453,6 +1455,10 @@ PROFILE_META = {
             "Non-human voices: demons, robots, otherworldly forces",
             "Mannered, emotional, vibrant characters or sensual images"
         }
+    },
+    LANGUAGES = {
+        opts = {"Українська", "Англійська", "Японська", "Польська", "Німецька", "Французька", "Іспанська", "Італійська", "Португальська"},
+        opts_en = {"Ukrainian", "English", "Japanese", "Polish", "German", "French", "Spanish", "Italian", "Portuguese"},
     },
     TIMBRE = {
         opts = {"Низький", "Середній", "Високий"},
@@ -2090,6 +2096,7 @@ local UI_STATE = {
         vocals = nil,
         specialization = {},
         archetypes = {},
+        languages = {},
     },
     talents_list = nil,
     talents_page = 1,
@@ -3949,6 +3956,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "dubber_timbre", UTILS.unicode_escape(cfg.dubber_timbre or ""), true)
     reaper.SetExtState(section_name, "dubber_specialization", UTILS.unicode_escape(cfg.dubber_specialization or ""), true)
     reaper.SetExtState(section_name, "dubber_archetypes", UTILS.unicode_escape(cfg.dubber_archetypes or ""), true)
+    reaper.SetExtState(section_name, "dubber_languages", UTILS.unicode_escape(cfg.dubber_languages or ""), true)
     reaper.SetExtState(section_name, "dubber_vocals", UTILS.unicode_escape(cfg.dubber_vocals or ""), true)
     reaper.SetExtState(section_name, "dubber_status", UTILS.unicode_escape(cfg.dubber_status or "Звичайний аккаунт"), true)
     reaper.SetExtState(section_name, "profile_edit_seen", cfg.profile_edit_seen and "1" or "0", true)
@@ -11787,6 +11795,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
         dubber_timbre = p.dubber_timbre or "",
         dubber_specialization = p.dubber_specialization or "",
         dubber_archetypes = p.dubber_archetypes or "",
+        dubber_languages = p.dubber_languages or "",
         dubber_vocals = p.dubber_vocals or "",
         dubber_status = p.dubber_status or "Звичайний аккаунт",
     })
@@ -11847,7 +11856,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
                             "dubber_name", "dubber_bio", "dubber_contact", 
                             "dubber_samples", "dubber_equipment", "dubber_conditions",
                             "dubber_voice", "dubber_timbre", "dubber_specialization",
-                            "dubber_archetypes", "dubber_force_hide"
+                            "dubber_archetypes", "dubber_languages", "dubber_force_hide"
                         }
                         
                         for _, field in ipairs(fields) do
@@ -11947,6 +11956,7 @@ function ACHIEVEMENTS.fetch_talents(page)
         vocals = f.vocals,
         specialization = t2s(f.specialization or {}),
         archetypes = t2s(f.archetypes or {}),
+        languages = t2s(f.languages or {}),
         status = f.status,
     }
     
@@ -17923,6 +17933,7 @@ function ACHIEVEMENTS.open_edit_profile()
         voice = cfg.dubber_voice,
         timbre = s2t(cfg.dubber_timbre),
         archetypes = s2t(cfg.dubber_archetypes),
+        languages = s2t(cfg.dubber_languages),
         vocals = cfg.dubber_vocals,
         status = cfg.dubber_status or "Звичайний аккаунт",
         scroll_y = 0,
@@ -18650,6 +18661,8 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     draw_multi_select(T("TF_TIMBRE") .. ":", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
     draw_radio(T("TF_VOCALS") .. ":", "vocals", PROFILE_META.VOCALS.opts, PROFILE_META.get_tips("VOCALS"), S(150))
 
+    draw_multi_select(T("TF_LANGUAGES") .. ":", "languages", PROFILE_META.LANGUAGES.opts)
+
     -- Store dynamic height for next frame
     state.last_content_h = (cy + state.scroll_y) - content_y + S(20)
 
@@ -18690,6 +18703,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     local spec_str = t_to_str(state.specialization, PROFILE_META.SPECIALIZATION.opts)
     local timbre_str = t_to_str(state.timbre, PROFILE_META.TIMBRE.opts)
     local arch_str = t_to_str(state.archetypes, PROFILE_META.ARCHETYPES.opts)
+    local lngs_str = t_to_str(state.languages, PROFILE_META.LANGUAGES.opts)
     
     local has_changes = (state.name.text ~= (cfg.dubber_name or "")) or
                         (state.bio.text ~= (cfg.dubber_bio or "")) or
@@ -18701,6 +18715,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                         (timbre_str ~= (cfg.dubber_timbre or "")) or
                         (spec_str ~= (cfg.dubber_specialization or "")) or
                         (arch_str ~= (cfg.dubber_archetypes or "")) or
+                        (lngs_str ~= (cfg.dubber_languages or "")) or
                         (state.vocals ~= (cfg.dubber_vocals or "")) or
                         (state.status ~= (cfg.dubber_status or "Звичайний аккаунт"))
 
@@ -18798,6 +18813,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                 dubber_timbre = timbre_str,
                 dubber_specialization = spec_str,
                 dubber_archetypes = arch_str,
+                dubber_languages = lngs_str,
                 dubber_vocals = state.vocals,
                 dubber_status = state.status,
             }
@@ -19074,6 +19090,10 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
             end
         end
 
+        -- Languages
+        local tr_lngs = PROFILE_META.translate_val("LANGUAGES", p.dubber_languages)
+        current_total_h = current_total_h + draw_view_section(utf8_upper(T("TF_LANGUAGES")), tr_lngs, width, nil)
+
         local has_voice = p.dubber_voice and p.dubber_voice ~= ""
         local has_timbre = p.dubber_timbre and p.dubber_timbre ~= ""
         local tr_voice = PROFILE_META.translate_val("VOICE", p.dubber_voice)
@@ -19182,6 +19202,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
             vocals = UI_STATE.talents_filters.vocals,
             specialization = {},
             archetypes = {},
+            languages = {},
             status = UI_STATE.talents_filters.status
         }
         -- Deep copy tables
@@ -19193,6 +19214,9 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
         end
         if UI_STATE.talents_filters.archetypes then
             for k, v in pairs(UI_STATE.talents_filters.archetypes) do UI_STATE.talents_filters_temp.archetypes[k] = v end
+        end
+        if UI_STATE.talents_filters.languages then
+            for k, v in pairs(UI_STATE.talents_filters.languages) do UI_STATE.talents_filters_temp.languages[k] = v end
         end
     end
     
@@ -19350,6 +19374,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
     draw_radio(T("TF_VOCALS") .. ":", "vocals", PROFILE_META.VOCALS.filter, PROFILE_META.VOCALS.filter_tips, S(150))
     draw_multi_select(T("TF_SPECIALIZATION") .. ":", "specialization", PROFILE_META.SPECIALIZATION.opts, PROFILE_META.get_tips("SPECIALIZATION"))
     draw_multi_select(T("TF_ROLE") .. ":", "archetypes", PROFILE_META.ARCHETYPES.opts, PROFILE_META.get_tips("ARCHETYPES"))
+    draw_multi_select(T("TF_LANGUAGES") .. ":", "languages", PROFILE_META.LANGUAGES.opts)
 
     UI_STATE.talents_filters_last_h = (cy + UI_STATE.talents_filters_scroll_y) - content_y + S(20)
 
@@ -19376,7 +19401,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
     
     bx = bx - bw - S(10)
     if btn(bx, gfx.h - footer_h + (footer_h - bh)/2, bw, bh, T("RESET"), UI.C_BTN, UI.C_TXT) then
-        UI_STATE.talents_filters_temp = { voice = nil, timbre = {}, conditions = nil, vocals = nil, specialization = {}, archetypes = {}, status = nil }
+        UI_STATE.talents_filters_temp = { voice = nil, timbre = {}, conditions = nil, vocals = nil, specialization = {}, archetypes = {}, languages = {}, status = nil }
     end
 
     -- HEADER (Draw over content)
@@ -19445,7 +19470,13 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             for k, v in pairs(f.archetypes) do if v then has_arch = true break end end
         end
         if has_arch then count = count + 1 end
-        
+
+        local has_lngs = false
+        if f.languages then
+            for k, v in pairs(f.languages) do if v then has_lngs = true break end end
+        end
+        if has_lngs then count = count + 1 end
+
         return count
     end
 
