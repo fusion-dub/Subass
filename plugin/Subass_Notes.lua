@@ -380,7 +380,6 @@ local I18N = {
     EVERYONE = { en = "ALL", ua = "ВСІ" },
     HIDE_ALL = { en = "Hide all", ua = "Приховати всіх" },
     SHOW_ALL = { en = "Show all", ua = "Показати всіх" },
-    FILTER = { en = "Filter", ua = "Фільтр" },
     DABBER = { en = "Dabber", ua = "Дабер" },
     TOOLTIP_DUBBER_FILE = { en = "%s%s\nLines: %d\nWords: %d", ua = "%s%s\nРеплік: %d\nСлів: %d" },
     TAB_FILE_ACTOR_VISIBILITY = { en = "Changing an actor's visibility ", ua = "Зміна видимості актора " },
@@ -955,6 +954,7 @@ local I18N = {
     LOOKING = { en = "Looking", ua = "Шукаю" },
     FREE = { en = "Free", ua = "Вільні" },
     FILTERS = { en = "Filters", ua = "Фільтри" },
+    FILTER  = { en = "Filter",  ua = "Фільтр" },
     APPLY = { en = "Apply", ua = "Застосувати" },
     RESET = { en = "Reset", ua = "Скинути" },
     TF_VOICE = { en = "Voice", ua = "Голос" },
@@ -963,48 +963,41 @@ local I18N = {
     TF_VOCALS = { en = "Vocals", ua = "Вокал" },
     TF_SPECIALIZATION = { en = "Specialization", ua = "Спеціалізація" },
     TF_ROLE = { en = "Role", ua = "Амплуа" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-    A = { en = "", ua = "" },
-
-    -- A = { en = "", ua = "" },
+    PROFILE_NAME = { en = "Name:", ua = "Ім'я:" },
+    PROFILE_BIO = { en = "Bio:", ua = "Опис:" },
+    PROFILE_CONTACT = { en = "Contact:", ua = "Зв'язок:" },
+    PROFILE_SAMPLES = { en = "Portfolio:", ua = "Портфоліо:" },
+    PROFILE_EQUIPMENT = { en = "Equipment:", ua = "Обладнання:" },
+    EDIT_PROFILE_TITLE = { en = "Edit Profile", ua = "Редагування профілю" },
+    PLACEHOLDER_NAME = { en = "Your name or nickname...", ua = "Ваше ім'я або нікнейм..." },
+    PLACEHOLDER_BIO = { en = "Briefly about your experience and specialization...", ua = "Коротко про ваш досвід та спеціалізацію..." },
+    PLACEHOLDER_CONTACT = { en = "Full link to Telegram or other social networks...", ua = "Повне посилання на Telegram або інші соц. мережі..." },
+    PLACEHOLDER_SAMPLES = { en = "Link to your works (YouTube, Drive)...", ua = "Посилання на ваші роботи (YouTube, Drive)..." },
+    PLACEHOLDER_EQUIPMENT = { en = "Microphone, sound card, etc...", ua = "Мікрофон, звукова карта, тощо..." },
+    STATUS_LABEL = { en = "Status...", ua = "Статус..." },
+    CHANGE_STATUS_TIP = { en = "Change your public availability status:\n", ua = "Змінити ваш публічний статус доступності:\n" },
+    FILL_CONTACT = { en = "Fill in the 'Contact' field", ua = "Заповніть поле 'Зв'язок'" },
+    PROFILE_UPDATED = { en = "Profile updated", ua = "Профіль оновлено" },
+    FILL_CONTACT_FIRST = { en = "First fill in the 'Contact' field (Telegram, etc.) so people can reach you.", ua = "Спочатку заповніть поле 'Зв'язок' (Telegram, тощо), щоб з вами могли зв'язатися." },
+    CONTACTS_REQUIRED = { en = "Contacts required", ua = "Потрібні контакти" },
+    HIDE_PROFILE_CONFIRM_1 = { en = "Are you sure you want to hide your profile? Other users will no longer be able to find you in the talent search and leaderboard.", ua = "Ви впевнені, що хочете приховати свій профіль? Вас більше не зможуть знайти інші користувачі в пошуку талантів та таблиці лідерів." },
+    HIDE_ACCOUNT_Q = { en = "Hide account?", ua = "Приховати аккаунт?" },
+    HIDE_PROFILE_CONFIRM_2 = { en = "Are you sure you want to hide it? Maybe it's better to choose 'Regular account' status?", ua = "Точно приховати? Давайте краще оберем статус 'Звичайний аккаунт'?" },
+    LAST_WARNING = { en = "Last warning", ua = "Останнє попередження" },
+    PROFILE_EMPTY_OR_HIDDEN = { en = "Profile is empty or hidden", ua = "Профіль пустий або прихований" },
+    LOADING_DATA = { en = "Loading data...", ua = "Завантаження даних..." },
+    USER_PROFILE = { en = "User Profile", ua = "Профіль користувача" },
+    SECTION_BIO = { en = "BIO", ua = "ОПИС" },
+    SECTION_VOICE_TIMBRE = { en = "VOICE & TIMBRE", ua = "ГОЛОС ТА ТЕМБР" },
+    SECTION_EQUIPMENT = { en = "EQUIPMENT", ua = "ОБЛАДНАННЯ" },
+    SECTION_CONTACTS = { en = "CONTACTS", ua = "КОНТАКТИ" },
+    SECTION_PORTFOLIO = { en = "PORTFOLIO", ua = "ПОРТФОЛІО" },
+    STATUS_TIP_LOOKING = { en = "• You will receive offers from other users to hire you. Describe in detail in your description who you are looking for.", ua = "• Ви будете отримувати пропозиції від інших користувачів, аби ви їх найняли. Датально опишіть в описі кого ви шукаєте." },
+    STATUS_TIP_FREE = { en = "• You are free to work. Other users will be able to find you in the talent catalog. Fill out your profile as much as possible so they can hire you faster.", ua = "• Ви вільні для роботи. Інші користувачі зможуть знайти вас в каталозі талантів. Заповніть максимально свій профайл аби вас могли швидше найняти." },
+    STATUS_TIP_HIDE = { en = "• No one will find you in the talent catalog. You will not receive work offers and you will be hidden from the achievement leaderboard.", ua = "• Вас більше ніхто не знайде в каталозі талантів. Ви не будете отримувати пропозиції по роботі а також ви будете приховані з таблиці лідерів досягнень." },
+    STATUS_TIP_REGULAR = { en = "• You do not participate in the talent race. You are just a user who is not looking for anyone at the moment.", ua = "• Ви не берете участь в гонці талантів. Ви просто користувач який наразі нікого не шукає." },
+    COPY_ST = { en = "Copy content", ua = "Копіювати вміст" },
+    OPEN_TG = { en = "Open in Telegram", ua = "Відкрити в телеграм" },
 }
 
 function T(key)
@@ -1080,6 +1073,7 @@ end
 PROFILE_META = {
     ARCHETYPES = {
         opts = {"Герої", "Антагоністи", "Комедійні", "Інтелектуали", "Загадкові", "Ексцентричні", "Брутальні", "Лагідні/Мое", "Наставники", "Аристократи", "Циніки", "Малеча", "Звичайні", "Психопати", "Воїни", "Спокусники", "Монстри", "Геї"},
+        opts_en = {"Heroes", "Antagonists", "Comedic", "Intellectuals", "Mysterious", "Eccentric", "Brutal", "Gentle/Moe", "Mentors", "Aristocrats", "Cynics", "Kids", "Ordinary", "Psychopaths", "Warriors", "Seducers", "Monsters", "Gays"},
         tips = {
             "Протагоністи: рішучі, надихаючі, з емоційним піднесенням",
             "Лиходії: маніпулятивні, владні, підступні або величні тирани",
@@ -1099,67 +1093,136 @@ PROFILE_META = {
             "Харизматичні, оксамитові, звабливі або фатальні голоси",
             "Нелюдські голоси: демони, роботи, потойбічні сили",
             "Манірні, емоційні, яскраві персонажі або чуттєві образи"
+        },
+        tips_en = {
+            "Protagonists: decisive, inspiring, with emotional elevation",
+            "Villains: manipulative, authoritative, insidious or grand tyrants",
+            "Energetic roles, mascots, sarcastic friends, comedy writers",
+            "Strategists, scientists, cold analysts (Kuudere type)",
+            "Elegant, fatal, dramatic characters with hidden motives",
+            "Chaotic, crazy or emotionally unstable roles (Yandere)",
+            "Brutal, aggressive, straightforward characters or bullies",
+            "Shy, cute, childish or very fragile images",
+            "Sages, teachers, older experienced characters",
+            "Refined, mannered, haughty or noble characters",
+            "Sarcastic, world-weary, gloomy or ironic roles",
+            "Children, infants or very small creatures",
+            "Realistic, down-to-earth heroes (neighbor, office worker)",
+            "Cold, frightening, devoid of empathy or maniacal villains",
+            "Disciplined soldiers, veterans, with a commanding voice",
+            "Charismatic, velvety, seductive or fatal voices",
+            "Non-human voices: demons, robots, otherworldly forces",
+            "Mannered, emotional, vibrant characters or sensual images"
         }
     },
     TIMBRE = {
         opts = {"Низький", "Середній", "Високий"},
+        opts_en = {"Low", "Medium", "High"},
         tips = {
             "Глибокий та густий голос (бас, баритон, контральто)",
             "Універсальний голос середнього регістру (меццо-сопрано, баритональний тенор)",
             "Дзвінкий та легкий голос (тенор, сопрано)"
+        },
+        tips_en = {
+            "Deep and thick voice (bass, baritone, contralto)",
+            "Versatile middle-register voice (mezzo-soprano, baritone tenor)",
+            "Resonant and light voice (tenor, soprano)"
         }
     },
     CONDITIONS = {
         opts = {"Ніяких", "Обр. Кімната", "Акс. Будка", "Студія"},
+        opts_en = {"None", "Treated Room", "Acoustic Booth", "Studio"},
         tips = {
             "Звичайна житлова кімната без акустичної підготовки (може бути чутно відлуння)",
             "Приміщення з частковою підготовкою: наявні штори, килими або поролон (незначне відлуння)",
             "Спеціалізована вокальна кабіна (Booth), що забезпечує максимально 'сухий' звук",
             "Професійна студія з повним акустичним розрахунком та звукоізоляцією"
+        },
+        tips_en = {
+            "Regular living room without acoustic treatment (reverb may be audible)",
+            "Partially treated room: curtains, carpets or acoustic foam present (slight reverb)",
+            "Specialized vocal booth providing the driest sound possible",
+            "Professional studio with full acoustic calculation and soundproofing"
         }
     },
     SPECIALIZATION = {
         opts = {"Дабер", "Перекладач", "Звукорежисер", "Редактор", "Менеджер"},
+        opts_en = {"Dubber", "Translator", "Sound Engineer", "Editor", "Manager"},
         tips = {
             "Актор озвучування, який працює над записом голосів та передачею емоцій персонажів",
             "Фахівець, що займається адаптацією тексту та перекладом сценарію",
             "Спеціаліст з монтажу, зведення аудіодоріжок та фінальної обробки звуку",
             "Відповідає за перевірку тексту на помилки, стилістику та відповідність ліпсингу",
             "Організатор процесів, який координує роботу команди та терміни виконання проєкту"
+        },
+        tips_en = {
+            "Voice actor who records voices and conveys character emotions",
+            "Specialist who adapts text and translates scripts",
+            "Specialist in editing, mixing audio tracks and final sound processing",
+            "Responsible for checking text for errors, style and lipsync compliance",
+            "Process organizer who coordinates team work and project deadlines"
         }
     },
     VOCALS = {
         opts = {"Не співаю", "Аматорський вокал", "Професійний вокал"},
+        opts_en = {"No singing", "Amateur vocals", "Professional vocals"},
         filter = {"Аматорський вокал", "Професійний вокал"},
+        filter_en = {"Amateur vocals", "Professional vocals"},
         tips = {
             "Не займаюся вокалом",
             "Можу заспівати прості партії, опенінги або фоновий вокал",
             "Маю професійну вокальну підготовку, працюю зі складними партіями"
         },
+        tips_en = {
+            "I don't sing",
+            "Can sing simple parts, openings or backing vocals",
+            "Have professional vocal training, work with complex parts"
+        },
         filter_tips = {
             "Можу заспівати прості партії, опенінги або фоновий вокал",
             "Маю професійну вокальну підготовку, працюю зі складними партіями"
+        },
+        filter_tips_en = {
+            "Can sing simple parts, openings or backing vocals",
+            "Have professional vocal training, work with complex parts"
         }
     },
     VOICE = {
         opts = {"Чоловічий", "Жіночий"},
+        opts_en = {"Male", "Female"},
         tips = {
             "Чоловічий голос",
             "Жіночий голос",
+        },
+        tips_en = {
+            "Male voice",
+            "Female voice"
         }
     },
     STATUS = {
         opts = {"Вільний талант", "Шукаю талант", "Звичайний аккаунт", "Приховати аккаунт"},
+        opts_en = {"Free talent", "Looking for talent", "Regular account", "Hide account"},
         tips = {
-            "В активному пошуку проєкта",
+            "В активному пошуку проєкту",
             "В активному пошуку нових колег",
             "Звичайний аккаунт",
             "Приховати мій профіль з публічного пошуку"
         },
+        tips_en = {
+            "Actively looking for a project",
+            "Actively looking for new colleagues",
+            "Regular account",
+            "Hide my profile from public search"
+        },
         filter = {"Вільний талант", "Шукаю талант"},
+        filter_en = {"Free talent", "Looking for talent"},
         filter_tips = {
-            "В активному пошуку проєкта",
+            "В активному пошуку проєкту",
             "В активному пошуку нових колег",
+        },
+        filter_tips_en = {
+            "Actively looking for a project",
+            "Actively looking for new colleagues"
         }
     }
 }
@@ -1167,6 +1230,9 @@ PROFILE_META = {
 function PROFILE_META.get_tips(key)
     local meta = PROFILE_META[key]
     if not meta then return {} end
+    if cfg.lng == "en" and meta.tips_en then
+        return meta.tips_en
+    end
     return meta.tips
 end
 
@@ -1175,8 +1241,59 @@ function PROFILE_META.tip_by_name(key, name)
     local meta = PROFILE_META[key]
     if not meta or not meta.opts or not meta.tips then return nil end
     for i, opt in ipairs(meta.opts) do
-        if opt == name then return meta.tips[i] end
+        if opt == name then
+            if cfg.lng == "en" and meta.tips_en and meta.tips_en[i] then
+                return meta.tips_en[i]
+            end
+            return meta.tips[i]
+        end
     end
+end
+
+function PROFILE_META.translate_opt(state_key, opt)
+    if not opt then return nil end
+    if cfg.lng ~= "en" then return opt end
+    local key = string.upper(state_key)
+    local meta = PROFILE_META[key]
+    if not meta or not meta.opts or not meta.opts_en then return opt end
+    
+    for i, o in ipairs(meta.opts) do
+        if o == opt then
+            return meta.opts_en[i]
+        end
+    end
+    if meta.filter and meta.filter_en then
+        for i, o in ipairs(meta.filter) do
+            if o == opt then
+                return meta.filter_en[i]
+            end
+        end
+    end
+    return opt
+end
+
+function PROFILE_META.translate_val(key, val)
+    if not val or val == "" then return val end
+    if cfg.lng ~= "en" then return val end
+    local meta = PROFILE_META[key]
+    if not meta or not meta.opts or not meta.opts_en then return val end
+    
+    local parts = {}
+    for part in val:gmatch("[^,]+") do
+        local trimmed = part:match("^%s*(.-)%s*$")
+        local found = false
+        for i, opt in ipairs(meta.opts) do
+            if opt == trimmed then
+                table.insert(parts, meta.opts_en[i])
+                found = true
+                break
+            end
+        end
+        if not found then
+            table.insert(parts, trimmed)
+        end
+    end
+    return table.concat(parts, ", ")
 end
 
 local dynamic_director_h = nil
@@ -18184,7 +18301,8 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                     UI_STATE.tooltip_state.text = tooltips[i]
                 end
 
-                if btn(rx, ry, rw, input_h, opt, bg, txt, false, content_y, content_y + content_h) then
+                local display_opt = PROFILE_META.translate_opt(state_key, opt)
+                if btn(rx, ry, rw, input_h, display_opt, bg, txt, false, content_y, content_y + content_h) then
                     state[state_key] = opt
                 end
                 rx = rx + rw + S(5)
@@ -18248,7 +18366,8 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                     UI_STATE.tooltip_state.text = tooltips[i]
                 end
 
-                if btn(rx, ry, rw, input_h, opt, bg, txt, false, content_y, content_y + content_h) then
+                local display_opt = PROFILE_META.translate_opt(state_key, opt)
+                if btn(rx, ry, rw, input_h, display_opt, bg, txt, false, content_y, content_y + content_h) then
                     state[state_key] = state[state_key] or {}
                     state[state_key][opt] = not state[state_key][opt]
                 end
@@ -18258,18 +18377,18 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
         cy = start_cy + section_h + spacing
     end
 
-    draw_row("Ім'я:", "name", input_h, false, "Ваше ім'я або нікнейм...", 40)
-    draw_row("Опис:", "bio", S(100), true, "Коротко про ваш досвід та спеціалізацію...", 1000)
-    draw_row("Зв'язок:", "contact", input_h, false, "Повне посилання на Telegram або інші соц. мережі...", 1000)
-    draw_row("Портфоліо:", "samples", input_h, false, "Посилання на ваші роботи (YouTube, Drive)...", 1000)
-    draw_row("Обладнання:", "equipment", input_h, false, "Мікрофон, звукова карта, тощо...", 1000)
-    draw_multi_select("Спеціалізація:", "specialization", PROFILE_META.SPECIALIZATION.opts, PROFILE_META.get_tips("SPECIALIZATION"))
-    draw_multi_select("Амплуа:", "archetypes", PROFILE_META.ARCHETYPES.opts, PROFILE_META.get_tips("ARCHETYPES"))
+    draw_row(T("PROFILE_NAME"), "name", input_h, false, T("PLACEHOLDER_NAME"), 40)
+    draw_row(T("PROFILE_BIO"), "bio", S(100), true, T("PLACEHOLDER_BIO"), 1000)
+    draw_row(T("PROFILE_CONTACT"), "contact", input_h, false, T("PLACEHOLDER_CONTACT"), 1000)
+    draw_row(T("PROFILE_SAMPLES"), "samples", input_h, false, T("PLACEHOLDER_SAMPLES"), 1000)
+    draw_row(T("PROFILE_EQUIPMENT"), "equipment", input_h, false, T("PLACEHOLDER_EQUIPMENT"), 1000)
+    draw_multi_select(T("TF_SPECIALIZATION") .. ":", "specialization", PROFILE_META.SPECIALIZATION.opts, PROFILE_META.get_tips("SPECIALIZATION"))
+    draw_multi_select(T("TF_ROLE") .. ":", "archetypes", PROFILE_META.ARCHETYPES.opts, PROFILE_META.get_tips("ARCHETYPES"))
 
-    draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
-    draw_radio("Голос:", "voice", PROFILE_META.VOICE.opts, PROFILE_META.get_tips("VOICE"))
-    draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
-    draw_radio("Вокал:", "vocals", PROFILE_META.VOCALS.opts, PROFILE_META.get_tips("VOCALS"), S(150))
+    draw_radio(T("TF_RECORD_ENV") .. ":", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
+    draw_radio(T("TF_VOICE") .. ":", "voice", PROFILE_META.VOICE.opts, PROFILE_META.get_tips("VOICE"))
+    draw_multi_select(T("TF_TIMBRE") .. ":", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
+    draw_radio(T("TF_VOCALS") .. ":", "vocals", PROFILE_META.VOCALS.opts, PROFILE_META.get_tips("VOCALS"), S(150))
 
     -- Store dynamic height for next frame
     state.last_content_h = (cy + state.scroll_y) - content_y + S(20)
@@ -18290,7 +18409,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     set_color(UI.C_TXT)
     gfx.x, gfx.y = pad, pad - S(2)
     local close_sz = S(24)
-    local draw_title = fit_text_width("Редагування профілю", gfx.w - pad * 2 - close_sz - S(20))
+    local draw_title = fit_text_width(T("EDIT_PROFILE_TITLE"), gfx.w - pad * 2 - close_sz - S(20))
     gfx.drawstr(draw_title)
     
     -- Close button (Right)
@@ -18332,7 +18451,8 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
 
     -- Status Button (left side of footer)
     local status_opts = PROFILE_META.STATUS.opts
-    local status_label = (state.status and state.status ~= "") and state.status or "Статус..."
+    local display_status = PROFILE_META.translate_opt("STATUS", state.status)
+    local status_label = (display_status and display_status ~= "") and display_status or T("STATUS_LABEL")
     local status_w = S(150)
     local status_x = pad
     
@@ -18343,39 +18463,43 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     if state.status == "Шукаю талант" then
         sb_bg = UI.C_ORANGE
         sb_txt = UI.C_BG
-        tp_text = "• Ви будете отримувати пропозиції від інших користувачів, аби ви їх найняли. Датально опишіть в описі кого ви шукаєте."
+        tp_text = T("STATUS_TIP_LOOKING")
     elseif state.status == "Вільний талант" then
         sb_bg = UI.C_ACCENT_G
         sb_txt = UI.C_BG
-        tp_text = "• Ви вільні для роботи. Інші користувачі зможуть знайти вас в каталозі талантів. Заповніть максимально свій профайл аби вас могли швидше найняти."
+        tp_text = T("STATUS_TIP_FREE")
     elseif state.status == "Приховати аккаунт" then
         sb_bg = UI.C_RED
         sb_txt = UI.C_BG
-        tp_text = "• Вас більше ніхто не знайде в каталозі талантів. Ви не будете отримувати пропозиції по роботі а також ви будете приховані з таблиці лідерів досягнень."
+        tp_text = T("STATUS_TIP_HIDE")
     elseif state.status == "Звичайний аккаунт" then
         sb_bg = UI.C_BTN
         sb_txt = UI.C_TXT
-        tp_text = "• Ви не берете участь в гонці талантів. Ви просто користувач який наразі нікого не шукає."
+        tp_text = T("STATUS_TIP_REGULAR")
     end
 
     if UI_STATE.window_focused and (gfx.mouse_x >= status_x and gfx.mouse_x <= status_x + status_w and gfx.mouse_y >= by and gfx.mouse_y <= by + btn_h) then
-        UI_STATE.tooltip_state.text = "Змінити ваш публічний статус доступності:\n" .. tp_text
+        UI_STATE.tooltip_state.text = T("CHANGE_STATUS_TIP") .. tp_text
     end
     
     if btn(status_x, by, status_w, btn_h, status_label, sb_bg, sb_txt) then
         gfx.x, gfx.y = status_x, by + btn_h
-        local menu_str = table.concat(status_opts, "|")
+        local menu_opts = {}
+        for _, opt in ipairs(status_opts) do
+            table.insert(menu_opts, PROFILE_META.translate_opt("STATUS", opt))
+        end
+        local menu_str = table.concat(menu_opts, "|")
         local ret = gfx.showmenu(menu_str)
         if ret and ret > 0 then
             local selected_opt = status_opts[ret]
             local contact_trimmed = state.contact.text:match("^%s*(.-)%s*$") or ""
             
             if (selected_opt == "Шукаю талант" or selected_opt == "Вільний талант") and contact_trimmed == "" then
-                reaper.MB("Спочатку заповніть поле 'Зв'язок' (Telegram, тощо), щоб з вами могли зв'язатися.", "Потрібні контакти", 0)
+                reaper.MB(T("FILL_CONTACT_FIRST"), T("CONTACTS_REQUIRED"), 0)
             elseif selected_opt == "Приховати аккаунт" then
-                local res1 = reaper.MB("Ви впевнені, що хочете приховати свій профіль? Вас більше не зможуть знайти інші користувачі в пошуку талантів та таблиці лідерів.", "Приховати аккаунт?", 4)
+                local res1 = reaper.MB(T("HIDE_PROFILE_CONFIRM_1"), T("HIDE_ACCOUNT_Q"), 4)
                 if res1 == 6 then -- Yes
-                    local res2 = reaper.MB("Точно приховати? Давайте краще оберем статус 'Звичайний аккаунт'?", "Останнє попередження", 4)
+                    local res2 = reaper.MB(T("HIDE_PROFILE_CONFIRM_2"), T("LAST_WARNING"), 4)
                     if res2 == 6 then -- Yes (User agreed that it's better to choose simple account)
                         state.status = "Звичайний аккаунт"
                     else -- No (User wants to hide anyway)
@@ -18398,7 +18522,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
         if not is_name_valid then
             show_snackbar(T("NO_EMPTY_NAME"), "error")
         elseif not is_contact_valid then
-            show_snackbar("Заповніть поле 'Зв'язок'", "error")
+            show_snackbar(T("FILL_CONTACT"), "error")
         elseif has_changes then
             cfg.profile_edit_seen = true
             save_settings()
@@ -18426,7 +18550,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                     end
                     save_settings()
                     
-                    show_snackbar("Профіль оновлено", "success")
+                    show_snackbar(T("PROFILE_UPDATED"), "success")
                     UI_STATE.show_edit_profile = false
                     OTHER.profile_state = nil
                 else
@@ -18470,7 +18594,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
 
         -- Loading state
         set_color(UI.C_TXT, 0.3)
-        local txt = "Завантаження даних..."
+        local txt = T("LOADING_DATA")
         gfx.setfont(F.title)
         local tw, th = gfx.measurestr(txt)
         gfx.x, gfx.y = (gfx.w - tw) / 2, (gfx.h - th) / 2
@@ -18484,7 +18608,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
         gfx.setfont(F.title)
         set_color(UI.C_TXT, 1)
         gfx.x, gfx.y = pad, pad - S(2)
-        gfx.drawstr("Профіль користувача")
+        gfx.drawstr(T("USER_PROFILE"))
 
         -- Close button
         local close_sz = S(24)
@@ -18520,7 +18644,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
 
     -- Helper for drawing sections and calculating height
     local function draw_view_section(title, text, w, tooltip_text)
-        if not text or text == "" or text == "Не співаю" then return 0 end
+        if not text or text == "" or text == "Не співаю" or text == "No singing" then return 0 end
         gfx.setfont(F.tip_big) -- Explicitly set standard font before text measurements
         local actual_text = text:match("^%s*(.-)%s*$") or ""
         local lines = wrap_text(actual_text, w, S(16))
@@ -18542,9 +18666,10 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
                     gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                     
                     local tg_username = actual_text:match("^%s*@([%w_]+)%s*$")
-                    local menu_str = "Копіювати вміст"
+                    local menu_str = T("COPY_ST")
+
                     if tg_username then
-                        menu_str = menu_str .. "|Відкрити в телеграм"
+                        menu_str = menu_str .. "|" .. T("OPEN_TG")
                     end
                     
                     local ret = gfx.showmenu(menu_str)
@@ -18644,7 +18769,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     local current_total_h = S(40) -- Start padding
 
     if p.dubber_status ~= "Приховати аккаунт" then
-        current_total_h = current_total_h + draw_view_section("ОПИС", p.dubber_bio, width)
+        current_total_h = current_total_h + draw_view_section(T("SECTION_BIO"), p.dubber_bio, width)
         
         -- Dynamic Specialization Tooltip
         local spec_tooltip = ""
@@ -18653,11 +18778,13 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
                 local clean = opt:match("^%s*(.-)%s*$")
                 local tip_item = PROFILE_META.tip_by_name("SPECIALIZATION", clean)
                 if tip_item then
-                    spec_tooltip = spec_tooltip .. (spec_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+                    local display_opt = PROFILE_META.translate_opt("SPECIALIZATION", clean)
+                    spec_tooltip = spec_tooltip .. (spec_tooltip == "" and "" or "\n") .. "• " .. display_opt .. ": " .. tip_item
                 end
             end
         end
-        current_total_h = current_total_h + draw_view_section("СПЕЦІАЛІЗАЦІЯ", p.dubber_specialization, width, spec_tooltip ~= "" and spec_tooltip or nil)
+        local tr_spec = PROFILE_META.translate_val("SPECIALIZATION", p.dubber_specialization)
+        current_total_h = current_total_h + draw_view_section(utf8_upper(T("TF_SPECIALIZATION")), tr_spec, width, spec_tooltip ~= "" and spec_tooltip or nil)
 
         -- Dynamic Archetypes Tooltip
         local arch_tooltip = ""
@@ -18666,11 +18793,13 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
                 local clean = opt:match("^%s*(.-)%s*$")
                 local tip_item = PROFILE_META.tip_by_name("ARCHETYPES", clean)
                 if tip_item then
-                    arch_tooltip = arch_tooltip .. (arch_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+                    local display_opt = PROFILE_META.translate_opt("ARCHETYPES", clean)
+                    arch_tooltip = arch_tooltip .. (arch_tooltip == "" and "" or "\n") .. "• " .. display_opt .. ": " .. tip_item
                 end
             end
         end
-        current_total_h = current_total_h + draw_view_section("АМПЛУА", p.dubber_archetypes, width, arch_tooltip ~= "" and arch_tooltip or nil)
+        local tr_arch = PROFILE_META.translate_val("ARCHETYPES", p.dubber_archetypes)
+        current_total_h = current_total_h + draw_view_section(utf8_upper(T("TF_ROLE")), tr_arch, width, arch_tooltip ~= "" and arch_tooltip or nil)
 
         -- Voice & Timbre Tooltip
         local timbre_tooltip = ""
@@ -18679,28 +18808,34 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
                 local clean = opt:match("^%s*(.-)%s*$")
                 local tip_item = PROFILE_META.tip_by_name("TIMBRE", clean)
                 if tip_item then
-                    timbre_tooltip = timbre_tooltip .. (timbre_tooltip == "" and "" or "\n") .. "• " .. clean .. ": " .. tip_item
+                    local display_opt = PROFILE_META.translate_opt("TIMBRE", clean)
+                    timbre_tooltip = timbre_tooltip .. (timbre_tooltip == "" and "" or "\n") .. "• " .. display_opt .. ": " .. tip_item
                 end
             end
         end
 
         local has_voice = p.dubber_voice and p.dubber_voice ~= ""
         local has_timbre = p.dubber_timbre and p.dubber_timbre ~= ""
-        local combined_voice = (has_voice and has_timbre) and (p.dubber_voice .. " (" .. p.dubber_timbre .. ")") or ""
+        local tr_voice = PROFILE_META.translate_val("VOICE", p.dubber_voice)
+        local tr_timbre = PROFILE_META.translate_val("TIMBRE", p.dubber_timbre)
+        local combined_voice = (has_voice and has_timbre) and (tr_voice .. " (" .. tr_timbre .. ")") or ""
         local vocal_tooltip = p.dubber_vocals and PROFILE_META.tip_by_name("VOCALS", p.dubber_vocals)
         local cond_tooltip = p.dubber_conditions and PROFILE_META.tip_by_name("CONDITIONS", p.dubber_conditions)
 
-        current_total_h = current_total_h + draw_view_section("ГОЛОС ТА ТЕМБР", combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
-        current_total_h = current_total_h + draw_view_section("ВОКАЛ", p.dubber_vocals, width, vocal_tooltip)
-        current_total_h = current_total_h + draw_view_section("ОБЛАДНАННЯ", p.dubber_equipment, width)
-        current_total_h = current_total_h + draw_view_section("УМОВИ ЗАПИСУ", p.dubber_conditions, width, cond_tooltip)
-        current_total_h = current_total_h + draw_view_section("КОНТАКТИ", p.dubber_contact, width)
-        current_total_h = current_total_h + draw_view_section("ПОРТФОЛІО", p.dubber_samples, width)
+        local tr_vocals = PROFILE_META.translate_val("VOCALS", p.dubber_vocals)
+        local tr_cond = PROFILE_META.translate_val("CONDITIONS", p.dubber_conditions)
+
+        current_total_h = current_total_h + draw_view_section(T("SECTION_VOICE_TIMBRE"), combined_voice, width, timbre_tooltip ~= "" and timbre_tooltip or nil)
+        current_total_h = current_total_h + draw_view_section(utf8_upper(T("TF_VOCALS")), tr_vocals, width, vocal_tooltip)
+        current_total_h = current_total_h + draw_view_section(T("SECTION_EQUIPMENT"), p.dubber_equipment, width)
+        current_total_h = current_total_h + draw_view_section(utf8_upper(T("TF_RECORD_ENV")), tr_cond, width, cond_tooltip)
+        current_total_h = current_total_h + draw_view_section(T("SECTION_CONTACTS"), p.dubber_contact, width)
+        current_total_h = current_total_h + draw_view_section(T("SECTION_PORTFOLIO"), p.dubber_samples, width)
     end
 
     -- If no sections were drawn, show "Profile is empty"
     if current_total_h <= S(45) then -- S(40) is base padding
-        local empty_txt = "Профіль пустий або прихований"
+        local empty_txt = T("PROFILE_EMPTY_OR_HIDDEN")
         gfx.setfont(F.tip_big)
         local tw, th = gfx.measurestr(empty_txt)
         local tx = (gfx.w - tw) / 2
@@ -18734,14 +18869,14 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
     set_color(UI.C_TXT)
     gfx.x, gfx.y = pad, pad - S(2)
     -- Fix: Reduced the cut-off margin from S(100) to S(40) so it doesn't disappear in narrow windows
-    gfx.drawstr(fit_text_width(p.dubber_name or "Анонім", gfx.w - pad*2 - S(40)))
+    gfx.drawstr(fit_text_width(p.dubber_name or T("ANONYMOUS"), gfx.w - pad*2 - S(40)))
 
     gfx.setfont(F.tip)
     set_color(UI.C_TXT, 0.6)
     gfx.x, gfx.y = pad, pad + S(24)
-    local sub_txt = "Профіль користувача"
+    local sub_txt = T("USER_PROFILE")
     if p.dubber_status == "Шукаю талант" or p.dubber_status == "Вільний талант" then
-        sub_txt = p.dubber_status
+        sub_txt = PROFILE_META.translate_opt("STATUS", p.dubber_status)
     end
     gfx.drawstr(sub_txt)
 
@@ -18878,7 +19013,8 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
                     UI_STATE.tooltip_state.text = tooltips[i]
                 end
 
-                if btn(rx, ry, rw, input_h, opt, bg, txt, false, content_y, content_y + content_h) then
+                local display_opt = PROFILE_META.translate_opt(state_key, opt)
+                if btn(rx, ry, rw, input_h, display_opt, bg, txt, false, content_y, content_y + content_h) then
                     if f_state[state_key] == opt then f_state[state_key] = nil else f_state[state_key] = opt end
                 end
                 rx = rx + rw + S(5)
@@ -18937,7 +19073,8 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
                     UI_STATE.tooltip_state.text = tooltips[i]
                 end
 
-                if btn(rx, ry, rw, input_h, opt, bg, txt, false, content_y, content_y + content_h) then
+                local display_opt = PROFILE_META.translate_opt(state_key, opt)
+                if btn(rx, ry, rw, input_h, display_opt, bg, txt, false, content_y, content_y + content_h) then
                     f_state[state_key] = f_state[state_key] or {}
                     f_state[state_key][opt] = not f_state[state_key][opt]
                 end
@@ -19149,9 +19286,9 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
             local show_other_badges = true
             
             if t.dubber_status == "Шукаю талант" then
-                table.insert(badges, {txt = t.dubber_status, clr = UI.C_ORANGE, alpha = 0.3})
+                table.insert(badges, {txt = PROFILE_META.translate_opt("STATUS", t.dubber_status), clr = UI.C_ORANGE, alpha = 0.3})
             elseif t.dubber_status == "Вільний талант" then
-                table.insert(badges, {txt = t.dubber_status, clr = UI.C_ACCENT_G, alpha = 0.3})
+                table.insert(badges, {txt = PROFILE_META.translate_opt("STATUS", t.dubber_status), clr = UI.C_ACCENT_G, alpha = 0.3})
             end
 
             if show_other_badges then
@@ -19161,25 +19298,31 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
                 elseif t.dubber_voice and t.dubber_voice == "Чоловічий" then
                     v_clr = UI.C_HILI_BLUE
                 end
-                
-                local voice_txt = (t.dubber_voice or "") .. ((t.dubber_timbre and t.dubber_timbre ~= "") and (", " .. t.dubber_timbre) or "")
+
+                local voice_raw = t.dubber_voice or ""
+                local timbre_raw = (t.dubber_timbre and t.dubber_timbre ~= "") and t.dubber_timbre or nil
+                local voice_disp = PROFILE_META.translate_opt("VOICE", voice_raw)
+                local timbre_disp = timbre_raw and PROFILE_META.translate_val("TIMBRE", timbre_raw) or nil
+                local voice_txt = voice_disp .. (timbre_disp and (", " .. timbre_disp) or "")
                 if voice_txt ~= "" then table.insert(badges, {txt = voice_txt, clr = v_clr, alpha = 0.2}) end
 
                 if t.dubber_specialization and t.dubber_specialization ~= "" then
                     for s in t.dubber_specialization:gmatch("([^,]+)") do
                         s = s:match("^%s*(.-)%s*$")
-                        if s ~= "" then table.insert(badges, {txt = s, clr = UI.C_ORANGE, alpha = 0.2}) end
+                        if s ~= "" then
+                            table.insert(badges, {txt = PROFILE_META.translate_opt("SPECIALIZATION", s), clr = UI.C_ORANGE, alpha = 0.2})
+                        end
                     end
                 end
-                
+
                 if t.dubber_vocals and t.dubber_vocals ~= "" and t.dubber_vocals ~= "Не співаю" then
-                    table.insert(badges, {txt = t.dubber_vocals, clr = UI.C_HILI_GREEN, alpha = 0.15})
+                    table.insert(badges, {txt = PROFILE_META.translate_opt("VOCALS", t.dubber_vocals), clr = UI.C_HILI_GREEN, alpha = 0.15})
                 end
-                
+
                 if t.dubber_conditions and t.dubber_conditions ~= "" then
-                    table.insert(badges, {txt = t.dubber_conditions, clr = UI.C_HILI_PINK, alpha = 0.12})
+                    table.insert(badges, {txt = PROFILE_META.translate_opt("CONDITIONS", t.dubber_conditions), clr = UI.C_HILI_PINK, alpha = 0.12})
                 end
-                
+
                 local gear = t.dubber_equipment or t.dubber_mic or ""
                 if gear ~= "" then
                     for g in gear:gmatch("([^,]+)") do
