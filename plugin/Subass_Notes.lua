@@ -26,6 +26,8 @@ local function get_set(key, default)
 end
 
 local cfg = {
+    lng = get_set("lng", "en"),
+
     p_fsize = get_set("p_fsize", 40),
     p_cr = get_set("p_cr", 0.05),
     p_cg = get_set("p_cg", 0.05),
@@ -146,15 +148,15 @@ local cfg = {
     director_autofill = (get_set("director_autofill", "1") == "1" or get_set("director_autofill", 1) == 1),
     director_ignore_green = (get_set("director_ignore_green", "0") == "1" or get_set("director_ignore_green", 0) == 1),
 
-    tts_voice = get_set("tts_voice", "Горох: Оксана (Wavenet)"),
+    tts_voice = get_set("tts_voice", "Goroh: Оксана (Wavenet)"),
     tts_voice_map = {
-        ["Горох: Оксана (Wavenet)"] = { engine = "goroh", voice = "uk-UA-Wavenet-A" },
+        ["Goroh: Оксана (Wavenet)"] = { engine = "goroh", voice = "uk-UA-Wavenet-A" },
         ["ElevenLabs: Ярослава (Yaroslava)"] = { engine = "eleven", voice = "Yaroslava" },
         ["ElevenLabs: Антон (Anton)"] = { engine = "eleven", voice = "Anton" },
         ["Системний"]  = { engine = "", voice = "System" }
     },
     tts_voices_order = {
-        "Горох: Оксана (Wavenet)",
+        "Goroh: Оксана (Wavenet)",
         "ElevenLabs: Ярослава (Yaroslava)",
         "ElevenLabs: Антон (Anton)",
         "Системний"
@@ -340,6 +342,674 @@ local OTHER = {
         { id="custom", name = "<Свій варіант>", task = "CUSTOM" },
     }
 }
+
+local I18N = {
+    FILE = { en = "File", ua = "Файл" },
+    REPLICS = { en = "Lines", ua = "Репліки" },
+    PROMPTER = { en = "Prompter", ua = "Суфлер" },
+    SETTINGS = { en = "Settings", ua = "Налаштування" },
+    IMPORT_FILE = { en = "File import", ua = "Імпорт файлу" },
+    TAB_FILL_ALERT_TITLE = { en = "Please fill out your profile!", ua = "Будь ласка, заповніть свій профіль!" },
+    TAB_FILL_ALERT_SUB_TITLE = { en = "This is required to participate in the overall ranking.", ua = "Це необхідно для участі в загальному рейтингу." },
+    FILL_OUT = { en = "Fill out", ua = "Заповнити" },
+    THE_FORMAT = { en = "The format", ua = "Формат" },
+    IS_NOT_SUPPORTED = { en = "is not supported", ua = "не підтримується" },
+    TAB_FILE_FAILED_FORMAT = { en = "The file format could not be determined", ua = "Не вдалося визначити формат файлу" },
+    FILES_IMPORTED = { en = "Files imported", ua = "Імпортовано файлів" },
+    DUPLICATES = { en = "Duplicates", ua = "Дублікатів" },
+    RETAKES = { en = "Retakes", ua = "Правки" },
+    RETAKES_PROMPT = { en = "RETAKES", ua = "ПРАВКИ" },
+    TAB_FILE_IMPORT_FROM_TEXT = { en = "Import from text", ua = "Імпорт з тексту" },
+    TAB_FILE_IMPORT_FROM_FILE = { en = "Import from file (CSV)", ua = "Імпорт з файлу (CSV)" },
+    D = { en = "d", ua = "д" },
+    D_UPPER = { en = "D", ua = "Д" },
+    DEADLINE = { en = "Deadline", ua = "Дедлайн" },
+    DEADLINE_PASSED = { en = "PASSED!", ua = "ПРОЙШОВ!" },
+    DEADLINE_TODAY = { en = "TODAY!", ua = "СЬОГОДНІ!" },
+    TOMORROW = { en = "Tomorrow", ua = "Завтра" },
+    ACTIVE = { en = "Active", ua = "Активний" },
+    DEADLINE_IS_SET = { en = "The deadline has been set", ua = "Дедлайн встановлено" },
+    DEADLINE_CANCELED = { en = "The deadline has been canceled", ua = "Дедлайн скасовано" },
+    SELECTED = { en = "Selected", ua = "Обрано" },
+    ACTIVE_GLOSSARIES = { en = "Active dictionaries", ua = "Активні словники" },
+    ACTOR_FILTER = { en = "Actor filter:", ua = "Фільтр акторів:" },
+    QUICK_SELECTION = { en = "Quick selection", ua = "Швидкий вибір" },
+    QUICK_ACTOR_SELECTION = { en = "Quick actor selection", ua = "Швидкий вибір акторів" },
+    LIST_OF_ACTORS_COMMAN = { en = "List of actors (separated by ,):,extrawidth=280", ua = "Список акторів (через кому):,extrawidth=280" },
+    NO_ONE = { en = "NO ONE", ua = "НІКОГО" },
+    EVERYONE = { en = "ALL", ua = "ВСІ" },
+    HIDE_ALL = { en = "Hide all", ua = "Приховати всіх" },
+    SHOW_ALL = { en = "Show all", ua = "Показати всіх" },
+    FILTER = { en = "Filter", ua = "Фільтр" },
+    DABBER = { en = "Dabber", ua = "Дабер" },
+    TOOLTIP_DUBBER_FILE = { en = "%s%s\nLines: %d\nWords: %d", ua = "%s%s\nРеплік: %d\nСлів: %d" },
+    TAB_FILE_ACTOR_VISIBILITY = { en = "Changing an actor's visibility ", ua = "Зміна видимості актора " },
+    CHANGE_COLOR = { en = "Change color", ua = "Змінити колір" },
+    CHANGE_ACTOR_NAME = { en = "Change actor's name", ua = "Змінити ім'я актора" },
+    CHANGE_NAME = { en = "Change name", ua = "Змінити ім'я" },
+    DELETE_ACTOR = { en = "Delete actor", ua = "Видалити актора" },
+    DELETE = { en = "Delete", ua = "Видалити" },
+    TAB_FILE_C_ACTOR_NAME = { en = "Changing an actor's name", ua = "Зміна імені актора" },
+    TAB_FILE_C_ACTOR_NAME_EXT = { en = "New name:,extrawidth=200", ua = "Нове ім'я:,extrawidth=200" },
+    NEW_NAME = { en = "New name:", ua = "Нове ім'я:" },
+    NEW_NAME_MENU = { en = "-  New name  -", ua = "-  Нове ім'я -" },
+    REMOVING_AN_ACTOR = { en = "Removing an actor ", ua = "Видалення актора " },
+    AND_ALL_HIS_LINES = { en = "and all they lines?", ua = "і всі його репліки?" },
+    CONFIRMATION = { en = "Confirmation", ua = "Підтвердження" },
+    TAB_FILE_START_LINES = { en = " lines, ", ua = " реплік, " },
+    TAB_FILE_START_WORDS_TIME = { en = " words, time: ", ua = " слів, час: " },
+    TAB_FILE_COPY_START = { en = "Copy statistics||Copy statistics with time", ua = "Копіювати статистику||Копіювати статистику з часом" },
+    AI_PROCESSING = { en = "AI processing...", ua = "AI обробка..." },
+    APPLY_ACCENTS = { en = ">  Apply accents (UA language)  <", ua = ">  Застосувати наголоси  <" },
+    APPLY_ACCENTS_UNDO = { en = "Apply accents", ua = "Застосування наголосів" },
+    USER = { en = "User", ua = "Користувач" },
+    HELLO = { en = "Hello", ua = "Вітаю" },
+    TAB_FILE_IMPORT_TO_SEE_OPTIONS = { en = "Import the file to see more options.", ua = "Імпортуй файл аби побачити більше опцій." },
+    TAB_FILE_DRAG_TEXT = { en = "Drag and drop an .SRT, .ASS, .VTT, .CSV (retakes), or .WAV (compact render) file here to import it", ua = "Перетягніть .SRT, .ASS, .VTT, .CSV (правки) або .WAV (компактний рендер) файл сюди для імпорту" },
+    TAB_FILE_FOOTER_TEXT = { en = "Found a bug or have an idea? Let us know: @fusion_ford (telegram)", ua = "Знайшли баг або маєте ідею — пишіть: ТҐ @fusion_ford" },
+    COPIED = { en = "Copied", ua = "Скопійовано" },
+    EXPORT_ASS_SPLIT_DUBBERS = { en = "Export as ASS (split by dubbers)", ua = "Експортувати як ASS (розділено по даберам)" },
+    SPECIAL_ACTIONS = { en = "Special actions", ua = "Особливі дії" },
+    DELETE_ALL_DATA = { en = "Delete ALL data", ua = "Видалити ВСІ дані" },
+    CREATE_TEXT_ITEMS_FROM_REGIONS = { en = "Create Text Items from Regions", ua = "Створити Text Items з регіонів" },
+    CALCULATE_LINES_BY_ACTORS = { en = "Calculate lines by actors", ua = "Розрахувати репліки по акторам" },
+    REMOVE_ACCENTS_FROM_LINES = { en = "Remove accents from the lines", ua = "Очистити репліки від наголосів" },
+    COMPACT_RENDER_WAV = { en = "Compact render (WAV)", ua = "Компактний рендер (WAV)" },
+    SPLIT_BY_DUBBERS = { en = "Distribution by Dubbers", ua = "Розподіл по Даберам" },
+    VIEW_MY_DEADLINES = { en = "View My Deadlines", ua = "Відкрити мої Дедлайни" },
+    MY_DEADLINES = { en = "My Deadlines", ua = "Мої Дедлайни" },
+    EXPORT_SUBTITLES = { en = "Export subtitles", ua = "Експортувати субтитри" },
+    EXPORT_AS_SRT = { en = "Export as SRT", ua = "Експортувати як SRT" },
+    EXPORT_AS_ASS = { en = "Export as ASS", ua = "Експортувати як ASS" },
+    CHANGE_THE_DUBBER = { en = "Change the dubber", ua = "Змінити дабера" },
+    DICTIONARIES = { en = "Dictionaries", ua = "Словники" },
+    DICTIONARIES_NOT_FOUND_EXT = { en = "||#Dictionaries (not found)", ua = "||#Словники (немає словників)" },
+    DOCK_THE_WINDOW = { en = "Dock the window", ua = "Закріпити вікно (Dock)" },
+    TAB_FILE_DICT_ON = { en = "✓ On", ua = "✓ Увімкнено" },
+    TAB_FILE_DICT_OFF = { en = "Off", ua = "Вимкнено" },
+    DELETING_RETAKES = { en = "Deleting retakes", ua = "Видалення правок" },
+    RETAKES_DELETED = { en = "Retakes deleted: ", ua = "Видалено правок: " },
+    NO_ACTIVE_DEADLINES = { en = "There are no active deadlines", ua = "Немає активних дедлайнів" },
+    CHANGE = { en = "Change", ua = "Змінити" },
+    OPEN = { en = "Open", ua = "Відкрити" },
+    SET_UP_NOTIFY = { en = "Set up notifications", ua = "Налаштувати сповіщення" },
+    NOTIFY_SETTINGS = { en = "Notification Settings", ua = "Налаштування сповіщень" },
+    NOTIFY_SETTINGS_TIME = { en = "Time (HH:MM), e.g., 19:00", ua = "Час (ГГ:ХХ), напр. 19:00" },
+    NOTIFY_REQUEST_SENT = { en = "The configuration request has been sent to ", ua = "Запит на налаштування надіслано на " },
+    CLOSE = { en = "Close", ua = "Закрити" },
+    REMOVE_DEADLINE = { en = "Remove Deadline", ua = "Видалити Дедлайн" },
+    DUBBERS = { en = "DUBBERS", ua = "ДАБЕРИ" },
+    DUBBER_ONE = { en = "dubber", ua = "дабера" },
+    ADD_DUBBER = { en = "Add dubber", ua = "Додати дабера" },
+    NEW_DUBBER = { en = "New dubber", ua = "Новий дабер" },
+    NAME_DUBBER = { en = "Dubber name:", ua = "Ім'я дабера:" },
+    AUTOATIC_DISTRIBUTION = { en = "Automatic distribution", ua = "Автоматичний розподіл" },
+    NEED_TO_CREATE_PROJECT = { en = "First, create at least one project in Settings (the “Settings” tab -> “DUBBER”)", ua = "Спочатку створіть хоча б один проєкт в Налаштуваннях (вкладка 'Налаштування' -> 'ДАБЕРИ')" },
+    NO_PROJECTS = { en = "No projects", ua = "Немає проєктів" },
+    DUBBERS_COMPLETE_P1 = { en = "The distribution is complete! Dubbers added: ", ua = "Розподіл завершено! Додано даберів: " },
+    DUBBERS_COMPLETE_P2 = { en = ", applied actors: ", ua = ", призначено персонажів: " },
+    DUBBERS_COMPLETE_NO = { en = "No matches found, or everything has already been applied", ua = "Збігів не знайдено або все вже розподілено" },
+    DUBBERS_CLEAR_ALL = { en = "Clear all distributions", ua = "Очистити всі призначення" },
+    DUBBERS_CLEAR_ALL_TILES = { en = "Clear all dubber distributions?", ua = "Очистити всі призначення даберів?" },
+    DUBBERS_CLEAR_ALL_DONE = { en = "All distributions have been cleared", ua = "Всі призначення очищено" },
+    CONFLICTS_ACTORS_TT = { en = "CONFLICTS (ACTORS):\n", ua = "КОНФЛІКТИ (ПЕРСОНАЖІ):\n" },
+    DUBBERS_ACTIVE_MENU_1 = { en = "Enable the actors for this dubber in the file tab", ua = "Активувати акторів цього дабера в табі файл" },
+    DUBBERS_DETAIL_FOOTER_1 = { en = "%d lines | %d wd. | %s | %d act.", ua = "%d репл. | %d сл. | %s | %d акт." },
+    DUBBERS_DETAIL_FOOTER_2 = { en = "%d lines | %d wd. | %s", ua = "%d репл. | %d сл. | %s" },
+    ACTORS = { en = "ACTORS", ua = "АКТОРИ" },
+    FOR = { en = "for", ua = "для" },
+    CONFLICTS_WITH = { en = "CONFLICTS WITH:\n", ua = "КОНФЛІКТУЄ З:\n" },
+    CAHNGE_DISTRIBUTION = { en = "Change distribution", ua = "Зміна призначення актора" },
+    LIST_OF_DUBBERS_EMPTY = { en = "The list of dubbers is empty", ua = "Список даберів порожній" },
+    SELECT_DUBBER_ON_TOP = { en = "Select the dubber at the top", ua = "Оберіть дабера зверху" },
+    COPY = { en = "Copy", ua = "Копіювати" },
+    COPY_DUBBER_MENU = { en = "Short (names only)|Detailed (with analytics)", ua = "Короткий (тільки імена)|Розширений (з аналітикою)" },
+    EXPORT_DUBBER_MENU = { en = "Simple Export||Export with a Deadline", ua = "Просто експорт||Експорт з дедлайном" },
+    COPY_DUBBER_STATS_1 = { en = "  • %s: %d lines | %d wd. | %s", ua = "  • %s: %d репл. | %d сл. | %s" },
+    COPY_DUBBER_STATS_2 = { en = "  Total: %d act. | %d lines | %d wd. | %s", ua = "  Всього: %d акт. | %d репл. | %d сл. | %s" },
+    COPY_DUBBER_STATS_DONE = { en = "The distribution has been copied to the clipboard", ua = "Розподіл скопійовано в буфер" },
+    DUBBER_SELECT_SUCC = { en = "Selected actors for: ", ua = "Вибрано акторів дабера: " },
+    DUBBER_SELECT_FAILED_1 = { en = "Dubber '", ua = "У дабера '" },
+    DUBBER_SELECT_FAILED_2 = { en = "' has no assigned actors in this project", ua = "' немає призначених акторів у цьому проекті" },
+    NO_EMPTY_NAME = { en = "The name cannot be empty", ua = "Ім'я не може бути порожнім" },
+    INVALID_NAME_TEXT = { en = "The name cannot contain the characters | or &", ua = "Ім'я не може містити символи | або &" },
+    DUBBER_NAME_ALREADY_EXISTS = { en = "A Dubber with that name already exists", ua = "Дабер з таким ім'ям вже існує" },
+    DUBBER_CONFLICT_TT_1 = { en = "Conflict: %s (line #%s, %.1f seconds%s)", ua = "Конфлікт: %s (репліка #%s, %.1fс%s)" },
+    DUBBER_CONFLICT_TT_2 = { en = " overlap", ua = " накладається" },
+    DUBBER_CONFLICT_TT_3 = { en = " pause", ua = " пауза" },
+    NO_LINES_TO_EXPORT = { en = "There are no lines to export", ua = "Немає реплік для експорту" },
+    EXPORT_DISTRIBUTION_ASS = { en = "Exporting a distribution in ASS", ua = "Експорт розподілу в ASS" },
+    ERROR = { en = "Error", ua = "Помилка" },
+    FAILED_TO_CREATE_FILE = { en = "Failed to create the file: ", ua = "Не вдалося створити файл: " },
+    EXPORTED_1 = { en = "Exported ", ua = "Експортовано " },
+    EXPORTED_2 = { en = " lines with metadata", ua = " реплік з метаданими" },
+    EXPORTED_3 = { en = " lines", ua = " реплік" },
+    EXPORTED_4 = { en = " retakes in CSV", ua = "правок у CSV" },
+    NO_DATE = { en = "No data", ua = "Немає даних" },
+    NO_ACTIVE_1 = { en = "There are no active lines to export", ua = "Немає активних реплік для експорту" },
+    NO_ACTIVE_2 = { en = "No retakes to export", ua = "Немає правок для експорту" },
+    NO_ACTIVE_3 = { en = "There is no audio for this clip", ua = "Немає аудіо для цього фрагмента" },
+    NO_ACTIVE_4 = { en = "No retakes to export (all ignored)", ua = "Немає правок для експорту (всі ігноровані)" },
+    NO_ACTIVE_5 = { en = "There are no retakes for the selected actor", ua = "Немає правок для вибраних акторів" },
+    NO_ACTIVE_6 = { en = "No retakes to copy", ua = "Немає правок для копіювання" },
+    RETAKES_COPY_END = { en = " retakes", ua = " правок" },
+    NO_RETAKES_DUBBER = { en = "-- name not provided  --", ua = "-- імʼя невказане --" },
+    MISSIBG_COMPONENTS = { en = "Missing components", ua = "Відсутні компоненти" },
+    NEED_JS_REA_1 = { en = "The JS_ReaScriptAPI extension is required for the export to work.\n\n", ua = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n" },
+    NEED_JS_REA_2 = { en = "1. Install ReaPack (reapack.com)\n2. Restart REAPER\n3. Install JS_ReaScriptAPI via ReaPack", ua = "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack" },
+    NEED_JS_REA_3 = { en = "Please install ‘JS_ReaScriptAPI’ via Extensions -> ReaPack -> Browse packages. (Then restart REAPER.)", ua = "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)" },
+    NEED_IM_GUI_1 = { en = "The ReaImGui extension is required for ", ua = "Для роботи " },
+    NEED_IM_GUI_2 = { en = " to work.\n\n", ua = " необхідне розширення ReaImGui.\n\n" },
+    NEED_IM_GUI_3 = { en = "1. Install ReaPack (reapack.com)\n2. Restart REAPER\n3. Install ReaImGui via ReaPack", ua = "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть ReaImGui через ReaPack" },
+    NEED_IM_GUI_4 = { en = "Please install ‘ReaImGui’ via Extensions -> ReaPack -> Browse packages. (Then restart REAPER.)", ua = "Будь ласка, встановіть 'ReaImGui' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)" },
+    NEED_IM_GUI_NO_FILE = { en = "File not found at the following path:\n", ua = "Файл не знайдено за шляхом:\n" },
+    SATELLITE_1 = { en = " already open.\n\nYes: Go to the window\nNo: Close the window\nCancel: Do nothing", ua = " вже відкрито.\n\nТак: Перейти до вікна\nНі: Закрити вікно\nСкасувати: Нічого не робити" },
+    SATELLITE_2 = { en = " has already been launched", ua = " вже запущено" },
+    SATELLITE_3 = { en = "REAPER requires a one-time setup of a new window:\n\n1. Open Actions -> Show action list\n2. Click New action -> Load script\n3. Select the file ", ua = "REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл " },
+    SATELLITE_4 = { en = " from folder ", ua = " з папки " },
+    SATELLITE_5 = { en = "\n\nAfter that, the window will open instantly from the menu.", ua = "\n\nПісля цього вікно буде відкриватися миттєво з меню." },
+    SATELLITE_6 = { en = "Registration is required", ua = "Потрібна реєстрація" },
+    OPEN_PRIVACY_POLICY = { en = "Open the “Privacy Policy”", ua = "Відкрити “Privacy Policy”" },
+    EXPORT_RETAKES_FILE_EXT = { en = "_retakes.csv", ua = "_правки.csv" },
+    EXPORT_RETAKES_TITLE = { en = "Save retakes as a CSV file", ua = "Зберегти маркери як CSV" },
+    WHISPER_RESULT_IMPORTED = { en = "Whisper results have been imported!", ua = "Результати Whisper імпортовано!" },
+    NOTHING = { en = "nothing", ua = "нічого" },
+    KEYS_SWAPPED_1 = { en = "The keys have been swapped: [", ua = "Клавіші поміняно місцями: [" },
+    KEYS_SWAPPED_2 = { en = "Changed to [", ua = "Змінено на [" },
+    KEYS_SWAPPED_ERROR = { en = "Error: Use 0–9, - or =", ua = "Помилка: використовуйте 0-9, - або =" },
+    CLIPPING_WARN_1 = { en = "⚠️ WARNING: TAKE IS CLIPPING! (", ua = "⚠️ УВАГА: ЗАПИС КЛІПУЄ! (" },
+    CLIPPING_WARN_2 = { en = " )", ua = " шт.)" },
+    AUTOMATIC_TRIM = { en = "Automatic trim", ua = "Авто-підрізання запису" },
+    AUTOMATIC_SN_1 = { en = "The item has been trim (", ua = "Запис підрізано (" },
+    TEXT_EDIT_REMOTE = { en = "Text Editing (Remote)", ua = "Редагування тексту (Remote)" },
+    RETAKE_EDIT_REMOTE = { en = "Retake Editing (Remote)", ua = "Редагування правки (Remote)" },
+    NO_FOUND_MARKER_REMOTE = { en = "Marker with ID %d not found at %.3f", ua = "Маркер з ID %d не знайдено на %.3f" },
+    AUTO_RUN_1 = { en = "Subass Notes: Auto-Start", ua = "Subass Notes: Автозапуск" },
+    AUTO_RUN_2 = { en = "Would you like to enable the plugin to launch automatically when REAPER starts?\n\nThis will ensure the plugin is always ready to use without having to launch it manually.", ua = "Бажаєте активувати автоматичний запуск плагіна при старті REAPER?\n\nЦе дозволить плагіну завжди бути готовим до роботи без необхідності запускати його вручну." },
+    AUTO_RUN_3 = { en = "Autostart is enabled!", ua = "Автозапуск активовано!" },
+    TABLE_FILTER_PLACEHOLDER_1 = { en = "Filter (Replacement text)...", ua = "Фільтр (Текст для заміни)..." },
+    TABLE_FILTER_PLACEHOLDER_2 = { en = "Filter (Text, Actor, or ID. Condition ‘|’, ‘&’, {%UPPER})...", ua = "Фільтр (Текст, Актор або ID. Умова '|', '&', {%AA})..." },
+    TABLE_MENU_COLUMNS = { en = "Columns...", ua = "Колонки..." },
+    TABLE_MENU_READER_MODE = { en = "Reader mode", ua = "Режим читача" },
+    TABLE_MENU_SHOW_RETAKES = { en = "Reflect retakes in the table", ua = "Відображати правки в таблиці" },
+    TABLE_MENU_SHOW_DIRECTOR = { en = "Director's Mode", ua = "Режим Режисера" },
+    TABLE_MENU_SHOW_EDITOR = { en = "Editor Mode", ua = "Режим Редактора" },
+    TABLE_MENU_FIND_REPLACE = { en = "Find and replace", ua = "Знайти та замінити" },
+    TABLE_MENU_FIND_REPLACE_TT = { en = "‘Find and replace works only for the ‘Lines’ column", ua = "'Знайти та замінити' працює лише для колонки 'Репліка'" },
+    TABLE_MENU_TIME_SHIFT = { en = "Time shift", ua = "Здвиг часу" },
+    TABLE_MENU_ACTIONS_ON_ITEM = { en = "Actions on Item", ua = "Дії з Item" },
+    TABLE_MENU_COLOR_BY_ACTOR = { en = "Color by Actor", ua = "Розфарбувати за акторами" },
+    TABLE_MENU_REMOVE_COLORING = { en = "Remove the coloring", ua = "Прибрати розфарбування" },
+    TABLE_MENU_REMOVE_ITEM_DUP = { en = "Remove item duplicate", ua = "Прибрати дублікати реплік" },
+    TABLE_MENU_STT = { en = "Speech-to-Text", ua = "Мова в текст (Speech-to-Text)" },
+    TABLE_MENU_VN = { en = "Volume normalization (Custom)", ua = "Нормалізація гучності реплік (Кастомна)" },
+    TABLE_MENU_AI_TRANSLATE = { en = "AI Translation", ua = "Переклад з ШІ" },
+    TABLE_MENU_AI_TRANSLATE_P1 = { en = "Generate a prompt for the selected lines (dubbing)", ua = "Згенерувати промпт для виділених реплік (дубляж)" },
+    TABLE_MENU_AI_TRANSLATE_P2 = { en = "Generate a prompt for the selected lines (voiceover)", ua = "Згенерувати промпт для виділених реплік (озвучка)" },
+    TABLE_MENU_AI_TRANSLATE_INSERT = { en = "Insert the AI result", ua = "Вставити результат від ШІ" },
+    TABLE_FILTER_REPLACE_WITH = { en = "Replace with...", ua = "Замінити на..." },
+    REPLACE = { en = "Replace", ua = "Замінити" },
+    TABLE_FILTER_REPLACE_ENTER_TEXT = { en = "Enter text in the filter", ua = "Введіть текст в фільтр" },
+    TABLE_FILTER_REPLACE_INFO_1 = { en = "", ua = "Замінено " },
+    TABLE_FILTER_REPLACE_INFO_2 = { en = " occurrences have been replaced", ua = " входжень" },
+    CANCEL = { en = "Cancel", ua = "Скасувати" },
+    DELETING_RETAKES_AND_LINES = { en = "Deleting lines and retakes", ua = "Видалення реплік та правок" },
+    DELETING_LINES = { en = "Deleting lines", ua = "Видалення реплік" },
+    REMOVED_TABLE_LINES_EX = { en = "Deleted: ", ua = "Видалено: " },
+    REPEAT_THE_LINE = { en = "Repeat the line", ua = "Продублювати репліку" },
+    LINE_IS_SUCC_DUP = { en = "The line has been duplicated", ua = "Репліку продубльовано" },
+    HIGHLIGHTING_REMOVED = { en = "Highlighting has been removed", ua = "Знято виділення з реплік" },
+    TABLE_RETAKE = { en = ":RETAKE:", ua = ":ПРАВКА:" },
+    TABLE_COLUMN_ACTIVE = { en = "Ac.", ua = "Ак." },
+    TABLE_GO_TO_CONFLICT = { en = "Go to conflict #", ua = "Перехід до конфлікту #" },
+    TABLE_TOGGLE_VISIBILITY = { en = "Toggle visibility", ua = "Перемикання видимості" },
+    EDIT_RETAKE = { en = "Edit retake", ua = "Редагування правки" },
+    EDIT_LINE = { en = "Edit line text", ua = "Редагування тексту" },
+    COPY_START_TIME = { en = "Copy the start time", ua = "Копіювати початковий час" },
+    DELETE_RETAKE = { en = "Delete retake", ua = "Видалити правку" },
+    DELETE_RETAKES = { en = "Delete retakes", ua = "Видалити правки" },
+    DELETE_LINE = { en = "Delete line", ua = "Видалити репліку" },
+    DELETE_SELECTED_LINES = { en = "Delete selected lines", ua = "Видалити вибрані репліки" },
+    DELETE_SELECTED_L_AND_R = { en = "Delete selected lines and retakes", ua = "Видалити вибрані репліки та правки" },
+    ASSING_DUBBER = { en = "Assign a dubber", ua = "Призначити дабера" },
+    COMBINE_LINES = { en = "Combine the lines into one", ua = "Об'єднати репліки в одну" },
+    ACTOR_NAME_HB_CHANGED = { en = "The actor's name has been changed (", ua = "Ім'я актора змінено (" },
+    ASSING_THE_DUBBER = { en = "Assing the dubber ", ua = "Призначення дабера " },
+    TABLE_DUBBER_A_1 = { en = "Dubber ", ua = "Дабера " },
+    TABLE_DUBBER_A_2 = { en = " is assigned", ua = " призначено" },
+    TABLE_DUBBER_A_3 = { en = " is removed", ua = " видалено" },
+    COMBINING_LINES = { en = "Combining lines", ua = "Об'єднання реплік" },
+    LINES_HB_COMBINED = { en = "Lines have been combined (", ua = "Репліки об'єднано (" },
+    START = { en = "Start", ua = "Початок" },
+    END = { en = "End", ua = "Кінець" },
+    LINE = { en = "Line", ua = "Репліка" },
+    TOTAL_N_CONFLICTS = { en = "Total number of conflicts: ", ua = "Всього конфліктів: " },
+    NO_CONFLICTS = { en = "No conflicts", ua = "Конфліктів не виявлено" },
+    ACTOR = { en = "Actor", ua = "Актор" },
+    FOR_SELECTED_ONLY = { en = "For selected only", ua = "Лише для вибраних" },
+    SHIFTER_BY = { en = "Shifted by ", ua = "Здвинуто на " },
+    WHISPER_ALREADY_RUN = { en = "Speech recognition is already in progress", ua = "Розпізнавання мови вже виконується" },
+    WHISPER_PLEASE_SAVE_PROJ = { en = "Save your project before running Speech to Text", ua = "Збережіть проєкт перед запуском Speech to Text" },
+    WHISPER_SELECT_ONE_ITEM = { en = "Select one media item for speech recognition", ua = "Виберіть один Media Item для розпізнавання мови" },
+    WHISPER_SELECT_ONLY_ONE_ITEM = { en = "Select only one media item for Speech to Text", ua = "Оберіть лише один Media Item для Speech to Text" },
+    WHISPER_ITEM_NO_AUDIO = { en = "The selected item does not contain audio", ua = "Обраний Item не містить аудіо" },
+    WHISPER_ITEM_AUDIO_NO_SOURCE = { en = "Unable to retrieve the audio source", ua = "Не вдалося отримати аудіо-джерело" },
+    WHISPER_ITEM_AUDIO_NO_FOUND = { en = "The audio file could not be found", ua = "Не вдалося знайти файл аудіо" },
+    WHISPER_SELECT_LNG = { en = "#Select original language||Auto-detect|Ukrainian|English|Japanese||Polish|German|French|Spanish|Italian|Portuguese|Chinese|Korean", ua = "#Оберіть мову оригіналу||Автовизначення|Українська|Англійська|Японська||Польська|Німецька|Французька|Іспанська|Італійська|Португальська|Китайська|Корейська" },
+    WHISPER_INSTALL_CANCELED = { en = "Whisper installation canceled", ua = "Whisper встановлення скасовано" },
+    WHISPER_INSTALL_START = { en = "Installation has begun—please check the terminal", ua = "Почалося встановлення — перевірте термінал" },
+    WHISPER_ERROR_1 = { en = "Recognition error: Unable to generate subtitles", ua = "Помилка розпізнавання: не вдалося створити субтитри" },
+    WHISPER_SUCC_DONE_1 = { en = "Recognition completed successfully!", ua = "Розпізнавання успішно завершено!" },
+    WHISPER_SUCC_DONE_2 = { en = "Recognition complete! Go to the  «", ua = "Розпізнавання завершено! Перейдіть на проєкт «" },
+    WHISPER_SUCC_DONE_3 = { en = "» project to see result", ua = "» для отримання результату" },
+    WHISPER_RUN_START = { en = "Speech recognition has begun...", ua = "Розпочато розпізнавання мови..." },
+    WHISPER_INSTALL_MSG = { en = "Whisper AI (Speech to Text) not found.\n\nRequirements:\n  - openai-whisper, numpy, torch\n  - Model 'turbo' (~1.6 GB)\n\nInstall and download now?\n(A command prompt window will open, displaying the progress of the installation)", ua = "Whisper AI (Speech to Text) не знайдено.\n\nНеобхідно:\n  - openai-whisper, numpy, torch\n  - Model 'turbo' (~1.6 GB)\n\nВстановити та завантажити зараз?\n(Відкриється вікно командного рядка, в якому буде відображатися хід встановлення)" },
+    WHISPER_CANCELED_ACT = { en = "Speech recognition has been canceled", ua = "Розпізнавання мови скасовано" },
+    AI_GENERATE_NO_LINES = { en = "There are no lines to process", ua = "Немає реплік для обробки" },
+    AI_GENERATE_SELECT_LINES = { en = "Select the lines in the table", ua = "Виділіть репліки в таблиці" },
+    AI_GENERATE_COPIED = { en = "The prompt has been copied to the clipboard", ua = "Промпт скопійовано в буфер" },
+    CLIPBOARD_IS_EMPTY = { en = "The clipboard is empty", ua = "Буфер обміну порожній" },
+    AI_INSERT_RESULT = { en = "Insert the AI result", ua = "Вставити результат ШІ" },
+    D_LINES_UPDATED = { en = "%d lines updated", ua = "Оновлено %d реплік" },
+    AI_NO_ID_FOUND = { en = "No matches found by IDs", ua = "Не знайдено жодної відповідності по ID" },
+    PROMPT_LANGUAGE = { en = "English", ua = "Українська" },
+    DOCK_BOTTOM = { en = "Dock the window at the bottom", ua = "Прикріпити вікно знизу" },
+    DOCK_RIGHT = { en = "Dock the window on the right", ua = "Прикріпити вікно праворуч" },
+    SORTING_ACTORS = { en = "Sorting actors", ua = "Сортування акторів" },
+    SORTING_ACTORS_AB = { en = "Alphabetically", ua = "По алфавіту" },
+    SORTING_ACTORS_NL = { en = "By number of lines", ua = "По кількості реплік" },
+    SORTING_ACTORS_LS = { en = "Recent selections", ua = "Останні вибрані" },
+    QUICK_JUMP = { en = "Quick jump", ua = "Швидкий перехід" },
+    AUTO_SCROLL_TO_ACTOR = { en = "Auto-scroll to the actor", ua = "Автопрокрутка до актора" },
+    DISPLAY_ACTOR_COLOR = { en = "Display the actor's color", ua = "Відображати колір актора" },
+    DELETE_ALL_HIDDEN_COMMENTS = { en = "Delete all hidden comments", ua = "Видалити всі приховані коментарі" },
+    CLOSE_WINDOW = { en = "Close the window", ua = "Закрити вікно" },
+    NO_HIDDEN_COMMENTS = { en = "No hidden comments were found", ua = "Прихованих коментарів не знайдено" },
+    HIDDEN_COMMENTS_REMOVE_1 = { en = "Comments have been removed from ", ua = "Видалено коментарі у " },
+    HIDDEN_COMMENTS_REMOVE_2 = { en = " lines", ua = " репліках" },
+    CHANGE_OF_ACTOR = { en = "Change of actor", ua = "Зміна актора" },
+    HIDE_ACTORS_LINES = { en = "Hide the actor's lines", ua = "Приховати репліки актора" },
+    SHOW_ACTORS_LINES = { en = "Show the actor's lines", ua = "Відобразити репліки актора" },
+    N_OF_LINES = { en = "#Number of lines: ", ua = "#Кількість реплік: " },
+    ACTORS_NAME = { en = "Actor's name:", ua = "Ім'я актора:" },
+    ADD_ACTOR_EDITOR = { en = "Add an actor (Editor)", ua = "Додати актора (Редактор)" },
+    ADD_AND_EDIT_ACTOR = { en = "Adding and editing an actor", ua = "Додавання та зміна актора" },
+    LINE_HB_DELETED = { en = "The line has been deleted", ua = "Репліку видалено" },
+    LINE_HB_DELETED_ERROR = { en = "Error: Region ID not found", ua = "Помилка: ID регіону не знайдено" },
+    REGION_UPDATE = { en = "Region Update", ua = "Оновлення регіону" },
+    REGION_UPDATED = { en = "Region updated", ua = "Регіон оновлено" },
+    REGION_CREATION = { en = "Creation of the region", ua = "творення регіону" },
+    REGION_CREATED = { en = "Region created", ua = "Регіон створено" },
+    FMT_BOLD = { en = "Bold: {\\b1} ... {\\b0}", ua = "Жирний: {\\b1} ... {\\b0}" },
+    FMT_ITALIC = { en = "Italic: {\\i1} ... {\\i0}", ua = "Курсив: {\\i1} ... {\\i0}" },
+    FMT_UNDERLINE = { en = "Underline: {\\u1} ... {\\u0}", ua = "Підкреслення: {\\u1} ... {\\u0}" },
+    FMT_CROSSLINE = { en = "Strikethrough: {\\s1} ... {\\s0}", ua = "Закреслення: {\\s1} ... {\\s0}" },
+    FMT_COMMENT = { en = "Enclose in curly brackets, comment: { ... }", ua = "Огорнути у фігурні дужки, коментар: { ... }" },
+    FMT_REMOVE_HIDDEN = { en = "Delete hidden comments {{ ... }}", ua = "Видалити приховані коментарі {{ ... }}" },
+    NO_HIDDEN_COMMENTS_TO_DELETE = { en = "No hidden comments {{}} were found to delete.", ua = "Не знайдено приховані коментарі {{}} для видалення." },
+    ASK_NAME = { en = "Ask ", ua = "Запитати " },
+    EDIT_DELETE_PRESET_MENU = { en = "Edit preset|Delete preset||", ua = "Редагувати пресет|Видалити пресет||" },
+    PRESET_MOVE_LEFT_MENU = { en = "Move left|", ua = "Перемістити вліво|" },
+    PRESET_MOVE_RIGHT_MENU = { en = "Move right", ua = "Перемістити вправо" },
+    DELETE_PRESET_MB_1 = { en = "Are you sure you want to delete the '", ua = "Ви дійсно хочете видалити пресет '" },
+    DELETE_PRESET_MB_2 = { en = "' preset?", ua = "'?" },
+    DELETION_THE_PRESET = { en = "Deleting the preset", ua = "Видалення пресета" },
+    ADD_NEW_PRESET = { en = "Add a new custom preset", ua = "Додати новий пресет" },
+    UPDATE = { en = "Update", ua = "Оновити" },
+    CREATE = { en = "Create", ua = "Створити" },
+    NOT_IN_REGION = { en = "Not in region", ua = "Не в регіоні" },
+    SELECT_AND_GO_REGION = { en = "Select and go to the region...", ua = "Виділіть та перейдіть до регіону..." },
+    EDITION_THE_LINE = { en = "Editing the line...", ua = "Редагування репліки.." },
+    COPY_ALL_RETAKES_TO_CB = { en = "Copy all retakes to the clipboard", ua = "Копіювати всі правки в буфер" },
+    EXPORT_RETAKES_TO_CSV = { en = "Export retakes to CSV", ua = "Експортувати правки в CSV" },
+    IMPORT_ACTOR_NAMES_FROM_SB = { en = "Import actor names from subtitles", ua = "Імпортувати імена акторів з субтитрів" },
+    AUTOMATICALLY_SELECT_DUBBER_NAME = { en = "Automatically select the dubber's name", ua = "Автоматично підставляти ім'я дабера" },
+    IGNORE_COPY_GREEN_RETAKES = { en = "Ignore copying green retakes", ua = "Ігнорувати копіювання зелених правок" },
+    CREATE_RETAKES_TRACK = { en = "Create retakes track", ua = "Створити трек правок" },
+    NO_NEW_NAMES_FOUND = { en = "No new names were found", ua = "Нових імен не знайдено" },
+    IMPORT_ACTORS_NAMES_1 = { en = "Import actor names from ", ua = "Імпортувати імена акторів з " },
+    SUBTITLES = { en = "subtitles", ua = "субтитрів" },
+    DB_FROM_DUBBERS_MENU_1 = { en = "distribution by Dubbers", ua = "розподілу по Даберам" },
+    IMPORTED_FROM_DD_EXT_1 = { en = "", ua = "Імпортовано " },
+    IMPORTED_FROM_DD_EXT_2 = { en = "names have been imported from ", ua = " імен з " },
+    COPY_RETAKES_FOR = { en = "Copy retakes for: ", ua = "Копіювати правки для: " },
+    REMOVE_NAME = { en = "Remove name", ua = "Видалити ім'я" },
+    DELETE_SELECTED_NAMES = { en = "Delete selected names", ua = "Видалити вибрані імена" },
+    COPY_RETAKES_FOR_SELECTED = { en = "Copy retakes for selected names", ua = "Копіювати правки вибраних імен" },
+    MERGE_EDITOR_U_1 = { en = "Merge actor '", ua = "Об'єднати актора '" },
+    MERGE_EDITOR_U_2 = { en = "' with '", ua = "' з '" },
+    MERGE_EDITOR_U_3 = { en = "' (Director)", ua = "' (Режисер)" },
+    MERGE_EDITOR_SS_1 = { en = "Merged with '", ua = "Об'єднано з '" },
+    MERGE_EDITOR_SS_2 = { en = " changes) (Director)", ua = " змін) (Режисер)" },
+    MERGE_EDITOR_CN_1 = { en = "The name has been changed in '", ua = "Змінено ім'я у '" },
+    MERGE_EDITOR_CN_2 = { en = "' places (Director)", ua = "' місцях (Режисер)" },
+    REMOVE_RETAKE_NAME_CM_1 = { en = "Are you sure you want to remove the name '", ua = "Ви дійсно хочете видалити ім'я актора '" },
+    REMOVE_RETAKE_NAME_CM_2 = { en = "' ? This will remove the prefix from all retakes, but not the retakes themselves.", ua = "' ? Це видалить його префікс з усіх правок, але не самі правки." },
+    REMOVE_RETAKE_NAME_U_2_1 = { en = "Remove the actor '", ua = "Видалити актора '" },
+    REMOVE_RETAKE_NAME_U_2_2 = { en = "' (Director)", ua = "' (Режисер)" },
+    REMOVE_RETAKE_NAME_S_2_1 = { en = "Removed the actor and '", ua = "Видалено актора та '" },
+    REMOVE_RETAKE_NAME_S_2_2 = { en = "' prefixes (Director)", ua = "' префіксів (Режисер)" },
+    REMOVE_AR_SURE_MANY_1 = { en = "Are you sure you want to remove ALL selected actors (", ua = "Ви дійсно хочете видалити ВСІХ вибраних акторів (" },
+    REMOVE_AR_SURE_MANY_2 = { en = ")?\n\nActors: ", ua = ")?\n\nАктори: " },
+    REMOVE_AR_SURE_MANY_3 = { en = "\n\nTheir prefixes will be removed from all retakes.", ua = "\n\nЇх префікси будуть видалені з усіх правок." },
+    REMOVE_SA_PU_1 = { en = "Remove ", ua = "Видалити " },
+    REMOVE_SA_PU_2 = { en = " selected actor (Director)", ua = " вибраних акторів (Режисер)" },
+    REMOVE_SS_PU_1 = { en = "Removed ", ua = "Видалено " },
+    REMOVE_SS_PU_2 = { en = " actors and the '", ua = " акторів та '" },
+    REMOVE_SS_PU_3 = { en = "' prefixes", ua = "' префіксів" },
+    ADD_AN_ACTOR_DIRECTOR = { en = "Add an actor (Director)", ua = "Додати актора (Режисер)" },
+    ADD_AN_ACTOR_SS_DIRECTOR_1 = { en = "Add actor '", ua = "Додати актора '" },
+    ADD_AN_ACTOR_SS_DIRECTOR_2 = { en = "' (Director)", ua = "' (Режисер)" },
+    ENTER_RETAKE_TEXT = { en = "Enter retake text...", ua = "Введіть текст правки..." },
+    SAVE = { en = "Save", ua = "Зберегти" },
+    DELETE_RETAKE_UNDO = { en = "Delete retake (Director)", ua = "Видалити правку (Режисер)" },
+    RETAKE_HB_DELETED = { en = "The retake has been deleted", ua = "Правку видалено" },
+    POST_RETAKE_ACTION_TXT = { en = " retake (Director)", ua = " правку (Режисер)" },
+    SAVED = { en = "Saved", ua = "Збережено" },
+    DIRECTOR = { en = "Director", ua = "Режисер" },
+    EDITOR = { en = "Editor", ua = "Редактор" },
+    ADD_RESET_M = { en = "Add preset (", ua = "Додати пресет (" },
+    EDIT_RESET_M = { en = "Edit preset (", ua = "Редагувати пресет (" },
+    EDIT_PRESET_MENU_T_1 = { en = "Title (3 characters), Content", ua = "Назва (3 симв),Вміст" },
+    EDIT_PRESET_MENU_T_2 = { en = " (... for selection)", ua = " (... для виділення)" },
+    EMPTY_ACT_GLB = { en = "_empty_", ua = "_пусто_" },
+    TOOLS = { en = "TOOLS", ua = "ІНСТРУМЕНТИ" },
+    TALEND_SEARCH = { en = "• Talent Search •", ua = "• Пошук талантів •" },
+    TALEND_SEARCH_TIP = { en = "Searching for talent and viewing other users' profiles", ua = "Пошук талантів, та перегляд профілів інших користувачів" },
+    EDIT_PROFILE = { en = "Edit profile", ua = "Редагувати профіль" },
+    EDIT_PROFILE_BAN = { en = "Edit profile (you're banned)", ua = "Редагувати профіль (у вас БАН)" },
+    EDIT_PROFILE_TIP = { en = "Edit User Profile", ua = "Редагування профілю користувача" },
+    MY_STATISTICS = { en = "My Statistics", ua = "Моя Статистика" },
+    MY_STATISTICS_TIP = { en = "Detailed personal analytics: number of recorded lines, words, hours worked, and project progress — all in a user-friendly web interface.", ua = "Детальна персональна аналітика: кількість записаних реплік, слів, час роботи та прогрес по проектах у зручному веб-інтерфейсі." },
+    MY_DEADLINES_TIP = { en = "Calendar and list of project deadlines. Helps you plan your workflow and avoid missing deadlines.", ua = "Календар та список термінів здачі проектів. Допомагає планувати черговість роботи та не пропускати дедлайни." },
+    SPLIT_BY_DUBBERS_TIP = { en = "A specialized tool for automatically or manually assigning lines/roles to voice actors. It allows you to view each voice actor's workload.", ua = "Спеціальний інструмент для автоматичного або ручного розподілу реплік/ролей між даберами. Дозволяє бачити навантаження кожного дабера." },
+    WEB_ACCENT_MANAGER = { en = "Web-accent Manager (UA only)", ua = "WEB-менеджер наголосів" },
+    WEB_ACCENT_MANAGER_TIP = { en = "Find and correct complex accents using an online database. Works in your browser for easy editing. (Ukrainian language only)", ua = "Пошук та виправлення складних наголосів за допомогою онлайн-бази. Працює у браузері для зручного редагування." },
+    GLOBAL_SEARCH_FOR_TAKES = { en = "Global search for takes", ua = "Глобальний пошук реплік" },
+    GLOBAL_SEARCH_FOR_TAKES_TIP = { en = "Search for any text or word across all your Subass/SWS projects. This helps you find where a particular recorded phrase has already appeared.", ua = "Наскрізний пошук будь-якого тексту чи слова по всіх ваших проектах Subass/SWS. Допомагає знайти, де вже зустрічалася певна записана фраза." },
+    FIND_A_WORD_IN_GOROH = { en = "Find a word in GOROH (UA only)", ua = "Знайти слово в ГОРОСі" },
+    FIND_A_WORD_IN_GOROH_TIP = { en = "Quickly look up a word in goroh.pp.ua, the largest lexicographic database (definitions, inflection, synonyms, idioms, usage).", ua = "Швидкий пошук слова у найбільшій лексикографічній базі Goroh.pp.ua (тлумачення, словозміна, синоніми, фразеологія, слововживання)." },
+    GOROH = { en = "GOROH", ua = "ГОРОХ" },
+    SEARCH_TERM_200 = { en = "Search term:,extrawidth=200", ua = "Слово для пошуку:,extrawidth=200" },
+    OPEN_NOTEPAD = { en = "Open Notepad", ua = "Відкрити Нотатник" },
+    OPEN_NOTEPAD_TIP = { en = "A notebook for your notes", ua = "Записник для ваших нотатків" },
+    OPEN_DICTIONARY = { en = "Open the Dictionary", ua = "Відкрити Словник" },
+    OPEN_DICTIONARY_TIP = { en = "A dictionary featuring useful information, slang, assimilation, cases, profanity, and more. It also includes an audio glossary, custom dictionaries, and the download center.", ua = "Словник з корисною інформацією, сленги, асиміляція, відмінки, лайка, тощо. А також Звуковий Глосарій, власні Словники та Центер завантажень." },
+    OPEN_SUBOVERLAY_BY = { en = "Open SubOverlay by Lionzz", ua = "Відкрити SubOverlay від Lionzz" },
+    OPEN_SUBOVERLAY_BY_TIP = { en = "An overlay window that displays the text of the current line directly in front of the user's eyes during recording over the video.", ua = "Допоміжне вікно поверх усього відео (Overlay), що відображає текст поточної репліки прямо перед очима під час запису." },
+    OPEN_PDF_READER = { en = "Open PDF Reader", ua = "Відкрити PDF Reader" },
+    OPEN_PDF_READER_TIP = { en = "Opens the PDF Reader in a separate window.", ua = "Відкриває PDF Рідер в окремому вікні." },
+    TABLE_MENU_SHOW_DIRECTOR_TIP = { en = "Switches the interface to director view mode: the lines tab with add/edit retakes text.", ua = "Перемикає інтерфейс у режим перегляду для режисера: вкладка реплік з активним режимом контролю та зауважень." },
+    SLIDER_MODE = { en = "Slider Mode", ua = "Режим Слайдера" },
+    SLIDER_MODE_TIP = { en = "Switches the interface to the Prompter tab and enables Slider Mode for a comfortable reading experience.", ua = "Перемикає інтерфейс на вкладку суфлера та перемкне режим плавного прокручування (Slider Mode) для комфортного читання." },
+    OPEN_MKV_EXTRACT = { en = "Open MKV/MP4 Extract", ua = "Відкрити MKV/MP4 Extract" },
+    OPEN_MKV_EXTRACT_TIP = { en = "Extracting audio and other streams from video files.", ua = "Витягнення аудіо та інших потоків з відеофайлів." },
+    TABLE_MENU_SHOW_EDITOR_TIP = { en = "Switches the interface to view mode for the editor: the region editing tab with actor assignment mode active.", ua = "Перемикає інтерфейс у режим перегляду для редактора: вкладка редагування регіонів з активним режимом назначення акторів." },
+    DELETE_ALL_DATA_TIP = { en = "Deletes all Subass data from the REAPER project. This action cannot be undone!", ua = "Видаляє всі дані Subass з проекту REAPER. Дія незворотна!" },
+    CHECK_FOR_UPDATE = { en = "Check for updates", ua = "Перевірити оновлення" },
+    CHECK_FOR_UPDATE_TIP = { en = "Check the server for new versions of Subass.", ua = "Перевірити наявність нових версій Subass на сервері." },
+    API_KEYS = { en = "API KEYS", ua = "API КЛЮЧІ" },
+    KEY = { en = "Key", ua = "Ключ" },
+    KEY_API_EX = { en = "API Key:,extrawidth=300", ua = "Ключ API:,extrawidth=300" },
+    AI_KEY_D_1 = { en = "An access key for ", ua = "Ключ доступу до " },
+    AI_KEY_D_2 = { en = " for text rephrasing and editing features.", ua = " для функцій перефразування та редагування тексту." },
+    ELEVENLABS_KEY_TIP = { en = "An ElevenLabs access key for voiceovers using premium voices.", ua = "Ключ доступу до ElevenLabs для озвучування преміальними голосами." },
+    IMPORTING_WORKING_TEXT = { en = "IMPORT AND TEXT", ua = "ІМПОРТ ТА РОБОТА З ТЕКСТОМ" },
+    MAX_LINE_LEN_T = { en = "Maximum line length:", ua = "Макс. довжина рядка:" },
+    MAX_LINE_LEN_TIP = { en = "The maximum number of characters in a line before a line break.", ua = "Максимальна кількість символів у рядку до переносу." },
+    BREAKDOWN_SRT_BY_A_T = { en = "Breakdown of SRT by actor:", ua = "Розбивка SRT за акторами:" },
+    BREAKDOWN_SRT_BY_A_TIP = { en = "Automatic identification of actors based on patterns (name): or [name]:", ua = "Автоматичне визначення акторів за шаблонами (ім'я): або [ім'я]:" },
+    BREAKDOWN_OFF = { en = "Off", ua = "Вимк." },
+    RANDOM_ACTOR_COLOR = { en = "Random actor color upon import", ua = "Випадковий колір актора при імпорті" },
+    RANDOM_ACTOR_COLOR_TIP = { en = "Each new actor will be assigned a unique color. If the color was changed manually, it will be associated with the actor's name.", ua = "Кожному новому актору буде присвоєно унікальний колір. Якщо колір був змінений мануально то він буде закріплений за імям актора." },
+    SHOW_ASSIMILATION = { en = "Show assimilation (UA only)", ua = "Показувати асиміляцію" },
+    SHOW_ASSIMILATION_TIP = { en = "Display phonetic cues (assimilations) in the text.", ua = "Відображати фонетичні підказки (асиміляції) в тексті." },
+    SHOW_EUPHONIC_HITS = { en = "Show euphonic hints (UA only)", ua = "Показувати чергування в/у, й/і, з/зі/із, б/би" },
+    SHOW_EUPHONIC_HITS_TIP = { en = "Show euphonic suggestions: display the variants в/у, й/і, з/зі/із and б/би based on the surrounding text.", ua = "Відображати евфонічні підказки: відображати варіант в/у, й/і, з/зі/із та б/би на основі оточення." },
+    AUTO_FIX_CP1251 = { en = "Automatically correct incorrect encoding (CP1251)", ua = "Автоматично виправляти невірне кодування (CP1251)" },
+    AUTO_FIX_CP1251_TIP = { en = "If a file contains broken CP1251 encoding, it will be automatically corrected.\n!!This may result in the loss of some characters!!", ua = "Якщо файл містить побите кодування CP1251, він буде автоматично виправлений.\n!!Це може призвести до втрати деяких символів!!\nПриклад: перетворить це \"œŒ¯Û, ÏÂÏ.\" в це \"ПрОшу, мем.\"" },
+    SYSTEM = { en = "SYSTEM", ua = "СИСТЕМА" },
+    AUTOSTART_WITH_REAPER = { en = "Autostart with REAPER", ua = "Автозапуск разом із REAPER" },
+    AUTOSTART_WITH_REAPER_TIP = { en = "The script will run automatically when the program starts.", ua = "Скрипт буде запускатися автоматично при старті програми." },
+    INTERFACE_SCALE = { en = "Interface scale: %.1fx", ua = "Масштаб інтерфейсу: %.1fx" },
+    KEY_SHORTCUTS = { en = "Keyboard shortcuts", ua = "Гарячі клавіші" },
+    KEY_SHORTCUTS_TIP = { en = "Configure global hotkeys to switch quickly only when the plugin is in focus", ua = "Налаштування глобальних гарячих клавіш для швидкого перемикання лише коли плагін в фокусі" },
+    PRESS_THE_KEY_FOR = { en = "Press the key for: ", ua = "Натисніть клавішу для: " },
+    PROMPTER_SCREEN = { en = "PROMPTER SCREEN", ua = "ЕКРАН СУФЛЕРА" },
+    SHOW_RETAKES_M = { en = "Show Retakes Manager", ua = "Відображати менеджер правок" },
+    SHOW_RETAKES_M_TIP = { en = "Add a sidebar to manage project retakes.\n(Displayed only if markers are present)", ua = "Додати бічну панель для керування маркерами проекту.\n(Відображається лише при наявності маркерів)" },
+    SHOW_RETAKES_M_LEFT = { en = "Show on the left", ua = "Показувати ліворуч" },
+    SHOW_RETAKES_M_LEFT_TIP = { en = "If this option is turned off, the panel will be displayed on the right.", ua = "Якщо вимкнено — панель буде малюватися праворуч." },
+    DISPLAY_META_ID = { en = "Display metadata (ID, time)", ua = "Відображати метадані (ID, час)" },
+    DISPLAY_META_ID_TIP = { en = "Display the line ID and start time at the top.", ua = "Показувати індекс репліки та час початку зверху." },
+    DISPLAY_META_PER = { en = "Display the % of lines recorded", ua = "Відображати % скільки записано" },
+    DISPLAY_META_PER_TIP = { en = "Show the overall progress of the recording for the selected tracks (when not inside region).", ua = "Показувати загальний прогрес запису по вибраним трекам (коли коли не в межах регіону)." },
+    DISPLAY_META_LIN = { en = "Always show how many lines are left", ua = "Завжди відображати скільки лишилось реплік" },
+    DISPLAY_META_LIN_TIP = { en = "A constant display of the number of remaining lines.", ua = "Постійне відображення кількості реплік, що залишилися." },
+    COUNTDOWN_TIMER = { en = "Countdown timer", ua = "Таймер зворотного відліку" },
+    COUNTDOWN_TIMER_TIP = { en = "Display the time remaining until the next line.\nIt also displays a scroll arrow to move to the next line (if the time remaining is more than 10 seconds).", ua = "Показувати час до початку наступної репліки.\nТакож відображає стрілку для прокручення до наступної репліки (якщо час більше 10 секунд)." },
+    COUNTDOWN_TIMER_N = { en = "Display numbers", ua = "Відображати цифри" },
+    COUNTDOWN_TIMER_N_TIP = { en = "Display the countdown numbers.", ua = "Відображати цифри зворотнього відліку." },
+    COUNTDOWN_TIMER_SIDE = { en = "Show progress from the bottom", ua = "Відображати прогрес знизу" },
+    COUNTDOWN_TIMER_SIDE_TIP = { en = "Display progress from the bottom rather than from the sides.", ua = "Відображати прогрес не по краям, а знизу." },
+    SPEED_WARNING_CPS = { en = "Speed Warning (CPS)", ua = "Попередження про швидкість (CPS)" },
+    SPEED_WARNING_CPS_TIP = { en = "A red bar appears when reading speed is too fast.", ua = "Червона смуга при занадто високій швидкості читання." },
+    DISPLAY_CONFETTI = { en = "Display confetti", ua = "Відображати конфеті" },
+    DISPLAY_CONFETTI_TIP = { en = "Display a confetti animation on the final screen of the prompter's statistics when 100% of the lines have been recorded.", ua = "Відображати анімацію конфеті на заключному екрані статистики суфлера при 100% запису реплік." },
+    DISPLAY_WAVEFORM_S = { en = "Display the waveform", ua = "Відображати осцилограму (Waveform)" },
+    DISPLAY_WAVEFORM_S_TIP = { en = "Plot the waveform of the active track on the background.", ua = "Малювати форму хвилі активного треку на фоні." },
+    DISPLAY_WAVEFORM_P = { en = "Progress of the waveform", ua = "Прогрес заповнення осцилограми" },
+    DISPLAY_WAVEFORM_P_TIP = { en = "Highlight the completed portion of the wave.", ua = "Зафарбовувати пройдену частину хвилі." },
+    KARAOKE_MODE = { en = "Karaoke Mode", ua = "Режим Караоке" },
+    KARAOKE_MODE_TIP = { en = "Highlight the active word during playback.", ua = "Підсвічувати активне слово під час відтворення." },
+    ALL_CAPS = { en = "ALL CAPS mode", ua = "Режим ВЕЛИКИМИ ЛІТЕРАМИ" },
+    ALL_CAPS_TIP = { en = "All text will be displayed in CAPS.", ua = "Весь текст відображатиметься ВЕЛИКИМИ ЛІТЕРАМИ." },
+    SOFT_HYPHENS = { en = "Soft hyphens (ignore \\N)", ua = "М'які переноси (ігнорувати \\N)" },
+    SOFT_HYPHENS_TIP = { en = "The line break characters \\N, \\n, and regular line breaks will be ignored, and the text will wrap automatically based on the window width and the “Maximum line Length” setting.", ua = "Символи розриву рядка \\N, \\n та звичайні ентери будуть ігноруватися, а текст переноситиметься автоматично залежно від ширини вікна та налаштування \"Довжина рядка\"." },
+    SHOW_ACCENTS_UPPER = { en = "Show accents on capital letters", ua = "Відображати нАголоси з великої літери" },
+    SHOW_ACCENTS_UPPER_TIP = { en = "Letters with an accent mark will be displayed in UPPERCASE.", ua = "Букви з символом наголосу відображатимуться з ВЕЛИКОЇ ЛІТЕРИ." },
+    DISPLAY_ACTOR_NAME_F = { en = "Display the actor's name", ua = "Відображати ім'я актора" },
+    DISPLAY_ACTOR_NAME_F_TIP = { en = "Displaying the actor's name before the line.", ua = "Відображення імені актора перед реплікою." },
+    DISPLAY_FINAL_STATS = { en = "Display final statistics", ua = "Відображати заключну статистику" },
+    DISPLAY_FINAL_STATS_TIP = { en = "Display statistics at the end of each take showing how many takes were shot and how much time was spent.", ua = "Відображати статистику в кінці реплік по тому скільки зрблено дублів, скільки витрачено часу." },
+    DISPLAY_R_SPEED = { en = "Display the recording speed", ua = "Відображати швидкість запису" },
+    DISPLAY_R_SPEED_TIP = { en = "Display the recording speed and estimated time in the prompter's context menu (to ensure the estimated time is displayed correctly, you must select the track(s) containing your recordings).", ua = "Відображати швидкість запису та прогнозований час в контексному меню суфлера (для коректного відображення прогнозованого часу потрібно виділяти трек/треки з вашими записами)." },
+    INTERFACE_THEME = { en = "INTERFACE THEME", ua = "ТЕМА ІНТЕРФЕЙСУ" },
+    TITANIUM = { en = "Titanium", ua = "Титан" },
+    OBSIDIAN = { en = "Obsidian", ua = "Обсидіан" },
+    QUARTZ = { en = "Quartz", ua = "Кварц" },
+    THEMES_PROMPTER = { en = "THEMES AND DESIGN OF THE PROMPTER", ua = "ТЕМИ ТА ДИЗАЙН СУФЛЕРА" },
+    MANUAL_BG_SET = { en = "Manual background adjustment:", ua = "Ручне налаштування фону:" },
+    MAIN_TEXT = { en = "MAIN TEXT", ua = "ОСНОВНИЙ ТЕКСТ" },
+    FONT_SIZE = { en = "Font size: ", ua = "Розмір шрифту: " },
+    LINE_HEIGHT = { en = "Line height: %.1f", ua = "Висота рядка: %.1f" },
+    H_ALIGNMENT = { en = "Horizontal alignment:", ua = "Вирівнювання по горизонталі:" },
+    LEFT = { en = "Left", ua = "Ліворуч" },
+    CENTER = { en = "Center", ua = "Центр" },
+    RIGHT = { en = "Right", ua = "Праворуч" },
+    TOP = { en = "Top", ua = "Вгорі" },
+    BOTTOM = { en = "Bottom", ua = "Внизу" },
+    V_ALIGNMENT = { en = "Vertical alignment:", ua = "Вирівнювання по вертикалі:" },
+    FONT_NAME = { en = "Font:", ua = "Шрифт:" },
+    CUSTOM_F = { en = "Custom...", ua = "Свій..." },
+    C_A_FONT = { en = "Choosing a font", ua = "Вибір шрифту" },
+    FONT_NAME_EXT = { en = "Font name:,extrawidth=200", ua = "Назва шрифту:,extrawidth=200" },
+    TEXT_COLOR = { en = "Text color:", ua = "Колір тексту:" },
+    NEXT_LINE = { en = "NEXT LINE", ua = "НАСТУПНА РЕПЛІКА" },
+    DISPLAY_NEXT_LINE = { en = "Display the next line", ua = "Відображати наступну репліку" },
+    DISPLAY_NEXT_LINE_TIP = { en = "Show the text of the next line below the current one.", ua = "Показувати текст наступної репліки під поточною." },
+    ALWAYS_SHOW_NEXT_LINE = { en = "Always show (between regions)", ua = "Завжди показувати (між регіонами)" },
+    ALWAYS_SHOW_NEXT_LINE_TIP = { en = "The next line will not be hidden when there is no active line.", ua = "Наступна репліка не ховатиметься, коли немає активної." },
+    ALWAYS_SHOW_NEXT_2_LINE = { en = "Display the next TWO lines", ua = "Відображати ДВІ наступні репліки" },
+    ALWAYS_SHOW_NEXT_2_LINE_TIP = { en = "Displaying the next two lines at once.", ua = "Відображення відразу 2 наступних реплік в суфлері." },
+    ATTACH_TO_MAIN_LINE = { en = "Attach to the main line", ua = "Прикріпити до основної репліки" },
+    ATTACH_TO_MAIN_LINE_TIP = { en = "The next line will not be anchored to the bottom of the screen; instead, it will appear below the main text.", ua = "Наступна репліка не прикріплюватиметься до низу екрану, а буде під основною." },
+    INDENT_TO_LINE = { en = "Indent to the main line: ", ua = "Відступ до репліки: " },
+    RETAKES_UP = { en = "RETAKES (MARKERS)", ua = "ПРАВКИ (МАРКЕРИ)" },
+    DISPLAY_RETAKES = { en = "Display retakes", ua = "Відображати правки" },
+    DISPLAY_RETAKES_TIP = { en = "Show the text of retakes between lines.", ua = "Показувати текст маркерів-правок між репліками." },
+    TABLE = { en = "TABLE", ua = "ТАБЛИЦЯ" },
+    COLOR_OF_A_LINE = { en = "Color of the active line:", ua = "Колір активної репліки:" },
+    TRANSPARENCY_OF_A_LINE = { en = "Transparency: %.2f", ua = "Прозорість ар.: %.2f" },
+    LINE_FONT_SIZE = { en = "Line font size:", ua = "Розмір шрифту рядків:" },
+    DISPLAY_DC_CONFLICTS = { en = "Display Dubber-Character (Actor) Conflicts", ua = "Відображати конфлікти Дабер-Персонаж" },
+    DISPLAY_DC_CONFLICTS_TIP = { en = "Show conflicts between different actors/characters played by the same voice actor (overlaps and short pauses) in the ‘Dubber’ column", ua = "Показувати конфлікти між різними акторами/персонажами одного дабера (накладки та тісні паузи) у колонці 'Дабер'" },
+    PAUSE_THRESHOLD_ST = { en = "Pause threshold: %.1fs", ua = "Поріг паузи: %.1fс" },
+    PAUSE_THRESHOLD_ST_TIP = { en = "If the pause between lines spoken by the same voice actor (but for different characters) is shorter than this threshold, they are considered a conflict", ua = "Якщо пауза між репліками одного дабера (але різних персонажів) менша за цей поріг, то вони вважаються конфліктом" },
+    RECORDING_A_TRIM = { en = "RECORDING AND AUTO-TRIM", ua = "ЗАПИС ТА АВТО-ПІДРІЗАННЯ" },
+    AUTO_TRIM_T = { en = "Automatic trimming of newly recorded take", ua = "Авто-підрізання щойно записаних реплік" },
+    AUTO_TRIM_T_TIP = { en = "Automatically trims the beginning and end of the newly recorded take (to remove keyboard clicks)", ua = "Автоматично підрізає початок та кінець щойно записаної репліки (аби прибрати кліки клавіатури)" },
+    TRIM_START_MS = { en = "Trim the start (ms): ", ua = "Підрізати початок (мс): " },
+    TRIM_END_MS = { en = "Trim the end (ms): ", ua = "Підрізати кінець (мс): " },
+    CLIPPING_WAN_T = { en = "Check for clipping", ua = "Перевіряти на перегруз (Clipping)" },
+    CLIPPING_WAN_T_TIP = { en = "Show a warning if a track has peaks of 0 dB or higher.", ua = "Показувати попередження, якщо запис має піки 0dB або вище." },
+    DICTIONARIES_UPP = { en = "DICTIONARIES", ua = "СЛОВНИКИ" },
+    D_NAME_ST = { en = "Dictionary name", ua = "Імʼя словника" },
+    D_KEYWORDS_ST = { en = "Activation keywords", ua = "Ключові слова активації" },
+    D_SELECT_D_ST = { en = "Select a dictionary...", ua = "Виберіть словник..." },
+    D_SELECT_D_NOT_FOUNT_ST = { en = "There are no user dictionaries available. Please add them first to Subass: Dictionary.", ua = "Немає доступних користувацьких словників. Спочатку додайте їх Subass: Dictionary." },
+    CLICK_D_SELECT_ST = { en = "Click to enter the activation condition...", ua = "Натисніть, щоб ввести умову активації..." },
+    CLICK_D_SELECT_ST_TIP = { en = "Enter the keywords that the subtitle file name must contain for this dictionary to be automatically activated", ua = "Введіть ключові слова які має мати імя файлу субтитрів аби даний словник автоматично активувався" },
+    CLICK_D_SELECT_DIALOG_ST_1 = { en = "Keywords in the subtitle file name for auto-activation", ua = "Ключові слова в імені файлу субтитрів для автоактивації" },
+    CLICK_D_SELECT_DIALOG_ST_2 = { en = "List of words (separated by ; or ,):,extrawidth=500", ua = "Список слів (через ; або ,):,extrawidth=500" },
+    DELETE_THE_RULE = { en = "Delete this rule", ua = "Видалити це правило" },
+    DELETE_D_RULE_D_T = { en = "Are you sure you want to delete this dictionary auto-activation rule?", ua = "Ви дійсно хочете видалити це правило автоактивації словника?" },
+    DUBBERS_UPP = { en = "DUBBERS", ua = "ДАБЕРИ" },
+    PROJECTS_ST = { en = "Projects:", ua = "Проєкти:" },
+    PROJECT_D_ST_TIP = { en = "Click to select a project. Right-click to rename or delete.", ua = "Натисніть, щоб вибрати проєкт. Правий клік для перейменування/видалення." },
+    IMPORT_FROM_ST = { en = ">Import from", ua = ">Імпортувати з" },
+    RENAME_THE_PROJECT = { en = "Rename the project", ua = "Перейменувати проєкт" },
+    DELETE_THE_PROJECT = { en = "Delete the project", ua = "Видалити проєкт" },
+    NEW_PROJECT_NAME = { en = "New project name:", ua = "Нова назва проєкта:" },
+    PROJECT_NAME_A_EXISTS = { en = "A project with that name already exists!", ua = "Проєкт з такою назвою вже існує!" },
+    NO_NEW_RULE_IMPORT = { en = "There are no new rules for imports from '", ua = "Немає нових правил для імпорту з '" },
+    IM_RULES_ST_SN_1 = { en = "Imported ", ua = "Імпортовано " },
+    IM_RULES_ST_SN_2 = { en = " rules from '", ua = " правил з '" },
+    SURE_TO_DELETE_ST_PJ = { en = "Are you sure you want to delete the project '", ua = "Ви дійсно хочете видалити проєкт '" },
+    ADD_A_NEW_PROJECT = { en = "Add a new project", ua = "Додати новий проєкт" },
+    NEW_PROJECT = { en = "New project", ua = "Новий проєкт" },
+    PROJECT_TITLE_ST = { en = "Project name:", ua = "Назва проєкта:" },
+    DUBBER_NAME = { en = "Dubber name", ua = "Імʼя дабера" },
+    DUBBER_CAST_ACTORS = { en = "Cast / Actors", ua = "Закріплені персонажі / актори" },
+    CLICK_TO_ENTER = { en = "Click to enter...", ua = "Натисніть, щоб ввести..." },
+    ENTER_NAME_DUBBER = { en = "Enter the name of the dubber or “<all>” (for all dubbers)", ua = "Введіть ім'я дабера або \"<all>\" (для всіх даберів)" },
+    CLICK_TO_ENTER_ACTORS = { en = "Click to enter actors...", ua = "Натисніть, щоб ввести персонажів..." },
+    CLICK_TO_ENTER_ACTORS_TIP = { en = "Enter the characters assigned to a dubber to assign them with a single click in the “Distribution by Dubbers” window", ua = "Введіть персонажів які закріплені за дабером, щоб одним кліком їх назначити в вікні \"Розподіл по даберам\"" },
+    C_ASSIGNED_TO_DUBBER_1 = { en = "Characters assigned to the dubber", ua = "Персонажі закріплені за дабером" },
+    C_ASSIGNED_TO_DUBBER_2 = { en = "List of actors (separated by ; or ,):,extrawidth=530", ua = "Список персонажів (через ; або ,):,extrawidth=500" },
+    C_ASSIGNED_TO_DUBBER_SURE = { en = "Are you sure you want to remove this character binding rule?", ua = "Ви дійсно хочете видалити це правило закріплення персонажів?" },
+    NO_ACTIVE_PROJ = { en = "There are no active projects. Create a project using the ‘+’ button above.", ua = "Немає активного проєкту. Створіть проєкт за допомогою кнопки '+' вище." },
+    OTHER_UPP = { en = "OTHER", ua = "ІНШЕ" },
+    FONT_SIZE_MODAL = { en = "Font size of the modal editing window:", ua = "Розмір шрифту модального вікна редагування:" },
+    FONT_SIZE_BOTTOM_BAR = { en = "Font size of the bottom editing bar:", ua = "Розмір шрифту нижньої панелі редагування:" },
+    PROVIDER_AND_VOICE = { en = "Provider and voice:", ua = "Двигун та голос для озвучення:" },
+    EMPTY = { en = "<empty>", ua = "<пусто>" },
+    COMPACT_RENDER = { en = "Compact render", ua = "Компактний рендер" },
+    NEED_IMPORT_SUBS_IDLE = { en = ", we need to import the subtitles", ua = ", потрібно імпортувати субтитри" },
+    GREAT_JOB_IDLE = { en = "Great job, ", ua = "Чудова робота, " },
+    TAKES_IDLE = { en = "TAKES", ua = "ДУБЛІВ" },
+    TIME_IDLE = { en = "TIME", ua = "ЧАСУ" },
+    RECORDED_IDLE = { en = "Recorded  %d%%", ua = "Записано  %d%%" },
+    ATTEMPTS_IDLE = { en = "Attempts: %.2f per line", ua = "Спроби: %.2f на репліку" },
+    END_OF_SUBTITLES_IDLE = { en = "End of subtitles", ua = "Кінець субтитрів" },
+    THIS_LAST_REG_IDLE = { en = "This is the last region!", ua = "Це останній регіон!" },
+    CLEAR_MY_STATS_PCX = { en = "|Clear my stats", ua = "|Очистити мою статистику" },
+    DISPLAY_SUBOVERLAY_PCX = { en = "Display SubOverlay by Lionzz", ua = "Відобразити SubOverlay від Lionzz" },
+    FIND_NEW_G_PCX = { en = "Find a new word in GOROH", ua = "Знайти нове слово в ГОРОСі" },
+    DISPLAY_DICTIONARY_PCX = { en = "Display Dictionary", ua = "Відобразити Словник" },
+    SEARCH_AND_OR = { en = "Search... (|, &)", ua = "Пошук... (|, &)" },
+    DELETE_SELECTED_RETAKES_PS = { en = "Delete selected retakes (", ua = "Видалити обрані правки (" },
+    ENVIRONMENT_SETUP = { en = "Environment Setup", ua = "Налаштування середовища" },
+    OPEN_IN_REAPACK = { en = "Open in ReaPack", ua = "Відкрити в ReaPack" },
+    REAPACK_NOT_FOUND = { en = "ReaPack wasn't found, even though the check says it's OK.", ua = "ReaPack не знайдено, хоча перевірка каже ОК." },
+    RQ_PYTHON_1 = { en = "Current version: ", ua = "Поточна версія: " },
+    RQ_PYTHON_2 = { en = ". A programming language for running AI accents.\n\n**STEP 1:** Go to [python.org](https://www.python.org/downloads/) and download Python 3.12+.\n\n**STEP 2 (WINDOWS):** During installation, **MUST** check the box for **‘Add Python to PATH’**!\n\n**STEP 2 (macOS):** Run the installer and follow the instructions.\n\n**STEP 3:** Restart REAPER.\n\n**STEP 4:** Verification (optional): In the terminal, type **‘python --version’** (or **‘python3 --version’**). It should be 3.12+.", ua = ". Мова програмування для зупуску ШІ наголосів.\n\n**КРОК 1:** Натисніть [python.org](https://www.python.org/downloads/) і завантажте Python 3.11+.\n\n**КРОК 2 (WINDOWS):** Під час встановлення **ОБОВ'ЯЗКОВО** поставте галочку **'Add Python to PATH'**!\n\n**КРОК 2 (macOS):** Запустіть інсталятор і слідуйте інструкціям.\n\n**КРОК 3:** Перезапустіть REAPER.\n\n**КРОК 4:** Перевірка (не обов'язково): у терміналі введіть **'python --version'** (або **'python3 --version'**). Має бути 3.12+." },
+    RQ_REAIMGUI = { en = "Graphics engine for the overlay interface.\n\n**IMPORTANT:** Install ReaPack first!\n\n**STEP 1:** Open **‘Extensions’** → **‘ReaPack’** → **‘Browse packages’**.\n\n**STEP 2:** In the search field, enter **‘ReaImGui’** (without spaces).\n\n**STEP 3:** Find the ‘ReaImGui’ package by ‘cfillion’ in the list of results.\n\n**STEP 4:** **Right-click** on it and select **‘Install’**.\n\n**STEP 5:** Click the **‘Apply’** button at the bottom of the ReaPack window (wait for the installation to complete).\n\n**STEP 6:** **MUST** restart REAPER (even if it doesn't prompt you to).", ua = "Графічний движок для інтерфейсу оверлея.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack!\n\n**КРОК 1:** Відкрийте **'Extensions'** → **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 2:** У полі пошуку введіть **'ReaImGui'** (без пробілів).\n\n**КРОК 3:** Знайдіть пакет 'ReaImGui' від 'cfillion' у списку результатів.\n\n**КРОК 4:** Клацніть по ньому **ПРАВОЮ кнопкою миші** і виберіть **'Install'**.\n\n**КРОК 5:** Натисніть кнопку **'Apply'** внизу вікна ReaPack (почекайте встановлення).\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** перезапустіть REAPER (навіть якщо не просить)." },
+    RQ_JS_REA = { en = "Advanced API for scripts.\n\n**IMPORTANT:** First, install ReaPack (see above)!\n\n**STEP 1:** In REAPER, open the **‘Extensions’** menu (at the top).\n\n**STEP 2:** Select **‘ReaPack’** → **‘Browse packages’**.\n\n**STEP 3:** In the window that opens, type **‘js_ReaScriptAPI’** into the search field at the top.\n\n**STEP 4:** Find the ‘js_ReaScriptAPI’ package in the list, and **RIGHT-CLICK** on it.\n\n**STEP 5:** In the menu, select **‘Install’**.\n\n**STEP 6:** **MUST** click the **‘Apply’** button at the bottom of the ReaPack window.\n\n**STEP 7:** Wait for the installation to complete (a message will appear).", ua = "Розширений API для скриптів.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack (див. вище)!\n\n**КРОК 1:** У REAPER відкрийте меню **'Extensions'** (вгорі).\n\n**КРОК 2:** Виберіть **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 3:** У вікні що відкрилося, у полі пошуку вгорі введіть **'js_ReaScriptAPI'**.\n\n**КРОК 4:** Знайдіть пакет 'js_ReaScriptAPI' у списку, клацніть по ньому **ПРАВОЮ кнопкою миші**.\n\n**КРОК 5:** У меню виберіть **'Install'**.\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** натисніть кнопку **'Apply'** внизу вікна ReaPack.\n\n**КРОК 7:** Дочекайтеся завершення встановлення (з'явиться повідомлення)." },
+    RQ_REAPACK = { en = "REAPER Plugin Manager.\n\n**STEP 1:** Click the link [reapack.com](https://reapack.com/) and download the file for your operating system.\n\n**STEP 2:** In REAPER, open the **‘Options’** menu (at the top) and select **‘Show REAPER resource path in explorer/finder’**.\n\n**STEP 3:** In the open folder, locate or create a folder named **‘UserPlugins’**.\n\n**STEP 4:** Copy the downloaded ReaPack file (.dll for Windows or .dylib for macOS) into this ‘UserPlugins’ folder.\n\n**STEP 5:** Restart REAPER.\n\n**STEP 6:** Verify that the ‘ReaPack’ option has appeared in the ‘Extensions’ menu.", ua = "Менеджер розширень для REAPER.\n\n**КРОК 1:** Натисніть на посилання [reapack.com](https://reapack.com/) і завантажте файл для вашої ОС.\n\n**КРОК 2:** У REAPER відкрийте меню **'Options'** (вгорі) і виберіть **'Show REAPER resource path in explorer/finder'**.\n\n**КРОК 3:** У відкритій папці знайдіть або створіть папку **'UserPlugins'**.\n\n**КРОК 4:** Скопіюйте завантажений файл ReaPack (.dll для Windows або .dylib для macOS) у цю папку 'UserPlugins'.\n\n**КРОК 5:** Перезапустіть REAPER.\n\n**КРОК 6:** Перевірте, що в меню 'Extensions' з'явився пункт 'ReaPack'." },
+    RQ_SWS = { en = "Required for clipboard functionality.\n\n**STEP 1:** Click the link [sws-extension.org](https://www.sws-extension.org/) and download the version for your operating system.\n\n**STEP 2 (WINDOWS):** Run the downloaded installer and follow the instructions.\n\n**STEP 2 (macOS):** Open the .dmg file. In REAPER, click **Options** -> **Show REAPER resource path**. Open the **UserPlugins** folder. Drag the `reaper_sws...dylib` file from the .dmg into this folder.\n\n**STEP 3:** After installation, **YOU MUST** restart REAPER.", ua = "Необхідно для роботи з буфером обміну.\n\n**КРОК 1:** Натисніть на посилання [sws-extension.org](https://www.sws-extension.org/) і завантажте версію для вашої ОС.\n\n**КРОК 2 (WINDOWS):** Запустіть завантажений інсталятор і слідуйте інструкціям.\n\n**КРОК 2 (macOS):** Відкрийте .dmg файл. У REAPER натисніть **Options** -> **Show REAPER resource path**. Відкрийте папку **UserPlugins**. Перетягніть файл `reaper_sws...dylib` з .dmg у цю папку.\n\n**КРОК 3:** Після встановлення **ОБОВ'ЯЗКОВО** перезапустіть REAPER." },
+    RQ_CHECK_TXT = { en = "Checking environment...", ua = "Перевірка середовища..." },
+    RQ_C_PY = { en = "Checking...", ua = "Перевіряю..." },
+    BACK = { en = "Back", ua = "Назад" },
+    GD_Conjugation = { en = "Conjugation", ua = "Словозміна" },
+    GD_Synonyms = { en = "Synonyms", ua = "Синонімія" },
+    GD_Interpretation = { en = "Interpretation", ua = "Тлумачення" },
+    GD_Idioms = { en = "Idioms", ua = "Фразеологія" },
+    GD_Word_usage = { en = "Word usage", ua = "Слововживання" },
+    NO_DATA_OR_LOADING = { en = "Data is missing or still loading...", ua = "Дані відсутні або ще завантажуються..." },
+    THERES_NOTHING_FOR = { en = "There's nothing for ", ua = "Нічого немає для " },
+    GOROH_500 = { en = "The GOROH service is temporarily unavailable (Cloudflare 5xx error).", ua = "Сервіс ГОРОХ тимчасово недоступний (Помилка Cloudflare 5xx)." },
+    TEXT_COPIED = { en = "Text copied", ua = "Текст скопійовано" },
+    VOICE_HB_CHANGED_TO = { en = "The voice has been changed to ", ua = "Голос змінено на " },
+    SEARCH_IN_GOROH = { en = "Search in GOROH", ua = "Шукати в ГОРОСі" },
+    VOICE_OVER_M = { en = "Voice over", ua = "Озвучити" },
+    VOICE_OVER_SAVE_M = { en = "Voice over and save", ua = "Озвучити та зберегти" },
+    CHANGE_VOICE_M = { en = ">Change voice", ua = ">Змінити голос" },
+    TL_LOADING_ITMS = { en = "Loading talents...", ua = "Завантаження талантів..." },
+    TL_UPDATING = { en = "Updating...", ua = "Оновлення..." },
+    TL_NO_FOUND = { en = "No results found", ua = "Нікого не знайдено" },
+    ANONYMOUS = { en = "Anonymous", ua = "Анонім" },
+    TALEND_SEARCH_PR = { en = "Talent Search", ua = "Пошук талантів" },
+    LOOKING_FOR_TALENT = { en = "Looking for talent", ua = "Шукаю талант" },
+    FREE_TALENT = { en = "Free talent", ua = "Вільні таланти" },
+    LOOKING = { en = "Looking", ua = "Шукаю" },
+    FREE = { en = "Free", ua = "Вільні" },
+    FILTERS = { en = "Filters", ua = "Фільтри" },
+    APPLY = { en = "Apply", ua = "Застосувати" },
+    RESET = { en = "Reset", ua = "Скинути" },
+    TF_VOICE = { en = "Voice", ua = "Голос" },
+    TF_TIMBRE = { en = "Timbre", ua = "Тембр" },
+    TF_RECORD_ENV = { en = "Record env.", ua = "Умови запису" },
+    TF_VOCALS = { en = "Vocals", ua = "Вокал" },
+    TF_SPECIALIZATION = { en = "Specialization", ua = "Спеціалізація" },
+    TF_ROLE = { en = "Role", ua = "Амплуа" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+    A = { en = "", ua = "" },
+
+    -- A = { en = "", ua = "" },
+}
+
+function T(key)
+    return I18N[key] and I18N[key][cfg.lng] or key
+end
 
 -- Helper to open URLs safely (fallback if SWS not installed)
 local UTILS = {}
@@ -847,7 +1517,7 @@ local prompter_slider_cache = {
 }
 
 --- Re-initialize prompter font slots and invalidate measurements
-local function update_prompter_fonts()
+function UTILS.update_prompter_fonts()
     draw_prompter_cache.last_text = nil
     draw_prompter_cache.next_cache = {}
     
@@ -889,13 +1559,13 @@ local function update_prompter_fonts()
 end
 
 -- Initial font setup
-update_prompter_fonts()
+UTILS.update_prompter_fonts()
 
 -- Grouped State (to fix Lua local variable limit)
 local UI_STATE = {
     script_start_time = reaper.time_precise(),
     auto_startup_checked = false,
-    tabs = {"Файл", "Репліки", "Суфлер", "Налаштування"},
+    tabs = {"FILE", "REPLICS", "PROMPTER", "SETTINGS"},
     current_tab = get_set("last_tab", 1),
     last_mouse_cap = 0,
     mouse_handled = false,
@@ -1052,7 +1722,7 @@ local dict_modal = {
     show = false,
     word = "",
     content = {}, -- Keyed by category name
-    selected_tab = "Словозміна",
+    selected_tab = T("GD_Conjugation"),
     scroll_y = 0,
     target_scroll_y = 0,
     max_scroll = 0,
@@ -2359,7 +3029,7 @@ local function update_marker_cache()
                     table.insert(prompter_drawer.marker_cache.markers, {
                         markindex = markindex,
                         enum_idx = i, -- Store internal REAPER index
-                        name = (name == "" and "<пусто>" or name),
+                        name = (name == "" and T("EMPTY") or name),
                         pos = pos,
                         color = (color ~= 0 and color or nil)
                     })
@@ -2827,6 +3497,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "dubber_status", UTILS.unicode_escape(cfg.dubber_status or "Звичайний аккаунт"), true)
     reaper.SetExtState(section_name, "profile_edit_seen", cfg.profile_edit_seen and "1" or "0", true)
     
+    reaper.SetExtState(section_name, "lng", cfg.lng, true)
     reaper.SetExtState(section_name, "p_fsize", tostring(cfg.p_fsize), true)
     reaper.SetExtState(section_name, "p_cr", tostring(cfg.p_cr), true)
     reaper.SetExtState(section_name, "p_cg", tostring(cfg.p_cg), true)
@@ -2964,7 +3635,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "dubber_char_rules", UTILS.unicode_escape(STATS.json_encode(cfg.dubber_char_rules or {})), true)
     reaper.SetExtState(section_name, "dubber_project_selected", UTILS.unicode_escape(cfg.dubber_project_selected or ""), true)
 
-    update_prompter_fonts()
+    UTILS.update_prompter_fonts()
 end
 
 -- =============================================================================
@@ -3018,7 +3689,7 @@ function UTILS.run_satellite_script(folder, filename, label)
     -- Check if file exists
     local f_check = io.open(full_path, "r")
     if not f_check then
-        reaper.MB("Файл не знайдено за шляхом:\n" .. full_path, "Помилка", 0)
+        reaper.MB(T("NEED_IM_GUI_NO_FILE") .. full_path, T("ERROR"), 0)
         return
     end
     f_check:close()
@@ -3028,13 +3699,13 @@ function UTILS.run_satellite_script(folder, filename, label)
     local has_imgui = reaper.ImGui_CreateContext ~= nil
 
     if not has_imgui then
-        local msg = "Для роботи " .. label .. " необхідне розширення ReaImGui.\n\n"
+        local msg = T("NEED_IM_GUI_1") .. label .. T("NEED_IM_GUI_2")
         if not has_reapack then
-            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть ReaImGui через ReaPack"
+            msg = msg .. T("NEED_IM_GUI_3")
         else
-            msg = msg .. "Будь ласка, встановіть 'ReaImGui' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
+            msg = msg .. T("NEED_IM_GUI_4")
         end
-        reaper.MB(msg, "Відсутні компоненти", 0)
+        reaper.MB(msg, T("MISSIBG_COMPONENTS"), 0)
         return
     end
 
@@ -3054,11 +3725,8 @@ function UTILS.run_satellite_script(folder, filename, label)
     if window_title then
         local hwnd = UTILS.find_satellite_window(window_title)
         if hwnd then
-            local choice = reaper.MB(label .. " вже відкрито.\n\n" ..
-                "Так: Перейти до вікна\n" ..
-                "Ні: Закрити вікно та відкрити заново\n" ..
-                "Скасувати: Нічого не робити", 
-                label .. " вже запущено", 3)
+            local choice = reaper.MB(label .. T("SATELLITE_1"), 
+                label .. T("SATELLITE_2"), 3)
             
             if choice == 6 then -- Yes: Focus
                 reaper.DockWindowActivate(hwnd)
@@ -3097,7 +3765,7 @@ function UTILS.run_satellite_script(folder, filename, label)
     if cmd_id and reaper.NamedCommandLookup(cmd_id) ~= 0 then
         reaper.Main_OnCommand(reaper.NamedCommandLookup(cmd_id), 0)
     else
-        reaper.MB("REAPER потребує одноразової реєстрації нового вікна:\n\n1. Відкрийте Actions -> Show action list\n2. Натисніть New action -> Load script\n3. Оберіть файл " .. filename .. " з папки " .. folder .. "\n\nПісля цього вікно буде відкриватися миттєво з меню.", "Потрібна реєстрація", 0)
+        reaper.MB(T("SATELLITE_3") .. filename .. T("SATELLITE_4") .. folder .. T("SATELLITE_5"), R("SATELLITE_6"), 0)
     end
 end
 
@@ -3150,68 +3818,68 @@ function UTILS.show_privacy_policy()
 
     local msg = string.format([[
 =======================================================================
-    ПРИВАТНІСТЬ ТА ПРОЗОРІСТЬ РОБОТИ
+    PRIVACY AND TRANSPARENCY
 =======================================================================
 
-У сучасну цифрову епоху, де інформація є ключовим активом, захист
-персонального та професійного інформаційного простору кожного
-користувача є нашим непохитним та найвищим пріоритетом. Ми глибоко
-переконані, що справжній творчий процес має розгортатися виключно у
-середовищі абсолютної безпеки, цілковитої прозорості та непорушної
-взаємної довіри. Цей розширений документ покликаний надати вам
-максимально вичерпне та детальне розуміння того, як саме функціонують
-внутрішні механізми взаємодії даного програмного інструменту з
-технічними відомостями вашої робочої станції.
+In today’s digital age, where information is a key asset, protecting
+the personal and professional digital space of every
+user is our unwavering and highest priority. We are deeply
+convinced that the true creative process must unfold exclusively in an
+environment of absolute security, complete transparency, and unshakable
+mutual trust. This comprehensive document is intended to provide you with
+the most thorough and detailed understanding of how the
+internal mechanisms of this software tool interact with
+the technical specifications of your workstation.
 
-КРИТИЧНО ВАЖЛИВА ПРИМІТКА ЩОДО ВИКОРИСТАННЯ:
+CRITICAL NOTE REGARDING USE:
 
-Будь ласка, зверніть особливу увагу на те, що безпосередній запуск
-цього програмного комплексу, а також будь-яка системна взаємодія з
-його допоміжними модулями, алгоритмами чи розширеннями, автоматично
-підтверджує ваше повне, усвідомлене та безумовне ознайомлення з усіма
-положеннями цієї політики. Це також означає надання вашої повної згоди
-на опрацювання, систематизацію та передачу анонімізованих технічних
-відомостей, що детально специфіковані у розділах нижче.
+Please note that the mere launch of
+this software suite, as well as any system interaction with
+its auxiliary modules, algorithms, or extensions, automatically
+confirms your full, informed, and unconditional acceptance of all
+provisions of this policy. This also constitutes your full consent
+to the processing, organization, and transfer of anonymized technical
+data, as detailed in the sections below.
 
-Фундаментальні засади вашого цифрового захисту:
+The fundamental principles of your digital protection:
 
-1. ПРИНЦИП АБСОЛЮТНОЇ БЕЗОСОБОВІСТЬ. Архітектурна логіка скрипта
-розроблена за принципом "Data Privacy by Design". Це означає, що ми
-не маємо жодної технічної чи юридичної можливості отримати доступ до
-вашої персональної ідентифікації: ми не збираємо справжніх імен,
-прізвищ, адрес електронної пошти, паролів чи будь-яких конфіденційних
-документів. Система оперує виключно деперсоналізованими цифровими
-реєстрами, які фізично неможливо деконструювати до рівня конкретної
-особи чи домогосподарства.
-2. СУВЕРЕНІТЕТ ТА НЕДОТОРКАННІСТЬ ІНТЕЛЕКТУАЛЬНОЇ ВЛАСНОСТІ.
-Ваші робочі процеси, унікальні творчі доробки та авторські методики
-залишаються виключно вашим непорушним надбанням. Ми категорично та
-принципово відмовляємося від будь-яких форм передачі, комерційного
-продажу, оренди чи публічного експонування зібраних статистичних
-відомостей стороннім організаціям, маркетинговим структурам чи
-будь-яким приватним особам.
-3. ГЛОБАЛЬНА ЕВОЛЮЦІЯ ЧЕРЕЗ ГЛИБИННЕ РОЗУМІННЯ. Кожен окремий
-фрагмент отриманої технічної інформації служить єдиній благородній
-меті — безперевній модернізації та вдосконаленню нашого професійного
-інструментарію. Це дозволяє автору превентивно ідентифікувати
-потенційні конфлікти програмного забезпечення, оптимізувати
-використання обчислювальних потужностей та впроваджувати передові
-інновації, що базуються на реальних, а не гіпотетичних потребах
-сучасної постпродакшн індустрії.
+1. THE PRINCIPLE OF ABSOLUTE ANONYMITY. The script’s architectural logic
+is designed according to the “Data Privacy by Design” principle. This means that we
+have no technical or legal means of accessing
+your personal identification: we do not collect real names,
+surnames, email addresses, passwords, or any confidential
+documents. The system operates exclusively with depersonalized digital
+records that cannot physically be traced back to a specific
+individual or household.
+2. SOVEREIGNTY AND INVIOLABILITY OF INTELLECTUAL PROPERTY.
+Your work processes, unique creative works, and proprietary methodologies
+remain exclusively your inviolable property. We categorically and
+on principle refuse any form of transfer, commercial
+sale, lease, or public display of collected statistical
+data to third-party organizations, marketing entities, or
+any private individuals.
+3. GLOBAL EVOLUTION THROUGH DEEP UNDERSTANDING. Every single
+piece of technical information received serves a single noble
+purpose—the continuous modernization and improvement of our professional
+tools. This allows the author to proactively identify
+potential software conflicts, optimize
+the use of computing resources, and implement cutting-edge
+innovations based on real, rather than hypothetical, needs
+of the modern post-production industry.
 
-Технічний паспорт поточної робочої сесії:
+Technical specifications of the current working session:
 
-- Поточна ревізія інструменту: %s
-- Операційне середовище та апаратна платформа: %s
-- Точна часова мітка ініціації активності: %s
-- Системна назва активного проєкту: %s
-- Градація масштабу робочого середовища:
-%d активних треків, %d зареєстрованих маркерів та регіонів
+- Current tool revision: %s
+- Operating environment and hardware platform: %s
+- Exact timestamp of activity initiation: %s
+- System name of the active project: %s
+- Scale of the working environment:
+%d active tracks, %d registered markers and regions
 
-Ми надзвичайно цінуємо ваш зворотний зв'язок. Якщо у вас виникли
-будь-які запитання, потреба у додаткових фахових роз’ясненнях чи
-конструктивні пропозиції щодо подальшого покращення нашої політики
-прозорості, ми завжди відкриті до професійного діалогу: телеграм @fusion_ford
+We greatly value your feedback. If you have
+any questions, need additional technical clarification, or
+have constructive suggestions for further improving our
+transparency policy, we are always open to professional dialogue: Telegram @fusion_ford
 =======================================================================]], 
     version, os_info, timestamp, project_name, tracks, num_markers + num_regions, total_lines)
     
@@ -4231,13 +4899,13 @@ end
 --- @return table|nil, string|nil Список реплік та запропоноване ім'я файлу (або nil у разі переривання)
 function UTILS.prepare_export_data(ext)
     if not reaper.JS_Dialog_BrowseForSaveFile then
-        local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
+        local msg = T("NEED_JS_REA_1")
         if not has_reapack then
-            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
+            msg = msg .. T("NEED_JS_REA_2")
         else
-            msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
+            msg = msg .. T("NEED_JS_REA_3")
         end
-        reaper.MB(msg, "Відсутні компоненти", 0)
+        reaper.MB(msg, T("MISSIBG_COMPONENTS"), 0)
         return nil, nil
     end
 
@@ -4257,7 +4925,7 @@ function UTILS.prepare_export_data(ext)
     table.sort(out_lines, function(a, b) return (a.index or 0) < (b.index or 0) end)
 
     if #out_lines == 0 then
-        show_snackbar("Немає активних реплік для експорту", "info")
+        show_snackbar(T("NO_ACTIVE_1"), "info")
         return nil, nil
     end
 
@@ -4395,7 +5063,7 @@ function DEADLINE.open_project_smart(proj_data)
             i = i + 1
         end
         -- If we are here, the unsaved project tab was closed
-        reaper.MB("Тимчасовий проєкт більше не відкритий.", "Помилка", 0)
+        reaper.MB("Тимчасовий проєкт більше не відкритий.", T("ERROR"), 0)
         return
     end
 
@@ -4642,7 +5310,7 @@ function DEADLINE.draw_dashboard(input_queue)
     
     -- Header measuring (for list_y)
     gfx.setfont(F.title)
-    local title = "Мої Дедлайни"
+    local title = T("MY_DEADLINES")
     local tw, th = gfx.measurestr(title)
     local is_narrow = gfx.w < S(450)
     local list_y = pad + th + S(12)
@@ -4704,7 +5372,7 @@ function DEADLINE.draw_dashboard(input_queue)
     if #sorted_projects == 0 then
         set_color(UI.C_TXT, 0.5)
         gfx.setfont(F.std)
-        local msg = "Немає активних дедлайнів"
+        local msg = T("NO_ACTIVE_DEADLINES")
         local mw, mh = gfx.measurestr(msg)
         gfx.x, gfx.y = (gfx.w - mw)/2, list_y + S(50)
         gfx.drawstr(msg)
@@ -4726,13 +5394,13 @@ function DEADLINE.draw_dashboard(input_queue)
                 local status_txt, status_col = "", UI.C_TXT
                 
                 if days < 0 then
-                    status_txt, status_col = "ПРОЙШОВ!", UI.C_SNACK_ERROR
+                    status_txt, status_col = T("DEADLINE_PASSED"), UI.C_SNACK_ERROR
                 elseif days == 0 then
-                    status_txt, status_col = "СЬОГОДНІ!", UI.C_RED
+                    status_txt, status_col = T("DEADLINE_TODAY"), UI.C_RED
                 elseif days == 1 then
-                    status_txt, status_col = "Завтра", UI.C_ORANGE
+                    status_txt, status_col = T("TOMORROW"), UI.C_ORANGE
                 else
-                    status_txt, status_col = "Активний", UI.C_SNACK_SUCCESS
+                    status_txt, status_col = T("ACTIVE"), UI.C_SNACK_SUCCESS
                 end
                 
                 -- --- COLUMN 1: Status & Date ---
@@ -4788,7 +5456,7 @@ function DEADLINE.draw_dashboard(input_queue)
                 local bx = is_narrow and pad or btn_x
                 local by = is_narrow and (row_y + S(55)) or (row_y + (row_h - btn_h)/2)
                 
-                if btn(bx, by, btn_w, btn_h, "Змінити", UI.C_BTN, UI.C_TXT) and gfx.mouse_y > list_y then
+                if btn(bx, by, btn_w, btn_h, T("CHANGE"), UI.C_BTN, UI.C_TXT) and gfx.mouse_y > list_y then
                     DEADLINE.open_picker(proj.deadline, function(new_ts)
                         DEADLINE.save_global(proj.path, proj.name, new_ts)
                         ACHIEVEMENTS.global_deadline_sweep() -- Trigger immediate achievement sync
@@ -4799,7 +5467,7 @@ function DEADLINE.draw_dashboard(input_queue)
                     end)
                 end
                 
-                if btn(bx + btn_w + S(10), by, btn_w, btn_h, "Відкрити", UI.C_ROW, UI.C_TXT) and gfx.mouse_y > list_y then
+                if btn(bx + btn_w + S(10), by, btn_w, btn_h, T("OPEN"), UI.C_ROW, UI.C_TXT) and gfx.mouse_y > list_y then
                     DEADLINE.open_project_smart(proj)
                 end
             end
@@ -4839,10 +5507,10 @@ function DEADLINE.draw_dashboard(input_queue)
     end
 
     -- Setup Notifications Button
-    local s_btn_w = S(180)
+    local s_btn_w = cfg.lng == "ua" and S(170) or S(117)
     local s_btn_x = cx - s_btn_w - S(10)
-    if btn(s_btn_x, cy, s_btn_w, close_sz, "Налаштувати сповіщення", UI.C_ROW, UI.C_TXT) then
-        local retval, ret_time = reaper.GetUserInputs("Налаштування сповіщень", 1, "Час (ГГ:ХХ), напр. 19:00", cfg.notify_time)
+    if btn(s_btn_x, cy, s_btn_w, close_sz, T("SET_UP_NOTIFY"), UI.C_ROW, UI.C_TXT) then
+        local retval, ret_time = reaper.GetUserInputs(T("NOTIFY_SETTINGS"), 1, T("NOTIFY_SETTINGS_TIME"), cfg.notify_time)
         if retval then
             cfg.notify_time = ret_time
             reaper.SetExtState(section_name, "notify_time", ret_time, true)
@@ -4864,7 +5532,7 @@ function DEADLINE.draw_dashboard(input_queue)
                     os.execute(cmd)
                 end
                 ACHIEVEMENTS.add_stat("ach_30_count", 1)
-                show_snackbar("Запит на налаштування надіслано на " .. ret_time, "info")
+                show_snackbar(T("NOTIFY_REQUEST_SENT") .. ret_time, "info")
             end
         end
     end
@@ -4916,7 +5584,7 @@ function DEADLINE.draw_picker(input_queue)
     
     local w, h = S(DEADLINE.modal.w), S(DEADLINE.modal.h)
     local x, y = (gfx.w - w) / 2, (gfx.h - h) / 2
-    
+
     -- Dim background
     set_color({0, 0, 0, 0.5})
     gfx.rect(0, 0, gfx.w, gfx.h, 1)
@@ -4930,6 +5598,15 @@ function DEADLINE.draw_picker(input_queue)
     -- Header (Month Year)
     local month_names = {"Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень", 
                          "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"}
+
+    -- Weekdays Header
+    local wd_names = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"}
+
+    if cfg.lng == "en" then
+        month_names = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
+        wd_names = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+    end
+
     local title = month_names[DEADLINE.modal.month] .. " " .. DEADLINE.modal.year
     gfx.setfont(F.dict_bld)
     set_color(UI.C_TXT)
@@ -4954,8 +5631,6 @@ function DEADLINE.draw_picker(input_queue)
         end
     end
     
-    -- Weekdays Header
-    local wd_names = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"}
     gfx.setfont(F.dict_std_sm)
     local cell_w = (w - S(20)) / 7
     for i, wd in ipairs(wd_names) do
@@ -5024,12 +5699,12 @@ function DEADLINE.draw_picker(input_queue)
     local b_w = (w - S(30)) / 2
     local b_y = y + h - S(45)
     
-    if btn(x + S(10), b_y, b_w, S(30), "Видалити Дедлайн") then
+    if btn(x + S(10), b_y, b_w, S(30), T("REMOVE_DEADLINE")) then
         if DEADLINE.modal.callback then DEADLINE.modal.callback(nil) end
         DEADLINE.modal.show = false
     end
     
-    if btn(x + S(20) + b_w, b_y, b_w, S(30), "Закрити", UI.C_ROW) then
+    if btn(x + S(20) + b_w, b_y, b_w, S(30), T("CLOSE"), UI.C_ROW) then
         DEADLINE.modal.show = false
     end
 
@@ -6864,11 +7539,11 @@ end
 --- Fetch a specific dictionary category (Lazy loading)
 local function fetch_dictionary_category(word, display_name)
     local categories = {
-        ["Тлумачення"] = "Тлумачення",
-        ["Словозміна"] = "Словозміна",
-        ["Синоніми"] = "Синонімія",
-        ["Фразеологія"] = "Фразеологія",
-        ["Слововживання"] = "Слововживання"
+        [T("GD_Interpretation")] = "Тлумачення",
+        [T("GD_Conjugation")] = "Словозміна",
+        [T("GD_Synonyms")] = "Синонімія",
+        [T("GD_Idioms")] = "Фразеологія",
+        [T("GD_Word_usage")] = "Слововживання"
     }
     
     local url_part = categories[display_name]
@@ -7351,7 +8026,7 @@ local function trigger_dictionary_lookup(word)
     end
 
     word = clean_word_edges(word)
-    local first_tab = "Словозміна"
+    local first_tab = T("GD_Conjugation")
     
     -- Manage history: If already showing, push current state
     if dict_modal.show then
@@ -7396,7 +8071,7 @@ UTILS.GLOBAL_HOTKEY_ACTIONS = {
     { label = "Перейти на табу Репліки", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 2 end },
     { label = "Перейти на табу Суфлер", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 3 end },
     { label = "Перейти на табу Налаштування", action = function() UTILS.close_all_modals(); UI_STATE.current_tab = 4 end },
-    { label = "Відкрити Мої Дедлайни", action = function() 
+    { label = T("VIEW_MY_DEADLINES"), action = function() 
         local state = not DEADLINE.dashboard_show
         UTILS.close_all_modals()
         DEADLINE.dashboard_show = state
@@ -7415,8 +8090,8 @@ UTILS.GLOBAL_HOTKEY_ACTIONS = {
         save_settings()
     end },
     { label = "Відобразити SubOverlay від Lionzz", action = function() UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end },
-    { label = "Знайти нове слово в ГОРОСі", action = function() 
-        local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
+    { label = T("FIND_NEW_G_PCX"), action = function() 
+        local ok, input = reaper.GetUserInputs(T("GOROH"), 1, T("SEARCH_TERM_200"), "")
         if ok and input ~= "" then 
             UTILS.close_all_modals()
             trigger_dictionary_lookup(input) 
@@ -8562,7 +9237,7 @@ local function update_regions_cache()
                     if rgn then
                         rgn.actor = line.actor
                         -- Update times if changed in REAPER
-                        if math.abs(line.t1 - rgn.pos) > 0.0001 or math.abs(line.t2 - rgn.rgnend) > 0.0001 or (line.text ~= rgn.name and rgn.name ~= "<пусто>") then
+                        if math.abs(line.t1 - rgn.pos) > 0.0001 or math.abs(line.t2 - rgn.rgnend) > 0.0001 or (line.text ~= rgn.name and rgn.name ~= T("EMPTY")) then
                             line.t1 = rgn.pos
                             line.t2 = rgn.rgnend
                             line.text = rgn.name
@@ -9436,7 +10111,7 @@ function UTILS.compact_render()
     end
 
     -- ── 1. Determine Default Filename and Directory ──────────────────────
-    local display_name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
+    local display_name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or T("USER"))
     local _, proj_path = reaper.EnumProjects(-1)
     local proj_name = "Project"
     local default_dir = reaper.GetExtState(section_name, "compact_render_dir")
@@ -10663,7 +11338,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
     local p = profile_override or cfg
     local stats_json = STATS.json_encode({
         stats=ACHIEVEMENTS.stats,
-        dubber_name=(p.dubber_name and p.dubber_name ~= "") and p.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач"),
+        dubber_name=(p.dubber_name and p.dubber_name ~= "") and p.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or T("USER")),
         dubber_bio = p.dubber_bio or "",
         dubber_contact = p.dubber_contact or "",
         dubber_samples = p.dubber_samples or "",
@@ -11040,9 +11715,9 @@ function DUBBERS.refresh_conflicts()
                     local gap_abs = math.abs(gap)
                     
                     -- Mark R1
-                    local msg1 = string.format("Конфлікт: %s (репліка #%s, %.1fс%s)", 
+                    local msg1 = string.format(T("DUBBER_CONFLICT_TT_1"), 
                                               r2.actor, tostring(r2.row_id), gap_abs, 
-                                              gap < 0 and " накладається" or " пауза")
+                                              gap < 0 and T("DUBBER_CONFLICT_TT_2") or T("DUBBER_CONFLICT_TT_3"))
                     if not DUBBERS.conflicts[r1.row_id] or DUBBERS.conflicts[r1.row_id].level < level then
                         DUBBERS.conflicts[r1.row_id] = {
                             level = level, 
@@ -11054,9 +11729,9 @@ function DUBBERS.refresh_conflicts()
                     end
                     
                     -- Mark R2
-                    local msg2 = string.format("Конфлікт: %s (репліка #%s, %.1fс%s)", 
+                    local msg2 = string.format(T("DUBBER_CONFLICT_TT_1"), 
                                               r1.actor, tostring(r1.row_id), gap_abs, 
-                                              gap < 0 and " накладається" or " пауза")
+                                              gap < 0 and T("DUBBER_CONFLICT_TT_2") or T("DUBBER_CONFLICT_TT_3"))
                     if not DUBBERS.conflicts[r2.row_id] or DUBBERS.conflicts[r2.row_id].level < level then
                         DUBBERS.conflicts[r2.row_id] = {
                             level = level, 
@@ -11073,12 +11748,12 @@ function DUBBERS.refresh_conflicts()
 end
 
 function DUBBERS.validate_name(name, current_name)
-    if not name or name == "" then return false, "Ім'я не може бути порожнім" end
+    if not name or name == "" then return false, T("NO_EMPTY_NAME") end
     local n_clean = name:match("^%s*(.-)%s*$")
-    if n_clean == "" then return false, "Ім'я не може бути порожнім" end
+    if n_clean == "" then return false, T("NO_EMPTY_NAME") end
     
     if n_clean:find("[|&]") then
-        return false, "Ім'я не може містити символи | або &"
+        return false, T("INVALID_NAME_TEXT")
     end
     
     local n_lower = utf8_lower(n_clean)
@@ -11087,7 +11762,7 @@ function DUBBERS.validate_name(name, current_name)
     if n_lower ~= cur_lower then
         for _, d in ipairs(DUBBERS.data.names) do
             if utf8_lower(d:match("^%s*(.-)%s*$")) == n_lower then
-                return false, "Дабер з таким ім'ям вже існує"
+                return false, T("DUBBER_NAME_ALREADY_EXISTS")
             end
         end
     end
@@ -11111,44 +11786,40 @@ function DUBBERS.copy_to_clipboard(extended)
             -- Short mode
             if #actors > 0 then
                 table.insert(lines, name .. ": " .. table.concat(actors, ", "))
-            else
-                table.insert(lines, name .. ": (порожньо)")
             end
         else
             -- Extended mode
-            local dubber_block = { "【 " .. name .. " 】" }
             if #actors > 0 then
+                local dubber_block = { "【 " .. name .. " 】" }
                 for _, act in ipairs(actors) do
                     local s = DUBBERS.get_actor_stats(act)
-                    table.insert(dubber_block, string.format("  • %s: %d репл. | %d сл. | %s", act, s.replicas, s.words, DUBBERS.format_duration(s.time)))
+                    table.insert(dubber_block, string.format(T("COPY_DUBBER_STATS_1"), act, s.replicas, s.words, DUBBERS.format_duration(s.time)))
                 end
                 
                 -- Add total for dubber
                 local ts = DUBBERS.get_dubber_stats(name)
-                table.insert(dubber_block, string.format("  Всього: %d акт. | %d репл. | %d сл. | %s", ts.actors_count, ts.replicas, ts.words, DUBBERS.format_duration(ts.time)))
-            else
-                table.insert(dubber_block, "  (немає призначених акторів)")
+                table.insert(dubber_block, string.format(T("COPY_DUBBER_STATS_2"), ts.actors_count, ts.replicas, ts.words, DUBBERS.format_duration(ts.time)))
+                table.insert(lines, table.concat(dubber_block, "\n"))
             end
-            table.insert(lines, table.concat(dubber_block, "\n"))
         end
     end
     
     if #lines == 0 then
-        show_snackbar("Список даберів порожній", "error")
+        show_snackbar(T("LIST_OF_DUBBERS_EMPTY"), "error")
         return
     end
     
     local out = table.concat(lines, "\n\n")
     set_clipboard(out)
     ACHIEVEMENTS.add_stat("ach_26_count", 1)
-    show_snackbar("Розподіл скопійовано в буфер", "success")
+    show_snackbar(T("COPY_DUBBER_STATS_DONE"), "success")
 end
 
 --- Export distibution as ASS with embedded metadata
 --- @param deadline_str string|nil Optional deadline prefix like "[31.01.26]"
 function DUBBERS.export_as_ass(deadline_str)
     if not ass_lines then 
-        show_snackbar("Немає реплік для експорту", "error")
+        show_snackbar(T("NO_LINES_TO_EXPORT"), "error")
         return 
     end
 
@@ -11184,7 +11855,7 @@ function DUBBERS.export_as_ass(deadline_str)
     end
 
     -- Save Dialog
-    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Експорт розподілу в ASS", "", default_filename, "ASS files (.ass)\0*.ass\0All Files (*.*)\0*.*\0")
+    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile(T("EXPORT_DISTRIBUTION_ASS"), "", default_filename, "ASS files (.ass)\0*.ass\0All Files (*.*)\0*.*\0")
     
     if retval == 1 and filename ~= "" then
         if not filename:match("%.ass$") then filename = filename .. ".ass" end
@@ -11192,7 +11863,7 @@ function DUBBERS.export_as_ass(deadline_str)
         local json_meta = STATS.json_encode(DUBBERS.data.assignments or {})
         local file = io.open(filename, "w")
         if not file then
-            reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
+            reaper.ShowMessageBox(T("FAILED_TO_CREATE_FILE") .. filename, T("ERROR"), 0)
             return
         end
 
@@ -11290,14 +11961,14 @@ function DUBBERS.export_as_ass(deadline_str)
         end
         
         file:close()
-        show_snackbar("Експортовано " .. export_count .. " реплік з метаданими", "success")
+        show_snackbar(T("EXPORTED_1") .. export_count .. T("EXPORTED_2"), "success")
     end
 end
 
 --- Select a dubber and filter the project to their assigned actors
 --- @param name string Name of the dubber to select
 function DUBBERS.select_dubber(name)
-    push_undo("Змінити дабера: " .. (name or ""))
+    push_undo(T("CHANGE_THE_DUBBER") .. ": " .. (name or ""))
     local assigned_actors = DUBBERS.data.assignments[name] or {}
     
     -- Reset all filters
@@ -11338,9 +12009,9 @@ function DUBBERS.select_dubber(name)
     end
     
     if found_any then
-        show_snackbar("Вибрано акторів дабера: " .. name, "success")
+        show_snackbar(T("DUBBER_SELECT_SUCC") .. name, "success")
     else
-        show_snackbar("У дабера '" .. name .. "' немає призначених акторів у цьому проекті", "warning")
+        show_snackbar(T("DUBBER_SELECT_FAILED_1") .. name .. T("DUBBER_SELECT_FAILED_2"), "warning")
     end
 end
 
@@ -11380,7 +12051,7 @@ function DUBBERS.draw_dashboard(input_queue)
     
     -- --- DIMENSIONS & MEASUREMENTS ---
     gfx.setfont(F.title)
-    local title = "Розподіл по даберам"
+    local title = T("SPLIT_BY_DUBBERS")
     local tw, th = gfx.measurestr(title)
     local header_h = pad + th + S(15)
     
@@ -11490,7 +12161,7 @@ function DUBBERS.draw_dashboard(input_queue)
         set_color(UI.C_TXT, 0.6)
         gfx.setfont(F.bld)
         gfx.x, gfx.y = pad, dy
-        gfx.drawstr("ДАБЕРИ")
+        gfx.drawstr(T("DUBBERS"))
     end
     
     dy = dy + S(25)
@@ -11500,14 +12171,14 @@ function DUBBERS.draw_dashboard(input_queue)
     local auto_w = S(170)
     if dy + S(25) > header_h and dy < gfx.h then
         -- Add Dubber
-        if btn(pad, dy, add_w, S(25), "+ Додати дабера", UI.C_BTN, UI.C_TXT) then
-            local ok, name = reaper.GetUserInputs("Новий дабер", 1, "Ім'я дабера:", "")
+        if btn(pad, dy, add_w, S(25), "+ " .. T("ADD_DUBBER"), UI.C_BTN, UI.C_TXT) then
+            local ok, name = reaper.GetUserInputs(T("NEW_DUBBER"), 1, T("NAME_DUBBER"), "")
             if ok then
                 local is_valid, res = DUBBERS.validate_name(name)
                 if not is_valid then
                     if res then show_snackbar(res, "error") end
                 else
-                    push_undo("Додати дабера")
+                    push_undo(T("ADD_DUBBER"))
                     table.insert(DUBBERS.data.names, res)
                     DUBBERS.save()
                 end
@@ -11515,7 +12186,7 @@ function DUBBERS.draw_dashboard(input_queue)
         end
 
         -- Auto Distribution
-        if btn(pad + add_w + S(10), dy, auto_w, S(25), "Автоматичний розподіл", UI.C_BTN, UI.C_TXT) then
+        if btn(pad + add_w + S(10), dy, auto_w, S(25), T("AUTOATIC_DISTRIBUTION"), UI.C_BTN, UI.C_TXT) then
             cfg.dubber_char_rules = cfg.dubber_char_rules or {}
             
             -- Get all project names
@@ -11526,7 +12197,7 @@ function DUBBERS.draw_dashboard(input_queue)
             table.sort(project_names)
             
             if #project_names == 0 then
-                reaper.ShowMessageBox("Спочатку створіть хоча б один проєкт в Налаштуваннях (вкладка 'Налаштування' -> 'ДАБЕРИ')", "Немає проєктів", 0)
+                reaper.ShowMessageBox(T("NEED_TO_CREATE_PROJECT"), T("NO_PROJECTS"), 0)
             else
                 -- Show context menu with projects list
                 local menu_parts = {}
@@ -11546,7 +12217,7 @@ function DUBBERS.draw_dashboard(input_queue)
                     DUBBERS.data.assignments = DUBBERS.data.assignments or {}
                     
                     -- Snapshot state BEFORE any changes (so a single Ctrl+Z restores fully)
-                    push_undo("Автоматичний розподіл персонажів")
+                    push_undo(T("AUTOATIC_DISTRIBUTION"))
                     
                     -- Keep track of existing names (for quick check and case-insensitivity)
                     local existing_names_map = {}
@@ -11631,11 +12302,11 @@ function DUBBERS.draw_dashboard(input_queue)
                     
                     if added_dubs_count > 0 or assigned_chars_count > 0 then
                         DUBBERS.save()
-                        show_snackbar("Розподіл завершено! Додано даберів: " .. added_dubs_count .. ", призначено персонажів: " .. assigned_chars_count, "success")
+                        show_snackbar(T("DUBBERS_COMPLETE_P1") .. added_dubs_count .. T("DUBBERS_COMPLETE_P2") .. assigned_chars_count, "success")
                     else
                         -- No changes were made — pop the undo we just pushed to avoid a phantom entry
                         table.remove(undo_stack)
-                        show_snackbar("Збігів не знайдено або все вже розподілено", "info")
+                        show_snackbar(T("DUBBERS_COMPLETE_NO"), "info")
                     end
                 end
             end
@@ -11644,14 +12315,14 @@ function DUBBERS.draw_dashboard(input_queue)
         -- Right-click anywhere in the button row: context menu
         if is_mouse_clicked(2) and gfx.mouse_y >= dy and gfx.mouse_y <= dy + S(25) and gfx.mouse_y > header_h then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-            local ret = gfx.showmenu("Очистити всі призначення")
+            local ret = gfx.showmenu(T("DUBBERS_CLEAR_ALL"))
             if ret == 1 then
-                if reaper.MB("Очистити всі призначення даберів?", "Підтвердження", 4) == 6 then
-                    push_undo("Очистити всі призначення")
+                if reaper.MB(T("DUBBERS_CLEAR_ALL_TILES"), T("CONFIRMATION"), 4) == 6 then
+                    push_undo(T("DUBBERS_CLEAR_ALL"))
                     DUBBERS.data.assignments = {}
                     DUBBERS.save()
                     DUBBERS.refresh_conflicts()
-                    show_snackbar("Всі призначення очищено", "info")
+                    show_snackbar(T("DUBBERS_CLEAR_ALL_DONE"), "info")
                 end
             end
         end
@@ -11685,7 +12356,7 @@ function DUBBERS.draw_dashboard(input_queue)
                 -- Tooltip logic
                 if gfx.mouse_x >= dx and gfx.mouse_x <= dx + d_col_w and
                    gfx.mouse_y >= item_y and gfx.mouse_y <= item_y + dubber_item_h and gfx.mouse_y > header_h then
-                    UI_STATE.tooltip_state.text = "КОНФЛІКТИ (ПЕРСОНАЖІ):\n" .. table.concat(d_conf, "\n")
+                    UI_STATE.tooltip_state.text = T("CONFLICTS_ACTORS_TT") .. table.concat(d_conf, "\n")
                 end
             end
             
@@ -11699,17 +12370,17 @@ function DUBBERS.draw_dashboard(input_queue)
             if is_mouse_clicked(2) and gfx.mouse_x >= dx and gfx.mouse_x <= dx + d_col_w and
                gfx.mouse_y >= item_y and gfx.mouse_y <= item_y + dubber_item_h and gfx.mouse_y > header_h then
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local ret = gfx.showmenu("Активувати авторів цього дабера в табі файл||Перейменувати|Видалити")
+                local ret = gfx.showmenu(T("DUBBERS_ACTIVE_MENU_1") .. "||" .. T("CHANGE_NAME") .. "|" .. T("DELETE"))
                 if ret == 1 then
                     DUBBERS.select_dubber(name)
                 elseif ret == 2 then
-                    local ok, n_name = reaper.GetUserInputs("Rename", 1, "New name:", name)
+                    local ok, n_name = reaper.GetUserInputs(T("CHANGE_NAME"), 1, T("NEW_NAME"), name)
                     if ok then
                         local is_valid, res = DUBBERS.validate_name(n_name, name)
                         if not is_valid then
                             if res then show_snackbar(res, "error") end
                         else
-                            push_undo("Перейменувати дабера")
+                            push_undo(T("CHANGE_NAME") .. " " .. T("DUBBER_ONE"))
                             DUBBERS.data.assignments[res] = DUBBERS.data.assignments[name]
                             DUBBERS.data.assignments[name] = nil
                             DUBBERS.data.names[i] = res
@@ -11717,8 +12388,8 @@ function DUBBERS.draw_dashboard(input_queue)
                         end
                     end
                 elseif ret == 3 then
-                    if reaper.MB("Видалити '"..name.."'?", "Confirm", 4) == 6 then
-                        push_undo("Видалити дабера")
+                    if reaper.MB(T("DELETE") .. " '"..name.."'?", T("CONFIRMATION"), 4) == 6 then
+                        push_undo(T("DELETE") .. " " .. T("DUBBER_ONE"))
                         table.remove(DUBBERS.data.names, i); DUBBERS.data.assignments[name] = nil
                         DUBBERS.active_dubber_idx = math.max(1, math.min(DUBBERS.active_dubber_idx, #DUBBERS.data.names))
                         DUBBERS.save()
@@ -11733,7 +12404,7 @@ function DUBBERS.draw_dashboard(input_queue)
             gfx.drawstr(fit_text_width(name, d_col_w - S(25)))
             
             local s = DUBBERS.get_dubber_stats(name)
-            local meta = string.format("%d репл. | %d сл. | %s | %d акт.", s.replicas, s.words, DUBBERS.format_duration(s.time), s.actors_count)
+            local meta = string.format(T("DUBBERS_DETAIL_FOOTER_1"), s.replicas, s.words, DUBBERS.format_duration(s.time), s.actors_count)
             gfx.setfont(F.tip)
             set_color(txt_c, 0.7)
             gfx.x, gfx.y = dx + S(15), item_y + S(28)
@@ -11749,8 +12420,8 @@ function DUBBERS.draw_dashboard(input_queue)
         set_color(UI.C_TXT, 0.6)
         gfx.setfont(F.bld)
         gfx.x, gfx.y = pad, ay
-        local a_title = "АКТОРИ"
-        if active_dubber then a_title = a_title .. " (Призначення для: " .. active_dubber .. ")" end
+        local a_title = T("ACTORS")
+        if active_dubber then a_title = a_title .. " (" .. T("FOR") .. ": " .. active_dubber .. ")" end
         gfx.drawstr(a_title)
     end
     
@@ -11786,7 +12457,7 @@ function DUBBERS.draw_dashboard(input_queue)
                 -- Tooltip logic
                 if gfx.mouse_x >= ax and gfx.mouse_x <= ax + actor_col_w and
                    gfx.mouse_y >= cur_ay and gfx.mouse_y <= cur_ay + actor_item_h and gfx.mouse_y > header_h then
-                    UI_STATE.tooltip_state.text = "КОНФЛІКТУЄ З:\n" .. table.concat(a_conf, "\n")
+                    UI_STATE.tooltip_state.text = T("CONFLICTS_WITH") .. table.concat(a_conf, "\n")
                 end
             end
             
@@ -11825,7 +12496,7 @@ function DUBBERS.draw_dashboard(input_queue)
             gfx.drawstr(fit_text_width(label, actor_col_w - S(40)))
             
             local s = DUBBERS.get_actor_stats(act)
-            local meta = string.format("%d репл. | %d сл. | %s", s.replicas, s.words, DUBBERS.format_duration(s.time))
+            local meta = string.format(T("DUBBERS_DETAIL_FOOTER_2"), s.replicas, s.words, DUBBERS.format_duration(s.time))
             gfx.setfont(F.tip)
             set_color(UI.C_TXT, 0.6 * fade)
             gfx.x, gfx.y = ax + S(32), cur_ay + S(28)
@@ -11849,26 +12520,26 @@ function DUBBERS.draw_dashboard(input_queue)
                         local ret = gfx.showmenu(table.concat(menu_items, "|"))
                         if ret > 0 then
                             local selected_dubber = DUBBERS.data.names[ret]
-                            push_undo("Зміна призначення актора")
+                            push_undo(T("CAHNGE_DISTRIBUTION"))
                             if not DUBBERS.data.assignments[selected_dubber] then DUBBERS.data.assignments[selected_dubber] = {} end
                             DUBBERS.data.assignments[selected_dubber][act] = not (DUBBERS.data.assignments[selected_dubber][act])
                             DUBBERS.save()
                             DUBBERS.refresh_conflicts()
                         end
                     else
-                        show_snackbar("Список даберів порожній", "error")
+                        show_snackbar(T("LIST_OF_DUBBERS_EMPTY"), "error")
                     end
                 
                 -- Left Click: Toggle for Active Dubber
                 else
                     if active_dubber then
-                        push_undo("Зміна призначення актора")
+                        push_undo(T("CAHNGE_DISTRIBUTION"))
                         if not DUBBERS.data.assignments[active_dubber] then DUBBERS.data.assignments[active_dubber] = {} end
                         DUBBERS.data.assignments[active_dubber][act] = not is_assigned
                         DUBBERS.save()
                         DUBBERS.refresh_conflicts()
                     else
-                        show_snackbar("Оберіть дабера зверху", "info")
+                        show_snackbar(T("SELECT_DUBBER_ON_TOP"), "info")
                     end
                 end
             end
@@ -11885,8 +12556,8 @@ function DUBBERS.draw_dashboard(input_queue)
     gfx.rect(0, 0, gfx.w, header_h, 1)
     
     local close_sz = S(24)
-    local copy_w = S(100)
-    local export_w = S(170)
+    local copy_w = cfg.lng == "ua" and S(100) or S(70)
+    local export_w = cfg.lng == "ua" and S(160) or S(120)
     local right_edge = gfx.w - pad - close_sz - S(10)
     
     set_color(UI.C_TXT)
@@ -11898,9 +12569,9 @@ function DUBBERS.draw_dashboard(input_queue)
     local function close_dash() DUBBERS.show_dashboard = false end
     if btn(gfx.w - pad - close_sz, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT) then close_dash() end
     
-    if btn(right_edge - copy_w, pad, copy_w, close_sz, "Копіювати", UI.C_TAB_INA, UI.C_TXT) then
+    if btn(right_edge - copy_w, pad, copy_w, close_sz, T("COPY"), UI.C_TAB_INA, UI.C_TXT) then
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-        local ret = gfx.showmenu("Короткий (тільки імена)|Розширений (з аналітикою)")
+        local ret = gfx.showmenu(T("COPY_DUBBER_MENU"))
         if ret == 1 then
             DUBBERS.copy_to_clipboard(false)
         elseif ret == 2 then
@@ -11908,9 +12579,9 @@ function DUBBERS.draw_dashboard(input_queue)
         end
     end
 
-    if btn(right_edge - copy_w - S(10) - export_w, pad, export_w, close_sz, "Експортувати як ASS", UI.C_TAB_INA, UI.C_TXT) then
+    if btn(right_edge - copy_w - S(10) - export_w, pad, export_w, close_sz, T("EXPORT_AS_ASS"), UI.C_TAB_INA, UI.C_TXT) then
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-        local ret = gfx.showmenu("Просто експорт||Експорт з дедлайном")
+        local ret = gfx.showmenu(T("EXPORT_DUBBER_MENU"))
         if ret == 1 then
             DUBBERS.export_as_ass()
         elseif ret == 2 then
@@ -12319,7 +12990,7 @@ local function export_as_srt()
         
         local file = io.open(filename, "w")
         if not file then
-            reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
+            reaper.ShowMessageBox(T("FAILED_TO_CREATE_FILE") .. filename, T("ERROR"), 0)
             return
         end
 
@@ -12354,7 +13025,7 @@ local function export_as_srt()
         end
         
         file:close()
-        show_snackbar("Експортовано " .. #out_lines .. " реплік", "success")
+        show_snackbar(T("EXPORTED_1") .. #out_lines .. T("EXPORTED_3"), "success")
     end
 end
 
@@ -12391,7 +13062,7 @@ local function export_as_ass()
         
         local file = io.open(filename, "w")
         if not file then
-            reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
+            reaper.ShowMessageBox(T("FAILED_TO_CREATE_FILE") .. filename, T("ERROR"), 0)
             return
         end
 
@@ -12468,7 +13139,7 @@ local function export_as_ass()
         end
         
         file:close()
-        show_snackbar("Експортовано " .. #out_lines .. " реплік в ASS", "success")
+        show_snackbar(T("EXPORTED_1") .. #out_lines .. T("EXPORTED_3"), "success")
     end
 end
 
@@ -12504,7 +13175,7 @@ local function copy_actors_statistics(include_time)
     end
     
     if total_repl == 0 then
-        show_snackbar("Немає даних", "info")
+        show_snackbar(T("NO_DATE"), "info")
         return
     end
     
@@ -12600,7 +13271,7 @@ local function import_notes()
     -- Read from clipboard
     local input = fix_encoding(get_clipboard())
     if not input or input == "" then
-        show_snackbar("Буфер обміну порожній", "error")
+        show_snackbar(T("CLIPBOARD_IS_EMPTY"), "error")
         return
     end
     
@@ -13950,7 +14621,7 @@ local function check_for_updates(is_silent)
                 reaper.MB(clean_out ~= "" and clean_out or "У вас вже встановлена актуальна версія.", "Перевірка оновлень", 0)
             end
         elseif not is_silent then
-            reaper.MB("Не вдалося отримати відповідь від сервера оновлень.\nКоманда: " .. cmd, "Помилка", 0)
+            reaper.MB("Не вдалося отримати відповідь від сервера оновлень.\nКоманда: " .. cmd, T("ERROR"), 0)
         end
     end, is_silent, "Перевіряю оновлення...")
 end
@@ -14434,9 +15105,9 @@ function DRAW_WINDOW.draw_ai_modal(skip_draw)
         set_color(hover_back and UI.C_BTN_H or UI.C_BTN)
         gfx.rect(bbx, bby, bbw, bbh, 1)
         set_color(UI.C_TXT)
-        local sw, sh = gfx.measurestr("Назад")
+        local sw, sh = gfx.measurestr(T("BACK"))
         gfx.x, gfx.y = bbx + (bbw - sw) / 2, bby + (bbh - sh) / 2
-        gfx.drawstr("Назад")
+        gfx.drawstr(T("BACK"))
         
         -- ЩЕ Button
         local rbx, rby, rbw, rbh = (menu_w / 2) + 2, view_h + 5, (menu_w / 2) - 7, footer_h - 10
@@ -14465,9 +15136,9 @@ function DRAW_WINDOW.draw_ai_modal(skip_draw)
         set_color(hover and UI.C_BTN_H or UI.C_BTN)
         gfx.rect(bbx, bby, bbw, bbh, 1)
         set_color(UI.C_TXT)
-        local sw, sh = gfx.measurestr("Назад")
+        local sw, sh = gfx.measurestr(T("BACK"))
         gfx.x, gfx.y = bbx + (bbw-sw)/2, bby + (bbh-sh)/2
-        gfx.drawstr("Назад")
+        gfx.drawstr(T("BACK"))
     end
 
     -- Blit back to main destination
@@ -14530,7 +15201,7 @@ local function play_tts_audio(text, save_to_timeline)
     local voice_arg = ""
     local key_arg = ""
 
-    local v_cfg = cfg.tts_voice_map[cfg.tts_voice] or cfg.tts_voice_map["Горох: Оксана (Wavenet)"]
+    local v_cfg = cfg.tts_voice_map[cfg.tts_voice] or cfg.tts_voice_map["Goroh: Оксана (Wavenet)"]
     voice_arg = string.format('--voice "%s"', v_cfg.voice)
 
     if v_cfg.engine == "eleven" then
@@ -14643,12 +15314,12 @@ end
 function UTILS.calc_track_items_by_actor()
     local sel_track_count = reaper.CountSelectedTracks(0)
     if sel_track_count == 0 then
-        reaper.MB("Оберіть один або кілька треків акторів для аналізу.", "Помилка", 0)
+        reaper.MB("Оберіть один або кілька треків акторів для аналізу.", T("ERROR"), 0)
         return
     end
 
     if not ass_lines or #ass_lines == 0 then
-        reaper.MB("Спершу імпортуйте файл субтитрів.", "Помилка", 0)
+        reaper.MB("Спершу імпортуйте файл субтитрів.", T("ERROR"), 0)
         return
     end
 
@@ -15322,8 +15993,8 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         local has_sel = sel_min ~= sel_max
         
         -- Build Dynamic Menu
-        local dict_label = has_sel and "Шукати в ГОРОСі" or "Знайти нове слово в ГОРОСі"
-        local menu_items = { "Вирізати", "Копіювати", "Вставити", "Виділити все", "", dict_label, "", "Озвучити", "Озвучити та зберегти", "", ">Змінити голос" }
+        local dict_label = has_sel and T("SEARCH_IN_GOROH") or T("FIND_NEW_G_PCX")
+        local menu_items = { "Вирізати", T("COPY"), "Вставити", "Виділити все", "", dict_label, "", T("VOICE_OVER_M"), T("VOICE_OVER_SAVE_M"), "", T("CHANGE_VOICE_M") }
         for _, v_name in ipairs(cfg.tts_voices_order) do
             local check = (v_name == cfg.tts_voice) and "• " or ""
             table.insert(menu_items, check .. (v_name:gsub("|", "||")))
@@ -15373,7 +16044,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                     trigger_dictionary_lookup(target)
                 end
             else
-                local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
+                local ok, input = reaper.GetUserInputs(T("GOROH"), 1, T("SEARCH_TERM_200"), "")
                 if ok and input ~= "" then
                     trigger_dictionary_lookup(input)
                 end
@@ -15731,8 +16402,8 @@ function DRAW_WINDOW.draw_text_editor(input_queue)
     
     -- AI Button dimensions
     local provider_name = (cfg.ai_provider == "mistral") and "Mistral" or (cfg.ai_provider == "groq" and "Groq" or "Gemini")
-    local ai_btn_text = "Запитати " .. provider_name
-    local ai_btn_w, ai_btn_h = S(130), S(24)
+    local ai_btn_text = T("ASK_NAME") .. provider_name
+    local ai_btn_w, ai_btn_h = cfg.lng == "ua" and S(130) or S(90), S(24)
     local ai_btn_x, ai_btn_y = box_x + box_w - ai_btn_w - S(10), box_y + S(8)
     local ai_box_x = box_w - S(24)
 
@@ -15822,7 +16493,7 @@ function DRAW_WINDOW.draw_text_editor(input_queue)
         ai_modal.suggestions = {}
         ai_modal.history = {}
     end
-    if btn(box_x + box_w - S(90), btn_y, S(80), S(30), "Зберегти") then
+    if btn(box_x + box_w - S(90), btn_y, S(80), S(30), T("SAVE")) then
         if text_editor_state.callback then text_editor_state.callback(text_editor_state.text) end
         if text_editor_state.context_line_idx == editor_state.last_region_id then 
             editor_state.last_region_id = -1
@@ -16384,7 +17055,7 @@ function SEARCH_ITEM.draw_window(input_queue)
                                 SEARCH_ITEM.show_item_menu(m.items)
                             end
                         else
-                            show_snackbar("Немає аудіо для цього фрагмента", "error")
+                            show_snackbar(T("NO_ACTIVE_3"), "error")
                         end
                         UI_STATE.mouse_handled = true
                     end
@@ -17326,7 +17997,7 @@ function ACHIEVEMENTS.draw_window(input_queue)
     end
     
     -- Title (Two-line personalized header)
-    local display_name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
+    local display_name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or T("USER"))
     local avail_tw = close_x - pad - S(30) -- Adjusted for edit button
 
     -- Edit Name Button
@@ -17723,9 +18394,9 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
     local can_save = has_changes and is_name_valid and is_contact_valid
     local save_bg = can_save and UI.C_ACCENT_G or UI.C_BTN
     local save_txt = can_save and UI.C_BG or UI.C_TXT
-    if btn(bx, by, btn_w, btn_h, "Зберегти", save_bg, save_txt) then
+    if btn(bx, by, btn_w, btn_h, T("SAVE"), save_bg, save_txt) then
         if not is_name_valid then
-            show_snackbar("Ім'я не може бути порожнім", "error")
+            show_snackbar(T("NO_EMPTY_NAME"), "error")
         elseif not is_contact_valid then
             show_snackbar("Заповніть поле 'Зв'язок'", "error")
         elseif has_changes then
@@ -17879,7 +18550,7 @@ function DRAW_WINDOW.draw_remote_profile(input_queue)
                     local ret = gfx.showmenu(menu_str)
                     if ret == 1 then
                         set_clipboard(actual_text)
-                        show_snackbar("Скопійовано!", "success")
+                        show_snackbar(T("COPIED") .. "!", "success")
                     elseif ret == 2 and tg_username then
                         UTILS.open_url("https://t.me/" .. tg_username)
                     end
@@ -18276,12 +18947,12 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
         cy = start_cy + section_h + spacing
     end
 
-    draw_radio("Голос:", "voice", PROFILE_META.VOICE.opts, PROFILE_META.get_tips("VOICE"))
-    draw_multi_select("Тембр:", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
-    draw_radio("Умови запису:", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
-    draw_radio("Вокал:", "vocals", PROFILE_META.VOCALS.filter, PROFILE_META.VOCALS.filter_tips, S(150))
-    draw_multi_select("Спеціалізація:", "specialization", PROFILE_META.SPECIALIZATION.opts, PROFILE_META.get_tips("SPECIALIZATION"))
-    draw_multi_select("Амплуа:", "archetypes", PROFILE_META.ARCHETYPES.opts, PROFILE_META.get_tips("ARCHETYPES"))
+    draw_radio(T("TF_VOICE") .. ":", "voice", PROFILE_META.VOICE.opts, PROFILE_META.get_tips("VOICE"))
+    draw_multi_select(T("TF_TIMBRE") .. ":", "timbre", PROFILE_META.TIMBRE.opts, PROFILE_META.get_tips("TIMBRE"))
+    draw_radio(T("TF_RECORD_ENV") .. ":", "conditions", PROFILE_META.CONDITIONS.opts, PROFILE_META.get_tips("CONDITIONS"))
+    draw_radio(T("TF_VOCALS") .. ":", "vocals", PROFILE_META.VOCALS.filter, PROFILE_META.VOCALS.filter_tips, S(150))
+    draw_multi_select(T("TF_SPECIALIZATION") .. ":", "specialization", PROFILE_META.SPECIALIZATION.opts, PROFILE_META.get_tips("SPECIALIZATION"))
+    draw_multi_select(T("TF_ROLE") .. ":", "archetypes", PROFILE_META.ARCHETYPES.opts, PROFILE_META.get_tips("ARCHETYPES"))
 
     UI_STATE.talents_filters_last_h = (cy + UI_STATE.talents_filters_scroll_y) - content_y + S(20)
 
@@ -18298,7 +18969,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
 
     local bw, bh = S(120), S(34)
     local bx = gfx.w - pad - bw
-    if btn(bx, gfx.h - footer_h + (footer_h - bh)/2, bw, bh, "Застосувати", UI.C_ACCENT_G, UI.C_BG) then
+    if btn(bx, gfx.h - footer_h + (footer_h - bh)/2, bw, bh, T("APPLY"), UI.C_ACCENT_G, UI.C_BG) then
         -- Commit temp filters to main state
         UI_STATE.talents_filters = UI_STATE.talents_filters_temp
         UI_STATE.talents_filters_temp = nil
@@ -18307,7 +18978,7 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
     end
     
     bx = bx - bw - S(10)
-    if btn(bx, gfx.h - footer_h + (footer_h - bh)/2, bw, bh, "Скинути", UI.C_BTN, UI.C_TXT) then
+    if btn(bx, gfx.h - footer_h + (footer_h - bh)/2, bw, bh, T("RESET"), UI.C_BTN, UI.C_TXT) then
         UI_STATE.talents_filters_temp = { voice = nil, timbre = {}, conditions = nil, vocals = nil, specialization = {}, archetypes = {}, status = nil }
     end
 
@@ -18321,11 +18992,11 @@ function DRAW_WINDOW.draw_talent_filters(input_queue)
     set_color(UI.C_TXT)
     gfx.x, gfx.y = pad, pad - S(2)
     local close_sz = S(24)
-    gfx.drawstr(fit_text_width("Фільтри", gfx.w - pad * 2 - close_sz - S(100)))
+    gfx.drawstr(fit_text_width(T("FILTERS"), gfx.w - pad * 2 - close_sz - S(100)))
 
     -- Back button
     local filter_btn_w = S(80)
-    if btn(gfx.w - pad - close_sz - filter_btn_w - S(10), pad, filter_btn_w, close_sz, "Назад", UI.C_TAB_ACT, UI.C_TXT) then
+    if btn(gfx.w - pad - close_sz - filter_btn_w - S(10), pad, filter_btn_w, close_sz, T("BACK"), UI.C_TAB_ACT, UI.C_TXT) then
         UI_STATE.talents_filters_temp = nil
         UI_STATE.talents_show_filters = false
     end
@@ -18414,14 +19085,14 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
     -- 3. DRAW CONTENT (Masked by header/footer rects later)
     if UI_STATE.talents_loading and not UI_STATE.talents_list then
         set_color(UI.C_TXT, 0.3)
-        local txt = "Завантаження талантів..."
+        local txt = T("TL_LOADING_ITMS")
         gfx.setfont(F.title)
         local tw, th = gfx.measurestr(txt)
         gfx.x, gfx.y = (gfx.w - tw) / 2, content_y + (content_h - th) / 2
         gfx.drawstr(txt)
     elseif not UI_STATE.talents_list or #UI_STATE.talents_list == 0 then
         set_color(UI.C_TXT, 0.3)
-        local txt = UI_STATE.talents_loading and "Оновлення..." or "Нікого не знайдено"
+        local txt = UI_STATE.talents_loading and T("TL_UPDATING") or T("TL_NO_FOUND")
         gfx.setfont(F.title)
         local tw, th = gfx.measurestr(txt)
         gfx.x, gfx.y = (gfx.w - tw) / 2, content_y + (content_h - th) / 2
@@ -18616,7 +19287,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
                 gfx.setfont(F.title)
                 set_color(UI.C_TXT, 1)
                 gfx.x, gfx.y = rx + S(12), ry + rd.text_y_off
-                gfx.drawstr(fit_text_width(t.dubber_name or "Анонім", rw - S(30)))
+                gfx.drawstr(fit_text_width(t.dubber_name or T("ANONYMOUS"), rw - S(30)))
                 
                 -- 3. BIO
                 if rd.has_bio then
@@ -18654,7 +19325,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
     
     local close_sz = S(24)
     local f_count = get_active_filters_count()
-    local filter_text = "Фільтр" .. (f_count > 0 and (" (" .. f_count .. ")") or "")
+    local filter_text = T("FILTER") .. (f_count > 0 and (" (" .. f_count .. ")") or "")
     local filter_btn_w = S(80)
 
     -- Prepare quick filters info for width calculation
@@ -18667,11 +19338,11 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
     local show_free = free_count > 0 or is_free_sel
     
     -- Adaptive labels for narrow windows
-    local look_text = "Шукаю талант (" .. look_count .. ")"
-    local free_text = "Вільні таланти (" .. free_count .. ")"
+    local look_text = T("LOOKING_FOR_TALENT") .. " (" .. look_count .. ")"
+    local free_text = T("FREE_TALENT") .. " (" .. free_count .. ")"
     if gfx.w < S(550) then
-        look_text = "Шукаю (" .. look_count .. ")"
-        free_text = "Вільні (" .. free_count .. ")"
+        look_text = T("LOOKING") .. " (" .. look_count .. ")"
+        free_text = T("FREE") .. " (" .. free_count .. ")"
     end
 
     -- 1. Calculate total buttons width to truncate title properly
@@ -18687,7 +19358,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
     gfx.setfont(F.title)
     set_color(UI.C_TXT)
     gfx.x, gfx.y = pad, pad - S(2)
-    gfx.drawstr(fit_text_width("Пошук талантів", gfx.w - pad * 2 - buttons_w - S(10)))
+    gfx.drawstr(fit_text_width(T("TALEND_SEARCH_PR"), gfx.w - pad * 2 - buttons_w - S(10)))
 
     -- 3. Draw Buttons (Right to Left)
     local current_x = gfx.w - pad - close_sz
@@ -18706,7 +19377,7 @@ function DRAW_WINDOW.draw_talent_search(input_queue)
         btn_bg = UI.C_RED
         btn_txt = UI.C_BG
     end
-    if btn(current_x, pad, filter_btn_w, close_sz, UI_STATE.talents_show_filters and "Назад" or filter_text, btn_bg, btn_txt) then
+    if btn(current_x, pad, filter_btn_w, close_sz, UI_STATE.talents_show_filters and T("BACK") or filter_text, btn_bg, btn_txt) then
         UI_STATE.talents_show_filters = not UI_STATE.talents_show_filters
         if not UI_STATE.talents_show_filters then ACHIEVEMENTS.fetch_talents(1) end
     end
@@ -18882,7 +19553,7 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
         target_text = target_text:match("^%s*(.-)%s*$")
         if target_text == "" then return end
         
-        local menu_items = { "Копіювати", "", "Шукати в ГОРОСі", "", "Озвучити", "Озвучити та зберегти", "", ">Змінити голос" }
+        local menu_items = { T("COPY"), "", T("SEARCH_IN_GOROH"), "", T("VOICE_OVER_M"), T("VOICE_OVER_SAVE_M"), "", T("CHANGE_VOICE_M") }
         for _, v_name in ipairs(cfg.tts_voices_order) do
             local check = (v_name == cfg.tts_voice) and "• " or ""
             table.insert(menu_items, check .. (v_name:gsub("|", "||")))
@@ -18899,7 +19570,7 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
         UI_STATE.mouse_handled = true
         if ret == 1 then
             set_clipboard(target_text)
-            show_snackbar("Текст скопійовано")
+            show_snackbar(T("TEXT_COPIED"))
         elseif ret == 2 then
             trigger_dictionary_lookup(target_text)
         elseif ret == 3 or ret == 4 then
@@ -18907,7 +19578,7 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
         elseif ret >= 5 and ret < 5 + #cfg.tts_voices_order then
             cfg.tts_voice = cfg.tts_voices_order[ret - 4]
             save_settings()
-            show_snackbar("Голос змінено на " .. cfg.tts_voice)
+            show_snackbar(T("VOICE_HB_CHANGED_TO") .. cfg.tts_voice)
         end
     end
 
@@ -18926,9 +19597,9 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
     if dict_modal.pending_empty_menu then
         dict_modal.pending_empty_menu = nil
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-        local ret = gfx.showmenu("Знайти нове слово в ГОРОСі")
+        local ret = gfx.showmenu(T("FIND_NEW_G_PCX"))
         if ret == 1 then
-            local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
+            local ok, input = reaper.GetUserInputs(T("GOROH"), 1, T("SEARCH_TERM_200"), "")
             if ok and input ~= "" then
                 trigger_dictionary_lookup(input)
             end
@@ -19227,7 +19898,7 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
     end
     
     -- Tabs UI
-    local categories = {"Тлумачення", "Словозміна", "Синоніми", "Фразеологія", "Слововживання"}
+    local categories = {T("GD_Interpretation"), T("GD_Conjugation"), T("GD_Synonyms"), T("GD_Idioms"), T("GD_Word_usage")}
     local tab_x = box_x + S(15)
     local tab_y = box_y + S(55)
     local tab_w = S(125)
@@ -19593,7 +20264,7 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
                     local txt = reconstruct_selection_text()
                     if txt and txt ~= "" then
                         set_clipboard(txt:match("^%s*(.-)%s*$"))
-                        show_snackbar("Текст скопійовано")
+                        show_snackbar(T("TEXT_COPIED"))
                     end
                 end
             end
@@ -19670,17 +20341,17 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
         set_color(UI.C_BTN_ERROR) -- Display in error red
         gfx.x = content_x
         gfx.y = content_y + 20
-        gfx.drawstr("Сервіс ГОРОХ тимчасово недоступний (Помилка Cloudflare 5xx).")
+        gfx.drawstr(T("GOROH_500"))
     elseif active_content and #active_content == 0 then
         set_color(UI.C_BORDER_MUTED)
         gfx.x = content_x
         gfx.y = content_y + 20
-        gfx.drawstr("Нічого немає для " .. dict_modal.selected_tab)
+        gfx.drawstr(T("THERES_NOTHING_FOR") .. dict_modal.selected_tab)
     elseif not active_content or type(active_content) == "string" then
         set_color(UI.C_BORDER_MUTED)
         gfx.x = content_x
         gfx.y = content_y + 20
-        local msg = (type(active_content) == "string") and active_content or "Дані відсутні або ще завантажуються..."
+        local msg = (type(active_content) == "string") and active_content or T("NO_DATA_OR_LOADING")
         gfx.drawstr(msg)
     else
         local hovered_segment = nil
@@ -19807,7 +20478,7 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
                                                         end
                                                     end
                                                 elseif not cell.is_header and not is_excluded then
-                                                    local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
+                                                    local is_inflection_tab = dict_modal.selected_tab == T("GD_Conjugation")
                                                     if is_inflection_tab and seg_hover and not is_obstructed then
                                                         set_color(UI.C_HILI_RED)
                                                         gfx.rect(current_x - 2, ly - 1, sw + 4, line_h + 2, 1)
@@ -19890,7 +20561,7 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
                                     if L.is_header and not seg.is_plain and seg.text:match("%S") then
                                         local clean_txt = seg.text:gsub(acute, ""):match("^%s*(.-)%s*$")
                                         local is_symbol = clean_txt:match("^[%p%s]+$")
-                                        local is_inflection_tab = dict_modal.selected_tab == "Словозміна"
+                                        local is_inflection_tab = dict_modal.selected_tab == T("GD_Conjugation")
                                         if is_inflection_tab and not is_symbol and seg_hover and not is_obstructed then
                                             set_color(UI.C_HILI_RED)
                                             gfx.rect(gfx.x - 2, gfx.y - 1, sw + 4, line_h + 2, 1)
@@ -19979,12 +20650,12 @@ function DRAW_WINDOW.draw_dictionary_modal(input_queue)
     end
     
     -- Bottom Buttons
-    if btn(box_x + box_w - S(100), box_y + box_h - S(35), S(85), S(25), "Закрити") then
+    if btn(box_x + box_w - S(100), box_y + box_h - S(35), S(85), S(25), T("CLOSE")) then
         dict_modal.show = false
     end
     
     if #dict_modal.history > 0 then
-        local back_label = "Назад"
+        local back_label = T("BACK")
         if is_hover_back_btn then set_color(UI.C_SEL_BG) end
         if btn(btn_back_x, btn_back_y, S(85), S(25), back_label) then
             -- Logic handled at top
@@ -20062,12 +20733,12 @@ local function get_py_ver()
         end
             
         -- Start async chain
-        OTHER.rec_state.python.version = "Checking..."
+        OTHER.rec_state.python.version = T("RQ_C_PY")
         OTHER.rec_state.checking = true -- checking started
         try_next_cmd(1)
         
         -- Return pending state
-        return false, "Checking..." 
+        return false, T("RQ_C_PY") 
     else
         -- macOS/Linux - Keep synchronous as it works fine
         local p = "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin "
@@ -20143,7 +20814,7 @@ local function do_check()
     
     -- If sync check returned definitive result (or for non-Windows), set it. 
     -- For Windows async, 'py_ver' will be "Checking..." initially.
-    if py_ver ~= "Checking..." or not reaper.GetOS():match("Win") then
+    if py_ver ~= T("RQ_C_PY") or not reaper.GetOS():match("Win") then
         OTHER.rec_state.python.ok = py_ok
         OTHER.rec_state.python.version = py_ver
         
@@ -20172,7 +20843,7 @@ function DRAW_WINDOW.draw_requirements_window()
         -- Centered Text
         gfx.setfont(F.dict_bld)
         set_color(UI.C_WHITE)
-        local str = "Checking environment..."
+        local str = T("RQ_CHECK_TXT")
         local sw, sh = gfx.measurestr(str)
         gfx.x, gfx.y = (gfx.w - sw)/2, (gfx.h - sh)/2
         gfx.drawstr(str)
@@ -20224,29 +20895,29 @@ function DRAW_WINDOW.draw_requirements_window()
         { 
             name = "SWS Extension", 
             ok = OTHER.rec_state.sws, 
-            info = "Необхідно для роботи з буфером обміну.\n\n**КРОК 1:** Натисніть на посилання [sws-extension.org](https://www.sws-extension.org/) і завантажте версію для вашої ОС.\n\n**КРОК 2 (WINDOWS):** Запустіть завантажений інсталятор і слідуйте інструкціям.\n\n**КРОК 2 (macOS):** Відкрийте .dmg файл. У REAPER натисніть **Options** -> **Show REAPER resource path**. Відкрийте папку **UserPlugins**. Перетягніть файл `reaper_sws...dylib` з .dmg у цю папку.\n\n**КРОК 3:** Після встановлення **ОБОВ'ЯЗКОВО** перезапустіть REAPER." 
+            info = T("RQ_SWS")
         },
         { 
             name = "ReaPack", 
             ok = OTHER.rec_state.reapack, 
-            info = "Менеджер розширень для REAPER.\n\n**КРОК 1:** Натисніть на посилання [reapack.com](https://reapack.com/) і завантажте файл для вашої ОС.\n\n**КРОК 2:** У REAPER відкрийте меню **'Options'** (вгорі) і виберіть **'Show REAPER resource path in explorer/finder'**.\n\n**КРОК 3:** У відкритій папці знайдіть або створіть папку **'UserPlugins'**.\n\n**КРОК 4:** Скопіюйте завантажений файл ReaPack (.dll для Windows або .dylib для macOS) у цю папку 'UserPlugins'.\n\n**КРОК 5:** Перезапустіть REAPER.\n\n**КРОК 6:** Перевірте, що в меню 'Extensions' з'явився пункт 'ReaPack'." 
+            info = T("RQ_REAPACK")
         },
         { 
             name = "JS_ReaScriptAPI", 
             ok = OTHER.rec_state.js_api, 
             reapack_search = "js_ReaScriptAPI: API functions for ReaScripts",
-            info = "Розширений API для скриптів.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack (див. вище)!\n\n**КРОК 1:** У REAPER відкрийте меню **'Extensions'** (вгорі).\n\n**КРОК 2:** Виберіть **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 3:** У вікні що відкрилося, у полі пошуку вгорі введіть **'js_ReaScriptAPI'**.\n\n**КРОК 4:** Знайдіть пакет 'js_ReaScriptAPI' у списку, клацніть по ньому **ПРАВОЮ кнопкою миші**.\n\n**КРОК 5:** У меню виберіть **'Install'**.\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** натисніть кнопку **'Apply'** внизу вікна ReaPack.\n\n**КРОК 7:** Дочекайтеся завершення встановлення (з'явиться повідомлення)." 
+            info = T("RQ_JS_REA")
         },
         { 
             name = "ReaImGui", 
             ok = OTHER.rec_state.reaimgui, 
             reapack_search = "ReaImGui: ReaScript binding for Dear ImGui",
-            info = "Графічний движок для інтерфейсу оверлея.\n\n**ВАЖЛИВО:** Спочатку встановіть ReaPack!\n\n**КРОК 1:** Відкрийте **'Extensions'** → **'ReaPack'** → **'Browse packages'**.\n\n**КРОК 2:** У полі пошуку введіть **'ReaImGui'** (без пробілів).\n\n**КРОК 3:** Знайдіть пакет 'ReaImGui' від 'cfillion' у списку результатів.\n\n**КРОК 4:** Клацніть по ньому **ПРАВОЮ кнопкою миші** і виберіть **'Install'**.\n\n**КРОК 5:** Натисніть кнопку **'Apply'** внизу вікна ReaPack (почекайте встановлення).\n\n**КРОК 6:** **ОБОВ'ЯЗКОВО** перезапустіть REAPER (навіть якщо не просить)." 
+            info = T("RQ_REAIMGUI")
         },
         {
-            name = "Python (>= 3.9)", 
+            name = "Python (>= 3.12)", 
             ok = OTHER.rec_state.python.ok, 
-            info = "Поточна версія: " .. OTHER.rec_state.python.version .. ". Мова програмування для зупуску ШІ наголосів.\n\n**КРОК 1:** Натисніть [python.org](https://www.python.org/downloads/) і завантажте Python 3.11+.\n\n**КРОК 2 (WINDOWS):** Під час встановлення **ОБОВ'ЯЗКОВО** поставте галочку **'Add Python to PATH'**!\n\n**КРОК 2 (macOS):** Запустіть інсталятор і слідуйте інструкціям.\n\n**КРОК 3:** Перезапустіть REAPER.\n\n**КРОК 4:** Перевірка (не обов'язково): у терміналі введіть **'python --version'** (або **'python3 --version'**). Має бути 3.9+." 
+            info = T("RQ_PYTHON_1") .. OTHER.rec_state.python.version .. T("RQ_PYTHON_2")
         }
     }
     
@@ -20503,11 +21174,11 @@ function DRAW_WINDOW.draw_requirements_window()
                     local btn_x = col_x + S(50)
                     
                     if btn_y + btn_h > view_y and btn_y < view_y + view_h then
-                        if btn(btn_x, btn_y, btn_w, btn_h, "Відкрити в ReaPack") then
+                        if btn(btn_x, btn_y, btn_w, btn_h, T("OPEN_IN_REAPACK")) then
                             if reaper.ReaPack_BrowsePackages then
                                 reaper.ReaPack_BrowsePackages(item.reapack_search)
                             else
-                                reaper.MB("ReaPack не знайдено, хоча перевірка каже ОК.", "Error", 0)
+                                reaper.MB(T("REAPACK_NOT_FOUND"), T("ERROR"), 0)
                             end
                         end
                     end
@@ -20544,7 +21215,7 @@ function DRAW_WINDOW.draw_requirements_window()
     gfx.line(cbx + btn_size - 5, cby + 5, cbx + 5, cby + btn_size - 5)
     
     -- Content Header (Re-drawn over mask)
-    local title = "Налаштування середовища"
+    local title = T("ENVIRONMENT_SETUP")
     gfx.setfont(F.dict_bld)
     set_color(UI.C_TXT)
     local title_max_w = bw - S(80)
@@ -20614,7 +21285,7 @@ function DRAW_TABS.draw_tabs()
     local tab_w_base = total_tab_w / #UI_STATE.tabs
     local h = S(25)
     gfx.setfont(F.std)
-    local _, dh = gfx.measurestr("Д")
+    local _, dh = gfx.measurestr(T("D_UPPER"))
     
     -- 1. Dashboard Button ("Д")
     local d_x = 0
@@ -20652,10 +21323,10 @@ function DRAW_TABS.draw_tabs()
     
     if not animation_drawn then
         set_color(UI.C_TXT)
-        local btn_dw, _ = gfx.measurestr("Д")
+        local btn_dw, _ = gfx.measurestr(T("D_UPPER"))
         gfx.x = d_x + (btn_dash_w - btn_dw)/2
         gfx.y = (h - dh)/2
-        gfx.drawstr("Д")
+        gfx.drawstr(T("D_UPPER"))
     end
     
     if is_mouse_clicked() and not dict_modal.show then
@@ -20682,7 +21353,7 @@ function DRAW_TABS.draw_tabs()
 
         set_color(UI.C_TXT)
         gfx.setfont(F.std)
-        local display_name = fit_text_width(name, tab_w - S(10))
+        local display_name = fit_text_width(T(name), tab_w - S(10))
         local str_w, str_h = gfx.measurestr(display_name)
         gfx.x = x + (tab_w - str_w) / 2
         gfx.y = (h - dh) / 2 -- Use same vertical centering
@@ -20886,21 +21557,21 @@ function DRAW_TABS.draw_file()
         set_color({1.0, 0.4, 0.4}, 1.0)
         gfx.x = text_x
         gfx.y = cur_y + S(15)
-        gfx.drawstr(fit_text_width("Будь ласка, заповніть свій профіль!", text_max_w))
+        gfx.drawstr(fit_text_width(T("TAB_FILL_ALERT_TITLE"), text_max_w))
         
         -- Line 2: Subtitle/Explanation
         gfx.setfont(F.std)
         set_color(UI.C_TXT, 0.8)
         gfx.x = text_x
         gfx.y = cur_y + S(35)
-        gfx.drawstr(fit_text_width("Це необхідно для участі в загальному рейтингу.", text_max_w))
+        gfx.drawstr(fit_text_width(T("TAB_FILL_ALERT_SUB_TITLE"), text_max_w))
         
         -- 5. Button
         local b_btn_h = S(38)
         local bx = gfx.w - padding - b_btn_w - S(15)
         local by = cur_y + (banner_h - b_btn_h) / 2
         
-        if btn(bx, by, b_btn_w, b_btn_h, "Заповнити", {0.8, 0.2, 0.2, 1.0}, UI.C_BG) then
+        if btn(bx, by, b_btn_w, b_btn_h, T("FILL_OUT"), {0.8, 0.2, 0.2, 1.0}, UI.C_BG) then
             ACHIEVEMENTS.open_edit_profile()
             UI_STATE.current_tab = 4
             UI_STATE.mouse_handled = true
@@ -20925,17 +21596,17 @@ function DRAW_TABS.draw_file()
 
     gfx.setfont(F.std)
     -- 1. Import Button
-    if cur_y + btn_h > start_y - S(50) and cur_y < gfx.h + S(50) then
-        if btn(padding, cur_y, import_w, btn_h, fit_text_width("Імпорт файлу (.srt/.ass/.vtt/.wav)", import_w - S(10)), nil, nil, true) then
+    if cur_y + btn_h > start_y - S(50) and cur_y < gfx.h + S(50) then 
+        if btn(padding, cur_y, import_w, btn_h, fit_text_width(T("IMPORT_FILE") .. " (.srt/.ass/.vtt/.wav)", import_w - S(10)), nil, nil, true) then
             local retval, file_list
             if reaper.JS_Dialog_BrowseForOpenFiles then
-                retval, file_list = reaper.JS_Dialog_BrowseForOpenFiles("Імпорт файлу", "", "", "Supported files (*.srt;*.ass;*.vtt;*.wav)\0*.srt;*.ass;*.vtt;*.wav\0All files\0*\0", true)
+                retval, file_list = reaper.JS_Dialog_BrowseForOpenFiles(T("IMPORT_FILE"), "", "", "Supported files (*.srt;*.ass;*.vtt;*.wav)\0*.srt;*.ass;*.vtt;*.wav\0All files\0*\0", true)
             else
-                retval, file_list = reaper.GetUserFileNameForRead("", "Імпорт файлу", "*.srt;*.ass;*.vtt;*.wav")
+                retval, file_list = reaper.GetUserFileNameForRead("", T("IMPORT_FILE"), "*.srt;*.ass;*.vtt;*.wav")
             end
             
             if retval and file_list ~= "" then
-                push_undo("Імпорт субтитрів")
+                push_undo(T("IMPORT_FILE"))
                 local files = {}
                 if reaper.JS_Dialog_BrowseForOpenFiles then
                     local dir = file_list:match("^(.-)\0")
@@ -20972,18 +21643,18 @@ function DRAW_TABS.draw_file()
                             UTILS.import_compact_wav(file)
                             imported_count = imported_count + 1
                         else
-                            show_snackbar("Формат ." .. ext:upper() .. " не підтримується", "error")
+                            show_snackbar(T("THE_FORMAT") .. " ." .. ext:upper() .. " " .. T("IS_NOT_SUPPORTED"), "error")
                         end
                     else
-                        show_snackbar("Не вдалося визначити формат файлу", "error")
+                        show_snackbar(T("TAB_FILE_FAILED_FORMAT"), "error")
                     end
                 end
                 
                 if imported_count > 0 then
                     update_regions_cache()
                     rebuild_regions()
-                    local msg = "Імпортовано файлів: " .. imported_count
-                    if total_duplicates > 0 then msg = msg .. " (Дублікатів: " .. total_duplicates .. ")" end
+                    local msg = T("FILES_IMPORTED") .. ": " .. imported_count
+                    if total_duplicates > 0 then msg = msg .. " (" .. T("DUPLICATES") .. ": " .. total_duplicates .. ")" end
                     show_snackbar(msg, "success")
                 end
             end
@@ -21007,9 +21678,9 @@ function DRAW_TABS.draw_file()
     
     -- 2. Notes Button
     if ny + btn_h > start_y - S(50) and ny < gfx.h + S(50) then
-        if btn(nx, ny, notes_w, btn_h, fit_text_width("Правки", notes_w - S(10)), nil, nil, true) then
+        if btn(nx, ny, notes_w, btn_h, fit_text_width(T("RETAKES"), notes_w - S(10)), nil, nil, true) then
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-            local ret = gfx.showmenu("Імпорт з тексту|Імпорт з файлу (CSV)")
+            local ret = gfx.showmenu(T("TAB_FILE_IMPORT_FROM_TEXT") .. "|" .. T("TAB_FILE_IMPORT_FROM_FILE"))
             if ret == 1 then import_notes()
             elseif ret == 2 then import_notes_from_csv() end
         end
@@ -21017,20 +21688,20 @@ function DRAW_TABS.draw_file()
     
     -- 3. Deadline Button
     if ny + btn_h > start_y - S(50) and ny < gfx.h + S(50) then
-        local dl_text = "Дедлайн"
+        local dl_text = T("DEADLINE")
         local dl_bg = UI.C_ROW
         local dl_txt = nil -- Use default text color
         if DEADLINE.project_deadline then
             local days = math.ceil((DEADLINE.project_deadline - os.time()) / 86400)
             if days < 0 then
-                dl_text = "ПРОЙШОВ!"
+                dl_text = T("DEADLINE_PASSED")
                 dl_bg = UI.C_SNACK_ERROR
                 dl_txt = UI.C_WHITE
             elseif days == 0 then
-                dl_text = "СЬОГОДНІ!"
+                dl_text = T("DEADLINE_TODAY")
                 dl_bg = UI.C_RED
             else
-                dl_text = os.date("%d.%m", DEADLINE.project_deadline) .. " (" .. days .. "д)"
+                dl_text = os.date("%d.%m", DEADLINE.project_deadline) .. " (" .. days .. T("D") .. ")"
                 if days == 1 then
                     dl_bg = UI.C_ORANGE
                 else
@@ -21043,7 +21714,7 @@ function DRAW_TABS.draw_file()
         if btn(dx, ny, deadline_w, btn_h, fit_text_width(dl_text, deadline_w - S(10)), dl_bg, dl_txt, true) then
             DEADLINE.open_picker(DEADLINE.project_deadline, function(ts)
                 DEADLINE.set(ts)
-                show_snackbar(ts and ("Дедлайн встановлено: " .. os.date("%d.%m.%Y", ts)) or "Дедлайн скасовано", "info")
+                show_snackbar(ts and (T("DEADLINE_IS_SET") .. ": " .. os.date("%d.%m.%Y", ts)) or T("DEADLINE_CANCELED"), "info")
             end)
         end
     end
@@ -21056,7 +21727,7 @@ function DRAW_TABS.draw_file()
         if fn_y + S(75) > start_y and fn_y < gfx.h + S(50) then
             gfx.setfont(F.tip)
             set_color(UI.C_MEDIUM_GREY)
-            local str = "Обрано: " .. UI_STATE.current_file_name
+            local str = T("SELECTED") .. ": " .. UI_STATE.current_file_name
             str = fit_text_width(str, gfx.w - padding * 2)
             gfx.x = padding
             gfx.y = fn_y
@@ -21079,7 +21750,7 @@ function DRAW_TABS.draw_file()
             if ad_y + S(70) > start_y and ad_y < gfx.h + S(50) then
                 gfx.setfont(F.tip)
                 set_color(UI.C_LIGHT_GREY)
-                local ad_str = "Активні словники: " .. table.concat(active_dict_names, ", ")
+                local ad_str = T("ACTIVE_GLOSSARIES") .. ": " .. table.concat(active_dict_names, ", ")
                 ad_str = fit_text_width(ad_str, gfx.w - padding * 2)
                 gfx.x = padding
                 gfx.y = ad_y
@@ -21091,7 +21762,6 @@ function DRAW_TABS.draw_file()
     
     y_cursor = y_cursor + S(25)
 
-    
     -- Actor Filter (if loaded)
     if UI_STATE.ass_file_loaded then
         local t_y = get_y(y_cursor)
@@ -21113,7 +21783,7 @@ function DRAW_TABS.draw_file()
                 set_color(UI.C_TXT)
                 gfx.setfont(F.std)
                 gfx.x, gfx.y = S(20), t_y
-                gfx.drawstr(fit_text_width("Фільтр акторів:", gfx.w - S(100)))
+                gfx.drawstr(fit_text_width(T("ACTOR_FILTER"), gfx.w - S(100)))
                 
                 local tw, th = gfx.measurestr(count_text)
                 gfx.x = gfx.w - S(20) - tw
@@ -21125,10 +21795,10 @@ function DRAW_TABS.draw_file()
             
             if t_y + S(70) > start_y and t_y < gfx.h + S(50) then
                 -- Row 2: Quick Select
-                if btn(S(20), t_y, gfx.w - S(40), S(20), fit_text_width("Швидкий вибір", gfx.w - S(50)), UI.C_ROW, nil, true) then
-                    local ret, csv = reaper.GetUserInputs("Швидкий вибір акторів", 1, "Список акторів (через кому):,extrawidth=200", "")
+                if btn(S(20), t_y, gfx.w - S(40), S(20), fit_text_width(T("QUICK_SELECTION"), gfx.w - S(50)), UI.C_ROW, nil, true) then
+                    local ret, csv = reaper.GetUserInputs(T("QUICK_ACTOR_SELECTION"), 1, T("LIST_OF_ACTORS_COMMAN"), "")
                     if ret then
-                        push_undo("Швидкий вибір акторів")
+                        push_undo(T("QUICK_ACTOR_SELECTION"))
                         for k in pairs(ass_actors) do ass_actors[k] = false end
                         for _, l in ipairs(ass_lines) do l.enabled = false end
                         local selected = {}
@@ -21154,15 +21824,15 @@ function DRAW_TABS.draw_file()
             if t_y + S(70) > start_y and t_y < gfx.h + S(50) then
                 -- Row 3: None / All
                 local half_w = (gfx.w - S(50)) / 2
-                if btn(S(20), t_y, half_w, S(20), fit_text_width("НІКОГО", half_w - S(10)), UI.C_ROW, nil, true) then
-                    push_undo("Приховати всіх")
+                if btn(S(20), t_y, half_w, S(20), fit_text_width(T("NO_ONE"), half_w - S(10)), UI.C_ROW, nil, true) then
+                    push_undo(T("HIDE_ALL"))
                     for k in pairs(ass_actors) do ass_actors[k] = false end
                     for _, l in ipairs(ass_lines) do l.enabled = false end
                     UI_STATE._markers_is_dirty = true
                     rebuild_regions()
                 end
-                if btn(S(20) + half_w + S(10), t_y, half_w, S(20), fit_text_width("ВСІ", half_w - S(10)), UI.C_ROW, nil, true) then
-                    push_undo("Показати всіх")
+                if btn(S(20) + half_w + S(10), t_y, half_w, S(20), fit_text_width(T("EVERYONE"), half_w - S(10)), UI.C_ROW, nil, true) then
+                    push_undo(T("SHOW_ALL"))
                     for k in pairs(ass_actors) do ass_actors[k] = true end
                     for _, l in ipairs(ass_lines) do l.enabled = true end
                     UI_STATE._markers_is_dirty = true
@@ -21177,14 +21847,14 @@ function DRAW_TABS.draw_file()
                 set_color(UI.C_TXT)
                 gfx.setfont(F.std)
                 gfx.x, gfx.y = S(20), t_y
-                gfx.drawstr(fit_text_width("Фільтр:", S(60)))
+                gfx.drawstr(fit_text_width(T("FILTER") .. ":", S(60)))
                 
                 -- Batch Select
                 local quick_btn_w = S(110)
-                if btn(S(80), t_y - S(2), quick_btn_w, S(20), fit_text_width("Швидкий вибір", quick_btn_w - S(5)), UI.C_ROW, nil, true) then
-                    local ret, csv = reaper.GetUserInputs("Швидкий вибір акторів", 1, "Список акторів (через кому):,extrawidth=200", "")
+                if btn(S(80), t_y - S(2), quick_btn_w, S(20), fit_text_width(T("QUICK_SELECTION"), quick_btn_w - S(5)), UI.C_ROW, nil, true) then
+                    local ret, csv = reaper.GetUserInputs(T("QUICK_ACTOR_SELECTION"), 1, T("LIST_OF_ACTORS_COMMAN"), "")
                     if ret then
-                        push_undo("Швидкий вибір акторів")
+                        push_undo(T("QUICK_ACTOR_SELECTION"))
                         for k in pairs(ass_actors) do ass_actors[k] = false end
                         for _, l in ipairs(ass_lines) do l.enabled = false end
                         local selected = {}
@@ -21222,16 +21892,16 @@ function DRAW_TABS.draw_file()
                 gfx.x, gfx.y = count_x, t_y
                 gfx.drawstr(count_text)
                 
-                if btn(none_btn_x, t_y - S(2), none_btn_w, S(20), fit_text_width("НІКОГО", none_btn_w - S(5)), UI.C_ROW, nil, true) then
-                    push_undo("Приховати всіх")
+                if btn(none_btn_x, t_y - S(2), none_btn_w, S(20), fit_text_width(T("NO_ONE"), none_btn_w - S(5)), UI.C_ROW, nil, true) then
+                    push_undo(T("HIDE_ALL"))
                     for k in pairs(ass_actors) do ass_actors[k] = false end
                     for _, l in ipairs(ass_lines) do l.enabled = false end
                     UI_STATE._markers_is_dirty = true
                     rebuild_regions()
                 end
                 
-                if btn(all_btn_x, t_y - S(2), all_btn_w, S(20), fit_text_width("ВСІ", all_btn_w - S(5)), UI.C_ROW, nil, true) then
-                    push_undo("Показати всіх")
+                if btn(all_btn_x, t_y - S(2), all_btn_w, S(20), fit_text_width(T("EVERYONE"), all_btn_w - S(5)), UI.C_ROW, nil, true) then
+                    push_undo(T("SHOW_ALL"))
                     for k in pairs(ass_actors) do ass_actors[k] = true end
                     for _, l in ipairs(ass_lines) do l.enabled = true end
                     UI_STATE._markers_is_dirty = true
@@ -21365,8 +22035,8 @@ function DRAW_TABS.draw_file()
                     
                     local stats = actor_tooltips[act] or {replicas = 0, words = 0}
                     local assigned_dubber = actor_to_dubber[act]
-                    local dubber_info = assigned_dubber and ("\n—\nДабер: " .. assigned_dubber) or "\n—\n"
-                    local tooltip = string.format("%s%s\nРеплік: %d\nСлів: %d", act, dubber_info, stats.replicas, stats.words)
+                    local dubber_info = assigned_dubber and ("\n—\n" .. T("DABBER") .. ": " .. assigned_dubber) or "\n—\n"
+                    local tooltip = string.format(T("TOOLTIP_DUBBER_FILE"), act, dubber_info, stats.replicas, stats.words)
                     
                     local tip_id = "actor_tip_" .. act
                     if UI_STATE.tooltip_state.hover_id ~= tip_id then
@@ -21381,7 +22051,7 @@ function DRAW_TABS.draw_file()
                     -- Hit test
                     if gfx.mouse_x >= x_pos and gfx.mouse_x <= x_pos + item_w - S(5) and
                        gfx.mouse_y >= chk_y and gfx.mouse_y <= chk_y + S(20) then
-                        push_undo("Зміна видимості актора " .. act)
+                        push_undo(T("TAB_FILE_ACTOR_VISIBILITY") .. act)
                         local new_state = not enabled
                         ass_actors[act] = new_state
                         -- Batch update all lines for this actor
@@ -21397,7 +22067,8 @@ function DRAW_TABS.draw_file()
                        gfx.mouse_y >= chk_y and gfx.mouse_y <= chk_y + S(20) then
                         
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                        local ret = gfx.showmenu("Змінити колір|Змінити ім'я актора||Видалити актора")
+                        -- local ret = gfx.showmenu("Змінити колір|Змінити ім'я актора||Видалити актора")
+                        local ret = gfx.showmenu(T("CHANGE_COLOR") .. "|" .. T("CHANGE_ACTOR_NAME") .. "||" .. T("DELETE_ACTOR"))
                         if ret == 1 then
                             -- Handle Scheduled Color Picker (Move from main to draw_file)
                             local current_native = get_actor_color(act)
@@ -21415,12 +22086,12 @@ function DRAW_TABS.draw_file()
                                 reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                             end
                         elseif ret == 2 then
-                            local ok, new_name = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", act)
+                            local ok, new_name = reaper.GetUserInputs(T("TAB_FILE_C_ACTOR_NAME"), 1, T("TAB_FILE_C_ACTOR_NAME_EXT"), act)
                             if ok then
                                 -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
                                 new_name = new_name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
                                 
-                                push_undo("Зміна імені актора")
+                                push_undo(T("TAB_FILE_C_ACTOR_NAME"))
                                 -- Update lines
                                 for _, l in ipairs(ass_lines) do
                                     if l.actor == act then l.actor = new_name end
@@ -21447,9 +22118,9 @@ function DRAW_TABS.draw_file()
                                 reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
                             end
                         elseif ret == 3 then
-                            local confirm = reaper.MB("Видалити актора '" .. act .. "' і всі його репліки?", "Підтвердження", 4)
+                            local confirm = reaper.MB(T("DELETE_ACTOR") .. " '" .. act .. "' " .. T("AND_ALL_HIS_LINES"), T("CONFIRMATION"), 4)
                             if confirm == 6 then
-                                push_undo("Видалення актора " .. act)
+                                push_undo(T("REMOVING_AN_ACTOR") .. act)
                                 
                                 -- Remove from actors list
                                 ass_actors[act] = nil
@@ -21478,7 +22149,6 @@ function DRAW_TABS.draw_file()
         
         y_cursor = y_cursor + (row_count * S(30)) + S(20)
 
-
         -- Statistics: Count Replicas and Words for Selected Actors
         local stats_replicas = 0
         local stats_words = 0
@@ -21505,14 +22175,14 @@ function DRAW_TABS.draw_file()
             gfx.x = S(20)
             gfx.y = stats_y
             local time_str = format_time_hms(stats_time)
-            local str = "Обрано: " .. stats_replicas .. " реплік, " .. stats_words .. " слів, час: " .. time_str
+            local str = T("SELECTED") .. ": " .. stats_replicas .. T("TAB_FILE_START_LINES") .. stats_words .. T("TAB_FILE_START_WORDS_TIME") .. time_str
             local bw, bh = gfx.measurestr(str)
             gfx.drawstr(fit_text_width(str, gfx.w - S(40)))
             
             -- Hook right click for quick copy
             if is_mouse_clicked(2) and not UI_STATE.mouse_handled and gfx.mouse_y > S(25) and gfx.mouse_y >= stats_y and gfx.mouse_y <= stats_y + bh and gfx.mouse_x >= S(20) and gfx.mouse_x <= S(20) + bw then
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local ret = gfx.showmenu("Копіювати статистику||Копіювати статистику з часом")
+                local ret = gfx.showmenu(T("TAB_FILE_COPY_START"))
                 UI_STATE.mouse_handled = true
                 if ret == 1 then
                     copy_actors_statistics(false)
@@ -21561,11 +22231,11 @@ function DRAW_TABS.draw_file()
             end
 
             local is_running = UI_STATE.script_loading_state.active
-            local btn_text = is_running and "AI обробка..." or ">  Застосувати наголоси  <"
+            local btn_text = is_running and T("AI_PROCESSING") or T("APPLY_ACCENTS")
             local btn_col = is_running and UI.C_BTN_H or UI.C_TAB_ACT
             
             if btn(S(20), s_y, gfx.w - S(40), S(40), fit_text_width(btn_text, gfx.w - S(60)), btn_col, nil, true) and not is_running then
-                push_undo("Застосування наголосів")
+                push_undo(T("APPLY_ACCENTS_UNDO"))
                 apply_stress_marks_async()
             end
         end
@@ -21577,8 +22247,8 @@ function DRAW_TABS.draw_file()
         if t_y + S(70) > start_y and t_y < gfx.h + S(50) then
             gfx.setfont(F.std)
             gfx.x, gfx.y = S(20), t_y
-            local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
-            local txt_see_more_options = fit_text_width("Вітаю: " .. name .. "\nІмпортуй файл аби побачити більше опцій.", gfx.w - S(40))
+            local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or T("USER"))
+            local txt_see_more_options = fit_text_width(T("HELLO") .. ": " .. name .. "\n" .. T("TAB_FILE_IMPORT_TO_SEE_OPTIONS"), gfx.w - S(40))
             gfx.drawstr(txt_see_more_options)
         end
         y_cursor = y_cursor + S(65)
@@ -21605,7 +22275,7 @@ function DRAW_TABS.draw_file()
         -- Text
         set_color(UI.C_HILI_GREY_MID)
         gfx.setfont(F.std)
-        local str = fit_text_width("Перетягніть .SRT, .ASS, .VTT, .CSV (правки) або .WAV (компактний рендер) файл сюди для імпорту", dw - S(20))
+        local str = fit_text_width(T("TAB_FILE_DRAG_TEXT"), dw - S(20))
         local sw, sh = gfx.measurestr(str)
         gfx.x, gfx.y = dx + (dw - sw) / 2, drop_y + (dh - sh) / 2
         gfx.drawstr(str)
@@ -21613,7 +22283,7 @@ function DRAW_TABS.draw_file()
     y_cursor = y_cursor + S(70)
 
     -- Footer
-    local footer_txt = fit_text_width("Знайшли баг або маєте ідею — пишіть: @fusion_ford", gfx.w - S(10))
+    local footer_txt = fit_text_width(T("TAB_FILE_FOOTER_TEXT"), gfx.w - S(10))
     gfx.setfont(F.tip)
     gfx.x, gfx.y = padding, get_y(y_cursor)
     if gfx.y + S(70) > start_y and gfx.y < gfx.h + S(50) then
@@ -21627,7 +22297,7 @@ function DRAW_TABS.draw_file()
         if is_mouse_clicked() and gfx.mouse_y > S(25) and gfx.mouse_x >= padding and gfx.mouse_x <= padding + tw and
            gfx.mouse_y >= f_sy and gfx.mouse_y <= f_sy + th then
             set_clipboard("@fusion_ford")
-            show_snackbar("Скопійовано: @fusion_ford", "info")
+            show_snackbar(T("COPIED") .. ": @fusion_ford", "info")
             ACHIEVEMENTS.add_stat("ach_25_count", 1)
         end
     end
@@ -21640,8 +22310,8 @@ function DRAW_TABS.draw_file()
         local dock_check = is_docked and "!" or ""
         
         local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
-        local dubbers_ass = has_dubbers and "||Експортувати як ASS (розділено по даберам)" or ""
-        local menu = "|>Особливі дії|Видалити ВСІ дані||Створити Text Items з регіонів||Розрахувати репліки по акторам|Очистити репліки від наголосів||Компактний рендер (WAV)|<|||Розділення по Даберам|Відкрити мої Дедлайни||>Експортувати субтитри|Експортувати як SRT|Експортувати як ASS" .. dubbers_ass .. "|<"
+        local dubbers_ass = has_dubbers and "||" .. T("EXPORT_ASS_SPLIT_DUBBERS") or ""
+        local menu = "|>" .. T("SPECIAL_ACTIONS") .. "|" .. T("DELETE_ALL_DATA") .. "||" .. T("CREATE_TEXT_ITEMS_FROM_REGIONS") .. "||" .. T("CALCULATE_LINES_BY_ACTORS") .. "|" .. T("REMOVE_ACCENTS_FROM_LINES") .. "||" .. T("COMPACT_RENDER_WAV") .. "|<|||" .. T("SPLIT_BY_DUBBERS") .. "|" .. T("VIEW_MY_DEADLINES") .. "||>" .. T("EXPORT_SUBTITLES") .. "|" .. T("EXPORT_AS_SRT") .. "|" .. T("EXPORT_AS_ASS") .. dubbers_ass .. "|<"
 
         -- Add "Change Dubber" submenu if dubbers exist
         if has_dubbers then
@@ -21650,7 +22320,7 @@ function DRAW_TABS.draw_file()
                 local prefix = DUBBERS.is_dubber_active(d_name) and "!" or ""
                 table.insert(dubber_menu_items, prefix .. d_name)
             end
-            menu = menu .. "|>Змінити дабера|" .. table.concat(dubber_menu_items, "|") .. "|<"
+            menu = menu .. "|>" .. T("CHANGE_THE_DUBBER") .. "|" .. table.concat(dubber_menu_items, "|") .. "|<"
         end
         
         -- Add "Словники" submenu from user_dictionaries.json
@@ -21664,12 +22334,12 @@ function DRAW_TABS.draw_file()
                 local safe_name = d.name:gsub("|", "¦")
                 table.insert(dict_menu_items, prefix .. safe_name)
             end
-            menu = menu .. "||>Словники|" .. table.concat(dict_menu_items, "|") .. "|<"
+            menu = menu .. "||>" .. T("DICTIONARIES") .. "|" .. table.concat(dict_menu_items, "|") .. "|<"
         else
-            menu = menu .. "||#Словники (немає словників)"
+            menu = menu .. T("DICTIONARIES_NOT_FOUND_EXT")
         end
         
-        menu = menu .. "||" .. dock_check .. "Закріпити вікно (Dock)"
+        menu = menu .. "||" .. dock_check .. T("DOCK_THE_WINDOW")
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -21714,7 +22384,7 @@ function DRAW_TABS.draw_file()
             local selected_dict = DICT.dicts[dict_idx]
             if selected_dict then
                 DICT.toggle(selected_dict.id)
-                local state = DICT.is_selected(selected_dict.id) and "✓ Увімкнено" or "Вимкнено"
+                local state = DICT.is_selected(selected_dict.id) and T("TAB_FILE_DICT_ON") or T("TAB_FILE_DICT_OFF")
                 show_snackbar(selected_dict.name .. ": " .. state, "info")
             end
         elseif ret == dock_ret then
@@ -22048,7 +22718,7 @@ local function prompter_delete_logic()
     for idx, _ in pairs(prompter_drawer.selection) do table.insert(sel_indices, idx) end
     
     if #sel_indices > 0 then
-        push_undo("Видалення правок")
+        push_undo(T("DELETING_RETAKES"))
         -- Sort descending to avoid index shift issues (though markers are by index, it's safer)
         table.sort(sel_indices, function(a,b) return a > b end)
         for _, m_idx in ipairs(sel_indices) do
@@ -22065,7 +22735,7 @@ local function prompter_delete_logic()
         table_data_cache.state_count = -1
         last_layout_state.state_count = -1
         
-        show_snackbar("Видалено правок: " .. #sel_indices, "error")
+        show_snackbar(T("RETAKES_DELETED") .. #sel_indices, "error")
     end
 end
 
@@ -22102,7 +22772,7 @@ function DRAW_WINDOW.draw_prompter_drawer(input_queue)
 
         -- Draw vertical "ПРАВКИ" button
         gfx.setfont(F.tip)
-        local text = "ПРАВКИ"
+        local text = T("RETAKES_PROMPT")
         local btn_w = S(15)
         
         -- Calculate dynamic height based on text
@@ -22492,7 +23162,7 @@ function DRAW_WINDOW.draw_prompter_drawer(input_queue)
                                             else
                                                 target_color = reaper.ColorToNative(g_r, g_g, g_b) | 0x1000000
                                             end
-                                            reaper.SetProjectMarker4(0, m.markindex, false, m.pos, 0, m.name == "<пусто>" and "" or m.name, target_color, 0)
+                                            reaper.SetProjectMarker4(0, m.markindex, false, m.pos, 0, m.name == T("EMPTY") and "" or m.name, target_color, 0)
                                             reaper.UpdateTimeline()
                                             prompter_drawer.marker_cache.count = -1
                                             prompter_drawer.filtered_cache.state_count = -1
@@ -22503,12 +23173,12 @@ function DRAW_WINDOW.draw_prompter_drawer(input_queue)
                                             local mock_lines = {}
                                             local current_edit_idx = 1
                                             for l_idx, flt_m in ipairs(filtered_markers) do
-                                                table.insert(mock_lines, { text = flt_m.name == "<пусто>" and "" or flt_m.name })
+                                                table.insert(mock_lines, { text = flt_m.name == T("EMPTY") and "" or flt_m.name })
                                                 if flt_m.markindex == m.markindex then current_edit_idx = l_idx end
                                             end
 
                                             local function drawer_marker_callback(new_text)
-                                                push_undo("Редагування правки")
+                                                push_undo(T("EDIT_RETAKE"))
                                                 -- Find marker index again (robustly)
                                                 local target_idx = -1
                                                 local m_count = reaper.CountProjectMarkers(0)
@@ -22536,7 +23206,7 @@ function DRAW_WINDOW.draw_prompter_drawer(input_queue)
                                                 reaper.UpdateArrange()
                                              end
 
-                                            open_text_editor(m.name == "<пусто>" and "" or m.name, drawer_marker_callback, current_edit_idx, mock_lines, true)
+                                            open_text_editor(m.name == T("EMPTY") and "" or m.name, drawer_marker_callback, current_edit_idx, mock_lines, true)
                                         end
                                         prompter_drawer.last_click_idx = -1
                                     else
@@ -22559,7 +23229,7 @@ function DRAW_WINDOW.draw_prompter_drawer(input_queue)
                                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                                 local sel_count = 0
                                 for _ in pairs(prompter_drawer.selection) do sel_count = sel_count + 1 end
-                                local menu_str = (sel_count > 1) and "Видалити обрані правки ("..sel_count..")" or "Видалити правку"
+                                local menu_str = (sel_count > 1) and T("DELETE_SELECTED_RETAKES_PS") .. sel_count .. ")" or T("DELETE_RETAKE")
                                 local ret = gfx.showmenu(menu_str)
                                 if ret == 1 then
                                     prompter_delete_logic()
@@ -22710,7 +23380,7 @@ function DRAW_WINDOW.draw_prompter_drawer(input_queue)
                 local p_count_text = tostring(#prompter_drawer.filtered_cache.list)
                 p_counter_reserve = gfx.measurestr(p_count_text) + S(16)
             end
-            ui_text_input("prompter_filter", drawer_x + padding, drawer_top_y + padding, filter_w - p_counter_reserve, close_sz, prompter_drawer.filter, "Пошук... (|, &)", input_queue)
+            ui_text_input("prompter_filter", drawer_x + padding, drawer_top_y + padding, filter_w - p_counter_reserve, close_sz, prompter_drawer.filter, T("SEARCH_AND_OR"), input_queue)
 
             -- Results count
             if p_counter_reserve > 0 then
@@ -22958,7 +23628,7 @@ local function handle_prompter_context_menu(is_show_final_stats)
         local dock_idx = 6
         local stats_str = ""
         if is_show_final_stats then
-            stats_str = "|Очистити мою статистику"
+            stats_str = T("CLEAR_MY_STATS_PCX")
             dock_idx = 7
         end
         
@@ -22970,8 +23640,8 @@ local function handle_prompter_context_menu(is_show_final_stats)
             etc_offset = 2
             dock_idx = dock_idx + etc_offset
         end
-        
-        local menu = etc_prefix .. "Відобразити SubOverlay від Lionzz||Знайти нове слово в ГОРОСі|Відобразити Словник|" .. slider_check .. "Режим Слайдера||Глобальний пошук реплік" .. stats_str .. "||" .. dock_check .. "Закріпити вікно (Dock)"
+         
+        local menu = etc_prefix .. T("DISPLAY_SUBOVERLAY_PCX") .. "||" .. T("FIND_NEW_G_PCX") .. "|" .. T("DISPLAY_DICTIONARY_PCX") .. "|" .. slider_check .. T("SLIDER_MODE") .. "||" .. T("GLOBAL_SEARCH_FOR_TAKES") .. stats_str .. "||" .. dock_check .. T("DOCK_THE_WINDOW")
         
         local ret = gfx.showmenu(menu)
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
@@ -22984,14 +23654,14 @@ local function handle_prompter_context_menu(is_show_final_stats)
         end
         
         if ret == 1 then
-            UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею")
+            UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Overlay")
         elseif ret == 2 then
-            local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
+            local ok, input = reaper.GetUserInputs(T("GOROH"), 1, T("SEARCH_TERM_200"), "")
             if ok and input ~= "" then
                 trigger_dictionary_lookup(input)
             end
         elseif ret == 3 then
-            UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника")
+            UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Dictionary")
         elseif ret == 4 then
             cfg.prompter_slider_mode = not cfg.prompter_slider_mode
             save_settings()
@@ -23015,7 +23685,6 @@ local function handle_prompter_context_menu(is_show_final_stats)
 end
 
 -- --- Shared Prompter Helpers ---
-
 --- Helper: Count words in lines
 local function count_words_in_lines(lines_structure)
     local count = 0
@@ -23201,7 +23870,7 @@ local function render_corrections(cor_markers, y_offset, font_size, center_x, av
     
     for i, m in ipairs(cor_markers) do
         local name = m.name or ""
-        if name == "" then name = "<пусто>" end
+        if name == "" then name = T("EMPTY") end
         
         local c_x1, c_y1, c_x2, c_y2 = gfx.w, gfx.h, 0, 0
         local c_y = y_offset + total_h
@@ -23228,12 +23897,12 @@ local function render_corrections(cor_markers, y_offset, font_size, center_x, av
                     local mock_lines = {}
                     local current_edit_idx = 1
                     for idx, cm in ipairs(cor_markers) do
-                        table.insert(mock_lines, { text = cm.name:gsub("<пусто>", "") })
+                        table.insert(mock_lines, { text = cm.name:gsub(T("EMPTY"), "") })
                         if cm.markindex == m.markindex then current_edit_idx = idx end
                     end
 
                     local function marker_callback(new_text)
-                        push_undo("Редагування правки")
+                        push_undo(T("EDIT_RETAKE"))
                         local target_idx = -1
                         local marker_count = reaper.CountProjectMarkers(0)
                         for j = 0, marker_count - 1 do
@@ -23257,7 +23926,7 @@ local function render_corrections(cor_markers, y_offset, font_size, center_x, av
                         reaper.UpdateTimeline()
                         reaper.UpdateArrange()
                     end
-                    open_text_editor(m.name:gsub("<пусто>", ""), marker_callback, current_edit_idx, mock_lines, true)
+                    open_text_editor(m.name:gsub(T("EMPTY"), ""), marker_callback, current_edit_idx, mock_lines, true)
                     UI_STATE.last_click_row = 0
                 else
                     UI_STATE.last_click_time = now
@@ -23285,7 +23954,7 @@ local function handle_info_overlay_interaction(content_offset_left, content_offs
                 local now = reaper.time_precise()
                 if UI_STATE.last_click_row == -6 and (now - UI_STATE.last_click_time) < 0.3 then
                     set_clipboard(left_str)
-                    show_snackbar("Скопійовано: " .. left_str, "info")
+                    show_snackbar(T("COPIED") .. ": " .. left_str, "info")
                     UI_STATE.last_click_row = 0
                 else
                     UI_STATE.last_click_time = now
@@ -23359,7 +24028,7 @@ function DRAW_WINDOW.draw_info_overlay_graphics(content_offset_left, content_off
            gfx.mouse_y >= ry - S(5) and gfx.mouse_y <= ry + th + S(5) then
             -- Show remaining count on hover
             right_str = "-" .. tostring(remaining)
-            if remaining == 0 then right_str = "Це останній регіон!" end
+            if remaining == 0 then right_str = T("THIS_LAST_REG_IDLE") end
         else
             right_str = normal_str
         end
@@ -23489,8 +24158,8 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         -- Need to import subtitles
         set_color(UI.GET_P_COLOR(0.3))
         gfx.setfont(F.std)
-        local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
-        local txt = name .. ", потрібно імпортувати субтитри"
+        local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or T("USER"))
+        local txt = name .. T("NEED_IMPORT_SUBS_IDLE")
         local tw, th = gfx.measurestr(txt)
         gfx.x = content_offset_left + (available_w - tw) / 2
         gfx.y = (gfx.h - th) / 2
@@ -23498,8 +24167,8 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         elseif cfg.p_valign == "bottom" then gfx.y = gfx.h - th - S(50) end
         gfx.drawstr(txt)
     elseif (takes > 0 or dur > 0) and not is_recording and cfg.show_final_stats then
-        local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or "Користувач")
-        local title = "Чудова робота, " .. name .. "!"
+        local name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or T("USER"))
+        local title = T("GREAT_JOB_IDLE") .. name .. "!"
         local progress = UTILS.get_recording_progress() or 0
         local speed = (dur > 0) and math.floor(takes / (dur / 3600)) or 0
 
@@ -23573,7 +24242,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         
         gfx.setfont(F.std)
         set_color(UI.GET_P_COLOR(0.4))
-        local lbl1 = "ДУБЛІВ"
+        local lbl1 = T("TAKES_IDLE")
         local lw1, lh1 = gfx.measurestr(lbl1)
         gfx.x, gfx.y = cx - col_w - lw1/2, stat_y + sh1 + S(2)
         gfx.drawstr(lbl1)
@@ -23588,7 +24257,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         
         gfx.setfont(F.std)
         set_color(UI.GET_P_COLOR(0.4))
-        local lbl2 = "ЧАСУ"
+        local lbl2 = T("TIME_IDLE")
         local lw2, lh2 = gfx.measurestr(lbl2)
         gfx.x, gfx.y = cx + col_w - lw2/2, stat_y + sh2 + S(2)
         gfx.drawstr(lbl2)
@@ -23601,7 +24270,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         -- Label
         gfx.setfont(F.std)
         set_color(UI.GET_P_COLOR(0.6))
-        local p_txt = string.format("Записано  %d%%", math.floor(progress))
+        local p_txt = string.format(T("RECORDED_IDLE"), math.floor(progress))
         local pw, ph = gfx.measurestr(p_txt)
         gfx.x, gfx.y = cx - pw/2, pb_y - ph - S(6)
         gfx.drawstr(p_txt)
@@ -23616,7 +24285,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         -- 6. Attempts
         local num_regions = (regions and #regions > 0) and #regions or 1
         local attempts = takes / num_regions
-        local attempts_txt = string.format("Спроби: %.2f на репліку", attempts)
+        local attempts_txt = string.format(T("ATTEMPTS_IDLE"), attempts)
         local spw, sph = gfx.measurestr(attempts_txt)
         gfx.x, gfx.y = cx - spw/2, pb_y + pb_h + S(18)
         set_color(UI.GET_P_COLOR(0.4))
@@ -23624,7 +24293,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
 
         local r_btn_w = S(140)
         local r_btn_y = pb_y + pb_h + S(18) + sph + S(36)
-        if btn(cx - r_btn_w/2, r_btn_y, r_btn_w, S(24), fit_text_width("Компактний рендер", r_btn_w - S(5)), UI.C_ROW, nil, true) then
+        if btn(cx - r_btn_w/2, r_btn_y, r_btn_w, S(24), fit_text_width(T("COMPACT_RENDER"), r_btn_w - S(5)), UI.C_ROW, nil, true) then
             UTILS.compact_render()
         end
 
@@ -23639,7 +24308,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         set_color(UI.GET_P_COLOR(0.3))
         gfx.setfont(F.std)
         
-        local txt = "Кінець субтитрів"
+        local txt = T("END_OF_SUBTITLES_IDLE")
         local tw, th = gfx.measurestr(txt)
         gfx.x = content_offset_left + (available_w - tw) / 2
         gfx.y = (gfx.h - th) / 2
@@ -23666,7 +24335,7 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
         -- Calculate dynamic height (consistent with draw_prompter_drawer)
         gfx.setfont(F.tip)
         local btn_h = S(16)
-        for _, code in utf8.codes("ПРАВКИ") do
+        for _, code in utf8.codes(T("RETAKES_PROMPT")) do
             local _, ch = gfx.measurestr(utf8.char(code))
             btn_h = btn_h + ch - 1
         end
@@ -23816,7 +24485,7 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
                 -- Correction Item
                 local m = raw.data
                 local name = m.name or ""
-                if name == "" then name = "<пусто>" end
+                if name == "" then name = T("EMPTY") end
                 local p_lines = parse_prompter_to_lines(name, true)
                 local flattened = {}
                 for i, pl in ipairs(p_lines) do
@@ -23902,7 +24571,7 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
                                    UTILS.compare_sub_text(line.text, rgn.name) then
                                     local edit_line = line
                                     open_text_editor(line.text, function(new_text)
-                                        push_undo("Редагування тексту")
+                                        push_undo(T("EDIT_LINE"))
                                         edit_line.text = new_text
                                         UI_STATE._markers_is_dirty = true
                                         rebuild_regions()
@@ -23923,7 +24592,7 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
                             -- DOUBLE CLICK: Open Editor for Correction
                             local m = item.marker
                             local function marker_callback(new_text)
-                                push_undo("Редагування правки")
+                                push_undo(T("EDIT_RETAKE"))
                                 local target_idx = -1
                                 local marker_count = reaper.CountProjectMarkers(0)
                                 for j = 0, marker_count - 1 do
@@ -23949,7 +24618,7 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
                                 reaper.UpdateTimeline()
                                 reaper.UpdateArrange()
                             end
-                            open_text_editor(m.name:gsub("<пусто>", ""), marker_callback, 1, {{text = m.name:gsub("<пусто>", "")}}, true)
+                            open_text_editor(m.name:gsub(T("EMPTY"), ""), marker_callback, 1, {{text = m.name:gsub(T("EMPTY"), "")}}, true)
                             UI_STATE.last_click_row = 0
                         else
                             -- SINGLE CLICK: Scroll to
@@ -24007,7 +24676,7 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
         local r_btn_w = S(140)
         local btn_x = content_offset_left + (available_w - r_btn_w) / 2
         gfx.setfont(F.std) -- ensure correct font before fit_text_width measurement
-        if btn(btn_x, btn_y, r_btn_w, S(24), fit_text_width("Компактний рендер", r_btn_w - S(5)), UI.C_ROW, nil, true) then
+        if btn(btn_x, btn_y, r_btn_w, S(24), fit_text_width(T("COMPACT_RENDER"), r_btn_w - S(5)), UI.C_ROW, nil, true) then
             UTILS.compact_render()
         end
     end
@@ -24050,7 +24719,7 @@ function DRAW_TABS.draw_prompter(input_queue)
         -- Calculate dynamic height (consistent with draw_prompter_drawer)
         gfx.setfont(F.tip)
         local btn_h = S(16)
-        for _, code in utf8.codes("ПРАВКИ") do
+        for _, code in utf8.codes(T("RETAKES_PROMPT")) do
             local _, ch = gfx.measurestr(utf8.char(code))
             btn_h = btn_h + ch - 1
         end
@@ -24208,7 +24877,7 @@ function DRAW_TABS.draw_prompter(input_queue)
         
         -- Parse Text (with Cache)
         local display_name = next_rgn.name
-        if not display_name or display_name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
+        if not display_name or display_name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):match("^%s*$") then display_name = T("EMPTY") end
         if not draw_prompter_cache.next_cache[display_name] then
             draw_prompter_cache.next_cache[display_name] = parse_prompter_to_lines(display_name)
         end
@@ -24298,7 +24967,7 @@ function DRAW_TABS.draw_prompter(input_queue)
                         if math.abs(line.t1 - next_rgn.pos) < 0.01 and math.abs(line.t2 - next_rgn.rgnend) < 0.01 then
                             local edit_line = line
                             open_text_editor(line.text, function(new_text)
-                                push_undo("Редагування тексту")
+                                push_undo(T("EDIT_LINE"))
                                 edit_line.text = new_text
                                 UI_STATE._markers_is_dirty = true
                                 rebuild_regions()
@@ -24334,7 +25003,7 @@ function DRAW_TABS.draw_prompter(input_queue)
                 -- Use cache for first region (optimization)
                 if region_num == 1 then
                     local display_name = rgn.name
-                    if not display_name or display_name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
+                    if not display_name or display_name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):match("^%s*$") then display_name = T("EMPTY") end
                     if display_name ~= draw_prompter_cache.last_text then
                         draw_prompter_cache.lines = parse_prompter_to_lines(display_name)
                         draw_prompter_cache.last_text = display_name
@@ -24354,7 +25023,7 @@ function DRAW_TABS.draw_prompter(input_queue)
                 else
                     -- Parse text for other regions
                     local display_name = rgn.name
-                    if not display_name or display_name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):match("^%s*$") then display_name = "<пусто>" end
+                    if not display_name or display_name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):match("^%s*$") then display_name = T("EMPTY") end
                     lines = parse_prompter_to_lines(display_name)
                     if cfg.karaoke_mode then
                         local w_count = count_words_in_lines(lines)
@@ -24658,7 +25327,7 @@ function DRAW_TABS.draw_prompter(input_queue)
                                    UTILS.compare_sub_text(line.text, bounds.region.name) then
                                     local edit_line = line
                                     open_text_editor(line.text, function(new_text)
-                                        push_undo("Редагування тексту")
+                                        push_undo(T("EDIT_LINE"))
                                         edit_line.text = new_text
                                         UI_STATE._markers_is_dirty = true
                                         rebuild_regions()
@@ -25038,7 +25707,7 @@ function DRAW_TABS.draw_settings()
         checkbox_box(checked, x, screen_y)
     
         gfx.setfont(F.std)
-        gfx.x, gfx.y = x + chk_sz + S(10), screen_y + S(2)
+        gfx.x, gfx.y = x + chk_sz + S(10), screen_y + S(4)
         gfx.drawstr(text)
         set_color(UI.C_TXT)
         
@@ -25162,7 +25831,7 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 0. ІНСТРУМЕНТИ (Tools)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ІНСТРУМЕНТИ")
+    s_section(y_cursor, T("TOOLS"))
     y_cursor = y_cursor + S(35)
     
     local col_count = gfx.w < S(450) and 1 or 2
@@ -25170,45 +25839,45 @@ function DRAW_TABS.draw_settings()
     local btn_h = S(40)
     
     local tools = {
-        {name = "• Пошук талантів •", tip = "Пошук талантів, та перегляд профілів інших користувачів", color = UI.C_TAL_BG, action = function() UI_STATE.show_talent_search = true ACHIEVEMENTS.fetch_talents(1) end},
-        {name = cfg.dubber_force_hide and "Редагувати профіль (у вас БАН)" or "Редагувати профіль", tip = "Редагування профілю користувача", action = function() ACHIEVEMENTS.open_edit_profile() end},
-        {name = "Моя Статистика", tip = "Детальна персональна аналітика: кількість записаних реплік, слів, час роботи та прогрес по проектах у зручному веб-інтерфейсі.", action = function() UTILS.launch_python_script("stats/subass_stats.py") end},
-        {name = "Мої Дедлайни", tip = "Календар та список термінів здачі проектів. Допомагає планувати черговість роботи та не пропускати дедлайни.", action = function() DEADLINE.dashboard_show = true end},
-        {name = "Розділення по Даберам", tip = "Спеціальний інструмент для автоматичного або ручного розподілу реплік/ролей між даберами. Дозволяє бачити навантаження кожного дабера.", action = function() DUBBERS.show_dashboard = true DUBBERS.load() end},
-        {name = "WEB-менеджер наголосів", tip = "Пошук та виправлення складних наголосів за допомогою онлайн-бази. Працює у браузері для зручного редагування.", action = function() UTILS.launch_python_script("stress/ukrainian_stress_tool.py") end},
-        {name = "Глобальний пошук реплік", tip = "Наскрізний пошук будь-якого тексту чи слова по всіх ваших проектах Subass. Допомагає знайти, де вже зустрічалася певна фраза.", action = function() SEARCH_ITEM.show = true SEARCH_ITEM.input.focus = true end},
-        {name = "Знайти слово в ГОРОСі", tip = "Швидкий пошук слова у найбільшій лексикографічній базі Goroh.pp.ua (тлумачення, словозміна, синоніми, фразеологія, слововживання).", action = function() 
-            local ok, input = reaper.GetUserInputs("ГОРОХ", 1, "Слово для пошуку:,extrawidth=200", "")
+        {name = T("TALEND_SEARCH"), tip = T("TALEND_SEARCH_TIP"), color = UI.C_TAL_BG, action = function() UI_STATE.show_talent_search = true ACHIEVEMENTS.fetch_talents(1) end},
+        {name = cfg.dubber_force_hide and T("EDIT_PROFILE_BAN") or T("EDIT_PROFILE"), tip = T("EDIT_PROFILE_TIP"), action = function() ACHIEVEMENTS.open_edit_profile() end},
+        {name = T("MY_STATISTICS"), tip = T("MY_STATISTICS_TIP"), action = function() UTILS.launch_python_script("stats/subass_stats.py") end},
+        {name = T("MY_DEADLINES"), tip = T("MY_DEADLINES_TIP"), action = function() DEADLINE.dashboard_show = true end},
+        {name = T("SPLIT_BY_DUBBERS"), tip = T("SPLIT_BY_DUBBERS_TIP"), action = function() DUBBERS.show_dashboard = true DUBBERS.load() end},
+        {name = T("WEB_ACCENT_MANAGER"), tip = T("WEB_ACCENT_MANAGER_TIP"), action = function() UTILS.launch_python_script("stress/ukrainian_stress_tool.py") end},
+        {name = T("GLOBAL_SEARCH_FOR_TAKES"), tip = T("GLOBAL_SEARCH_FOR_TAKES_TIP"), action = function() SEARCH_ITEM.show = true SEARCH_ITEM.input.focus = true end},
+        {name = T("FIND_A_WORD_IN_GOROH"), tip = T("FIND_A_WORD_IN_GOROH_TIP"), action = function() 
+            local ok, input = reaper.GetUserInputs(T("GOROH"), 1, T("SEARCH_TERM_200"), "")
             if ok and input ~= "" then
                 trigger_dictionary_lookup(input)
             end
         end},
-        {name = "Відкрити Нотатник", tip = "Записник для ваших нотатків", action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_Notepad.lua", "Нотатник") end}, 
-        {name = "Відкрити Словник", tip = "Словник з корисною інформацією, сленги, асиміляція, відмінки, лайка, тощо. А також Звуковий Глосарій", action = function() UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Словника") end}, 
-        {name = "Відкрити SubOverlay від Lionzz", tip = "Допоміжне вікно поверх усього відео (Overlay), що відображає текст поточної репліки прямо перед очима під час запису.", action = function() UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Оверлею") end},
-        {name = "Відкрити PDF Reader", tip = "Відкриває PDF Рідер в окремому вікні.", action = function() 
+        {name = T("OPEN_NOTEPAD"), tip = T("OPEN_NOTEPAD_TIP"), action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_Notepad.lua", "Notepad") end}, 
+        {name = T("OPEN_DICTIONARY"), tip = T("OPEN_DICTIONARY_TIP"), action = function() UTILS.run_satellite_script("dictionary", "Subass_Dictionary.lua", "Dictionary") end}, 
+        {name = T("OPEN_SUBOVERLAY_BY"), tip = T("OPEN_SUBOVERLAY_BY_TIP"), action = function() UTILS.run_satellite_script("overlay", "Lionzz_SubOverlay_Subass.lua", "Overlay") end},
+        {name = T("OPEN_PDF_READER"), tip = T("OPEN_PDF_READER_TIP"), action = function() 
             UTILS.run_satellite_script("overlay", "Subass_PDF.lua", "PDF Рідер")
         end},
-        {name = "Режим Режисера", tip = "Перемикає інтерфейс у режим перегляду для режисера: вкладка реплік з активним режимом контролю та зауважень.", color = cfg.director_mode and UI.C_BTN_MEDIUM or nil, action = function() 
+        {name = T("TABLE_MENU_SHOW_DIRECTOR"), tip = T("TABLE_MENU_SHOW_DIRECTOR_TIP"), color = cfg.director_mode and UI.C_BTN_MEDIUM or nil, action = function() 
             UI_STATE.current_tab = 2 
             cfg.director_mode = not cfg.director_mode 
             cfg.editor_mode = false
             save_settings() 
         end},
-        {name = "Режим Слайдера", tip = "Перемикає інтерфейс на вкладку суфлера та перемкне режим плавного прокручування (Slider Mode) для комфортного читання.", color = cfg.prompter_slider_mode and UI.C_BTN_MEDIUM or nil, action = function() 
+        {name = T("SLIDER_MODE"), tip = T("SLIDER_MODE_TIP"), color = cfg.prompter_slider_mode and UI.C_BTN_MEDIUM or nil, action = function() 
             UI_STATE.current_tab = 3 
             cfg.prompter_slider_mode = not cfg.prompter_slider_mode 
             save_settings() 
         end},
-        {name = "Відкрити MKV/MP4 Extract", tip = "Витягнення аудіо та інших потоків з відеофайлів", action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_MP4_MKV_Extract.lua", "MKV/MP4 Extract") end},
-        {name = "Режим Редактора", tip = "Перемикає інтерфейс у режим перегляду для редактора: вкладка редагування регіонів з активним режимом назначення акторів.", color = cfg.editor_mode and UI.C_BTN_MEDIUM or nil, action = function() 
+        {name = T("OPEN_MKV_EXTRACT"), tip = T("OPEN_MKV_EXTRACT_TIP"), action = function() UTILS.run_satellite_script("imnotbad", "imnotbad_MP4_MKV_Extract.lua", "MKV/MP4 Extract") end},
+        {name = T("TABLE_MENU_SHOW_EDITOR"), tip = T("TABLE_MENU_SHOW_EDITOR_TIP"), color = cfg.editor_mode and UI.C_BTN_MEDIUM or nil, action = function() 
             UI_STATE.current_tab = 2 
             cfg.editor_mode = not cfg.editor_mode 
             cfg.director_mode = false
             save_settings() 
         end},
-        {name = "Видалити ВСІ дані", tip = "Видаляє всі дані з проекту REAPER. Дія незворотна!", color = UI.C_BTN_ERROR, action = function() delete_all_regions() end},
-        {name = "Перевірити оновлення", tip = "Перевірити наявність нових версій Subass на сервері.", color = UI.C_SEL_BG, action = function() check_for_updates() end}
+        {name = T("DELETE_ALL_DATA"), tip = T("DELETE_ALL_DATA_TIP"), color = UI.C_BTN_ERROR, action = function() delete_all_regions() end},
+        {name = T("CHECK_FOR_UPDATE"), tip = T("CHECK_FOR_UPDATE_TIP"), color = UI.C_SEL_BG, action = function() check_for_updates() end}
     }
     
     for i, t in ipairs(tools) do
@@ -25222,9 +25891,37 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + math.ceil(#tools/col_count) * (btn_h + S(10)) + S(15)
 
     -- ═══════════════════════════════════════════
+    -- 0.5. Мова
+    -- ═══════════════════════════════════════════
+    s_section(y_cursor, "Language/Мова")
+    y_cursor = y_cursor + S(35)
+
+    local lng_options = {"en", "ua"}
+    local lng_labels = {"English", "Українська"}
+    for i, opt in ipairs(lng_options) do
+        local bx = x_start + ((i-1) * S(100))
+        local is_sel = (cfg.lng == opt)
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
+        if s_btn(bx, y_cursor, S(90), S(30), lng_labels[i], nil, btn_bg) then
+            cfg.lng = opt
+
+            prompter_slider_cache.state_count = -1
+            prompter_drawer.marker_cache.count = -1
+            prompter_drawer.filtered_cache.state_count = -1
+            prompter_drawer.has_markers_cache.count = -1
+            table_data_cache.state_count = -1
+            last_layout_state.state_count = -1
+
+            save_settings()
+        end
+    end
+   
+    y_cursor = y_cursor + S(60)
+
+    -- ═══════════════════════════════════════════
     -- 1. API КЛЮЧІ
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "API КЛЮЧІ")
+    s_section(y_cursor, T("API_KEYS"))
     y_cursor = y_cursor + S(35)
 
     -- Gemini API Key
@@ -25235,8 +25932,8 @@ function DRAW_TABS.draw_settings()
         gemini_btn_col = UI.C_BTN_ERROR -- Reddish (Theme Aware)
     end
 
-    if s_btn(x_start, y_cursor, S(200), S(30), "Gemini API ключ", "Ключ доступу до Gemini AI для функцій перефразування та редагування тексту.", gemini_btn_col) then
-        local retval, key = reaper.GetUserInputs("Gemini API Key", 1, "Ключ API:,extrawidth=300", cfg.gemini_api_key)
+    if s_btn(x_start, y_cursor, S(200), S(30), "Gemini API " .. T("KEY"), T("AI_KEY_D_1") .. "Gemini AI" .. T("AI_KEY_D_2"), gemini_btn_col) then
+        local retval, key = reaper.GetUserInputs("Gemini API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.gemini_api_key)
         if retval then
             cfg.gemini_api_key = key
             save_settings()
@@ -25252,8 +25949,8 @@ function DRAW_TABS.draw_settings()
         eleven_btn_col = UI.C_BTN_ERROR -- Reddish (Theme Aware)
     end
 
-    if s_btn(x_start + S(215), y_cursor, S(200), S(30), "ElevenLabs API ключ", "Ключ доступу до ElevenLabs для озвучування преміальними голосами.", eleven_btn_col) then
-        local retval, key = reaper.GetUserInputs("ElevenLabs API Key", 1, "Ключ API:,extrawidth=300", cfg.eleven_api_key)
+    if s_btn(x_start + S(215), y_cursor, S(200), S(30), "ElevenLabs API " .. T("KEY"), T("ELEVENLABS_KEY_TIP"), eleven_btn_col) then
+        local retval, key = reaper.GetUserInputs("ElevenLabs API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.eleven_api_key)
         if retval then
             cfg.eleven_api_key = key
             save_settings()
@@ -25271,8 +25968,8 @@ function DRAW_TABS.draw_settings()
         mistral_btn_col = UI.C_BTN_ERROR
     end
 
-    if s_btn(x_start, y_cursor, S(200), S(30), "Mistral API ключ", "Ключ доступу до Mistral AI для функцій перефразування та редагування тексту.", mistral_btn_col) then
-        local retval, key = reaper.GetUserInputs("Mistral API Key", 1, "Ключ API:,extrawidth=300", cfg.mistral_api_key)
+    if s_btn(x_start, y_cursor, S(200), S(30), "Mistral API " .. T("KEY"), T("AI_KEY_D_1") .. "Mistral AI" .. T("AI_KEY_D_2"), mistral_btn_col) then
+        local retval, key = reaper.GetUserInputs("Mistral API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.mistral_api_key)
         if retval then
             cfg.mistral_api_key = key
             save_settings()
@@ -25287,8 +25984,8 @@ function DRAW_TABS.draw_settings()
         groq_btn_col = UI.C_BTN_ERROR
     end
 
-    if s_btn(x_start + S(215), y_cursor, S(200), S(30), "Groq API ключ", "Ключ доступу до Groq AI (Llama-3).", groq_btn_col) then
-        local retval, key = reaper.GetUserInputs("Groq API Key", 1, "Ключ API:,extrawidth=300", cfg.groq_api_key)
+    if s_btn(x_start + S(215), y_cursor, S(200), S(30), "Groq API " .. T("KEY"), T("AI_KEY_D_1") .. "Groq AI (Llama-3)" .. T("AI_KEY_D_2"), groq_btn_col) then
+        local retval, key = reaper.GetUserInputs("Groq API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.groq_api_key)
         if retval then
             cfg.groq_api_key = key
             save_settings()
@@ -25301,13 +25998,13 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 2. ІМПОРТ ТА РОБОТА З ТЕКСТОМ (Import & Data)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ІМПОРТ ТА РОБОТА З ТЕКСТОМ")
+    s_section(y_cursor, T("IMPORTING_WORKING_TEXT"))
     y_cursor = y_cursor + S(35)
 
     -- Max Wrap Length
     local t_y = get_y(y_cursor)
     if t_y + S(20) > start_y - S(50) and t_y < gfx.h + S(50) then
-        s_text(x_start, y_cursor, "Макс. довжина рядка:", F.std, "Максимальна кількість символів у рядку до переносу.")
+        s_text(x_start, y_cursor, T("MAX_LINE_LEN_T"), F.std, T("MAX_LINE_LEN_TIP"))
         gfx.x = x_start + S(150)
         gfx.drawstr(tostring(cfg.wrap_length))
         if s_btn(x_start + S(200), y_cursor - S(10), S(30), S(30), "－") then
@@ -25322,10 +26019,10 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(45)
 
     -- Split Actors in SRT
-    s_text(x_start, y_cursor, "Розбивка SRT за акторами:", F.std, "Автоматичне визначення акторів за шаблонами (ім'я): або [ім'я]:")
+    s_text(x_start, y_cursor, T("BREAKDOWN_SRT_BY_A_T"), F.std, T("BREAKDOWN_SRT_BY_A_TIP"))
     y_cursor = y_cursor + S(25)
     local srt_split_options = {"():", "[]:", "none"}
-    local srt_split_labels = {"(Актор):", "[Актор]:", "Вимк."}
+    local srt_split_labels = {"(" .. T("ACTOR") .. "):", "[" .. T("ACTOR") .. "]:", T("BREAKDOWN_OFF")}
     local split_btn_w = S(90)
     for i, opt in ipairs(srt_split_options) do
         local bx = x_start + ((i-1) * (split_btn_w + S(10)))
@@ -25338,7 +26035,7 @@ function DRAW_TABS.draw_settings()
     end
     y_cursor = y_cursor + S(60)
 
-    if checkbox(x_start, y_cursor, "Випадковий колір актора при імпорті", cfg.random_color_actors, "Кожному новому актору буде присвоєно унікальний колір.") then
+    if checkbox(x_start, y_cursor, T("RANDOM_ACTOR_COLOR"), cfg.random_color_actors, T("RANDOM_ACTOR_COLOR_TIP")) then
         cfg.random_color_actors = not cfg.random_color_actors
         rebuild_regions()
         save_project_data()
@@ -25346,17 +26043,17 @@ function DRAW_TABS.draw_settings()
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Показувати асиміляцію", cfg.text_assimilations, "Відображати фонетичні підказки (асиміляції) в тексті.") then
+    if checkbox(x_start, y_cursor, T("SHOW_ASSIMILATION"), cfg.text_assimilations, T("SHOW_ASSIMILATION_TIP")) then
         cfg.text_assimilations = not cfg.text_assimilations
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Показувати чергування в/у, й/і, з/зі/із, б/би", cfg.text_euphonics, "Відображати евфонічні підказки: відображати варіант в/у, й/і, з/зі/із та б/би на основі оточення.") then
+    if checkbox(x_start, y_cursor, T("SHOW_EUPHONIC_HITS"), cfg.text_euphonics, T("SHOW_EUPHONIC_HITS_TIP")) then
         cfg.text_euphonics = not cfg.text_euphonics
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Автоматично виправляти невірне кодування (CP1251)", cfg.fix_CP1251, "Якщо файл містить побите кодування CP1251, він буде автоматично виправлений.\n!!Це може призвести до втрати деяких символів!!\nПриклад: перетворить це \"œŒ¯Û, ÏÂÏ.\" в це \"ПрОшу, мем.\"") then
+    if checkbox(x_start, y_cursor, T("AUTO_FIX_CP1251"), cfg.fix_CP1251, T("AUTO_FIX_CP1251_TIP")) then
         cfg.fix_CP1251 = not cfg.fix_CP1251
         save_settings()
     end
@@ -25365,9 +26062,9 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 3. СИСТЕМА (System)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "СИСТЕМА")
+    s_section(y_cursor, T("SYSTEM"))
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Автозапуск разом із REAPER", cfg.auto_startup, "Скрипт буде запускатися автоматично при старті програми.") then
+    if checkbox(x_start, y_cursor, T("AUTOSTART_WITH_REAPER"), cfg.auto_startup, T("AUTOSTART_WITH_REAPER_TIP")) then
         cfg.auto_startup = not cfg.auto_startup
         toggle_reaper_startup(cfg.auto_startup)
         save_settings()
@@ -25375,9 +26072,9 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(40)
 
     -- GUI Scale Control
-    local scale_txt = string.format("Масштаб інтерфейсу: %.1fx", cfg.gui_scale)
+    local scale_txt = string.format(T("INTERFACE_SCALE"), cfg.gui_scale)
     s_text(x_start, y_cursor, scale_txt)
-    
+
     if s_btn(x_start + S(220), y_cursor - S(5), S(30), S(30), "－") then
         cfg.gui_scale = math.max(0.1, math.floor((cfg.gui_scale - 0.1) * 10 + 0.5) / 10)
         save_settings()
@@ -25393,7 +26090,7 @@ function DRAW_TABS.draw_settings()
     local keys = {}
     for k in (cfg.hotkeys .. ","):gmatch("(.-),") do table.insert(keys, k) end
 
-    if s_btn(x_start, y_cursor, S(200), S(35), "Гарячі клавіші", "Налаштування глобальних гарячих клавіш для швидкого перемикання лише коли плагін в фокусі") then
+    if s_btn(x_start, y_cursor, S(200), S(35), T("KEY_SHORTCUTS"), T("KEY_SHORTCUTS_TIP")) then
         local menu_str = ""
         for i, item in ipairs(UTILS.GLOBAL_HOTKEY_ACTIONS) do
             local key = (keys[i] and keys[i] ~= "") and keys[i] or "?"
@@ -25402,7 +26099,7 @@ function DRAW_TABS.draw_settings()
         local ret = gfx.showmenu(menu_str)
         if ret > 0 then
             UI_STATE.hotkey_capture_idx = ret
-            show_snackbar("Натисніть клавішу для: " .. UTILS.GLOBAL_HOTKEY_ACTIONS[ret].label, "info")
+            show_snackbar(T("PRESS_THE_KEY_FOR") .. UTILS.GLOBAL_HOTKEY_ACTIONS[ret].label, "info")
         end
     end
     y_cursor = y_cursor + S(60)
@@ -25410,112 +26107,112 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 4. ЕКРАН СУФЛЕРА (Prompter Elements)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ЕКРАН СУФЛЕРА")
+    s_section(y_cursor, T("PROMPTER_SCREEN"))
     y_cursor = y_cursor + S(35)
     
-    if checkbox(x_start, y_cursor, "Відображати менеджер правок", cfg.p_drawer, "Додати бічну панель для керування маркерами проекту.\n(Відображається лише при наявності маркерів)") then
+    if checkbox(x_start, y_cursor, T("SHOW_RETAKES_M"), cfg.p_drawer, T("SHOW_RETAKES_M_TIP")) then
         cfg.p_drawer = not cfg.p_drawer
         save_settings()
     end
     y_cursor = y_cursor + S(35)
     if cfg.p_drawer then
-        if checkbox(x_start + S(30), y_cursor, "Показувати ліворуч", cfg.p_drawer_left, "Якщо вимкнено — панель буде малюватися праворуч.") then
+        if checkbox(x_start + S(30), y_cursor, T("SHOW_RETAKES_M_LEFT"), cfg.p_drawer_left, T("SHOW_RETAKES_M_LEFT_TIP")) then
             cfg.p_drawer_left = not cfg.p_drawer_left
             save_settings()
         end
         y_cursor = y_cursor + S(35)
     end
-    if checkbox(x_start, y_cursor, "Відображати метадані (ID, час)", cfg.p_info, "Показувати індекс репліки та час початку зверху.") then
+    if checkbox(x_start, y_cursor, T("DISPLAY_META_ID"), cfg.p_info, T("DISPLAY_META_ID_TIP")) then
         cfg.p_info = not cfg.p_info
         save_settings()
     end
     y_cursor = y_cursor + S(35)
     if cfg.p_info then
-        if checkbox(x_start + S(30), y_cursor, "Відображати % скільки записано", cfg.p_progress, "Показувати загальний прогрес запису по вибраним трекам (коли немає активної репліки).") then
+        if checkbox(x_start + S(30), y_cursor, T("DISPLAY_META_PER"), cfg.p_progress, T("DISPLAY_META_PER_TIP")) then
             cfg.p_progress = not cfg.p_progress
             save_settings()
         end
         y_cursor = y_cursor + S(35)
 
-        if checkbox(x_start + S(30), y_cursor, "Завжди відображати скільки лишилось реплік", cfg.p_always_show_left, "Постійне відображення кількості реплік, що залишилися.") then
+        if checkbox(x_start + S(30), y_cursor, T("DISPLAY_META_LIN"), cfg.p_always_show_left, T("DISPLAY_META_LIN_TIP")) then
             cfg.p_always_show_left = not cfg.p_always_show_left
             save_settings()
         end
         y_cursor = y_cursor + S(35)
     end
-    if checkbox(x_start, y_cursor, "Таймер зворотного відліку", cfg.count_timer, "Показувати час до початку наступної репліки.\nТакож відображає стрілку для прокручення до наступної репліки (якщо час більше 10 секунд).") then
+    if checkbox(x_start, y_cursor, T("COUNTDOWN_TIMER"), cfg.count_timer, T("COUNTDOWN_TIMER_TIP")) then
         cfg.count_timer = not cfg.count_timer
         save_settings()
     end
 
     y_cursor = y_cursor + S(35)
     if cfg.count_timer then
-        if checkbox(x_start + S(30), y_cursor, "Відображати цифри", cfg.count_timer_show_numbers, "Відображати цифри зворотнього відліку.") then
+        if checkbox(x_start + S(30), y_cursor, T("COUNTDOWN_TIMER_N"), cfg.count_timer_show_numbers, T("COUNTDOWN_TIMER_N_TIP")) then
             cfg.count_timer_show_numbers = not cfg.count_timer_show_numbers
             save_settings()
         end
         y_cursor = y_cursor + S(35)
 
-        if checkbox(x_start + S(30), y_cursor, "Відображати прогрес знизу", cfg.count_timer_bottom, "Відображати прогрес не по краям, а знизу.") then
+        if checkbox(x_start + S(30), y_cursor, T("COUNTDOWN_TIMER_SIDE"), cfg.count_timer_bottom, T("COUNTDOWN_TIMER_SIDE_TIP")) then
             cfg.count_timer_bottom = not cfg.count_timer_bottom
             save_settings()
         end
         y_cursor = y_cursor + S(35)
     end
 
-    if checkbox(x_start, y_cursor, "Попередження про швидкість (CPS)", cfg.cps_warning, "Червона смуга при занадто високій швидкості читання.") then
+    if checkbox(x_start, y_cursor, T("SPEED_WARNING_CPS"), cfg.cps_warning, T("SPEED_WARNING_CPS_TIP")) then
         cfg.cps_warning = not cfg.cps_warning
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Відображати конфеті", cfg.show_confetti, "Відображати анімацію конфеті на заключному екрані статистики суфлера при 100% запису реплік.") then
+    if checkbox(x_start, y_cursor, T("DISPLAY_CONFETTI"), cfg.show_confetti, T("DISPLAY_CONFETTI_TIP")) then
         cfg.show_confetti = not cfg.show_confetti
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Відображати осцилограму (Waveform)", cfg.wave_bg, "Малювати форму хвилі активного треку на фоні.") then
+    if checkbox(x_start, y_cursor, T("DISPLAY_WAVEFORM_S"), cfg.wave_bg, T("DISPLAY_WAVEFORM_S_TIP")) then
         cfg.wave_bg = not cfg.wave_bg
         save_settings()
     end
     y_cursor = y_cursor + S(35)
     if cfg.wave_bg then
-        if checkbox(x_start + S(30), y_cursor, "Прогрес заповнення осцилограми", cfg.wave_bg_progress, "Зафарбовувати пройдену частину хвилі.") then
+        if checkbox(x_start + S(30), y_cursor, T("DISPLAY_WAVEFORM_P"), cfg.wave_bg_progress, T("DISPLAY_WAVEFORM_P_TIP")) then
             cfg.wave_bg_progress = not cfg.wave_bg_progress
             save_settings()
         end
         y_cursor = y_cursor + S(35)
     end
-    if checkbox(x_start, y_cursor, "Режим Караоке", cfg.karaoke_mode, "Підсвічувати активне слово під час відтворення.") then
+    if checkbox(x_start, y_cursor, T("KARAOKE_MODE"), cfg.karaoke_mode, T("KARAOKE_MODE_TIP")) then
         cfg.karaoke_mode = not cfg.karaoke_mode
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Режим ВЕЛИКИМИ ЛІТЕРАМИ", cfg.all_caps, "Весь текст відображатиметься ВЕЛИКИМИ ЛІТЕРАМИ.") then
+    if checkbox(x_start, y_cursor, T("ALL_CAPS"), cfg.all_caps, T("ALL_CAPS_TIP")) then
         cfg.all_caps = not cfg.all_caps
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "М'які переноси (ігнорувати \\N)", cfg.p_soft_n, "Символи розриву рядка \\N, \\n та звичайні ентери будуть ігноруватися, а текст переноситиметься автоматично залежно від ширини вікна та налаштування \"Довжина рядка\".") then
+    if checkbox(x_start, y_cursor, T("SOFT_HYPHENS"), cfg.p_soft_n, T("SOFT_HYPHENS_TIP")) then
         cfg.p_soft_n = not cfg.p_soft_n
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Відображати нАголоси з великої літери", cfg.all_caps_acute, "Букви з символом наголосу відображатимуться з ВЕЛИКОЇ ЛІТЕРИ.") then
+    if checkbox(x_start, y_cursor, T("SHOW_ACCENTS_UPPER"), cfg.all_caps_acute, T("SHOW_ACCENTS_UPPER_TIP")) then
         cfg.all_caps_acute = not cfg.all_caps_acute
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Відображати ім'я актора", cfg.show_actor_name_infront, "Відображення імені актора перед реплікою.") then
+    if checkbox(x_start, y_cursor, T("DISPLAY_ACTOR_NAME_F"), cfg.show_actor_name_infront, T("DISPLAY_ACTOR_NAME_F_TIP")) then
         cfg.show_actor_name_infront = not cfg.show_actor_name_infront
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Відображати заключну статистику", cfg.show_final_stats, "Відображати статистику в кінці реплік по тому скільки зрблено дублів, скільки витрачено часу.") then
+    if checkbox(x_start, y_cursor, T("DISPLAY_FINAL_STATS"), cfg.show_final_stats, T("DISPLAY_FINAL_STATS_TIP")) then
         cfg.show_final_stats = not cfg.show_final_stats
         save_settings()
     end
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Відображати швидкість запису", cfg.show_speed_in_prompter, "Відображати швидкість запису та прогнозований час в контексному меню суфлера (для коректного відображення прогнозованого часу потрібно виділяти трек/треки з вашими записами).") then
+    if checkbox(x_start, y_cursor, T("DISPLAY_R_SPEED"), cfg.show_speed_in_prompter, T("DISPLAY_R_SPEED_TIP")) then
         cfg.show_speed_in_prompter = not cfg.show_speed_in_prompter
         save_settings()
     end
@@ -25524,11 +26221,11 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 5. ТЕМА ІНТЕРФЕЙСУ (Interface Theme)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ТЕМА ІНТЕРФЕЙСУ")
+    s_section(y_cursor, T("INTERFACE_THEME"))
     y_cursor = y_cursor + S(35)
 
     local ui_theme_options = {"Titanium", "Obsidian", "Quartz"}
-    local ui_theme_labels = {"Титан", "Обсидіан", "Кварц"}
+    local ui_theme_labels = {T("TITANIUM"), T("OBSIDIAN"), T("QUARTZ")}
     local ui_btn_w = S(135)
     
     for i, opt in ipairs(ui_theme_options) do
@@ -25570,7 +26267,7 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 6. ТЕМИ ТА ДИЗАЙН СУФЛЕРА (Prompter Themes)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ТЕМИ ТА ДИЗАЙН СУФЛЕРА")
+    s_section(y_cursor, T("THEMES_PROMPTER"))
     y_cursor = y_cursor + S(35)
     
     local theme_options = {
@@ -25580,8 +26277,10 @@ function DRAW_TABS.draw_settings()
         {{0.98, 0.92, 0.82}, {0.37, 0.29, 0.2}}, {{0.99, 0.96, 0.89}, {0.39, 0.48, 0.51}},
         {{0, 0.17, 0.21}, {0.51, 0.58, 0.59}}, {{0.94, 0.97, 0.95}, {0.15, 0.12, 0.10}},
     }
-    local theme_labels = {"Бетон", "Пергамент", "Порцеляна", "Вугілля", "Безодня", "Сутінки", "Сепія", "Пісок", "Глибина", "М’ята"}
+
+    local theme_labels = cfg.lng == "ua" and {"Бетон", "Пергамент", "Порцеляна", "Вугілля", "Безодня", "Сутінки", "Сепія", "Пісок", "Глибина", "М’ята"} or {"Concrete", "Parchment", "Porcelain", "Charcoal", "Abyss", "Twilight", "Sepia", "Sand", "Depth", "Mint"}
     local theme_btn_w = S(110)
+
     for i, opt in ipairs(theme_labels) do
         local r, c = math.floor((i-1)/5), (i-1)%5
         local bx = x_start + c * (theme_btn_w + S(10))
@@ -25608,7 +26307,7 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(90)
     
     set_color(UI.C_TXT)
-    s_text(x_start, y_cursor, "Ручне налаштування фону:")
+    s_text(x_start, y_cursor, T("MANUAL_BG_SET"))
     y_cursor = y_cursor + S(25)
     y_cursor = y_cursor + draw_color_palette(x_start, bg_palette, cfg.bg_cr, cfg.bg_cg, cfg.bg_cb, function(r, g, b)
         cfg.bg_cr, cfg.bg_cg, cfg.bg_cb = r, g, b
@@ -25619,13 +26318,13 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 7. ОСНОВНИЙ ТЕКСТ (Main Text Layout)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ОСНОВНИЙ ТЕКСТ")
+    s_section(y_cursor, T("MAIN_TEXT"))
     y_cursor = y_cursor + S(35)
 
     set_color(UI.C_TXT)
     
     -- Font Size
-    s_text(x_start, y_cursor, "Розмір шрифту: " .. cfg.p_fsize)
+    s_text(x_start, y_cursor, T("FONT_SIZE") .. cfg.p_fsize)
     if s_btn(x_start + S(155), y_cursor - S(10), S(30), S(30), "－") then
         cfg.p_fsize = math.max(10, cfg.p_fsize - 2)
         save_settings()
@@ -25637,7 +26336,7 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(45)
     
     -- Line Height
-    s_text(x_start, y_cursor, string.format("Висота рядка: %.1f", cfg.p_lheight))
+    s_text(x_start, y_cursor, string.format(T("LINE_HEIGHT"), cfg.p_lheight))
     if s_btn(x_start + S(155), y_cursor - S(10), S(30), S(30), "－") then
         cfg.p_lheight = math.max(0.2, cfg.p_lheight - 0.1)
         save_settings()
@@ -25649,10 +26348,10 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(45)
     
     -- Alignment
-    s_text(x_start, y_cursor, "Вирівнювання по горизонталі:")
+    s_text(x_start, y_cursor, T("H_ALIGNMENT"))
     y_cursor = y_cursor + S(25)
     local align_options = {"left", "center", "right"}
-    local align_labels = {"Ліворуч", "Центр", "Праворуч"}
+    local align_labels = {T("LEFT"), T("CENTER"), T("RIGHT")}
     for i, opt in ipairs(align_options) do
         local bx = x_start + ((i-1) * S(100))
         local is_sel = (cfg.p_align == opt)
@@ -25664,10 +26363,10 @@ function DRAW_TABS.draw_settings()
     end
     y_cursor = y_cursor + S(50)
 
-    s_text(x_start, y_cursor, "Вирівнювання по вертикалі:")
+    s_text(x_start, y_cursor, T("V_ALIGNMENT"))
     y_cursor = y_cursor + S(25)
     local valign_options = {"top", "center", "bottom"}
-    local valign_labels = {"Вгорі", "Центр", "Внизу"}
+    local valign_labels = {T("TOP"), T("CENTER"), T("BOTTOM")}
     for i, opt in ipairs(valign_options) do
         local bx = x_start + ((i-1) * S(100))
         local is_sel = (cfg.p_valign == opt)
@@ -25680,7 +26379,7 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(50)
 
     -- Font Selection
-    s_text(x_start, y_cursor, "Шрифт:")
+    s_text(x_start, y_cursor, T("FONT_NAME"))
     y_cursor = y_cursor + S(25)
     local font_options = {"Arial", "Comic Sans MS", "Verdana", "Tahoma", "Helvetica"}
     local font_btn_w = S(110)
@@ -25698,16 +26397,16 @@ function DRAW_TABS.draw_settings()
     local is_preset = false
     for _, f in ipairs(font_options) do if f == cfg.p_font then is_preset = true break end end
     local font_btn_custom_w = (font_btn_w * 5) + S(40)
-    local d_name = not is_preset and cfg.p_font or "Свій..."
+    local d_name = not is_preset and cfg.p_font or T("CUSTOM_F")
     local btn_bg = (not is_preset) and UI.C_BTN_MEDIUM or UI.C_BTN
     if s_btn(x_start, y_cursor + S(40), font_btn_custom_w, S(30), d_name, nil, btn_bg) then
-        local ok, nf = reaper.GetUserInputs("Вибір шрифту", 1, "Назва шрифту:,extrawidth=200", cfg.p_font)
+        local ok, nf = reaper.GetUserInputs(T("C_A_FONT"), 1, T("FONT_NAME_EXT"), cfg.p_font)
         if ok and nf ~= "" then cfg.p_font = nf save_settings() end
     end
     y_cursor = y_cursor + S(85)
 
     -- Text Color
-    s_text(x_start, y_cursor, "Колір тексту:")
+    s_text(x_start, y_cursor, T("TEXT_COLOR"))
     y_cursor = y_cursor + S(25)
     y_cursor = y_cursor + draw_color_palette(x_start, text_palette, cfg.p_cr, cfg.p_cg, cfg.p_cb, function(r, g, b)
         cfg.p_cr, cfg.p_cg, cfg.p_cb = r, g, b
@@ -25718,15 +26417,15 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 8. НАСТУПНА РЕПЛІКА (Next Line)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "НАСТУПНА РЕПЛІКА")
+    s_section(y_cursor, T("NEXT_LINE"))
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Відображати наступну репліку", cfg.p_next, "Показувати текст наступної репліки під поточною.") then
+    if checkbox(x_start, y_cursor, T("DISPLAY_NEXT_LINE"), cfg.p_next, T("DISPLAY_NEXT_LINE_TIP")) then
         cfg.p_next = not cfg.p_next
         save_settings()
     end
     y_cursor = y_cursor + S(45)
     if cfg.p_next then
-        s_text(x_start + S(30), y_cursor, "Розмір шрифту: " .. cfg.n_fsize)
+        s_text(x_start + S(30), y_cursor, T("FONT_SIZE") .. cfg.n_fsize)
         if s_btn(x_start + S(175), y_cursor - S(10), S(30), S(30), "－") then
             cfg.n_fsize = math.max(10, cfg.n_fsize - 2)
             save_settings()
@@ -25738,7 +26437,7 @@ function DRAW_TABS.draw_settings()
         y_cursor = y_cursor + S(45)
         
         -- Next Line Height
-        s_text(x_start + S(30), y_cursor, string.format("Висота рядка: %.1f", cfg.n_lheight))
+        s_text(x_start + S(30), y_cursor, string.format(T("LINE_HEIGHT"), cfg.n_lheight))
         if s_btn(x_start + S(175), y_cursor - S(10), S(30), S(30), "－") then
             cfg.n_lheight = math.max(0.2, cfg.n_lheight - 0.1)
             save_settings()
@@ -25749,20 +26448,20 @@ function DRAW_TABS.draw_settings()
         end
         y_cursor = y_cursor + S(45)
         
-        if checkbox(x_start + S(30), y_cursor, "Завжди показувати (між регіонами)", cfg.always_next, "Наступна репліка не ховатиметься, коли немає активної.") then
+        if checkbox(x_start + S(30), y_cursor, T("ALWAYS_SHOW_NEXT_LINE"), cfg.always_next, T("ALWAYS_SHOW_NEXT_LINE_TIP")) then
             cfg.always_next = not cfg.always_next
             save_settings()
         end
         y_cursor = y_cursor + S(40)
 
-        if checkbox(x_start + S(30), y_cursor, "Відображати ДВІ наступні репліки", cfg.show_next_two, "Відображення відразу 2 наступних реплік в суфлері.") then
+        if checkbox(x_start + S(30), y_cursor, T("ALWAYS_SHOW_NEXT_2_LINE"), cfg.show_next_two, T("ALWAYS_SHOW_NEXT_2_LINE_TIP")) then
             cfg.show_next_two = not cfg.show_next_two
             save_settings()
         end
 
         y_cursor = y_cursor + S(40)
 
-        if checkbox(x_start + S(30), y_cursor, "Прикріпити до основної репліки", cfg.next_attach, "Наступна репліка не прикріплюватиметься до низу екрану, а буде під основною.") then
+        if checkbox(x_start + S(30), y_cursor, T("ATTACH_TO_MAIN_LINE"), cfg.next_attach, T("ATTACH_TO_MAIN_LINE_TIP")) then
             cfg.next_attach = not cfg.next_attach
             save_settings()
         end
@@ -25770,7 +26469,7 @@ function DRAW_TABS.draw_settings()
         y_cursor = y_cursor + S(45)
 
         if cfg.next_attach then
-            s_text(x_start + S(60), y_cursor, "Відступ до репліки: " .. cfg.next_padding)
+            s_text(x_start + S(60), y_cursor, T("INDENT_TO_LINE") .. cfg.next_padding)
             if s_btn(x_start + S(225), y_cursor - S(10), S(30), S(30), "－") then
                 cfg.next_padding = math.max(0, cfg.next_padding - 5)
                 save_settings()
@@ -25792,28 +26491,28 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 9. ПРАВКИ (Corrections)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ПРАВКИ")
+    s_section(y_cursor, T("RETAKES_UP"))
     y_cursor = y_cursor + S(35)
-    if checkbox(x_start, y_cursor, "Відображати правки", cfg.p_corr, "Показувати текст маркерів-правок між репліками.") then
+    if checkbox(x_start, y_cursor, T("DISPLAY_RETAKES"), cfg.p_corr, T("DISPLAY_RETAKES_TIP")) then
         cfg.p_corr = not cfg.p_corr
         save_settings()
     end
     y_cursor = y_cursor + S(45)
     if cfg.p_corr then
-        s_text(x_start + S(30), y_cursor, "Розмір шрифту: " .. cfg.c_fsize)
+        s_text(x_start + S(30), y_cursor, T("FONT_SIZE") .. cfg.c_fsize)
         if s_btn(x_start + S(175), y_cursor - S(10), S(30), S(30), "－") then
             cfg.c_fsize = math.max(10, cfg.c_fsize - 2)
-            update_prompter_fonts()
+            UTILS.update_prompter_fonts()
             save_settings()
         end
         if s_btn(x_start + S(210), y_cursor - S(10), S(30), S(30), "＋") then
             cfg.c_fsize = math.min(100, cfg.c_fsize + 2)
-            update_prompter_fonts()
+            UTILS.update_prompter_fonts()
             save_settings()
         end
         y_cursor = y_cursor + S(45)
         
-        s_text(x_start + S(30), y_cursor, string.format("Висота рядка: %.1f", cfg.c_lheight))
+        s_text(x_start + S(30), y_cursor, string.format(T("LINE_HEIGHT"), cfg.c_lheight))
         if s_btn(x_start + S(175), y_cursor - S(10), S(30), S(30), "－") then
             cfg.c_lheight = math.max(0.2, cfg.c_lheight - 0.1)
             save_settings()
@@ -25833,10 +26532,10 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 10. ТАБЛИЦЯ
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ТАБЛИЦЯ")
+    s_section(y_cursor, T("TABLE"))
     y_cursor = y_cursor + S(35)
 
-    s_text(x_start, y_cursor, "Колір активної репліки:")
+    s_text(x_start, y_cursor, T("COLOR_OF_A_LINE"))
     y_cursor = y_cursor + S(25)
     y_cursor = y_cursor + draw_color_palette(x_start, {{0.2, 0.9, 0.2}, {1.0, 1.0, 0.0}}, cfg.t_ar_r, cfg.t_ar_g, cfg.t_ar_b, function(r, g, b)
         cfg.t_ar_r, cfg.t_ar_g, cfg.t_ar_b = r, g, b
@@ -25845,7 +26544,7 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(20)
     set_color(UI.C_TXT)
 
-    s_text(x_start, y_cursor, string.format("Прозорість ар.: %.2f", cfg.t_ar_alpha))
+    s_text(x_start, y_cursor, string.format(T("TRANSPARENCY_OF_A_LINE"), cfg.t_ar_alpha))
     if s_btn(x_start + S(155), y_cursor - S(10), S(30), S(30), "－") then
         cfg.t_ar_alpha = math.max(0.05, cfg.t_ar_alpha - 0.05)
         save_settings()
@@ -25858,7 +26557,7 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(45)
 
     -- Alignment
-    s_text(x_start, y_cursor, "Розмір шрифту рядків:")
+    s_text(x_start, y_cursor, T("LINE_FONT_SIZE"))
     y_cursor = y_cursor + S(25)
     local text_size_options = {"tr_S", "tr_M", "tr_L", "tr_XL", "tr_XXL", "tr_XXXL"}
     local text_size_labels = {"S", "M", "L", "XL", "XXL", "XXXL"}
@@ -25875,7 +26574,7 @@ function DRAW_TABS.draw_settings()
 
     y_cursor = y_cursor + S(60)
     
-    if checkbox(x_start, y_cursor, "Відображати конфлікти Дабер-Персонаж", cfg.show_dubber_conflicts, "Показувати конфлікти між різними акторами/персонажами одного дабера (накладки та тісні паузи) у колонці 'Дабер'") then
+    if checkbox(x_start, y_cursor, T("DISPLAY_DC_CONFLICTS"), cfg.show_dubber_conflicts, T("DISPLAY_DC_CONFLICTS_TIP")) then
         cfg.show_dubber_conflicts = not cfg.show_dubber_conflicts
         if not cfg.show_dubber_conflicts then DUBBERS.conflicts = {} end
         DUBBERS.version = DUBBERS.version + 1
@@ -25884,7 +26583,7 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(45)
     
     if cfg.show_dubber_conflicts then
-        s_text(x_start + S(30), y_cursor, string.format("Поріг паузи: %.1fс", cfg.dubber_conflict_threshold), F.std, "Якщо пауза між репліками одного дабера (але різних персонажів) менша за цей поріг, то вони вважаються конфліктом")
+        s_text(x_start + S(30), y_cursor, string.format(T("PAUSE_THRESHOLD_ST"), cfg.dubber_conflict_threshold), F.std, T("PAUSE_THRESHOLD_ST_TIP"))
         if s_btn(x_start + S(225), y_cursor - S(10), S(30), S(30), "－") then
             cfg.dubber_conflict_threshold = math.max(0.1, cfg.dubber_conflict_threshold - 0.5)
             DUBBERS.version = DUBBERS.version + 1
@@ -25903,17 +26602,17 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 11. ЗАПИС ТА АВТО-ПІДРІЗАННЯ (Recording)
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ЗАПИС ТА АВТО-ПІДРІЗАННЯ")
+    s_section(y_cursor, T("RECORDING_A_TRIM"))
     y_cursor = y_cursor + S(35)
     
-    if checkbox(x_start, y_cursor, "Авто-підрізання щойно записаних реплік", cfg.auto_trim, "Автоматично підрізає початок та кінець щойно записаної репліки (аби прибрати кліки клавіатури)") then
+    if checkbox(x_start, y_cursor, T("AUTO_TRIM_T"), cfg.auto_trim, T("AUTO_TRIM_T_TIP")) then
         cfg.auto_trim = not cfg.auto_trim
         save_settings()
     end
     y_cursor = y_cursor + S(45)
     
     if cfg.auto_trim then
-        s_text(x_start + S(25), y_cursor, "Підрізати початок (мс): " .. cfg.trim_start, F.std)
+        s_text(x_start + S(25), y_cursor, T("TRIM_START_MS") .. cfg.trim_start, F.std)
         if s_btn(x_start + S(250), y_cursor - S(10), S(30), S(30), "－") then
             cfg.trim_start = math.max(0, cfg.trim_start - 10)
             save_settings()
@@ -25924,7 +26623,7 @@ function DRAW_TABS.draw_settings()
         end
         y_cursor = y_cursor + S(45)
         
-        s_text(x_start + S(25), y_cursor, "Підрізати кінець (мс): " .. cfg.trim_end, F.std)
+        s_text(x_start + S(25), y_cursor, T("TRIM_END_MS") .. cfg.trim_end, F.std)
         if s_btn(x_start + S(250), y_cursor - S(10), S(30), S(30), "－") then
             cfg.trim_end = math.max(0, cfg.trim_end - 10)
             save_settings()
@@ -25936,7 +26635,7 @@ function DRAW_TABS.draw_settings()
         y_cursor = y_cursor + S(40)
     end
 
-    if checkbox(x_start, y_cursor, "Перевіряти на перегруз (Clipping)", cfg.check_clipping, "Показувати попередження, якщо запис має піки 0dB або вище.") then
+    if checkbox(x_start, y_cursor, T("CLIPPING_WAN_T"), cfg.check_clipping, T("CLIPPING_WAN_T_TIP")) then
         cfg.check_clipping = not cfg.check_clipping
         save_settings()
     end
@@ -25945,7 +26644,7 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 12. НАЛАШТУВАННЯ СЛОВНИКІВ
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "СЛОВНИКИ")
+    s_section(y_cursor, T("DICTIONARIES_UPP"))
     y_cursor = y_cursor + S(35)
     
     local table_w = gfx.w - x_start - S(20)
@@ -25961,8 +26660,8 @@ function DRAW_TABS.draw_settings()
     -- Draw headers
     set_color(UI.C_TXT)
     gfx.setfont(F.std)
-    s_text(col1_x, y_cursor, "Імʼя словника")
-    s_text(col2_x, y_cursor, "Ключові слова активації")
+    s_text(col1_x, y_cursor, T("D_NAME_ST"))
+    s_text(col2_x, y_cursor, T("D_KEYWORDS_ST"))
     y_cursor = y_cursor + S(25)
     
     cfg.dict_auto_rules = cfg.dict_auto_rules or {}
@@ -25997,7 +26696,7 @@ function DRAW_TABS.draw_settings()
         local row_y = y_cursor
         
         -- Column 1: Dictionary selection (dropdown menu via gfx.showmenu)
-        local dict_name = "Виберіть словник..."
+        local dict_name = T("D_SELECT_D_ST")
         if rule.dict_id and rule.dict_id ~= "" then
             for _, d in ipairs(DICT.dicts) do
                 if d.id == rule.dict_id then
@@ -26019,7 +26718,7 @@ function DRAW_TABS.draw_settings()
                 table.insert(menu_parts, mark .. d.name)
             end
             if #menu_parts == 0 then
-                reaper.ShowMessageBox("Немає доступних користувацьких словників. Спочатку додайте їх Subass: Dictionary.", "Помилка", 0)
+                reaper.ShowMessageBox(T("D_SELECT_D_NOT_FOUNT_ST"), T("ERROR"), 0)
             else
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                 local ret = gfx.showmenu(table.concat(menu_parts, "|"))
@@ -26031,13 +26730,13 @@ function DRAW_TABS.draw_settings()
         end
         
         -- Column 2: Keywords selection button (opens reaper.GetUserInputs)
-        local display_terms = (rule.terms and rule.terms ~= "") and rule.terms or "Натисніть, щоб ввести умову активації..."
+        local display_terms = (rule.terms and rule.terms ~= "") and rule.terms or T("CLICK_D_SELECT_ST")
         display_terms = fit_text_width(display_terms, terms_w - S(20))
         
-        if s_btn(col2_x, row_y, terms_w, S(28), display_terms, "Введіть ключові слова які має мати імя файлу аби даний словник автоматично активувався") then
+        if s_btn(col2_x, row_y, terms_w, S(28), display_terms, T("CLICK_D_SELECT_ST_TIP")) then
             local current_terms = (rule.terms or ""):gsub(",", "; ")
             current_terms = current_terms:gsub(";%s+", "; "):gsub("^%s+", ""):gsub("%s+$", "")
-            local ret, csv = reaper.GetUserInputs("Ключові слова в імені файлу для автоактивації", 1, "Список слів (через ; або ,):,extrawidth=500", current_terms)
+            local ret, csv = reaper.GetUserInputs(T("CLICK_D_SELECT_DIALOG_ST_1"), 1, T("CLICK_D_SELECT_DIALOG_ST_2"), current_terms)
             if ret then
                 -- Convert semicolons back to commas and trim spaces
                 local clean_csv = csv:gsub(";", ","):gsub(",+", ","):gsub("%s*,%s*", ",")
@@ -26050,8 +26749,8 @@ function DRAW_TABS.draw_settings()
         -- Column 3: Delete button (only show for active rules, hide for the placeholder row)
         local is_placeholder = (rule.dict_id == "" and rule.terms == "")
         if not is_placeholder then
-            if s_btn(col3_x, row_y, del_w, S(28), "X", "Видалити це правило", UI.C_FR_CLOSE) then
-                if reaper.ShowMessageBox("Ви дійсно хочете видалити це правило автоактивації словника?", "Підтвердження", 4) == 6 then
+            if s_btn(col3_x, row_y, del_w, S(28), "X", T("DELETE_THE_RULE"), UI.C_FR_CLOSE) then
+                if reaper.ShowMessageBox(T("DELETE_D_RULE_D_T"), T("CONFIRMATION"), 4) == 6 then
                     rule_to_delete = idx
                 end
             end
@@ -26070,7 +26769,7 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 13. НАЛАШТУВАННЯ ДАБЕРІВ
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ДАБЕРИ")
+    s_section(y_cursor, T("DUBBERS_UPP"))
     y_cursor = y_cursor + S(35)
     
     cfg.dubber_char_rules = cfg.dubber_char_rules or {}
@@ -26082,7 +26781,7 @@ function DRAW_TABS.draw_settings()
     end
     table.sort(project_names)
     
-    s_text(x_start, y_cursor, "Проєкти:")
+    s_text(x_start, y_cursor, T("PROJECTS_ST"))
     y_cursor = y_cursor + S(25)
     
     local start_x = x_start
@@ -26104,7 +26803,7 @@ function DRAW_TABS.draw_settings()
         local is_sel = (cfg.dubber_project_selected == p_name)
         local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
         
-        if s_btn(current_x, y_cursor, btn_w, S(30), p_name, "Натисніть, щоб вибрати проєкт. Правий клік для перейменування/видалення.", btn_bg) then
+        if s_btn(current_x, y_cursor, btn_w, S(30), p_name, T("PROJECT_D_ST_TIP"), btn_bg) then
             cfg.dubber_project_selected = p_name
             save_settings()
         end
@@ -26126,7 +26825,7 @@ function DRAW_TABS.draw_settings()
                 end
             end
             
-            local import_prefix = #other_projects > 0 and ">Імпортувати з" or "#>Імпортувати з"
+            local import_prefix = #other_projects > 0 and T("IMPORT_FROM_ST") or "#" .. T("IMPORT_FROM_ST")
             local import_items = ""
             for _, op_name in ipairs(other_projects) do
                 import_items = import_items .. "|" .. op_name
@@ -26137,15 +26836,15 @@ function DRAW_TABS.draw_settings()
             --   (>Імпортувати з is structural — NOT counted in ret)
             --   2..1+N   = source project names (N = #other_projects)
             --   2+N      = Видалити проєкт
-            local menu_str = "Перейменувати проєкт|" .. import_prefix .. import_items .. "|<|Видалити проєкт"
+            local menu_str = T("RENAME_THE_PROJECT") .. "|" .. import_prefix .. import_items .. "|<|" .. T("DELETE_THE_PROJECT")
             local ret = gfx.showmenu(menu_str)
             
             if ret == 1 then
-                local ok, new_name = reaper.GetUserInputs("Перейменувати проєкт", 1, "Нова назва проєкта:", p_name)
+                local ok, new_name = reaper.GetUserInputs(T("RENAME_THE_PROJECT"), 1, T("NEW_PROJECT_NAME"), p_name)
                 if ok and new_name ~= "" then
                     new_name = new_name:match("^%s*(.-)%s*$")
                     if cfg.dubber_char_rules[new_name] then
-                        reaper.ShowMessageBox("Проєкт з такою назвою вже існує!", "Помилка", 0)
+                        reaper.ShowMessageBox(T("PROJECT_NAME_A_EXISTS"), T("ERROR"), 0)
                     else
                         cfg.dubber_char_rules[new_name] = cfg.dubber_char_rules[p_name]
                         cfg.dubber_char_rules[p_name] = nil
@@ -26179,12 +26878,12 @@ function DRAW_TABS.draw_settings()
                 cfg.dubber_char_rules[p_name] = dst_rules
                 save_settings()
                 if added > 0 then
-                    show_snackbar("Імпортовано " .. added .. " правил з '" .. src_name .. "'", "success")
+                    show_snackbar(T("IM_RULES_ST_SN_1") .. added .. T("IM_RULES_ST_SN_2") .. src_name .. "'", "success")
                 else
-                    show_snackbar("Немає нових правил для імпорту з '" .. src_name .. "'", "info")
+                    show_snackbar(T("NO_NEW_RULE_IMPORT") .. src_name .. "'", "info")
                 end
             elseif ret >= (2 + #other_projects) then
-                if reaper.ShowMessageBox("Ви дійсно хочете видалити проєкт '" .. p_name .. "'?", "Підтвердження", 4) == 6 then
+                if reaper.ShowMessageBox(T("SURE_TO_DELETE_ST_PJ") .. p_name .. "'?", T("CONFIRMATION"), 4) == 6 then
                     cfg.dubber_char_rules[p_name] = nil
                     if cfg.dubber_project_selected == p_name then
                         local next_proj = nil
@@ -26210,12 +26909,12 @@ function DRAW_TABS.draw_settings()
         y_cursor = y_cursor + S(40)
     end
     
-    if s_btn(current_x, y_cursor, add_btn_w, S(30), "＋", "Додати новий проєкт") then
-        local ok, p_name = reaper.GetUserInputs("Новий проєкт", 1, "Назва проєкта:", "")
+    if s_btn(current_x, y_cursor, add_btn_w, S(30), "＋", T("ADD_A_NEW_PROJECT")) then
+        local ok, p_name = reaper.GetUserInputs(T("NEW_PROJECT"), 1, T("PROJECT_TITLE_ST"), "")
         if ok and p_name ~= "" then
             p_name = p_name:match("^%s*(.-)%s*$")
             if cfg.dubber_char_rules[p_name] then
-                reaper.ShowMessageBox("Проєкт з такою назвою вже існує!", "Помилка", 0)
+                reaper.ShowMessageBox(T("PROJECT_NAME_A_EXISTS"), T("ERROR"), 0)
             else
                 cfg.dubber_char_rules[p_name] = {}
                 cfg.dubber_project_selected = p_name
@@ -26241,8 +26940,8 @@ function DRAW_TABS.draw_settings()
         -- Draw headers
         set_color(UI.C_TXT)
         gfx.setfont(F.std)
-        s_text(col1_x, y_cursor, "Імʼя дабера")
-        s_text(col2_x, y_cursor, "Закріплені персонажі / актори")
+        s_text(col1_x, y_cursor, T("DUBBER_NAME"))
+        s_text(col2_x, y_cursor, T("DUBBER_CAST_ACTORS"))
         y_cursor = y_cursor + S(25)
         
         -- Clean up empty rules and ensure exactly one empty rule exists at the end
@@ -26277,12 +26976,12 @@ function DRAW_TABS.draw_settings()
             local row_y = y_cursor
             
             -- Column 1: Dubber Name input
-            local display_dubber = (rule.dubber_name and rule.dubber_name ~= "") and rule.dubber_name or "Натисніть, щоб ввести..."
+            local display_dubber = (rule.dubber_name and rule.dubber_name ~= "") and rule.dubber_name or T("CLICK_TO_ENTER")
             display_dubber = fit_text_width(display_dubber, dubber_w - S(20))
             
-            if s_btn(col1_x, row_y, dubber_w, S(28), display_dubber, "Введіть ім'я дабера або \"<all>\" (для всіх даберів)") then
+            if s_btn(col1_x, row_y, dubber_w, S(28), display_dubber, T("ENTER_NAME_DUBBER")) then
                 local current_name = rule.dubber_name or ""
-                local ret, text = reaper.GetUserInputs("Ім'я дабера", 1, "Ім'я дабера:,extrawidth=200", current_name)
+                local ret, text = reaper.GetUserInputs(T("DUBBER_NAME"), 1, T("DUBBER_NAME") .. ":,extrawidth=200", current_name)
                 if ret then
                     rule.dubber_name = text:match("^%s*(.-)%s*$")
                     save_settings()
@@ -26290,13 +26989,13 @@ function DRAW_TABS.draw_settings()
             end
             
             -- Column 2: Characters selection button
-            local display_chars = (rule.chars and rule.chars ~= "") and rule.chars or "Натисніть, щоб ввести персонажів..."
+            local display_chars = (rule.chars and rule.chars ~= "") and rule.chars or T("CLICK_TO_ENTER_ACTORS")
             display_chars = fit_text_width(display_chars, chars_w - S(20))
             
-            if s_btn(col2_x, row_y, chars_w, S(28), display_chars, "Введіть персонажів які закріплені за дабером, щоб одним кліком їх назначити в вікні \"Розподіл по даберам\"") then
+            if s_btn(col2_x, row_y, chars_w, S(28), display_chars, T("CLICK_TO_ENTER_ACTORS_TIP")) then
                 local current_chars = (rule.chars or ""):gsub(",", "; ")
                 current_chars = current_chars:gsub(";%s+", "; "):gsub("^%s+", ""):gsub("%s+$", "")
-                local ret, csv = reaper.GetUserInputs("Персонажі закріплені за дабером", 1, "Список персонажів (через ; або ,):,extrawidth=500", current_chars)
+                local ret, csv = reaper.GetUserInputs(T("C_ASSIGNED_TO_DUBBER_1"), 1, T("C_ASSIGNED_TO_DUBBER_2"), current_chars)
                 if ret then
                     local clean_csv = csv:gsub(";", ","):gsub(",+", ","):gsub("%s*,%s*", ",")
                     clean_csv = clean_csv:gsub("^,", ""):gsub(",$", "")
@@ -26308,8 +27007,8 @@ function DRAW_TABS.draw_settings()
             -- Column 3: Delete button
             local is_placeholder = (rule.dubber_name == "" and rule.chars == "")
             if not is_placeholder then
-                if s_btn(col3_x, row_y, del_w, S(28), "X", "Видалити це правило", UI.C_FR_CLOSE) then
-                    if reaper.ShowMessageBox("Ви дійсно хочете видалити це правило закріплення персонажів?", "Підтвердження", 4) == 6 then
+                if s_btn(col3_x, row_y, del_w, S(28), "X", T("DELETE_THE_RULE"), UI.C_FR_CLOSE) then
+                    if reaper.ShowMessageBox(T("C_ASSIGNED_TO_DUBBER_SURE"), T("CONFIRMATION"), 4) == 6 then
                         dub_to_delete = idx
                     end
                 end
@@ -26327,7 +27026,7 @@ function DRAW_TABS.draw_settings()
         -- Draw placeholder if no active project exists
         set_color(UI.C_TXT)
         gfx.setfont(F.std)
-        s_text(x_start, y_cursor, "Немає активного проєкту. Створіть проєкт за допомогою кнопки '+' вище.")
+        s_text(x_start, y_cursor, T("NO_ACTIVE_PROJ"))
         y_cursor = y_cursor + S(35)
     end
     y_cursor = y_cursor + S(25)
@@ -26335,11 +27034,11 @@ function DRAW_TABS.draw_settings()
     -- ═══════════════════════════════════════════
     -- 14. ІНШЕ
     -- ═══════════════════════════════════════════
-    s_section(y_cursor, "ІНШЕ")
+    s_section(y_cursor, T("OTHER_UPP"))
     y_cursor = y_cursor + S(35)
 
     -- Alignment
-    s_text(x_start, y_cursor, "Розмір шрифту модального вікна редагування:")
+    s_text(x_start, y_cursor, T("FONT_SIZE_MODAL"))
     y_cursor = y_cursor + S(25)
     for i, opt in ipairs(text_size_options) do
         local bx = x_start + ((i-1) * S(70))
@@ -26354,7 +27053,7 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(60)
 
     -- Alignment
-    s_text(x_start, y_cursor, "Розмір шрифту нижньої панелі редагування:")
+    s_text(x_start, y_cursor, T("FONT_SIZE_BOTTOM_BAR"))
     y_cursor = y_cursor + S(25)
     for i, opt in ipairs(text_size_options) do
         local bx = x_start + ((i-1) * S(70))
@@ -26368,11 +27067,11 @@ function DRAW_TABS.draw_settings()
 
     y_cursor = y_cursor + S(60)
     
-    s_text(x_start, y_cursor, "Двигун та голос для озвучення:", F.std, "Провайдер і голос для озвучення")
+    s_text(x_start, y_cursor, T("PROVIDER_AND_VOICE"), F.std)
     y_cursor = y_cursor + S(25)
 
     local tts_btn_w = S(240)
-    local cur_voice = cfg.tts_voice or "Горох: Оксана (Wavenet)"
+    local cur_voice = cfg.tts_voice or "Goroh: Оксана (Wavenet)"
     
     if s_btn(x_start, y_cursor, tts_btn_w, S(30), cur_voice) then        
         local menu_parts = {}
@@ -26387,14 +27086,14 @@ function DRAW_TABS.draw_settings()
             save_settings()
             
             -- Auto-preview on choice
-            play_tts_audio("Широка доро́га, дорога́ як пам'ять")
+            play_tts_audio(cfg.lng == "ua" and "Широка доро́га, дорога́ як пам'ять" or "Hello world")
         end
     end
     y_cursor = y_cursor + S(80)
 
     -- Footer
     set_color(UI.C_TXT)
-    local footer_txt = "Відкрити \"Політику конфіденційності\""
+    local footer_txt = T("OPEN_PRIVACY_POLICY")
     s_text(x_start, y_cursor, footer_txt, F.std)
 
     -- Click handler
@@ -26422,18 +27121,18 @@ local function get_sort_value(item, col, is_ass)
     local txt = item.text or item.name or ""
     local actor = item.actor or ""
     
-    if col == "Ак." or col == "enabled" then return (item.enabled ~= false and 1 or 0) end
-    if col == "Початок" or col == "start" then return t1 end
-    if col == "Кінець" or col == "end" then return t2 end
+    if col == T("TABLE_COLUMN_ACTIVE") or col == "enabled" then return (item.enabled ~= false and 1 or 0) end
+    if col == T("START") or col == "start" then return t1 end
+    if col == T("END") or col == "end" then return t2 end
     if col == "CPS" or col == "cps" then
         local dur = t2 - t1
         local clean = txt:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("%s+", ""):gsub(acute, "")
         local chars = utf8.len(clean) or #clean
         return dur > 0 and (chars / dur) or 0
     end
-    if col == "Актор" or col == "actor" then return utf8_lower(actor) end
-    if col == "Дабер" or col == "dubber" then return utf8_lower(item.dubber or "") end
-    if col == "Репліка" or col == "text" then return utf8_lower(txt) end
+    if col == T("ACTOR") or col == "actor" then return utf8_lower(actor) end
+    if col == T("DABBER") or col == "dubber" then return utf8_lower(item.dubber or "") end
+    if col == T("LINE") or col == "text" then return utf8_lower(txt) end
     
     return 0
 end
@@ -26582,7 +27281,7 @@ local function delete_actor_globally(name)
             end
 
             -- SetProjectMarker ignores empty strings, so fallback to a space if empty
-            if new_text == "" then new_text = "_пусто_" end
+            if new_text == "" then new_text = T("EMPTY_ACT_GLB") end
             
             reaper.SetProjectMarker4(0, markindex, isrgn, pos, rgnend, new_text, 0, 0)
             count = count + 1
@@ -26678,19 +27377,19 @@ end
 --- Helper to export markers to CSV
 function UTILS.export_markers_to_csv(markers, deadline_str)
     if not reaper.JS_Dialog_BrowseForSaveFile then
-        local msg = "Для роботи експорту необхідне розширення JS_ReaScriptAPI.\n\n"
+        local msg = T("NEED_JS_REA_1")
         local has_reapack = reaper.ReaPack_GetOwner ~= nil
         if not has_reapack then
-            msg = msg .. "1. Встановіть ReaPack (reapack.com)\n2. Перезавантажте REAPER\n3. Встановіть JS_ReaScriptAPI через ReaPack"
+            msg = msg .. T("NEED_JS_REA_2")
         else
-            msg = msg .. "Будь ласка, встановіть 'JS_ReaScriptAPI' через Extensions -> ReaPack -> Browse packages. (потім перезавантажте REAPER)"
+            msg = msg .. T("NEED_JS_REA_3")
         end
-        reaper.MB(msg, "Відсутні компоненти", 0)
+        reaper.MB(msg, T("MISSIBG_COMPONENTS"), 0)
         return
     end
 
     if #markers == 0 then
-        show_snackbar("Немає правок для експорту", "info")
+        show_snackbar(T("NO_ACTIVE_2"), "info")
         return
     end
 
@@ -26701,20 +27400,20 @@ function UTILS.export_markers_to_csv(markers, deadline_str)
         proj_name = proj_path:match("([^/\\%s]+)%.[Rr][Pp][Pp]$") or proj_name
     end
     
-    local default_filename = proj_name .. "_правки.csv"
+    local default_filename = proj_name .. T("EXPORT_RETAKES_FILE_EXT")
     if deadline_str then
-        default_filename = deadline_str .. " " .. proj_name .. "_правки.csv"
+        default_filename = deadline_str .. " " .. proj_name .. T("EXPORT_RETAKES_FILE_EXT")
     end
 
     -- Відкриваємо діалог збереження файлу
-    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile("Зберегти маркери як CSV", "", default_filename, "CSV files (.csv)\0*.csv\0All Files (*.*)\0*.*\0")
+    local retval, filename = reaper.JS_Dialog_BrowseForSaveFile(T("EXPORT_RETAKES_TITLE"), "", default_filename, "CSV files (.csv)\0*.csv\0All Files (*.*)\0*.*\0")
     
     if retval == 1 and filename ~= "" then
         if not filename:match("%.csv$") then filename = filename .. ".csv" end
         
         local file = io.open(filename, "w")
         if not file then
-            reaper.ShowMessageBox("Не вдалося створити файл: " .. filename, "Помилка", 0)
+            reaper.ShowMessageBox(T("FAILED_TO_CREATE_FILE") .. filename, T("ERROR"), 0)
             return
         end
         
@@ -26751,11 +27450,11 @@ function UTILS.export_markers_to_csv(markers, deadline_str)
         file:close()
 
         if exported_count > 0 then
-            show_snackbar("Експортовано " .. exported_count .. " правок у CSV", "success")
+            show_snackbar(T("EXPORTED_1") .. exported_count .. T("EXPORTED_4"), "success")
             ACHIEVEMENTS.add_stat("ach_8_export_count", 1)
             ACHIEVEMENTS.add_stat("ach_8_corr_item_count", exported_count)
         else
-            show_snackbar("Немає правок для експорту (всі ігноровані)", "info")
+            show_snackbar(T("NO_ACTIVE_4"), "info")
         end
     end
 end
@@ -26763,7 +27462,7 @@ end
 function UTILS.copy_markers_to_clipboard(markers, filter_actors)
     if #markers > 0 then
         local groups = {}
-        local no_actor_key = "-- без актора --"
+        local no_actor_key = T("NO_RETAKES_DUBBER")
         local actors_list = {} -- Keep track of actors found for sorting
         local seen_actors = {}
         local total_filtered = 0
@@ -26831,7 +27530,7 @@ function UTILS.copy_markers_to_clipboard(markers, filter_actors)
         end
 
         if total_filtered == 0 then
-            show_snackbar("Немає правок для вибраних акторів", "info")
+            show_snackbar(T("NO_ACTIVE_5"), "info")
             return
         end
 
@@ -26858,12 +27557,12 @@ function UTILS.copy_markers_to_clipboard(markers, filter_actors)
         end
         
         set_clipboard(table.concat(out_lines, "\n"))
-        show_snackbar("Скопійовано " .. total_filtered .. " правок", "success")
+        show_snackbar(T("COPIED") .. " " .. total_filtered .. T("RETAKES_COPY_END"), "success")
 
         ACHIEVEMENTS.add_stat("ach_8_export_count", 1)
         ACHIEVEMENTS.add_stat("ach_8_corr_item_count", total_filtered)
     else
-        show_snackbar("Немає правок для копіювання", "info")
+        show_snackbar(T("NO_ACTIVE_6"), "info")
     end
 end
 
@@ -26989,7 +27688,6 @@ function UTILS.get_ass_lines_in_range(t1, t2)
 
     return list
 end
-
 
 --- Find all speaking character names at a specific project time.
 --- Uses a pre-sorted index + binary search so cost is O(log n + k) per unique
@@ -27408,19 +28106,19 @@ size > 0 ? (
         end
     end
 
-    reaper.Undo_EndBlock("Інтегрувати трек правок", -1)
+    reaper.Undo_EndBlock(T("CREATE_RETAKES_TRACK"), -1)
     reaper.UpdateArrange()
 end
 
 local function show_panel_preset_dialog(panel_type, idx)
     local is_new = (idx == nil)
     local target_presets = (panel_type == "director") and cfg.director_presets or cfg.fmt_presets
-    local panel_name = (panel_type == "director") and "Режисер" or "Редактор"
+    local panel_name = (panel_type == "director") and T("DIRECTOR") or T("EDITOR")
     
     local preset = not is_new and target_presets[idx] or {label="", val=""}
     
-    local ok, ret = reaper.GetUserInputs(is_new and ("Додати пресет (" .. panel_name .. ")") or ("Редагувати пресет (" .. panel_name .. ")"), 2, 
-        "Назва (3 симв),Вміст" .. (panel_type == "editor" and " (... для виділення)" or "") .. ",extrawidth=250", 
+    local ok, ret = reaper.GetUserInputs(is_new and (T("ADD_RESET_M") .. panel_name .. ")") or (T("EDIT_RESET_M") .. panel_name .. ")"), 2, 
+        T("EDIT_PRESET_MENU_T_1") .. (panel_type == "editor" and T("EDIT_PRESET_MENU_T_2") or "") .. ",extrawidth=250", 
         preset.label .. "," .. preset.val)
     
     if ok then
@@ -27616,10 +28314,10 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
     local function draw_options_menu()
         if not calc_only and draw_actor_btn_inline(opt_x, opt_draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
             local dock_check = gfx.dock(-1) > 0 and "!" or ""
-            local layout_label = (cfg.director_layout == "right") and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
+            local layout_label = (cfg.director_layout == "right") and T("DOCK_BOTTOM") or T("DOCK_RIGHT")
             local autofill_check = cfg.director_autofill and "• " or ""
             local ignore_green_check = cfg.director_ignore_green and "• " or ""
-            local menu_str = "Копіювати всі правки в буфер||>Експортувати правки в CSV|Просто експорт|Експорт з дедлайном|<|Імпортувати імена акторів з субтитрів||" .. autofill_check .. "Автоматично підставляти ім'я дабера|" .. ignore_green_check .. "Ігнорувати копіювання зелених правок|Інтегрувати трек правок||" .. layout_label .. "|Закрити вікно"
+            local menu_str = T("COPY_ALL_RETAKES_TO_CB") .. "||>" .. T("EXPORT_RETAKES_TO_CSV") .. "|" .. T("EXPORT_DUBBER_MENU") .. "|<|" .. T("IMPORT_ACTOR_NAMES_FROM_SB") .. "||" .. autofill_check .. T("AUTOMATICALLY_SELECT_DUBBER_NAME") .. "|" .. ignore_green_check .. T("IGNORE_COPY_GREEN_RETAKES") .. "|" .. T("CREATE_RETAKES_TRACK") .. "||" .. layout_label .. "|" .. T("CLOSE_WINDOW")
             
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu(menu_str)
@@ -27648,11 +28346,11 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                 
                 local names_to_import = {}
                 local names_to_update = {}
-                local source_label = "субтитрів"
+                local source_label = T("SUBTITLES")
                 
                 -- Try Dubbers first
                 if DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0 then
-                    source_label = "розподілу по Даберам"
+                    source_label = T("DB_FROM_DUBBERS_MENU_1")
                     for _, name in ipairs(DUBBERS.data.names) do
                         if name ~= "" and not existing[name] then
                             table.insert(names_to_import, name)
@@ -27679,12 +28377,12 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                 
                 local count = #names_to_import
                 if count > 0 then
-                    push_undo("Імпортувати імена акторів з " .. source_label .. " (" .. count .. ")")
+                    push_undo(T("IMPORT_ACTORS_NAMES_1") .. source_label .. " (" .. count .. ")")
                     for _, name in ipairs(names_to_import) do
                         table.insert(director_actors, name)
                     end
 
-                    if source_label == "субтитрів" then
+                    if source_label == T("SUBTITLES") then
                         for _, name in ipairs(names_to_update) do
                             director_state.region_actor_to_dubber[name] = name
                         end
@@ -27694,9 +28392,9 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                     UTILS.sync_dubbers_to_director(director_state.region_actor_to_dubber)
                     save_project_data(UI_STATE.last_project_id)
                     reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
-                    show_snackbar("Імпортовано " .. count .. " імен з " .. source_label, "success")
+                    show_snackbar(T("IMPORTED_FROM_DD_EXT_1") .. count .. T("IMPORTED_FROM_DD_EXT_2") .. source_label, "success")
                 else
-                    show_snackbar("Нових імен не знайдено", "info")
+                    show_snackbar(T("NO_NEW_NAMES_FOUND"), "info")
                 end
             elseif ret == 5 then
                 -- Toggle Autofill
@@ -27875,10 +28573,10 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                 local has_multiple_selected = (#sel_list > 1)
 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str2 = "Копіювати правки для: " .. actor .. "||Змінити ім'я|Видалити ім'я"
+                local menu_str2 = T("COPY_RETAKES_FOR") .. actor .. "||" .. T("CHANGE_NAME") .. "|" .. T("REMOVE_NAME")
                 
                 if has_multiple_selected then
-                    menu_str2 = menu_str2 .. "||Видалити вибрані імена (" .. #sel_list .. ")|Копіювати правки вибраних імен (" .. #sel_list .. ")"
+                    menu_str2 = menu_str2 .. "||" .. T("DELETE_SELECTED_NAMES") .. " (" .. #sel_list .. ")|" .. T("COPY_RETAKES_FOR_SELECTED") .. " (" .. #sel_list .. ")"
                 end
                 
                 local ret2 = gfx.showmenu(menu_str2)
@@ -27887,7 +28585,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                     UTILS.copy_markers_to_clipboard(ass_markers, {[actor] = true})
                 elseif ret2 == 2 then
                     -- RENAME
-                    local ok, new_name = reaper.GetUserInputs("Змінити ім'я актора", 1, "Нове ім'я:", actor)
+                    local ok, new_name = reaper.GetUserInputs(T("CHANGE_ACTOR_NAME"), 1, T("NEW_NAME"), actor)
                     if ok then
                         -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
                         new_name = new_name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
@@ -27900,7 +28598,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                             end
                             
                             if target_exists then
-                                push_undo("Об'єднати актора '" .. actor .. "' з '" .. new_name.. "' (Режисер)")
+                                push_undo(T("MERGE_EDITOR_U_1") .. actor .. T("MERGE_EDITOR_U_2") .. new_name.. T("MERGE_EDITOR_U_3"))
                                 table.remove(director_actors, i)
                                 save_project_data(UI_STATE.last_project_id)
                                 reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
@@ -27924,9 +28622,9 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                                     director_state.input.anchor = director_state.input.cursor
                                 end
 
-                                show_snackbar("Об'єднано з '" .. new_name .. "' (" .. ops .. " змін) (Режисер)", "success")
+                                show_snackbar(T("MERGE_EDITOR_SS_1") .. new_name .. "' (" .. ops .. T("MERGE_EDITOR_SS_2"), "success")
                             else
-                                push_undo("Змінити ім'я актора " .. actor .. " -> " .. new_name)
+                                push_undo(T("CHANGE_ACTOR_NAME") .. " " .. actor .. " -> " .. new_name)
                                 director_actors[i] = new_name
                                 save_project_data(UI_STATE.last_project_id)
                                 reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
@@ -27950,15 +28648,15 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                                     director_state.input.anchor = director_state.input.cursor
                                 end
 
-                                show_snackbar("Змінено ім'я у '" .. ops .. "' місцях (Режисер)", "success")
+                                show_snackbar(T("MERGE_EDITOR_CN_1") .. ops .. T("MERGE_EDITOR_CN_2"), "success")
                             end
                         end
                     end
                 elseif ret2 == 3 then
                     -- DELETE
-                    local ok = reaper.MB("Ви дійсно хочете видалити ім'я актора '" .. actor .. "'? Це видалить його префікс з усіх правок, але не самі правки.", "Підтвердження", 4)
+                    local ok = reaper.MB(T("REMOVE_RETAKE_NAME_CM_1") .. actor .. T("REMOVE_RETAKE_NAME_CM_2"), T("CONFIRMATION"), 4)
                     if ok == 6 then
-                        push_undo("Видалити актора '" .. actor .. "' (Режисер)")
+                        push_undo(T("REMOVE_RETAKE_NAME_U_2_1") .. actor .. T("REMOVE_RETAKE_NAME_U_2_2"))
                         table.remove(director_actors, i)
                         save_project_data(UI_STATE.last_project_id)
                         reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
@@ -27986,14 +28684,14 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                             director_state.input.anchor = director_state.input.cursor
                         end
                         
-                        show_snackbar("Видалено актора та '" .. ops .. "' префіксів (Режисер)", "info")
+                        show_snackbar(T("REMOVE_RETAKE_NAME_S_2_1") .. ops .. T("REMOVE_RETAKE_NAME_S_2_2"), "info")
                     end
                 elseif ret2 == 4 and has_multiple_selected then
                     -- BULK DELETE SELECTED
                     local names_list = table.concat(sel_list, ", ")
-                    local ok = reaper.MB("Ви дійсно хочете видалити ВСІХ вибраних акторів (" .. #sel_list .. ")?\n\nАктори: " .. names_list .. "\n\nЇх префікси будуть видалені з усіх правок.", "Підтвердження", 4)
+                    local ok = reaper.MB(T("REMOVE_AR_SURE_MANY_1") .. #sel_list .. T("REMOVE_AR_SURE_MANY_2") .. names_list .. T("REMOVE_AR_SURE_MANY_3"), T("CONFIRMATION"), 4)
                     if ok == 6 then
-                        push_undo("Видалити " .. #sel_list .. " вибраних акторів (Режисер)")
+                        push_undo(T("REMOVE_SA_PU_1") .. #sel_list .. T("REMOVE_SA_PU_2"))
                         
                         local total_ops = 0
                         local to_remove_indices = {}
@@ -28032,7 +28730,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                         director_state.input.cursor = #director_state.input.text
                         director_state.input.anchor = director_state.input.cursor
                         
-                        show_snackbar("Видалено " .. #sel_list .. " акторів та '" .. total_ops .. "' префіксів", "info")
+                        show_snackbar(T("REMOVE_SS_PU_1") .. #sel_list .. T("REMOVE_SS_PU_2") .. total_ops .. T("REMOVE_SS_PU_3"), "info")
                     end
                 elseif ret2 == 5 and has_multiple_selected then
                     -- COPY SELECTED ACTORS
@@ -28077,7 +28775,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
         if sdraw_y_plus + btn_h > panel_y and sdraw_y_plus < actor_area_bottom then
             if draw_btn_clipped(draw_x, sdraw_y_plus, S(24), btn_h, "+", UI.C_ACCENT_N, panel_y, actor_area_bottom) then
                 if not is_opt_hover then
-                    local ok, name = reaper.GetUserInputs("Додати актора (Режисер)", 1, "Ім'я актора:", "")
+                    local ok, name = reaper.GetUserInputs(T("ADD_AN_ACTOR_DIRECTOR"), 1, T("ACTORS_NAME"), "")
                     if ok then
                         -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
                         name = name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
@@ -28090,7 +28788,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                             end
                             
                             if not exists then
-                                push_undo("Додати актора '" .. name .. "' (Режисер)")
+                                push_undo(T("ADD_AN_ACTOR_SS_DIRECTOR_1") .. name .. T("ADD_AN_ACTOR_SS_DIRECTOR_2"))
                                 table.insert(director_actors, name)
                                 save_project_data(UI_STATE.last_project_id)
                                 reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
@@ -28205,7 +28903,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                     if is_right_mouse_clicked() then
                         UI_STATE.mouse_handled = true
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                        local menu_str = "Редагувати пресет|Видалити пресет||" .. (i > 1 and "" or "#") .. "Перемістити вліво|" .. (i < #cfg.director_presets and "" or "#") .. "Перемістити вправо"
+                        local menu_str = T("EDIT_DELETE_PRESET_MENU") .. (i > 1 and "" or "#") .. T("PRESET_MOVE_LEFT_MENU") .. (i < #cfg.director_presets and "" or "#") .. T("PRESET_MOVE_RIGHT_MENU")
                         local sel = gfx.showmenu(menu_str)
                         if sel == 1 then show_panel_preset_dialog("director", i)
                         elseif sel == 2 then table.remove(cfg.director_presets, i) save_settings()
@@ -28232,7 +28930,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                     UI_STATE.tooltip_state.hover_id = tip_id
                     UI_STATE.tooltip_state.start_time = reaper.time_precise()
                 end
-                UI_STATE.tooltip_state.text = "Додати новий пресет"
+                UI_STATE.tooltip_state.text = T("ADD_NEW_PRESET")
             end
         end
     end
@@ -28253,7 +28951,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
         local base_sz = OTHER.FONT_SIZES.normal[cfg.t_corr_size]
         gfx.setfont(corr_font, cfg.p_font, S(base_sz or 18))
         
-        ui_text_input("director", input_draw_x, input_draw_y, input_w, input_h, director_state.input, "Введіть текст правки...", input_queue, true, true, corr_font)
+        ui_text_input("director", input_draw_x, input_draw_y, input_w, input_h, director_state.input, T("ENTER_RETAKE_TEXT"), input_queue, true, true, corr_font)
     
         -- Check for changes to highlight button
         local has_changes = false
@@ -28267,10 +28965,10 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
 
         local is_empty = (director_state.input.text == "")
         local save_col = has_changes and (director_state.last_marker_id and UI.C_BTN_UPDATE or UI.C_BTN_MEDIUM) or UI.C_BTN
-        local save_label = director_state.last_marker_id and "Оновити" or "Зберегти"
+        local save_label = director_state.last_marker_id and T("UPDATE") or T("SAVE")
         
         if director_state.last_marker_id and is_empty then
-            save_label = "Видалити"
+            save_label = T("DELETE")
             save_col = UI.C_BTN_ERROR
         end
         
@@ -28286,7 +28984,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
         local function save_director_changes()
             local txt = director_state.input.text
             if txt == "" and director_state.last_marker_id then
-                push_undo("Видалити правку (Режисер)")
+                push_undo(T("DELETE_RETAKE_UNDO"))
                 reaper.DeleteProjectMarker(0, director_state.last_marker_id, false)
                 ass_markers = capture_project_markers()
                 update_regions_cache()
@@ -28298,7 +28996,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                 
                 director_state.last_marker_id = nil
                 director_state.input.text = ""
-                show_snackbar("Правку видалено", "error")
+                show_snackbar(T("RETAKE_HB_DELETED"), "error")
                 return
             end
             if txt ~= "" then
@@ -28322,7 +29020,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                     end
                 end
                 
-                push_undo(save_label .. " правку (Режисер)")
+                push_undo(save_label .. T("POST_RETAKE_ACTION_TXT"))
                 if director_state.last_marker_id then
                     reaper.SetProjectMarker4(0, director_state.last_marker_id, false, cur_time, 0, txt, 0, 0)
                     director_state.pending_scroll_id = director_state.last_marker_id
@@ -28357,7 +29055,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                 -- Persist learning if we learned something
                 save_project_data(UI_STATE.last_project_id)
                 
-                show_snackbar("Збережено", "success")
+                show_snackbar(T("SAVED"), "success")
 
                 -- Adjust playhead/cursor position +150ms
                 reaper.SetEditCurPos(cur_time + 0.15, true, false)
@@ -28710,7 +29408,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
 
     local function draw_options_menu()
         if not calc_only and draw_actor_btn_inline(opt_x, opt_draw_y, opt_btn_w, btn_h, "≡", UI.C_ACCENT_N) then
-            local layout_label = is_editor_right and "Прикріпити вікно знизу" or "Прикріпити вікно праворуч"
+            local layout_label = is_editor_right and T("DOCK_BOTTOM") or T("DOCK_RIGHT")
             
             local alpha_mark = (cfg.editor_actor_sort == "alpha" or not cfg.editor_actor_sort) and "• " or ""
             local count_mark = (cfg.editor_actor_sort == "count") and "• " or ""
@@ -28719,7 +29417,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             local auto_scroll_mark = cfg.editor_auto_scroll and "• " or ""
             local show_color_mark = cfg.editor_show_actor_color and "• " or ""
             
-            local menu_str = "|>Сортування акторів|" .. alpha_mark .. "По алфавіту|" .. count_mark .. "По кількості реплік|<" .. recent_mark .. "Останні вибрані|" .. fast_jump_mark .. "Швидкий перехід|" .. auto_scroll_mark .. "Автопрокрутка до актора|" .. show_color_mark .. "Відображати колір актора||Видалити всі приховані коментарі||" .. layout_label .. "|Закрити вікно"
+            local menu_str = "|>" .. T("SORTING_ACTORS") .. "|" .. alpha_mark .. T("SORTING_ACTORS_AB") .. "|" .. count_mark .. T("SORTING_ACTORS_NL") .. "|<" .. recent_mark .. T("SORTING_ACTORS_LS") .. "|" .. fast_jump_mark .. T("QUICK_JUMP") .. "|" .. auto_scroll_mark .. T("AUTO_SCROLL_TO_ACTOR") .. "|" .. show_color_mark .. T("DISPLAY_ACTOR_COLOR") .. "||" .. T("DELETE_ALL_HIDDEN_COMMENTS") .. "||" .. layout_label .. "|" .. T("CLOSE_WINDOW")
             
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu(menu_str)
@@ -28747,7 +29445,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             elseif ret == 7 then
                 -- Delete all hidden comments from all lines
                 local count = 0
-                push_undo("Видалити всі приховані коментарі")
+                push_undo(T("DELETE_ALL_HIDDEN_COMMENTS"))
                 for _, line in ipairs(ass_lines or {}) do
                     local old = line.text or ""
                     line.text = old:gsub("%s*\n\n{{+.-}}+", ""):gsub("%s*{{+.-}}+", "")
@@ -28762,9 +29460,9 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     UI_STATE._markers_is_dirty = true
                     cleanup_actors()
                     rebuild_regions()
-                    show_snackbar("Видалено коментарі у " .. count .. " репліках", "success")
+                    show_snackbar(T("HIDDEN_COMMENTS_REMOVE_1") .. count .. T("HIDDEN_COMMENTS_REMOVE_2"), "success")
                 else
-                    show_snackbar("Прихованих коментарів не знайдено", "info")
+                    show_snackbar(T("NO_HIDDEN_COMMENTS"), "info")
                 end
             elseif ret == 8 then
                 if cfg.editor_layout == "right" then cfg.editor_layout = "bottom" else cfg.editor_layout = "right" end
@@ -28955,7 +29653,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                             if not new_col or new_col == 0 then new_col = current_region.col end
 
                             -- Update REAPER marker immediately (including color!)
-                            push_undo("Зміна актора")
+                            push_undo(T("CHANGE_OF_ACTOR"))
                             reaper.SetProjectMarker3(0, current_region.id, true, current_region.start_pos, current_region.end_pos, current_region.name, new_col)
                             current_region.col = new_col -- Update local state for immediate feedback
                             
@@ -28990,16 +29688,16 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                         end
                     end
                     local is_visible = (ass_actors[act] ~= false)
-                    local vis_opt_str = is_visible and "Приховати репліки актора" or "Відобразити репліки актора"
+                    local vis_opt_str = is_visible and T("HIDE_ACTORS_LINES") or T("SHOW_ACTORS_LINES")
                     
-                    local ret = gfx.showmenu("#Кількість реплік: " .. replicas_count .. "||" .. vis_opt_str .. "|Змінити колір|Змінити ім'я актора||Видалити актора")
+                    local ret = gfx.showmenu(T("N_OF_LINES") .. replicas_count .. "||" .. vis_opt_str .. "|" .. T("CHANGE_COLOR") .. "|" .. T("CHANGE_ACTOR_NAME") .. "||" .. T("DELETE_ACTOR"))
                     if ret == 2 then
                         local new_state = not is_visible
                         ass_actors[act] = new_state
                         for _, l in ipairs(ass_lines) do
                             if l.actor == act then l.enabled = new_state end
                         end
-                        push_undo("Зміна видимості актора " .. act)
+                        push_undo(T("TAB_FILE_ACTOR_VISIBILITY") .. act)
                         UI_STATE._markers_is_dirty = true
                         rebuild_regions()
                         save_project_data()
@@ -29019,11 +29717,11 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                             reaper.MarkProjectDirty(0)
                         end
                     elseif ret == 4 then
-                        local ok, new_name = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", act)
+                        local ok, new_name = reaper.GetUserInputs(T("TAB_FILE_C_ACTOR_NAME"), 1, T("TAB_FILE_C_ACTOR_NAME_EXT"), act)
                         if ok then
                             new_name = new_name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
                             if new_name ~= "" then
-                                push_undo("Зміна імені актора")
+                                push_undo(T("TAB_FILE_C_ACTOR_NAME"))
                                 for _, l in ipairs(ass_lines) do
                                     if l.actor == act then l.actor = new_name end
                                 end
@@ -29048,9 +29746,9 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                             end
                         end
                     elseif ret == 5 then
-                        local confirm = reaper.MB("Видалити актора '" .. act .. "' і всі його репліки?", "Підтвердження", 4)
+                        local confirm = reaper.MB(T("DELETE_ACTOR") .. " '" .. act .. "' " .. T("AND_ALL_HIS_LINES"), T("CONFIRMATION"), 4)
                         if confirm == 6 then
-                            push_undo("Видалення актора " .. act)
+                            push_undo(T("REMOVING_AN_ACTOR") .. act)
                             ass_actors[act] = nil
                             ASS.actor_colors[act] = nil
                             local new_lines = {}
@@ -29093,7 +29791,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         if sdraw_y_plus + btn_h > panel_y and sdraw_y_plus < actor_area_bottom then
             if draw_btn_clipped(draw_x, sdraw_y_plus, plus_w, btn_h, "+", UI.C_ACCENT_N, panel_y, actor_area_bottom) then
                 if not is_opt_hover then
-                    local ok, name = reaper.GetUserInputs("Додати актора (Редактор)", 1, "Ім'я актора:", "")
+                    local ok, name = reaper.GetUserInputs(T("ADD_ACTOR_EDITOR"), 1, T("ACTORS_NAME"), "")
                     if ok then
                         -- Remove variation selector and trim spaces
                         name = name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
@@ -29108,7 +29806,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                                 local new_col = get_actor_color(name)
                                 if not new_col or new_col == 0 then new_col = current_region.col end
                                 
-                                push_undo("Додавання та зміна актора")
+                                push_undo(T("ADD_AND_EDIT_ACTOR"))
                                 reaper.SetProjectMarker3(0, current_region.id, true, current_region.start_pos, current_region.end_pos, current_region.name, new_col)
                                 current_region.col = new_col
                                 
@@ -29162,7 +29860,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             
             if is_editing and current_region then
                 if txt == "" then
-                    push_undo("Видалення репліки")
+                    push_undo(T("DELETING_LINES"))
                     local to_delete_id = current_region.id
                     local new_lines = {}
                     for _, line in ipairs(ass_lines or {}) do
@@ -29177,15 +29875,15 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     editor_state.needs_sync = true
                     cleanup_actors()
                     rebuild_regions()
-                    show_snackbar("Репліку видалено", "error")
+                    show_snackbar(T("LINE_HB_DELETED"), "error")
                     return
                 end
                 if not current_region.id then
-                    show_snackbar("Помилка: ID регіону не знайдено", "error")
+                    show_snackbar(T("LINE_HB_DELETED_ERROR"), "error")
                     return
                 end
                 -- Region name is ONLY text, no actor brackets
-                push_undo("Оновлення регіону")
+                push_undo(T("REGION_UPDATE"))
                 reaper.SetProjectMarker3(0, current_region.id, true, current_region.start_pos, current_region.end_pos, txt, current_region.col)
                 
                 -- Sync with ass_lines
@@ -29198,9 +29896,9 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                 end
 
                 editor_state.original_text = txt
-                show_snackbar("Регіон оновлено", "success")
+                show_snackbar(T("REGION_UPDATED"), "success")
             elseif is_creating then
-                push_undo("Створення регіону")
+                push_undo(T("REGION_CREATION"))
                 local actor = editor_state.current_actor
                 if not actor or actor == "" then
                     actor = "REAPER"
@@ -29221,7 +29919,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     rgn_idx = r_id
                 })
 
-                show_snackbar("Регіон створено", "success")
+                show_snackbar(T("REGION_CREATED"), "success")
             end
 
             if is_editing or is_creating then 
@@ -29259,12 +29957,12 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         local fmt_btns = {"B", "I", "U", "S", "{/}", "{x}"}
         local fmt_tags = {"b", "i", "u", "s", "c", "x"}
         local fmt_tips = {
-            "Жирний: {\\b1} ... {\\b0}",
-            "Курсив: {\\i1} ... {\\i0}",
-            "Підкреслення: {\\u1} ... {\\u0}",
-            "Закреслення: {\\s1} ... {\\s0}",
-            "Огорнути у фігурні дужки, коментар: { ... }",
-            "Видалити приховані коментарі {{ ... }}"
+            T("FMT_BOLD"),
+            T("FMT_ITALIC"),
+            T("FMT_UNDERLINE"),
+            T("FMT_CROSSLINE"),
+            T("FMT_COMMENT"),
+            T("FMT_REMOVE_HIDDEN")
         }
         
         local function apply_fmt(tag)
@@ -29303,7 +30001,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     if inp.cursor > #new_txt then inp.cursor = #new_txt end
                     if inp.anchor > #new_txt then inp.anchor = #new_txt end
                 else
-                    show_snackbar("Не знайдено приховані коментарі {{}} для видалення.", "warning")
+                    show_snackbar(T("NO_HIDDEN_COMMENTS_TO_DELETE"), "warning")
                 end
             else
                 if s_idx ~= e_idx then
@@ -29369,8 +30067,8 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
 
         -- Calculate AI Button position first
         local provider_name = (cfg.ai_provider == "mistral") and "Mistral" or (cfg.ai_provider == "groq" and "Groq" or "Gemini")
-        local ai_btn_text = "Запитати " .. provider_name
-        local ai_btn_w = S(130)
+        local ai_btn_text = T("ASK_NAME") .. provider_name
+        local ai_btn_w = cfg.lng == "ua" and S(130) or S(90)
         local ai_btn_x = input_draw_x + left_w - ai_btn_w
         local ai_b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
 
@@ -29455,11 +30153,11 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                             local move_up_tag = (i > 1) and "" or "#"
                             local move_down_tag = (i < #cfg.fmt_presets) and "" or "#"
-                            local sel = gfx.showmenu("Редагувати пресет|Видалити пресет||" .. move_up_tag .. "Перемістити вліво|" .. move_down_tag .. "Перемістити вправо")
+                            local sel = gfx.showmenu(T("EDIT_DELETE_PRESET_MENU") .. move_up_tag .. T("PRESET_MOVE_LEFT_MENU") .. move_down_tag .. T("PRESET_MOVE_RIGHT_MENU"))
                             
                             if sel == 1 then show_panel_preset_dialog("editor", i)
                             elseif sel == 2 then 
-                                if reaper.MB("Ви дійсно хочете видалити пресет '" .. (p.label or "") .. "'?", "Видалення пресета", 1) == 1 then
+                                if reaper.MB(T("DELETE_PRESET_MB_1") .. (p.label or "") .. T("DELETE_PRESET_MB_2"), T("DELETION_THE_PRESET"), 1) == 1 then
                                     table.remove(cfg.fmt_presets, i)
                                     save_settings()
                                 end
@@ -29497,7 +30195,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                         UI_STATE.tooltip_state.hover_id = tip_id
                         UI_STATE.tooltip_state.start_time = reaper.time_precise()
                     end
-                    UI_STATE.tooltip_state.text = "Додати новий кастомний пресет"
+                    UI_STATE.tooltip_state.text = T("ADD_NEW_PRESET")
                 end
             end
         end
@@ -29545,15 +30243,15 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         local has_changes = (editor_state.input.text ~= editor_state.original_text)
         local is_empty = (editor_state.input.text == "")
         local save_col = is_disabled and UI.C_TAB_INA or (is_creating and UI.C_ACCENT_G or (has_changes and UI.C_BTN_UPDATE or UI.C_BTN))
-        local save_label = is_editing and "Оновити" or (is_disabled and "Не в ділянці" or "Створити")
+        local save_label = is_editing and T("UPDATE") or (is_disabled and T("NOT_IN_REGION") or T("CREATE"))
 
         if is_editing and is_empty then
-            save_label = "Видалити"
+            save_label = T("DELETE")
             save_col = UI.C_BTN_ERROR
         end
 
         -- Column 1: Row 2 (Input)
-        ui_text_input("editor_panel", input_draw_x, input_draw_y, left_w, input_row_h, editor_state.input, is_disabled and "Виділіть та перейдіть до ділянки..." or "Редагування репліки...", input_queue, true, false, corr_font)
+        ui_text_input("editor_panel", input_draw_x, input_draw_y, left_w, input_row_h, editor_state.input, is_disabled and T("SELECT_AND_GO_REGION") or T("EDITION_THE_LINE"), input_queue, true, false, corr_font)
 
         -- Column 2: Large Action Button (Spans both rows)
         local save_x = input_draw_x + left_w + padding
@@ -29580,7 +30278,7 @@ end
 
 function OTHER.AI_generate_prompt(is_dub)
     if not ass_lines or #ass_lines == 0 then 
-        show_snackbar("Немає реплік для обробки", "error")
+        show_snackbar(T("AI_GENERATE_NO_LINES"), "error")
         return 
     end
     
@@ -29601,11 +30299,14 @@ function OTHER.AI_generate_prompt(is_dub)
     end
     
     if #selected_lines == 0 then
-        show_snackbar("Виділіть репліки в таблиці", "warning")
+        show_snackbar(T("AI_GENERATE_SELECT_LINES"), "warning")
         return
     end
+
+    local prompt = ""
+
     if is_dub then
-        local prompt = [[Ти — професійний перекладач та лінійний продюсер дубляжу. Твоє завдання: адаптувати наданий текст українською мовою для максимально точного візуального та змістовного потрапляння в персонажа.
+        prompt = cfg.lng == "ua" and [[Ти — професійний перекладач та лінійний продюсер дубляжу. Твоє завдання: адаптувати наданий текст **{{language}}** мовою для максимально точного візуального та змістовного потрапляння в персонажа.
 1. **Ліпсінк (Артикуляція)**: Переклад має максимально відповідати довжині оригіналу та ритміці губ (кількість складів має бути приблизно рівною оригіналу). Звертай особливу увагу на відкриті голосні в кінці фраз та вибухові приголосні, щоб артикуляція виглядала природно. Особливо критичні білабіальні (М, Б, П) — вони мають збігатися з оригіналом за можливості.
 2. **Логіка та Контекст**: Пріоритет — жива розмовна мова. Уникай буквалізму. Переклад має передавати той самий емоційний підтекст, що і в оригіналі, зберігаючи логічний зв'язок між репліками. Зберігай соціолект персонажа: якщо герой говорить грубо, просторічно або навпаки — офіційно, відтворюй це.
 3. **Сталість звертань та термінології**: Витримуй єдиний стиль звертання (Ти/Ви) між конкретними героями протягом усього фрагмента. Зберігай єдині переклади власних назв, термінів та прізвиськ протягом усього фрагмента.
@@ -29614,17 +30315,27 @@ function OTHER.AI_generate_prompt(is_dub)
 6. **Суворі обмеження**: Не додавай жодних вступних чи підсумкових фраз.
  - Тільки "сирі" дані.
  - Жодних повторів або пояснень.
- - Текст має бути лише українською мовою.
+ - Текст має бути лише **{{language}}** мовою.
  - Якщо в тексті є помилка або незрозуміле слово, перекладай за контекстом, але ніколи не переривай структуру рядка.
 
 **Оригінал для перекладу**:
-]] .. table.concat(selected_lines, "\n")
-    
-        set_clipboard(prompt)
-        show_snackbar("Промпт скопійовано в буфер", "success")
+]] or [[You are a professional translator and dubbing line producer. Your task is to adapt the provided text into **{{language}}** so that it matches the character’s visual and contextual nuances as closely as possible.
+1. **Lip-sync (Articulation)**: The translation should match the length of the original and the lip rhythm as closely as possible (the number of syllables should be approximately equal to the original). Pay special attention to open vowels at the end of phrases and plosive consonants to ensure natural-sounding articulation. Bilabials (M, B, P) are particularly critical—they should match the original whenever possible.
+2. **Logic and Context**: Prioritize natural, conversational language. Avoid literalism. The translation should convey the same emotional undertones as the original while maintaining the logical flow between lines. Maintain the character’s sociolect: if a character speaks rudely, colloquially, or, conversely, formally, reflect that.
+3. **Consistency in Address and Terminology**: Maintain a consistent style of address between specific characters throughout the entire fragment. Maintain consistent translations of proper nouns, terms, and nicknames throughout the entire fragment.
+4. **Data format**: Return the result exclusively in the same format as provided in the original (id:...,start:...,end:...,actor:...,text:...). Do not change IDs, timecodes, or actor names.
+5. **Contextual integrity**: Ensure a logical connection between lines. Keep in mind that the previous phrase (id:1) sets the tone and context for the next one (id:2).
+6. **Strict restrictions**: Do not add any introductory or concluding phrases.
+ - Only “raw” data.
+ - No repetitions or explanations.
+ - The text must be in **{{language}}** only.
+ - If there is an error or an unclear word in the text, translate based on context, but never break the structure of the line.
+
+**Original text for translation**:
+]]
     else
-        local prompt = [[Ти — професійний перекладач та спеціаліст з адаптації контенту для закадрового озвучення (Voice-over). Твоє завдання: створити текст, який максимально точно передає зміст, емоційне забарвлення та контекст оригіналу, не обмежуючись вимогами ліпсінку.
-1. **Пріоритет сенсу над формою**: Головна мета — передати контекст та підтекст. Переклад має бути художнім та природним для українського вуха. Відходь від кількості складів оригіналу на користь влучних українських відповідників та ідіом.
+        prompt = cfg.lng == "ua" and [[Ти — професійний перекладач та спеціаліст з адаптації контенту для закадрового озвучення (Voice-over). Твоє завдання: створити текст, який максимально точно передає зміст, емоційне забарвлення та контекст оригіналу, не обмежуючись вимогами ліпсінку.
+1. **Пріоритет сенсу над формою**: Головна мета — передати контекст та підтекст. Переклад має бути художнім та природним для **{{language}}** вуха. Відходь від кількості складів оригіналу на користь влучних **{{language}}** відповідників та ідіом.
 2. **Природність мовлення**: Текст має звучати як жива мова, а не механічний переклад. Уникай кальки. Якщо фраза в оригіналі має специфічне культурне значення — адаптуй її. Зберігай соціолект персонажа: якщо герой говорить грубо, просторічно або навпаки — офіційно, відтворюй це.
 3. **Таймінг**: Хоча ліпсінк не потрібен, фраза має вкладатися в часовий проміжок (start/end). Краще скоротити фразу, ніж подовжити — актор може тримати паузу, але не може прискорити темп понад природний.
 4. **Формат даних**: Поверни результат виключно у тому ж форматі, який надано в оригіналі (id:...,start:...,end:...,actor:...,text:...). Не змінюй ID, таймкоди чи імена персонажів.
@@ -29633,26 +30344,40 @@ function OTHER.AI_generate_prompt(is_dub)
 7. **Суворі обмеження**: Не додавай жодних вступних чи підсумкових фраз.
  - Тільки "сирі" дані.
  - Жодних повторів або пояснень.
- - Текст має бути лише українською мовою.
+ - Текст має бути лише **{{language}}** мовою.
  - Якщо в тексті є помилка або незрозуміле слово, перекладай за контекстом, але ніколи не переривай структуру рядка.
 
 **Оригінал для перекладу**:
-]] .. table.concat(selected_lines, "\n")
-    
-        set_clipboard(prompt)
-        show_snackbar("Промпт скопійовано в буфер", "success")
+]] or [[You are a professional translator and specialist in adapting content for voice-over. Your task is to create a text that conveys the meaning, emotional tone, and context of the original as accurately as possible, without being limited by lip-sync requirements.
+1. **Prioritize meaning over form**: The main goal is to convey context and subtext. The translation should be artistic and sound natural to a **{{language}}** ear. Focus on finding apt **{{language}}** equivalents and idioms rather than matching the number of syllables in the original.
+2. **Natural speech**: The text should sound like spoken language, not a mechanical translation. Avoid literal translations. If a phrase in the original has a specific cultural meaning—adapt it. Preserve the character’s sociolect: if the character speaks crudely, colloquially, or, conversely, formally, reflect that.
+3. **Timing**: Although lip-syncing isn’t required, the phrase must fit within the specified time frame (start/end). It’s better to shorten the phrase than to lengthen it—the actor may pause, but must not speed up the pace beyond what sounds natural.
+4. **Data Format**: Return the result exclusively in the same format as provided in the original (id:...,start:...,end:...,actor:...,text:...). Do not change IDs, timecodes, or character names.
+5. **Contextual Integrity**: Ensure a logical connection between lines. Keep in mind that the previous phrase (id:1) sets the tone and context for the next one (id:2).
+6. **Consistency in forms of address and terminology**: Maintain a consistent form of address between specific characters throughout the entire excerpt. Maintain consistent translations of proper nouns, terms, and nicknames throughout the entire excerpt.
+7. **Strict restrictions**: Do not add any introductory or concluding phrases.
+ - Only “raw” data.
+ - No repetitions or explanations.
+ - The text must be in **{{language}}** only.
+ - If there is an error or an unclear word in the text, translate based on context, but never break the structure of the line.
+
+**Original text for translation**:
+]]
     end
+
+    set_clipboard(prompt:gsub("{{language}}", T("PROMPT_LANGUAGE")) .. table.concat(selected_lines, "\n"))
+    show_snackbar(T("AI_GENERATE_COPIED"), "success")
 end
 
 function OTHER.AI_insert_result()
     local clipboard = get_clipboard()
     if not clipboard or clipboard == "" then
-        show_snackbar("Буфер обміну порожній", "error")
+        show_snackbar(T("CLIPBOARD_IS_EMPTY"), "error")
         return
     end
 
     if not ass_lines or #ass_lines == 0 then
-        show_snackbar("Немає реплік для оновлення", "error")
+        show_snackbar(T("AI_GENERATE_NO_LINES"), "error")
         return
     end
 
@@ -29664,7 +30389,7 @@ function OTHER.AI_insert_result()
     end
 
     local update_count = 0
-    push_undo("Вставити результат ШІ")
+    push_undo(T("AI_INSERT_RESULT"))
 
     -- Parse lines from clipboard
     for line_text in clipboard:gmatch("[^\r\n]+") do
@@ -29701,9 +30426,9 @@ function OTHER.AI_insert_result()
         ACHIEVEMENTS.add_stat("ach_29_count", 1)
         ACHIEVEMENTS.add_stat("ach_29_import_count", update_count)
 
-        show_snackbar(string.format("Оновлено %d реплік", update_count), "success")
+        show_snackbar(string.format(T("D_LINES_UPDATED"), update_count), "success")
     else
-        show_snackbar("Не знайдено жодної відповідності по ID", "warning")
+        show_snackbar(T("AI_NO_ID_FOUND"), "warning")
     end
 end
 
@@ -29799,7 +30524,7 @@ function OTHER.cancel_whisper_task()
     if state.done_file then os.remove(state.done_file) end
     if state.temp_srt  then os.remove(state.temp_srt)  end
     
-    show_snackbar("Розпізнавання мови скасовано", "info")
+    show_snackbar(T("WHISPER_CANCELED_ACT"), "info")
 end
 
 function OTHER.import_whisper_srt(file_path, timeline_offset, play_rate)
@@ -29816,7 +30541,7 @@ function OTHER.import_whisper_srt(file_path, timeline_offset, play_rate)
     if not ass_lines then ass_lines = {} end
     if not ass_actors then ass_actors = {} end
     
-    push_undo("Whisper Speech to Text")
+    push_undo("Whisper Speech-to-Text")
     
     local line_idx_counter = get_next_line_index()
     local default_actor = "Whisper"
@@ -29871,44 +30596,44 @@ end
 --- Speech to Text: перевіряє встановлення Whisper і запускає транскрипцію вибраного Item
 function OTHER.speech_to_text_from_item()
     if OTHER.whisper_state and OTHER.whisper_state.active then
-        show_snackbar("Розпізнавання мови вже виконується", "warning")
+        show_snackbar(T("WHISPER_ALREADY_RUN"), "warning")
         return
     end
 
     -- Перевірка збереженості проєкту
     local _, proj_fn = reaper.EnumProjects(-1)
     if not proj_fn or proj_fn == "" then
-        show_snackbar("Збережіть проєкт перед запуском Speech to Text", "error")
+        show_snackbar(T("WHISPER_PLEASE_SAVE_PROJ"), "error")
         return
     end
 
     -- 1. Перевірка вибраного Item
     local sel_count = reaper.CountSelectedMediaItems(0)
     if sel_count == 0 then
-        show_snackbar("Виберіть один Media Item для розпізнавання мови", "error")
+        show_snackbar(T("WHISPER_SELECT_ONE_ITEM"), "error")
         return
     end
     if sel_count > 1 then
-        show_snackbar("Оберіть лише один Media Item для Speech to Text", "warning")
+        show_snackbar(T("WHISPER_SELECT_ONLY_ONE_ITEM"), "warning")
         return
     end
 
     local item = reaper.GetSelectedMediaItem(0, 0)
     local take = reaper.GetActiveTake(item)
     if not take or reaper.TakeIsMIDI(take) then
-        show_snackbar("Обраний Item не містить аудіо", "error")
+        show_snackbar(T("WHISPER_ITEM_NO_AUDIO"), "error")
         return
     end
 
     local source = reaper.GetMediaItemTake_Source(take)
     if not source then
-        show_snackbar("Не вдалося отримати аудіо-джерело", "error")
+        show_snackbar(T("WHISPER_ITEM_AUDIO_NO_SOURCE"), "error")
         return
     end
 
     local source_file = reaper.GetMediaSourceFileName(source, "")
     if not source_file or source_file == "" then
-        show_snackbar("Не вдалося знайти файл аудіо", "error")
+        show_snackbar(T("WHISPER_ITEM_AUDIO_NO_FOUND"), "error")
         return
     end
 
@@ -29926,7 +30651,7 @@ function OTHER.speech_to_text_from_item()
     local effective_dur   = item_len * play_rate -- тривалість у source-файлі
 
     -- 3. Обираємо мову оригіналу (gfx menu)
-    local menu_str = "#Оберіть мову оригіналу||Автовизначення|Українська|Англійська|Японська||Польська|Німецька|Французька|Іспанська|Італійська|Португальська|Китайська|Корейська"
+    local menu_str = T("WHISPER_SELECT_LNG")
     gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
     local ret = gfx.showmenu(menu_str)
     if ret <= 0 then
@@ -29990,15 +30715,10 @@ function OTHER.speech_to_text_from_item()
 
     -- 5. Whisper не встановлений -- пропонуємо користувачеві встановити
     if not whisper_installed then
-        local msg = "Whisper AI (Speech to Text) не знайдено.\n\n" ..
-                    "Необхідно:\n" ..
-                    "  - openai-whisper, numpy, torch\n" ..
-                    "  - Model 'turbo' (~1.6 GB)\n\n" ..
-                    "Встановити та завантажити зараз?\n" ..
-                    "(Відкриється вікно командного рядка, в якому буде відображатися хід встановлення)"
-        local res = reaper.MB(msg, "Speech to Text -- Install", 4) -- 4 = Yes/No
+        local msg = T("WHISPER_INSTALL_MSG")
+        local res = reaper.MB(msg, "Install", 4) -- 4 = Yes/No
         if res ~= 6 then -- 6 = Yes
-            show_snackbar("Whisper встановлення скасовано", "info")
+            show_snackbar(T("WHISPER_INSTALL_CANCELED"), "info")
             return
         end
 
@@ -30018,7 +30738,7 @@ function OTHER.speech_to_text_from_item()
         end
 
         run_async_command(install_cmd, nil, true, nil, true)
-        show_snackbar("Почалося встановлення — перевірте термінал", "info")
+        show_snackbar(T("WHISPER_INSTALL_START"), "info")
         return
     end
 
@@ -30100,7 +30820,7 @@ function OTHER.speech_to_text_from_item()
     OTHER.whisper_state = {
         active = true,
         progress = 0.0,
-        text = "Ініціалізація...",
+        text = "Init...",
         id = id,
         project_name = proj_basename,
         out_file = out_file,
@@ -30124,7 +30844,7 @@ function OTHER.speech_to_text_from_item()
         
         local f = io.open(temp_srt, "r")
         if not f then
-            show_snackbar("Помилка розпізнавання: не вдалося створити субтитри", "error")
+            show_snackbar(T("WHISPER_ERROR_1"), "error")
             reaper.ClearConsole()
             reaper.ShowConsoleMsg("--- WHISPER ERROR LOG ---\n" .. tostring(output) .. "\n-------------------------\n")
             if pid_file then os.remove(pid_file) end
@@ -30139,7 +30859,7 @@ function OTHER.speech_to_text_from_item()
         if active_proj == source_proj then
             -- Still on the same project — import immediately
             OTHER.import_whisper_srt(temp_srt, item_pos, play_rate)
-            show_snackbar("Розпізнавання успішно завершено!", "success")
+            show_snackbar(T("WHISPER_SUCC_DONE_1"), "success")
             if pid_file then os.remove(pid_file) end
             if out_file then os.remove(out_file) end
             if done_file then os.remove(done_file) end
@@ -30156,11 +30876,11 @@ function OTHER.speech_to_text_from_item()
                 out_file   = out_file,
                 done_file  = done_file,
             }
-            show_snackbar("Розпізнавання завершено! Перейдіть на проєкт «" .. proj_basename .. "» для отримання результату", "info", 8)
+            show_snackbar(T("WHISPER_SUCC_DONE_2") .. proj_basename .. T("WHISPER_SUCC_DONE_3"), "info", 8)
         end
     end, true, nil, false, out_file, done_file)
     
-    show_snackbar("Розпочато розпізнавання мови...", "info")
+    show_snackbar(T("WHISPER_RUN_START"), "info")
 end
 
 function DRAW_TABS.draw_table(input_queue)
@@ -30221,8 +30941,8 @@ function DRAW_TABS.draw_table(input_queue)
     
     local prev_text = table_filter_state.text
     local filter_placeholder = OTHER.find_replace_state.show 
-        and "Фільтр (Текст для заміни)..." 
-        or "Фільтр (Текст, Актор або ID. Умова '|', '&', {%AA})..."
+        and T("TABLE_FILTER_PLACEHOLDER_1") 
+        or T("TABLE_FILTER_PLACEHOLDER_2")
     ui_text_input("table_filter", filter_x, filter_y, filter_w - counter_reserve, filter_h, table_filter_state, filter_placeholder, input_queue)
     gfx.setfont(F.std)
     -- Display results count in the top-right corner of filter input
@@ -30287,18 +31007,18 @@ function DRAW_TABS.draw_table(input_queue)
                 OTHER.time_shift_menu.show = false
             else
                 local any_hidden = not (cfg.col_table_index and cfg.col_table_start and cfg.col_table_end and cfg.col_table_cps and cfg.col_table_actor)
-                local col_label = (any_hidden and "• " or "") .. "Колонки..."
-                local reader_label = (cfg.reader_mode and "• " or "") .. "Режим читача"
-                local markers_label = (cfg.show_markers_in_table and "• " or "") .. "Відображати правки в таблиці"
-                local director_label = (cfg.director_mode and "• " or "") .. "Режим Режисера"
-                local editor_label = (cfg.editor_mode and "• " or "") .. "Режим Редактора"
+                local col_label = (any_hidden and "• " or "") .. T("TABLE_MENU_COLUMNS")
+                local reader_label = (cfg.reader_mode and "• " or "") .. T("TABLE_MENU_READER_MODE")
+                local markers_label = (cfg.show_markers_in_table and "• " or "") .. T("TABLE_MENU_SHOW_RETAKES")
+                local director_label = (cfg.director_mode and "• " or "") .. T("TABLE_MENU_SHOW_DIRECTOR")
+                local editor_label = (cfg.editor_mode and "• " or "") .. T("TABLE_MENU_SHOW_EDITOR")
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = "Знайти та замінити|" .. reader_label .. "|" .. col_label .. "|Здвиг часу||" .. markers_label .. "|" .. director_label .. "||Розділення по Даберам|" .. editor_label .. "||>Дії з Item|Розфарбувати за акторами|Прибрати розфарбування||Прибрати дублікати реплік (Waveform Match)|Мова в текст (Speech-to-Text)||Нормалізація гучності реплік (EBU R128)||<|>Переклад з ШІ|Згенерувати промпт для виділених реплік (дубляж)|Згенерувати промпт для виділених реплік (озвучка)||Вставити результат від ШІ|<"
+                local menu_str = T("TABLE_MENU_FIND_REPLACE") .. "|" .. reader_label .. "|" .. col_label .. "|" .. T("TABLE_MENU_TIME_SHIFT") .. "||" .. markers_label .. "|" .. director_label .. "||" .. T("SPLIT_BY_DUBBERS") .. "|" .. editor_label .. "||>" .. T("TABLE_MENU_ACTIONS_ON_ITEM") .. "|" .. T("TABLE_MENU_COLOR_BY_ACTOR") .. "|" .. T("TABLE_MENU_REMOVE_COLORING") .. "||" .. T("TABLE_MENU_REMOVE_ITEM_DUP") .. " (Waveform Match)|" .. T("TABLE_MENU_STT") .. "||" .. T("TABLE_MENU_VN") .. "||<|>" .. T("TABLE_MENU_AI_TRANSLATE") .. "|" .. T("TABLE_MENU_AI_TRANSLATE_P1") .. "|" .. T("TABLE_MENU_AI_TRANSLATE_P2") .. "||" .. T("TABLE_MENU_AI_TRANSLATE_INSERT") .. "|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     OTHER.find_replace_state.show = true
-                    show_snackbar("'Знайти та замінити' працює лише для колонки 'Репліка'", "info")
+                    show_snackbar(T("TABLE_MENU_FIND_REPLACE_TT"), "info")
                 elseif ret == 2 then
                     cfg.reader_mode = not cfg.reader_mode
                     if cfg.reader_mode then
@@ -30306,7 +31026,7 @@ function DRAW_TABS.draw_table(input_queue)
                         table_sort.dir = 1
                     end
                     save_settings()
-                    update_prompter_fonts()
+                    UTILS.update_prompter_fonts()
                 elseif ret == 3 then
                     OTHER.col_vis_menu.show = true
                     OTHER.col_vis_menu.x = (btn_x + opt_btn_w) - S(180)
@@ -30376,17 +31096,17 @@ function DRAW_TABS.draw_table(input_queue)
         local btn_apply_w = S(80)
         local rep_w = gfx.w - S(20) - btn_apply_w - gap
         
-        ui_text_input("replace_field", filter_x, fr_y, rep_w, fr_h, OTHER.find_replace_state.replace, "Замінити на...", input_queue)
+        ui_text_input("replace_field", filter_x, fr_y, rep_w, fr_h, OTHER.find_replace_state.replace, T("TABLE_FILTER_REPLACE_WITH"), input_queue)
         gfx.setfont(F.std)
         -- Apply Button
         local apply_x = filter_x + rep_w + gap
-        if draw_btn_inline(apply_x, fr_y, btn_apply_w, fr_h, "Замінити", UI.C_BTN) then
+        if draw_btn_inline(apply_x, fr_y, btn_apply_w, fr_h, T("REPLACE"), UI.C_BTN) then
             local search = table_filter_state.text -- Use filter as search text
             local replace = OTHER.find_replace_state.replace.text
             local case = OTHER.find_replace_state.case_sensitive
             
             if #search > 0 then
-                push_undo("Знайти та замінити")
+                push_undo(T("TABLE_MENU_FIND_REPLACE"))
                 local count = 0
                 
                 for _, line in ipairs(ass_lines) do
@@ -30430,7 +31150,7 @@ function DRAW_TABS.draw_table(input_queue)
                 end
                 
                 rebuild_regions()
-                show_snackbar("Замінено " .. count .. " входжень", "success")
+                show_snackbar(T("TABLE_FILTER_REPLACE_INFO_1") .. count .. T("TABLE_FILTER_REPLACE_INFO_2"), "success")
                 
                 -- Clear inputs after successful replacement
                 table_filter_state.text = ""
@@ -30442,7 +31162,7 @@ function DRAW_TABS.draw_table(input_queue)
                 table_data_cache.state_count = -1
                 last_layout_state.state_count = -1
             else
-                show_snackbar("Введіть текст в фільтр", "error")
+                show_snackbar(T("TABLE_FILTER_REPLACE_ENTER_TEXT"), "error")
             end
         end
         
@@ -30468,7 +31188,7 @@ function DRAW_TABS.draw_table(input_queue)
         -- Cancel Button
         local cancel_w = S(80)
         local cancel_x = filter_x + filter_w - cancel_w
-        if draw_btn_inline(cancel_x, progress_y, cancel_w, progress_h, "Скасувати", UI.C_BTN_ERROR) then
+        if draw_btn_inline(cancel_x, progress_y, cancel_w, progress_h, T("CANCEL"), UI.C_BTN_ERROR) then
             OTHER.cancel_whisper_task()
         end
         
@@ -30527,9 +31247,9 @@ function DRAW_TABS.draw_table(input_queue)
         -- Delete markers (Robust Method)
         if #selected_marker_indices > 0 then
             if #selected_ass_entries > 0 then
-                push_undo("Видалення реплік та правок")
+                push_undo(T("DELETING_RETAKES_AND_LINES"))
             else
-                push_undo("Видалення правок")
+                push_undo(T("DELETING_RETAKES"))
             end
             
             -- Build a lookup set of IDs to delete
@@ -30560,7 +31280,7 @@ function DRAW_TABS.draw_table(input_queue)
         -- Delete ASS lines
         if #selected_ass_entries > 0 then
             if #selected_marker_indices == 0 then
-                push_undo("Видалення реплік")
+                push_undo(T("DELETING_LINES"))
             end
             -- Optimized removal: One pass O(N)
             local new_lines = {}
@@ -30587,7 +31307,7 @@ function DRAW_TABS.draw_table(input_queue)
             table_data_cache.state_count = -1
             last_layout_state.state_count = -1
             prompter_drawer.marker_cache.count = -1
-            show_snackbar("Видалено: " .. total_deleted, "error")
+            show_snackbar(T("REMOVED_TABLE_LINES_EX") .. total_deleted, "error")
         end
     end
 
@@ -30602,7 +31322,7 @@ function DRAW_TABS.draw_table(input_queue)
 
         if original_pos then
             local source = ass_lines[original_pos]
-            push_undo("Продублювати репліку")
+            push_undo(T("REPEAT_THE_LINE"))
             
             -- Create copy
             local new_replica = {}
@@ -30629,7 +31349,7 @@ function DRAW_TABS.draw_table(input_queue)
             table_selection[new_replica.index] = true
             table_data_cache.state_count = -1
             last_layout_state.state_count = -1
-            show_snackbar("Репліку продубльовано", "success")
+            show_snackbar(T("LINE_IS_SUCC_DUP"), "success")
             return true
         end
         return false
@@ -30671,7 +31391,7 @@ function DRAW_TABS.draw_table(input_queue)
                     else
                         table_selection = {}
                         last_selected_row = nil
-                        show_snackbar("Знято виділення з реплік", "info")
+                        show_snackbar(T("HIGHLIGHTING_REMOVED"), "info")
                     end
                 end
 
@@ -30751,7 +31471,7 @@ function DRAW_TABS.draw_table(input_queue)
             update_marker_cache() -- Reuse shared prompter cache
             for _, m in ipairs(prompter_drawer.marker_cache.markers) do
                 table.insert(raw_data, {
-                    t1 = m.pos, t2 = m.pos, text = m.name, actor = ":ПРАВКА:",
+                    t1 = m.pos, t2 = m.pos, text = m.name, actor = T("TABLE_RETAKE"),
                     -- Add redundant fields for robust filtering/sorting in Regions mode
                     pos = m.pos, rgnend = m.pos, name = m.name,
                     is_marker = true, marker_color = m.color, markindex = m.markindex,
@@ -30826,8 +31546,8 @@ function DRAW_TABS.draw_table(input_queue)
                         local q_clean = strip_accents(q_lower)
                         local text_match, actor_match, index_match, dubber_match = false, false, false, false
                         
-                        -- Special Command: {%AA} - All Uppercase (Caps Lock filter)
-                        if q == "{%AA}" and not is_replace_mode then
+                        -- Special Command: {%UPPER} - All Uppercase (Caps Lock filter)
+                        if q == "{%UPPER}" and not is_replace_mode then
                             local visible = target_text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", "")
                             -- Remove spaces, punctuation and digits to check only actual letters
                             local letters_only = visible:gsub("%s+", ""):gsub("[%p%d]", "")
@@ -30928,7 +31648,7 @@ function DRAW_TABS.draw_table(input_queue)
             end
             table.sort(temp, function(a, b)
                 if a.val == b.val then
-                    if (table_sort.col == "Ак." or table_sort.col == "enabled") then
+                    if (table_sort.col == T("TABLE_COLUMN_ACTIVE") or table_sort.col == "enabled") then
                         local t1_a = a.item.t1 or 0; local t1_b = b.item.t1 or 0
                         if t1_a ~= t1_b then return t1_a < t1_b end
                     end
@@ -31432,7 +32152,7 @@ function DRAW_TABS.draw_table(input_queue)
                                         if target_layout then
                                             UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, target_layout.y - (avail_h / 2) + (target_layout.h / 2)))
                                             table_selection = {[conflict.partner_id] = true} -- Select partner
-                                            show_snackbar("Перехід до конфлікту #" .. tostring(conflict.partner_id), "info")
+                                            show_snackbar(T("TABLE_GO_TO_CONFLICT") .. tostring(conflict.partner_id), "info")
                                             UI_STATE.mouse_handled = true -- Prevent other actions
                                         end
                                         break
@@ -31470,7 +32190,7 @@ function DRAW_TABS.draw_table(input_queue)
                     -- Checkbox click? (Only if visible and not a marker)
                     if not cfg.reader_mode and not line.is_marker and chk_x and gfx.mouse_x >= chk_x - S(5) and gfx.mouse_x <= chk_x + chk_sz + S(10) then
                         -- BULK CHECKBOX LOGIC
-                        push_undo("Перемикання видимості")
+                        push_undo(T("TABLE_TOGGLE_VISIBILITY"))
                         
                         -- Clear input focus on checkbox click
                         director_state.input.focus = false
@@ -31552,7 +32272,7 @@ function DRAW_TABS.draw_table(input_queue)
                                         -- Edit marker name
                                         local edit_marker = line
                                         open_text_editor(line.text, function(new_text)
-                                            push_undo("Редагування правки")
+                                            push_undo(T("EDIT_RETAKE"))
                                             -- Find marker index
                                             local target_idx = -1
                                             local m_count = reaper.CountProjectMarkers(0)
@@ -31576,7 +32296,7 @@ function DRAW_TABS.draw_table(input_queue)
                                         -- Edit ASS line
                                         local edit_line = line
                                         open_text_editor(line.text, function(new_text)
-                                            push_undo("Редагування тексту")
+                                            push_undo(T("EDIT_LINE"))
                                             edit_line.text = new_text
                                             UI_STATE._markers_is_dirty = true
                                             rebuild_regions()
@@ -31631,9 +32351,9 @@ function DRAW_TABS.draw_table(input_queue)
                     -- If only markers are selected
                     if ass_count == 0 and marker_count > 0 then
                         if marker_count == 1 then
-                            menu_str = "Копіювати початковий час||Видалити правку"
+                            menu_str = T("COPY_START_TIME") .. "||" .. T("DELETE_RETAKE")
                         else
-                            menu_str = "Видалити правки"
+                            menu_str = T("DELETE_RETAKES")
                         end
                         
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
@@ -31641,7 +32361,7 @@ function DRAW_TABS.draw_table(input_queue)
                         if marker_count == 1 then
                             if ret == 1 then
                                 set_clipboard(line.t1_str)
-                                show_snackbar("Скопійовано: " .. line.t1_str, "info")
+                                show_snackbar(T("COPIED") .. ": " .. line.t1_str, "info")
                             elseif ret == 2 then
                                 delete_logic()
                             end
@@ -31653,7 +32373,7 @@ function DRAW_TABS.draw_table(input_queue)
 
                     -- Mixed Selection (Markers + ASS lines)
                     elseif ass_count > 0 and marker_count > 0 then
-                        menu_str = "Видалити вибрані репліки та правки"
+                        menu_str = T("DELETE_SELECTED_L_AND_R")
                         
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                         local ret = gfx.showmenu(menu_str)
@@ -31682,15 +32402,15 @@ function DRAW_TABS.draw_table(input_queue)
                         for a in pairs(selected_actors_map) do table.insert(selected_actors, a) end
 
                         -- Re-calculate prefixes
-                        local menu_items = { ">Змінити ім'я актора", "-  Нове ім'я -" }
+                        local menu_items = { ">" .. T("CHANGE_ACTOR_NAME"), T("NEW_NAME_MENU") }
                         for _, a in ipairs(sorted_actors) do
                             table.insert(menu_items, (a:gsub("|", "||")))
                         end
                         table.insert(menu_items, "<")
 
                         if cfg.col_table_dubber then
-                            table.insert(menu_items, "|>Призначити дабера")
-                            table.insert(menu_items, "- Новий дабер -")
+                            table.insert(menu_items, "|>" .. T("ASSING_DUBBER"))
+                            table.insert(menu_items, "-  " .. T("NEW_DUBBER") .. "  -")
                             for _, d_name in ipairs(DUBBERS.data.names) do
                                 local is_assigned_to_any = false
                                 for _, actor in ipairs(selected_actors) do
@@ -31709,15 +32429,15 @@ function DRAW_TABS.draw_table(input_queue)
                         local has_single = #sel_indices == 1
                         
                         if has_merge then
-                            table.insert(menu_items, "Об'єднати репліки в одну")
+                            table.insert(menu_items, T("COMBINE_LINES"))
                         end
                         
                         if has_single then
-                            table.insert(menu_items, "Копіювати початковий час")
-                            table.insert(menu_items, "Продублювати репліку")
-                            table.insert(menu_items, "|Видалити репліку")
+                            table.insert(menu_items, T("COPY_START_TIME"))
+                            table.insert(menu_items, T("REPEAT_THE_LINE"))
+                            table.insert(menu_items, "|" .. T("DELETE_LINE"))
                         else
-                            table.insert(menu_items, "|Видалити вибрані репліки")
+                            table.insert(menu_items, "|" .. T("DELETE_SELECTED_LINES"))
                         end
                         
                         local menu_str = table.concat(menu_items, "|")
@@ -31742,7 +32462,7 @@ function DRAW_TABS.draw_table(input_queue)
                                 local ok, new_actor
                                 if ret == 1 then
                                     local first_actor = selected_entries[1].actor or ""
-                                    ok, new_actor = reaper.GetUserInputs("Зміна імені актора", 1, "Нове ім'я:,extrawidth=200", first_actor)
+                                    ok, new_actor = reaper.GetUserInputs(T("TAB_FILE_C_ACTOR_NAME"), 1, T("TAB_FILE_C_ACTOR_NAME_EXT"), first_actor)
                                 else
                                     new_actor = sorted_actors[ret - 1]
                                     ok = true
@@ -31752,7 +32472,7 @@ function DRAW_TABS.draw_table(input_queue)
                                     -- Remove variation selector (U+FE0F = \239\184\143) and trim spaces
                                     new_actor = new_actor:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
                                     
-                                    push_undo("Зміна імені актора")
+                                    push_undo(T("TAB_FILE_C_ACTOR_NAME"))
                                     if ass_actors[new_actor] == nil then ass_actors[new_actor] = true end
                                     for _, l in ipairs(selected_entries) do
                                         l.actor = new_actor
@@ -31763,7 +32483,7 @@ function DRAW_TABS.draw_table(input_queue)
                                     end
                                     cleanup_actors()
                                     rebuild_regions()
-                                    show_snackbar("Ім'я актора змінено (" .. #selected_entries .. ")", "success")
+                                    show_snackbar(T("ACTOR_NAME_HB_CHANGED") .. #selected_entries .. ")", "success")
                                 end
                             end
                         elseif cfg.col_table_dubber and ret >= dubber_start_idx and ret <= dubber_end_idx then
@@ -31773,7 +32493,7 @@ function DRAW_TABS.draw_table(input_queue)
                             local is_new = (d_idx == 0)
                             
                             if is_new then
-                                local ok, name = reaper.GetUserInputs("Новий дабер", 1, "Ім'я дабера:", "")
+                                local ok, name = reaper.GetUserInputs(T("NEW_DUBBER"), 1, T("NAME_DUBBER"), "")
                                 if ok then
                                     local is_valid, res = DUBBERS.validate_name(name)
                                     if not is_valid then
@@ -31788,7 +32508,7 @@ function DRAW_TABS.draw_table(input_queue)
                             end
                             
                             if selected_dubber and #selected_actors > 0 then
-                                push_undo("Призначення дабера " .. selected_dubber)
+                                push_undo(T("ASSING_THE_DUBBER") .. selected_dubber)
                                 if not DUBBERS.data.assignments[selected_dubber] then DUBBERS.data.assignments[selected_dubber] = {} end
                                 
                                 local all_assigned = true
@@ -31806,7 +32526,7 @@ function DRAW_TABS.draw_table(input_queue)
                                 end
                                 
                                 DUBBERS.save()
-                                show_snackbar("Дабера " .. selected_dubber .. (target_val and " призначено" or " видалено"), "success")
+                                show_snackbar(T("TABLE_DUBBER_A_1") .. selected_dubber .. (target_val and T("TABLE_DUBBER_A_2") or T("TABLE_DUBBER_A_3")), "success")
                             end
                         elseif has_merge and ret == dubber_end_idx + 1 then
                             -- Merge Replicas logic
@@ -31819,7 +32539,7 @@ function DRAW_TABS.draw_table(input_queue)
                             table.sort(selected_entries, function(a,b) return a.pos < b.pos end)
                             
                             if #selected_entries > 1 then
-                                push_undo("Об'єднання реплік")
+                                push_undo(T("COMBINING_LINES"))
                                 local merged_text = ""
                                 local t1_min = math.huge
                                 local t2_max = -math.huge
@@ -31853,12 +32573,12 @@ function DRAW_TABS.draw_table(input_queue)
                                 last_layout_state.state_count = -1
                                 UI_STATE._markers_is_dirty = true
 
-                                show_snackbar("Репліки об'єднано (" .. #selected_entries .. ")", "success")
+                                show_snackbar(T("LINES_HB_COMBINED") .. #selected_entries .. ")", "success")
                             end
                         elseif has_single then
                             if ret == dubber_end_idx + 1 then
                                 set_clipboard(line.t1_str)
-                                show_snackbar("Скопійовано: " .. line.t1_str, "info")
+                                show_snackbar(T("COPIED") .. ": " .. line.t1_str, "info")
                             elseif ret == dubber_end_idx + 2 then
                                 duplicate_logic(sel_indices[1])
                             elseif ret == dubber_end_idx + 3 then
@@ -32017,10 +32737,10 @@ function DRAW_TABS.draw_table(input_queue)
 
     local col_ptr = 1
     if not cfg.reader_mode then
-        draw_header_cell(col_ptr, "Ак.", x_off[col_ptr], start_y, "enabled"); col_ptr = col_ptr + 1
+        draw_header_cell(col_ptr, T("TABLE_COLUMN_ACTIVE"), x_off[col_ptr], start_y, "enabled"); col_ptr = col_ptr + 1
         if cfg.col_table_index then draw_header_cell(col_ptr, "#", x_off[col_ptr], start_y, "index"); col_ptr = col_ptr + 1 end
-        if cfg.col_table_start then draw_header_cell(col_ptr, "Початок", x_off[col_ptr], start_y, "start"); col_ptr = col_ptr + 1 end
-        if cfg.col_table_end then draw_header_cell(col_ptr, "Кінець", x_off[col_ptr], start_y, "end"); col_ptr = col_ptr + 1 end
+        if cfg.col_table_start then draw_header_cell(col_ptr, T("START"), x_off[col_ptr], start_y, "start"); col_ptr = col_ptr + 1 end
+        if cfg.col_table_end then draw_header_cell(col_ptr, T("END"), x_off[col_ptr], start_y, "end"); col_ptr = col_ptr + 1 end
         
         if cfg.col_table_dubber then 
             local conflict_count = 0
@@ -32028,14 +32748,14 @@ function DRAW_TABS.draw_table(input_queue)
                 for _ in pairs(DUBBERS.conflicts) do conflict_count = conflict_count + 1 end
                 conflict_count = math.floor(conflict_count / 2) -- Pairs
             end
-            local tip = conflict_count > 0 and ("Всього конфліктів: " .. conflict_count) or "Конфліктів не виявлено"
-            draw_header_cell(col_ptr, "Дабер", x_off[col_ptr], start_y, "dubber", tip)
+            local tip = conflict_count > 0 and (T("TOTAL_N_CONFLICTS") .. conflict_count) or T("NO_CONFLICTS")
+            draw_header_cell(col_ptr, T("DABBER"), x_off[col_ptr], start_y, "dubber", tip)
             col_ptr = col_ptr + 1 
         end
         
         if cfg.col_table_cps then draw_header_cell(col_ptr, "CPS", x_off[col_ptr], start_y, "cps"); col_ptr = col_ptr + 1 end
-        if cfg.col_table_actor then draw_header_cell(col_ptr, "Актор", x_off[col_ptr], start_y, "actor"); col_ptr = col_ptr + 1 end
-        draw_header_cell(col_ptr, "Репліка", x_off[col_ptr], start_y, "text")
+        if cfg.col_table_actor then draw_header_cell(col_ptr, T("ACTOR"), x_off[col_ptr], start_y, "actor"); col_ptr = col_ptr + 1 end
+        draw_header_cell(col_ptr, T("LINE"), x_off[col_ptr], start_y, "text")
     end
 
     -- --- COLUMN VISIBILITY FLOATING MENU ---
@@ -32045,11 +32765,11 @@ function DRAW_TABS.draw_table(input_queue)
         local item_h = S(24)
         local items = {
             {label = "#", key = "col_table_index"},
-            {label = "Початок", key = "col_table_start"},
-            {label = "Кінець", key = "col_table_end"},
-            {label = "Дабер", key = "col_table_dubber"},
+            {label = T("START"), key = "col_table_start"},
+            {label = T("END"), key = "col_table_end"},
+            {label = T("DABBER"), key = "col_table_dubber"},
             {label = "CPS", key = "col_table_cps"},
-            {label = "Актор", key = "col_table_actor"}
+            {label = T("ACTOR"), key = "col_table_actor"}
         }
         local m_h = #items * item_h + S(10)
         
@@ -32099,11 +32819,11 @@ function DRAW_TABS.draw_table(input_queue)
                     OTHER.col_vis_menu.handled = true
                     if item.action then
                         item.action()
-                        update_prompter_fonts()
+                        UTILS.update_prompter_fonts()
                     else
                         cfg[item.key] = not cfg[item.key]
                         save_settings()
-                        update_prompter_fonts()
+                        UTILS.update_prompter_fonts()
                         
                         -- Fallback sorting to # if hidden
                         if not cfg[item.key] and tostring(table_sort.col) == tostring(item.label) then
@@ -32271,7 +32991,7 @@ function DRAW_TABS.draw_table(input_queue)
         
         set_color(UI.C_TXT)
         gfx.x, gfx.y = chk_x + chk_sz + S(8), iy + S(4)
-        gfx.drawstr("Лише для вибраних")
+        gfx.drawstr(T("FOR_SELECTED_ONLY"))
         
         if hover_chk and is_mouse_clicked() then
             OTHER.time_shift_menu.only_selected = not OTHER.time_shift_menu.only_selected
@@ -32294,7 +33014,7 @@ function DRAW_TABS.draw_table(input_queue)
                 end
                 
                 if draw_btn_inline(bx, by, btn_w, btn_h, label, UI.C_BTN) then
-                    push_undo("Здвиг часу (" .. off .. "s)")
+                    push_undo(T("TABLE_MENU_TIME_SHIFT") .. " (" .. off .. "s)")
                     local affected = 0
                     for _, line in ipairs(ass_lines) do
                         if not OTHER.time_shift_menu.only_selected or table_selection[line.index or 0] then
@@ -32304,7 +33024,7 @@ function DRAW_TABS.draw_table(input_queue)
                         end
                     end
                     rebuild_regions()
-                    show_snackbar("Здвинуто на " .. label .. " (" .. affected .. ")", "success")
+                    show_snackbar(T("SHIFTER_BY") .. label .. " (" .. affected .. ")", "success")
                 end
             end
         end
@@ -32347,15 +33067,15 @@ function OTHER.show_auto_startup_suggestion()
         end
 
         if not cfg.auto_startup and not has_offered_startup then
-            local title = "Subass Notes: Автозапуск"
-            local msg = "Бажаєте активувати автоматичний запуск плагіна при старті REAPER?\n\nЦе дозволить плагіну завжди бути готовим до роботи без необхідності запускати його вручну."
+            local title = T("AUTO_RUN_1")
+            local msg = T("AUTO_RUN_2")
             
             local ret = reaper.MB(msg, title, 4) -- 4 = Yes/No
             if ret == 6 then -- 6 = Yes
                 cfg.auto_startup = true
                 reaper.SetExtState(section_name, "auto_startup", "1", true)
                 toggle_reaper_startup(true)
-                show_snackbar("Автозапуск активовано!", "success")
+                show_snackbar(T("AUTO_RUN_3"), "success")
             end
             reaper.SetExtState(section_name, "offered_auto_startup_for_user", "1", true)
         end
@@ -32391,7 +33111,7 @@ function OTHER.handle_remote_commands()
                     if math.abs(line.t1 - r.pos) < 0.01 and math.abs(line.t2 - r.rgnend) < 0.01 then
                         OTHER.focus_plugin_window()
                         open_text_editor(line.text, function(new_text)
-                            push_undo("Редагування тексту (Remote)")
+                            push_undo(T("TEXT_EDIT_REMOTE"))
                             line.text = new_text
                             UI_STATE._markers_is_dirty = true
                             rebuild_regions()
@@ -32422,7 +33142,7 @@ function OTHER.handle_remote_commands()
                 if math.abs(line.t1 - next_rgn.pos) < 0.01 and math.abs(line.t2 - next_rgn.rgnend) < 0.01 then
                     OTHER.focus_plugin_window()
                     open_text_editor(line.text, function(new_text)
-                        push_undo("Редагування тексту (Remote Next)")
+                        push_undo(T("TEXT_EDIT_REMOTE"))
                         line.text = new_text
                         UI_STATE._markers_is_dirty = true
                         rebuild_regions()
@@ -32463,7 +33183,7 @@ function OTHER.handle_remote_commands()
                     found_match = true
                     OTHER.focus_plugin_window()
                     open_text_editor(m_name, function(new_text)
-                        push_undo("Редагування правки (Remote Overlay)")
+                        push_undo(T("RETAKE_EDIT_REMOTE"))
                         -- Знаходимо індекс знову (бо він міг змінитись)
                         local find_idx = -1
                         for j = 0, reaper.CountProjectMarkers(0) - 1 do
@@ -32493,7 +33213,7 @@ function OTHER.handle_remote_commands()
                 end
             end
             if not found_match then
-                show_snackbar(string.format("Marker with ID %d not found at %.3f", target_id, t1), "error")
+                show_snackbar(string.format(T("NO_FOUND_MARKER_REMOTE"), target_id, t1), "error")
             end
         end
 
@@ -32504,7 +33224,7 @@ function OTHER.handle_remote_commands()
                 if line.rgn_idx == target_id then
                     OTHER.focus_plugin_window()
                     open_text_editor(line.text, function(new_text)
-                        push_undo("Редагування тексту (Remote Specific)")
+                        push_undo(T("TEXT_EDIT_REMOTE"))
                         line.text = new_text
                         UI_STATE._markers_is_dirty = true
                         rebuild_regions()
@@ -32519,7 +33239,7 @@ function OTHER.handle_remote_commands()
             if not looks_like_marker and math.abs(line.t1 - t1) < 0.01 and math.abs(line.t2 - t2) < 0.01 then
                 OTHER.focus_plugin_window()
                 open_text_editor(line.text, function(new_text)
-                    push_undo("Редагування тексту (Remote Specific)")
+                    push_undo(T("TEXT_EDIT_REMOTE"))
                     line.text = new_text
                     UI_STATE._markers_is_dirty = true
                     rebuild_regions()
@@ -32544,7 +33264,7 @@ function OTHER.handle_remote_commands()
                 if matches then
                     OTHER.focus_plugin_window()
                     open_text_editor(m_name, function(new_text)
-                        push_undo("Редагування правки (Remote Overlay)")
+                        push_undo(T("RETAKE_EDIT_REMOTE"))
                         -- Знаходимо індекс знову (бо він міг змінитись)
                         local find_idx = -1
                         for j = 0, reaper.CountProjectMarkers(0) - 1 do
@@ -32738,20 +33458,31 @@ function OTHER.process_post_recording()
                                 total_words = total_words + count
                             end
 
-                            if entry.text and entry.text:lower():find("секс") then
+                            if entry.text and (entry.text:lower():find("секс") or entry.text:lower():find("sex")) then
                                 ACHIEVEMENTS.add_stat("ach_15_count", 1)
                             end
                             
                             -- Achievement: Parseltongue (ach_19: > 8 hissing sounds)
                             if entry.text then
-                                local hiss_count = 0
                                 local t_low = entry.text:lower()
-                                -- UTF-8 safe iteration for cyrillic characters
+                                
+                                -- 1. Рахуємо комбінації та видаляємо їх з рядка, щоб не порахувати повторно
+                                local sh_count = select(2, t_low:gsub("sh", ""))
+                                t_low = t_low:gsub("sh", "")
+                                
+                                local ch_count = select(2, t_low:gsub("ch", ""))
+                                t_low = t_low:gsub("ch", "")
+                                
+                                local hiss_count = sh_count + ch_count
+                                
+                                -- 2. Рахуємо решту сибілянтів у "очищеному" рядку
                                 for c in t_low:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
-                                    if c == "ш" or c == "ж" or c == "ч" or c == "щ" or c == "с" then
+                                    if c == "ш" or c == "ж" or c == "ч" or c == "щ" or c == "с" or 
+                                    c == "s" or c == "z" or c == "j" then
                                         hiss_count = hiss_count + 1
                                     end
                                 end
+                                
                                 if hiss_count > 8 then
                                     ACHIEVEMENTS.add_stat("ach_19_count", 1)
                                 end
@@ -32864,10 +33595,10 @@ function OTHER.process_post_recording()
                 
                 if trimmed_count > 0 then
                     reaper.UpdateArrange()
-                    reaper.Undo_EndBlock("Авто-підрізання запису", -1)
-                    show_snackbar("Запис підрізано (" .. trimmed_count .. " шт.)", "info")
+                    reaper.Undo_EndBlock(T("AUTOMATIC_TRIM"), -1)
+                    show_snackbar(T("AUTOMATIC_SN_1") .. trimmed_count .. T("CLIPPING_WARN_2"), "info")
                 else
-                    reaper.Undo_EndBlock("Авто-підрізання запису", -1)
+                    reaper.Undo_EndBlock(T("AUTOMATIC_TRIM"), -1)
                 end
             end
 
@@ -32958,7 +33689,7 @@ function OTHER.process_post_recording()
 
                 if clipped_count > 0 then
                     reaper.UpdateArrange()
-                    show_snackbar("⚠️ УВАГА: ЗАПИС КЛІПУЄ! (" .. clipped_count .. " шт.)", "error")
+                    show_snackbar(T("CLIPPING_WARN_1") .. clipped_count .. T("CLIPPING_WARN_2"), "error")
                 end
             end
         end
@@ -33071,7 +33802,7 @@ local function main()
             if pf then
                 pf:close()
                 OTHER.import_whisper_srt(pw.temp_srt, pw.item_pos, pw.play_rate)
-                show_snackbar("Результати Whisper імпортовано!", "success")
+                show_snackbar(T("WHISPER_RESULT_IMPORTED"), "success")
             end
             if pw.pid_file  then os.remove(pw.pid_file)  end
             if pw.out_file  then os.remove(pw.out_file)  end
@@ -33172,16 +33903,16 @@ local function main()
                     keys[UI_STATE.hotkey_capture_idx] = key_str
                     cfg.hotkeys = table.concat(keys, ",")
                     save_settings()
-                    show_snackbar("Клавіші поміняно місцями: [" .. key_str .. "] <-> [" .. (old_key ~= "" and old_key or "нічого") .. "]", "info")
+                    show_snackbar(T("KEYS_SWAPPED_1") .. key_str .. "] <-> [" .. (old_key ~= "" and old_key or T("NOTHING")) .. "]", "info")
                 else
                     keys[UI_STATE.hotkey_capture_idx] = key_str
                     cfg.hotkeys = table.concat(keys, ",")
                     save_settings()
-                    show_snackbar("Змінено на [" .. key_str .. "]", "success")
+                    show_snackbar(T("KEYS_SWAPPED_2") .. key_str .. "]", "success")
                 end
                 UI_STATE.hotkey_capture_idx = nil
             else
-                show_snackbar("Помилка: використовуйте 0-9, - або =", "error")
+                show_snackbar(T("KEYS_SWAPPED_ERROR"), "error")
             end
             UI_STATE.hotkey_capture_idx = nil
             for i=1, #input_queue do input_queue[i] = 0 end -- Clear queue
@@ -33308,7 +34039,7 @@ local function main()
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                 local dock_state = gfx.dock(-1)
                 local check = (dock_state > 0) and "!" or ""
-                local ret = gfx.showmenu(check .. "Закріпити вікно (Dock)")
+                local ret = gfx.showmenu(check .. T("DOCK_THE_WINDOW"))
                 if ret == 1 then
                     local target_dock = dock_state > 0 and 0 or (GL.last_dock_id or 1)
                     gfx.dock(target_dock)
