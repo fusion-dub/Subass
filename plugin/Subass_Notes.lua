@@ -8669,7 +8669,10 @@ function UTILS.close_all_modals()
     UI_STATE.show_edit_profile = false
     UI_STATE.show_profile_view = false
     UI_STATE.show_talent_search = false
-    UI_STATE.text_items_style.show = false
+
+    if UI_STATE.text_items_style then
+        UI_STATE.text_items_style.show = false
+    end
 end
 
 UTILS.GLOBAL_HOTKEY_ACTIONS = {
@@ -30293,7 +30296,7 @@ function UTILS.rebuild_actors_index()
             text = line.text, 
             enabled = (line.enabled ~= false),
             rgn_idx = line.rgn_idx,
-            _i = i 
+            _i = i
         }
     end
 
@@ -31790,6 +31793,141 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
     return (actor_area_bottom - panel_y) + input_area_h
 end
 
+function UTILS.delete_logic()
+    -- Separate ASS lines and markers
+    local selected_ass_entries = {}
+    local selected_marker_indices = {}
+    
+    -- Collect selected ASS lines
+    for p, l in ipairs(ass_lines) do
+        if table_selection[l.index or p] then
+            table.insert(selected_ass_entries, {line = l, pos = p})
+        end
+    end
+    
+    -- Collect selected markers (string indices like "M12")
+    for idx in pairs(table_selection) do
+        if type(idx) == "string" and idx:sub(1,1) == "M" then
+            local markindex = tonumber(idx:sub(2))
+            if markindex then
+                table.insert(selected_marker_indices, markindex)
+            end
+        end
+    end
+    
+    local total_deleted = 0
+    
+    -- Delete markers (Robust Method)
+    if #selected_marker_indices > 0 then
+        if #selected_ass_entries > 0 then
+            push_undo(T("DELETING_RETAKES_AND_LINES"))
+        else
+            push_undo(T("DELETING_RETAKES"))
+        end
+        
+        -- Build a lookup set of IDs to delete
+        local markers_to_delete = {}
+        for _, id in ipairs(selected_marker_indices) do markers_to_delete[id] = true end
+        
+        -- 1. Sync internal ass_markers table (Prevent resurrection by rebuild_regions)
+        local new_ass_markers = {}
+        for _, m in ipairs(ass_markers) do
+            if not markers_to_delete[m.markindex] then
+                table.insert(new_ass_markers, m)
+            end
+        end
+        ass_markers = new_ass_markers
+        
+        -- 2. Delete from Project
+        local i = reaper.CountProjectMarkers(0) - 1
+        while i >= 0 do
+            local _, isrgn, _, _, _, mark_id = reaper.EnumProjectMarkers3(0, i)
+            if not isrgn and markers_to_delete[mark_id] then
+                reaper.DeleteProjectMarkerByIndex(0, i)
+                total_deleted = total_deleted + 1
+            end
+            i = i - 1
+        end
+    end
+    
+    -- Delete ASS lines
+    if #selected_ass_entries > 0 then
+        if #selected_marker_indices == 0 then
+            push_undo(T("DELETING_LINES"))
+        end
+        -- Optimized removal: One pass O(N)
+        local new_lines = {}
+        local to_delete = {}
+        for _, ent in ipairs(selected_ass_entries) do to_delete[ent.pos] = true end
+        
+        for p, l in ipairs(ass_lines) do
+            if not to_delete[p] then
+                table.insert(new_lines, l)
+            else
+                total_deleted = total_deleted + 1
+            end
+        end
+        ass_lines = new_lines
+        cleanup_actors()
+        rebuild_regions()
+        save_project_data(UI_STATE.last_project_id)
+        reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
+    end
+    
+    if total_deleted > 0 then
+        table_selection = {}
+        last_selected_row = nil
+        table_data_cache.state_count = -1
+        last_layout_state.state_count = -1
+        prompter_drawer.marker_cache.count = -1
+        show_snackbar(T("REMOVED_TABLE_LINES_EX") .. total_deleted, "error")
+    end
+end
+
+function UTILS.duplicate_logic(target_id)
+    local original_pos = nil
+    for p, l in ipairs(ass_lines) do
+        if (l.index or p) == target_id then
+            original_pos = p
+            break
+        end
+    end
+
+    if original_pos then
+        local source = ass_lines[original_pos]
+        push_undo(T("REPEAT_THE_LINE"))
+        
+        -- Create copy
+        local new_replica = {}
+        for k, v in pairs(source) do new_replica[k] = v end
+        
+        -- Generate new unique index
+        local max_idx = 0
+        for _, l in ipairs(ass_lines) do
+            if type(l.index) == "number" and l.index > max_idx then
+                max_idx = l.index
+            end
+        end
+        new_replica.index = max_idx + 1
+        
+        -- Insert after original
+        table.insert(ass_lines, original_pos + 1, new_replica)
+        
+        cleanup_actors()
+        rebuild_regions()
+        save_project_data(UI_STATE.last_project_id)
+        reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
+        
+        table_selection = {}
+        table_selection[new_replica.index] = true
+        table_data_cache.state_count = -1
+        last_layout_state.state_count = -1
+        show_snackbar(T("LINE_IS_SUCC_DUP"), "success")
+        return true
+    end
+    return false
+end
+
 function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input_queue, calc_only)
     gfx.setfont(F.std)
     if not calc_only then
@@ -31906,7 +32044,6 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         end
 
         editor_state.mouse_was_down = (mouse_state == 1)
-
         -- Pick the best matching line
         local best_line = nil
         
@@ -32978,6 +33115,27 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                 end
             end
         end
+
+        -- --- RIGHT CLICK ON PANEL CONTEXT MENU ---
+        if is_mouse_clicked(2) and editor_state.last_line_data and not UI_STATE.mouse_handled then
+            local is_hover_panel = gfx.mouse_x >= panel_x and gfx.mouse_x <= panel_x + panel_w and
+                                   gfx.mouse_y >= panel_y and gfx.mouse_y <= panel_y + panel_h
+            
+            if is_hover_panel then
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local menu_str = T("REPEAT_THE_LINE") .. "|" .. T("DELETE_LINE")
+                local ret = gfx.showmenu(menu_str)
+                local c_index = ass_lines[editor_state.last_line_data._i].index
+                if ret == 1 then
+                    UTILS.duplicate_logic(c_index)
+                elseif ret == 2 then
+                    table_selection = {}
+                    table_selection[c_index] = true
+                    UTILS.delete_logic()
+                end
+                UI_STATE.mouse_handled = true
+            end
+        end
     end
     
     return (actor_area_bottom - panel_y) + input_area_h
@@ -33950,142 +34108,6 @@ function DRAW_TABS.draw_table(input_queue)
         
         start_y = start_y + S(30) -- Shift content down
     end
-    
-    -- Helper: Delete Logic
-    local function delete_logic()
-        -- Separate ASS lines and markers
-        local selected_ass_entries = {}
-        local selected_marker_indices = {}
-        
-        -- Collect selected ASS lines
-        for p, l in ipairs(ass_lines) do
-            if table_selection[l.index or p] then
-                table.insert(selected_ass_entries, {line = l, pos = p})
-            end
-        end
-        
-        -- Collect selected markers (string indices like "M12")
-        for idx in pairs(table_selection) do
-            if type(idx) == "string" and idx:sub(1,1) == "M" then
-                local markindex = tonumber(idx:sub(2))
-                if markindex then
-                    table.insert(selected_marker_indices, markindex)
-                end
-            end
-        end
-        
-        local total_deleted = 0
-        
-        -- Delete markers (Robust Method)
-        if #selected_marker_indices > 0 then
-            if #selected_ass_entries > 0 then
-                push_undo(T("DELETING_RETAKES_AND_LINES"))
-            else
-                push_undo(T("DELETING_RETAKES"))
-            end
-            
-            -- Build a lookup set of IDs to delete
-            local markers_to_delete = {}
-            for _, id in ipairs(selected_marker_indices) do markers_to_delete[id] = true end
-            
-            -- 1. Sync internal ass_markers table (Prevent resurrection by rebuild_regions)
-            local new_ass_markers = {}
-            for _, m in ipairs(ass_markers) do
-                if not markers_to_delete[m.markindex] then
-                    table.insert(new_ass_markers, m)
-                end
-            end
-            ass_markers = new_ass_markers
-            
-            -- 2. Delete from Project
-            local i = reaper.CountProjectMarkers(0) - 1
-            while i >= 0 do
-                local _, isrgn, _, _, _, mark_id = reaper.EnumProjectMarkers3(0, i)
-                if not isrgn and markers_to_delete[mark_id] then
-                    reaper.DeleteProjectMarkerByIndex(0, i)
-                    total_deleted = total_deleted + 1
-                end
-                i = i - 1
-            end
-        end
-        
-        -- Delete ASS lines
-        if #selected_ass_entries > 0 then
-            if #selected_marker_indices == 0 then
-                push_undo(T("DELETING_LINES"))
-            end
-            -- Optimized removal: One pass O(N)
-            local new_lines = {}
-            local to_delete = {}
-            for _, ent in ipairs(selected_ass_entries) do to_delete[ent.pos] = true end
-            
-            for p, l in ipairs(ass_lines) do
-                if not to_delete[p] then
-                    table.insert(new_lines, l)
-                else
-                    total_deleted = total_deleted + 1
-                end
-            end
-            ass_lines = new_lines
-            cleanup_actors()
-            rebuild_regions()
-            save_project_data(UI_STATE.last_project_id)
-            reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
-        end
-        
-        if total_deleted > 0 then
-            table_selection = {}
-            last_selected_row = nil
-            table_data_cache.state_count = -1
-            last_layout_state.state_count = -1
-            prompter_drawer.marker_cache.count = -1
-            show_snackbar(T("REMOVED_TABLE_LINES_EX") .. total_deleted, "error")
-        end
-    end
-
-    local function duplicate_logic(target_id)
-        local original_pos = nil
-        for p, l in ipairs(ass_lines) do
-            if (l.index or p) == target_id then
-                original_pos = p
-                break
-            end
-        end
-
-        if original_pos then
-            local source = ass_lines[original_pos]
-            push_undo(T("REPEAT_THE_LINE"))
-            
-            -- Create copy
-            local new_replica = {}
-            for k, v in pairs(source) do new_replica[k] = v end
-            
-            -- Generate new unique index
-            local max_idx = 0
-            for _, l in ipairs(ass_lines) do
-                if type(l.index) == "number" and l.index > max_idx then
-                    max_idx = l.index
-                end
-            end
-            new_replica.index = max_idx + 1
-            
-            -- Insert after original
-            table.insert(ass_lines, original_pos + 1, new_replica)
-            
-            cleanup_actors()
-            rebuild_regions()
-            save_project_data(UI_STATE.last_project_id)
-            reaper.MarkProjectDirty(0) -- SAVE ON CHANGE
-            
-            table_selection = {}
-            table_selection[new_replica.index] = true
-            table_data_cache.state_count = -1
-            last_layout_state.state_count = -1
-            show_snackbar(T("LINE_IS_SUCC_DUP"), "success")
-            return true
-        end
-        return false
-    end
 
     -- Keyboard Shortcuts
     if input_queue then
@@ -34106,7 +34128,7 @@ function DRAW_TABS.draw_table(input_queue)
 
                 -- Delete (6579564) or Backspace (8)
                 if key == 6579564 or key == 8 then
-                    delete_logic()
+                    UTILS.delete_logic()
                 end
 
                 -- Ctrl+D (Duplicate or Deselect All)
@@ -34119,7 +34141,7 @@ function DRAW_TABS.draw_table(input_queue)
                     end
                     
                     if sel_count == 1 and type(target_id) == "number" then
-                        duplicate_logic(target_id)
+                        UTILS.duplicate_logic(target_id)
                     else
                         table_selection = {}
                         last_selected_row = nil
@@ -35095,11 +35117,11 @@ function DRAW_TABS.draw_table(input_queue)
                                 set_clipboard(line.t1_str)
                                 show_snackbar(T("COPIED") .. ": " .. line.t1_str, "info")
                             elseif ret == 2 then
-                                delete_logic()
+                                UTILS.delete_logic()
                             end
                         else
                             if ret == 1 then
-                                delete_logic()
+                                UTILS.delete_logic()
                             end
                         end
 
@@ -35110,7 +35132,7 @@ function DRAW_TABS.draw_table(input_queue)
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                         local ret = gfx.showmenu(menu_str)
                         if ret == 1 then
-                            delete_logic()
+                            UTILS.delete_logic()
                         end
 
                     -- Only ASS lines selected
@@ -35312,12 +35334,12 @@ function DRAW_TABS.draw_table(input_queue)
                                 set_clipboard(line.t1_str)
                                 show_snackbar(T("COPIED") .. ": " .. line.t1_str, "info")
                             elseif ret == dubber_end_idx + 2 then
-                                duplicate_logic(sel_indices[1])
+                                UTILS.duplicate_logic(sel_indices[1])
                             elseif ret == dubber_end_idx + 3 then
-                                delete_logic()
+                                UTILS.delete_logic()
                             end
                         elseif (has_merge and ret == dubber_end_idx + 2) or (not has_merge and ret == dubber_end_idx + 1) then
-                            delete_logic()
+                            UTILS.delete_logic()
                         end
                     end -- End of selection type check
                 end
