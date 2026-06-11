@@ -18258,14 +18258,15 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
             gfx.x, gfx.y = pad, cy + S(12)
             gfx.drawstr(label)
 
-            -- Value display
-            local fmt = decimals == 0 and "%.0f" or "%.2f"
-            local val_str = string.format(fmt, val)
+             -- Value display
+            local fmt = decimals == 0 and "%.0f" or "%.1f"
+            local percent_val = ((val - min_val) / (max_val - min_val)) * 100
+            local val_str = string.format(fmt .. "%%", percent_val)
             local val_w = gfx.measurestr(val_str)
             local slider_x = pad + label_w
-            local val_x = slider_x + slider_w + S(5)
-
-            gfx.x, gfx.y = val_x, cy + S(5)
+            local val_x = slider_x + slider_w + S(15)
+            
+            gfx.x, gfx.y = val_x, cy + S(12)
             gfx.drawstr(val_str)
 
             -- Slider background (сірий)
@@ -18762,15 +18763,43 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
     gfx.rect(0, 0, gfx.w, header_h, 1)
     set_color(UI.C_TXT, 0.1)
     gfx.line(0, header_h, gfx.w, header_h)
-
+    
     gfx.setfont(F.title)
     set_color(UI.C_TXT)
     gfx.x, gfx.y = pad, pad - S(2)
-    gfx.drawstr(T("TEXT_ITEMS_STYLE_TITLE"))
-
+    
     -- Close button (X) - Top Right
     local close_sz = S(24)
     local close_x = gfx.w - pad - close_sz
+    
+    -- Знаходимо найближчий елемент ліворуч для розрахунку доступної ширини
+    -- Враховуємо: кнопку Close, FX Toggle, Reset, Apply to Item, Editor Toggle
+    local right_buttons_width = close_sz + S(10) 
+    
+    -- Якщо є FX Toggle button
+    local bypass_w = S(100)
+    local bypass_x = close_x - bypass_w - S(10)
+    right_buttons_width = right_buttons_width + bypass_w + S(10)
+    
+    -- Якщо є Reset button
+    local reset_w = S(100)
+    local reset_x = bypass_x - reset_w - S(8)
+    right_buttons_width = right_buttons_width + reset_w + S(8)
+    
+    -- Якщо є Apply to Item button
+    local apply_w = S(120)
+    local apply_x = reset_x - apply_w - S(8)
+    right_buttons_width = right_buttons_width + apply_w + S(8)
+    
+    -- Якщо є Editor Toggle button
+    local editor_toggle_w = S(35)
+    local editor_toggle_x = apply_x - editor_toggle_w - S(8)
+    right_buttons_width = right_buttons_width + editor_toggle_w + S(8)
+    
+    -- Розраховуємо доступну ширину для заголовка
+    local avail_tw = gfx.w - pad - right_buttons_width - S(10)
+    local draw_title = fit_text_width(T("TEXT_ITEMS_STYLE_TITLE"), avail_tw)
+    gfx.drawstr(draw_title)
 
     local close_hover = UI_STATE.window_focused and (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
         gfx.mouse_y >= pad and gfx.mouse_y <= pad + close_sz)
@@ -18807,8 +18836,8 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
     end
 
     -- FX Toggle Button
-    local bypass_w = S(160)
-    local bypass_x = close_x - bypass_w - S(10)
+    local bypass_w = S(100)
+    local bypass_x = close_x - bypass_w - S(8)
     
     -- Track FX enabled state
     local fx_enabled = state.track and (reaper.GetMediaTrackInfo_Value(state.track, "I_FXEN") > 0) or false
@@ -18850,7 +18879,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
     end
 
     -- Reset Button (зліва від FX Toggle, на 8 пікселів)
-    local reset_w = S(80)
+    local reset_w = S(100)
     local reset_x = bypass_x - reset_w - S(8)
 
     if btn(reset_x, pad, reset_w, S(25), T("RESET_STYLES"), UI.C_BTN, UI.C_TXT, true) then
@@ -18916,7 +18945,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
     end
 
     -- Toggle Button for SUBASS ITEMS Editor
-    local editor_toggle_w = S(40)
+    local editor_toggle_w = S(35)
     local editor_toggle_x = apply_x - editor_toggle_w - S(8)
     local editor_toggle_text = UI_STATE.subass_items_editor_mode and "✏" or "✏"
     local editor_toggle_bg = UI_STATE.subass_items_editor_mode and UI.C_BTN_MEDIUM or UI.C_BTN
@@ -19237,18 +19266,24 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
 
         -- Кнопка Save
         local save_btn_w = S(90)
-        local save_btn_x = input_x + input_w + S(10)
-        local save_btn_y = input_y
-
+        local save_btn_x = gfx.w - pad - save_btn_w
+        local save_btn_y = editor_panel_y + S(30)
+        
         if btn(save_btn_x, save_btn_y, save_btn_w, input_h, T("SAVE_TEXT_ITEM"), UI.C_BTN_MEDIUM, UI.C_TXT, true) then
             save_subass_item()
         end
 
-        -- Обробка Enter для збереження
+         -- Обробка Enter для збереження
         if normalized_queue and was_focused then
             for _, char in ipairs(normalized_queue) do
-                if char == 13 then -- 13 = Enter
-                    save_subass_item()
+                if char == 13 then 
+                    local shift_pressed = false
+                    if gfx.mouse_cap & 8 == 8 or gfx.mouse_cap & 16 == 16 then
+                        shift_pressed = true
+                    end 
+                    if not shift_pressed then
+                        save_subass_item()
+                    end
                     break
                 end
             end
