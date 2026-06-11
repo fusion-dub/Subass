@@ -18040,11 +18040,138 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         return false
     end
 
-    local state = UI_STATE.text_items_style
+    local state = UI_STATE.text_items_style 
     local pad = S(20)
     local header_h = S(65)
     local footer_editor_h = UI_STATE.subass_items_editor_mode and S(140) or 0
     local content_h = gfx.h - header_h - footer_editor_h
+    -- Глобальне збереження оригінального тексту для кожного item
+    if UI_STATE.original_text_for_size == nil then
+        UI_STATE.original_text_for_size = {}
+    end
+    
+    -- Функція для отримання поточного item на треку SUBASS_ITEMS
+    local function get_current_subass_item()
+        local track_name = "SUBASS_ITEMS"
+        local target_track = nil
+        local tc = reaper.CountTracks(0)
+        for t = 0, tc - 1 do
+            local tr = reaper.GetTrack(0, t)
+            local _, tn = reaper.GetTrackName(tr)
+            if tn == track_name then
+                target_track = tr
+                break
+            end
+        end
+        
+        if not target_track then return nil end
+        
+        local cursor_pos = reaper.GetCursorPosition()
+        local item_count = reaper.CountTrackMediaItems(target_track)
+        
+        for i = 0, item_count - 1 do
+            local item = reaper.GetTrackMediaItem(target_track, i)
+            local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+            local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+            
+            if cursor_pos >= item_pos and cursor_pos <= item_pos + item_len then
+                return item
+            end
+        end
+        
+        return nil
+    end
+    
+    -- Функція форматування тексту (перенос слів)
+    local function format_text_global(in_text, limit)
+        if not in_text or in_text == "" then return "" end
+        
+        local text = in_text:gsub("{{+.-}}+", ""):gsub("{.-}", "")
+        local words = {}
+        
+        -- Розбиваємо текст на слова
+        for word in text:gmatch("%S+") do
+            table.insert(words, word)
+        end
+        
+        if #words == 0 then return "" end
+        
+        local lines = {}
+        local current_line = words[1]
+        
+        for i = 2, #words do
+            local word = words[i]
+            -- Перевіряємо чи вміститься слово з пробілом
+            if #current_line + 1 + #word <= limit then
+                current_line = current_line .. " " .. word
+            else
+                -- Не вміщається - переносимо слово на наступний рядок
+                table.insert(lines, current_line)
+                current_line = word
+            end
+        end
+        table.insert(lines, current_line)
+        
+        return table.concat(lines, "\n")
+    end
+    
+    -- Функція для оновлення тексту в тейку при зміні розміру
+    local function update_text_by_size()
+        -- Отримуємо поточний item
+        local item = get_current_subass_item()
+        if not item then return end
+        
+        local take = reaper.GetActiveTake(item)
+        if not take then return end
+        
+        -- Отримуємо ідентифікатор item для збереження оригіналу
+        local item_id = tostring(item)
+        
+        -- Якщо редактор відкритий, використовуємо його оригінальний текст
+        local original_text = nil
+        if UI_STATE.subass_items_editor_mode and UI_STATE.subass_items_edit_state then
+            original_text = UI_STATE.subass_items_edit_state.original_text
+        end
+        
+        -- Якщо немає оригінального тексту з редактора, беремо з UI_STATE або з тейку
+        if not original_text or original_text == "" then
+            if UI_STATE.original_text_for_size[item_id] then
+                original_text = UI_STATE.original_text_for_size[item_id]
+            else
+                local ret, text = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
+                if ret then
+                    original_text = text
+                    UI_STATE.original_text_for_size[item_id] = original_text
+                end
+            end
+        end
+        
+        if not original_text or original_text == "" then return end
+        
+        -- Отримуємо поточний розмір тексту
+        local text_size = state.params.size or 0.065
+        local max_chars = math.floor(90 / (text_size * 15))
+        max_chars = math.max(20, math.min(120, max_chars))
+        
+        -- Очищаємо оригінальний текст від попередніх переносів
+        local clean_original = original_text:gsub("\n", " ")
+        clean_original = clean_original:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+        
+        local formatted_text = format_text_global(clean_original, max_chars)
+        
+        reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", formatted_text, true)
+        reaper.GetSetMediaItemInfo_String(item, "P_NOTES", formatted_text, true)
+        reaper.UpdateItemInProject(item)
+        
+        -- Якщо редактор відкритий, оновлюємо і його текст
+        if UI_STATE.subass_items_editor_mode and UI_STATE.subass_items_edit_state then
+            if UI_STATE.subass_items_edit_state.text ~= formatted_text then
+                UI_STATE.subass_items_edit_state.text = formatted_text
+                UI_STATE.subass_items_edit_state.cursor = #formatted_text
+                UI_STATE.subass_items_edit_state.anchor = #formatted_text
+            end
+        end
+    end
 
     -- Перевірка чи трек ще існує
     local track_exists = false
@@ -18370,6 +18497,9 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                     state.params[param_key] = new_val
                     reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[param_key], new_val)
                     UTILS.save_text_items_styles()
+                    if param_key == "size" then
+                        update_text_by_size()
+                    end
                     UI_STATE.mouse_handled = true
                 end
             end
@@ -18394,6 +18524,9 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                 state.params[param_key] = new_val
                 reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[param_key], new_val)
                 UTILS.save_text_items_styles()
+                if param_key == "size" then
+                   update_text_by_size()
+                end
             elseif state.dragging == param_key then
                 state.dragging = nil
             end
@@ -19106,11 +19239,13 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         if not UI_STATE.subass_items_edit_state then
             UI_STATE.subass_items_edit_state = {
                 text = "",
+                original_text = "",
                 cursor = 0,
                 anchor = 0,
                 focus = false,
                 history = {},
-                history_pos = 0
+                history_pos = 0,
+                current_item = nil
             }
         end
 
@@ -19122,12 +19257,18 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         if should_update then
             if is_editing_existing then
                 UI_STATE.subass_items_edit_state.text = current_text
+                UI_STATE.subass_items_edit_state.original_text = current_text 
+                if current_item then
+                    UI_STATE.original_text_for_size[tostring(current_item)] = current_text
+                end
             elseif can_create_new then
                 UI_STATE.subass_items_edit_state.text = ""
+                UI_STATE.subass_items_edit_state.original_text = ""
             end
             UI_STATE.subass_items_edit_state.cursor = #UI_STATE.subass_items_edit_state.text
             UI_STATE.subass_items_edit_state.anchor = #UI_STATE.subass_items_edit_state.text
             UI_STATE.subass_items_edit_state.last_item = current_item
+            UI_STATE.subass_items_edit_state.current_item = current_item
             UI_STATE.subass_items_edit_state.last_selection_start = sel_start
             UI_STATE.subass_items_edit_state.last_selection_end = sel_end
             UI_STATE.subass_items_edit_state.focus = true
