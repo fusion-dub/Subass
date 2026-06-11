@@ -431,6 +431,9 @@ local I18N = {
     TAB_FILE_FAILED_FORMAT = { en = "The file format could not be determined", ua = "Не вдалося визначити формат файлу" },
     FILES_IMPORTED = { en = "Files imported", ua = "Імпортовано файлів" },
     DUPLICATES = { en = "Duplicates", ua = "Дублікатів" },
+    SPLIT_REPLICA_BY_CURSOR = { en = "Split line by cursor", ua = "Розділити репліку по курсору" },
+    SPLIT_CURSOR_EDGE_ERR = { en = "Cannot split at the edge of the text", ua = "Неможливо розділити на краю тексту" },
+    REPLICA_SPLIT_SUCCESS = { en = "Line split successfully", ua = "Репліку успішно розділено" },
     RETAKES = { en = "Retakes", ua = "Правки" },
     RETAKES_PROMPT = { en = "RETAKES", ua = "ПРАВКИ" },
     TAB_FILE_IMPORT_FROM_TEXT = { en = "Import from text", ua = "Імпорт з тексту" },
@@ -632,6 +635,7 @@ local I18N = {
     DELETING_LINES = { en = "Deleting lines", ua = "Видалення реплік" },
     REMOVED_TABLE_LINES_EX = { en = "Deleted: ", ua = "Видалено: " },
     REPEAT_THE_LINE = { en = "Repeat the line", ua = "Продублювати репліку" },
+    UNDO_T_EDITOR_CHANGE = { en = "Undo changes", ua = "Відкотити зміни" },
     LINE_IS_SUCC_DUP = { en = "The line has been duplicated", ua = "Репліку продубльовано" },
     HIGHLIGHTING_REMOVED = { en = "Highlighting has been removed", ua = "Знято виділення з реплік" },
     TABLE_RETAKE = { en = ":RETAKE:", ua = ":ПРАВКА:" },
@@ -17376,6 +17380,13 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         end
         table.insert(menu_items, "<")
         
+        local split_ret_idx = nil
+        if id == "editor_panel" and editor_state.last_line_data then
+            table.insert(menu_items, "")
+            table.insert(menu_items, T("SPLIT_REPLICA_BY_CURSOR"))
+            split_ret_idx = 8 + #cfg.tts_voices_order
+        end
+        
         local menu_str = table.concat(menu_items, "|")
         local ret = gfx.showmenu(menu_str)
         
@@ -17444,6 +17455,86 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             cfg.tts_voice = cfg.tts_voices_order[ret - 7]
             save_settings()
             show_snackbar(T("VOICE_HB_CHANGED_TO") .. cfg.tts_voice)
+        elseif split_ret_idx and ret == split_ret_idx then
+            local line_ref = editor_state.last_line_data
+            if line_ref then
+                local original_pos = line_ref._i
+                local line = ass_lines[original_pos]
+                if line then
+                    local cursor_pos = state.cursor
+                    local txt = state.text
+                    local part1 = txt:sub(1, cursor_pos):match("^%s*(.-)%s*$")
+                    local part2 = txt:sub(cursor_pos + 1):match("^%s*(.-)%s*$")
+                    
+                    if part1 == "" or part2 == "" then
+                        show_snackbar(T("SPLIT_CURSOR_EDGE_ERR"), "warning")
+                    else
+                        local t1 = line.t1
+                        local t2 = line.t2
+                        local len1 = utf8.len(part1) or #part1
+                        local len2 = utf8.len(part2) or #part2
+                        local total_len = len1 + len2
+                        local ratio = len1 / total_len
+                        local split_time = t1 + (t2 - t1) * ratio
+                        if split_time - t1 < 0.1 then split_time = t1 + 0.1 end
+                        if t2 - split_time < 0.1 then split_time = t2 - 0.1 end
+                        
+                        push_undo(T("SPLIT_REPLICA_BY_CURSOR"))
+                        
+                        -- Update first part
+                        line.text = part1
+                        line.t2 = split_time
+                        
+                        local col = get_actor_color(line.actor)
+                        if not col or col == 0 then col = -1 end
+                        reaper.SetProjectMarker3(0, line.rgn_idx, true, t1, split_time, part1, col)
+                        
+                        -- Create and insert second part
+                        local new_replica = {}
+                        for k, v in pairs(line) do new_replica[k] = v end
+                        new_replica.text = part2
+                        new_replica.t1 = split_time
+                        new_replica.t2 = t2
+                        
+                        local r_idx = reaper.AddProjectMarker2(0, true, split_time, t2, part2, -1, col)
+                        local _, _, _, _, _, r_id = reaper.EnumProjectMarkers3(0, r_idx)
+                        new_replica.rgn_idx = r_id
+                        
+                        -- Generate new unique index
+                        local max_idx = 0
+                        for _, l in ipairs(ass_lines) do
+                            if type(l.index) == "number" and l.index > max_idx then
+                                max_idx = l.index
+                            end
+                        end
+                        new_replica.index = max_idx + 1
+                        
+                        table.insert(ass_lines, original_pos + 1, new_replica)
+                        UI_STATE._markers_is_dirty = true
+                        
+                        cleanup_actors()
+                        rebuild_regions()
+                        save_project_data(UI_STATE.last_project_id)
+                        reaper.MarkProjectDirty(0)
+                        
+                        table_selection = {}
+                        table_selection[line.index or original_pos] = true
+                        
+                        table_data_cache.state_count = -1
+                        last_layout_state.state_count = -1
+                        editor_state.needs_sync = true
+                        editor_state.last_region_id = -1
+                        editor_state.last_state_count = -1
+                        
+                        -- Update text input immediately for fluid UX
+                        state.text = part1
+                        state.cursor = #part1
+                        state.anchor = #part1
+                        
+                        show_snackbar(T("REPLICA_SPLIT_SUCCESS"), "success")
+                    end
+                end
+            end
         end
     end
     
@@ -33123,12 +33214,14 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             
             if is_hover_panel then
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = T("REPEAT_THE_LINE") .. "|" .. T("DELETE_LINE")
+                local menu_str = T("UNDO_T_EDITOR_CHANGE") .. "|" .. T("REPEAT_THE_LINE") .. "||" .. T("DELETE_LINE")
                 local ret = gfx.showmenu(menu_str)
                 local c_index = ass_lines[editor_state.last_line_data._i].index
                 if ret == 1 then
-                    UTILS.duplicate_logic(c_index)
+                    editor_state.last_region_id = -1
                 elseif ret == 2 then
+                    UTILS.duplicate_logic(c_index)
+                elseif ret == 3 then
                     table_selection = {}
                     table_selection[c_index] = true
                     UTILS.delete_logic()
