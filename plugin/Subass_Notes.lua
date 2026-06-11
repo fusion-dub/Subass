@@ -348,7 +348,73 @@ local OTHER = {
         { id="threat", name = "AI_TASK_threat", task = "Зроби тон небезпечним, суворим або таким, що залякує" },
         { id="simple", name = "AI_TASK_simple", task = "Використовуй прості слова та розмовну лексику, зроби репліку максимально природною для повсякденної мови" },
         { id="custom", name = "AI_TASK_custom", task = "CUSTOM" },
-    }
+    },
+    -- Video Processor parameter indices for Text Items
+    TEXT_ITEMS_PARAM_INDICES = {
+        size = 0,
+        fontselect = 3,
+        fontstyle = 4,
+        underline = 5,
+        xpos = 6,
+        ypos = 7,
+        fgc_r = 8,
+        fgc_g = 9,
+        fgc_b = 10,
+        align = 11,
+        fga = 12,
+        bg_on = 13,
+        bgypos = 14,
+        bgxpos = 15,
+        bgwidth = 17,
+        bgheight = 18,
+        bgc_r = 19,
+        bgc_g = 20,
+        bgc_b = 21,
+        bga = 22,
+        ol_on = 26,
+        outline_w = 27,
+        outl_r = 28,
+        outl_g = 29,
+        outl_b = 30,
+        outl_a = 31,
+        sh_x = 33,
+        sh_y = 34,
+        sh_a = 35,
+        sh_on = 36
+    },
+    -- Default values for Text Items styles
+    TEXT_ITEMS_DEFAULT_PARAMS = {
+        size = 0.065,
+        fontselect = 0,
+        fontstyle = 0,
+        underline = 0,
+        xpos = 0.5,
+        ypos = 0.98,
+        fgc_r = 1.0,
+        fgc_g = 1.0,
+        fgc_b = 1.0,
+        align = 1,
+        fga = 1.0,
+        bg_on = 0,
+        bgypos = 0.5,
+        bgxpos = 0.5,
+        bgwidth = 1.0,
+        bgheight = 1.0,
+        bgc_r = 0.0,
+        bgc_g = 0.0,
+        bgc_b = 0.0,
+        bga = 1.0,
+        ol_on = 0,
+        outline_w = 2,
+        outl_r = 0.0,
+        outl_g = 0.0,
+        outl_b = 0.0,
+        outl_a = 1.0,
+        sh_x = 5,
+        sh_y = 5,
+        sh_a = 0.5,
+        sh_on = 1
+    },
 }
 
 local I18N = {
@@ -1360,6 +1426,53 @@ local I18N = {
     REMOVE_STATS_1 = { en = "Are your statistics really so dismal that you've decided to destroy all the evidence?\n\nWarning: this “act of mercy” cannot be undone.", ua = "Невже ваша статистика настільки ганебна, що ви вирішили знищити всі докази?\n\nОбережно: цей \"акт милосердя\" неможливо скасувати." },
     REMOVE_STATS_2 = { en = "Cleaning up the statistics", ua = "Очищення статистики" },
     NEW_ACH_UNBLOCK = { en = "New achievement unlocked", ua = "Відкрито нове досягнення" },
+    TEXT_ITEMS_STYLE_TITLE = { en = "Subass Items Style", ua = "Стилі Subass Items" },
+    CREATE_TEXT_ITEMS_FROM_REGIONS = { en = "Create Subass Items", ua = "Створити Subass Items" },
+    TRACK_CREATED = { en = "Track created", ua = "Трек створено" },
+    TEXT_SIZE = { en = "Text size", ua = "Розмір тексту" },
+    FONT_STYLE = { en = "Font style", ua = "Стиль шрифту" },
+    FONT_NORMAL = { en = "Normal", ua = "Звичайний" },
+    FONT_BOLD = { en = "Bold", ua = "Жирний" },
+    FONT_ITALIC = { en = "Italic", ua = "Курсив" },
+    FONT_BOLD_ITALIC = { en = "Bold Italic", ua = "Жирний Курсив" },
+    UNDERLINE = { en = "Underline", ua = "Підкреслення" },
+    POSITION_X = { en = "Position X", ua = "Позиція X" },
+    POSITION_Y = { en = "Position Y", ua = "Позиція Y" },
+    TEXT_ALPHA = { en = "Text alpha", ua = "Прозорість тексту" },
+    BACKGROUND = { en = "Background", ua = "Фон" },
+    BG_OFFSET_X = { en = "BG offset X", ua = "Зсув фону X" },
+    BG_OFFSET_Y = { en = "BG offset Y", ua = "Зсув фону Y" },
+    BG_WIDTH = { en = "BG width", ua = "Ширина фону" },
+    BG_HEIGHT = { en = "BG height", ua = "Висота фону" },
+    BG_COLOR = { en = "BG color", ua = "Колір фону" },
+    BG_ALPHA = { en = "BG alpha", ua = "Прозорість фону" },
+    OUTLINE = { en = "Outline", ua = "Обводка" },
+    OUTLINE_WIDTH = { en = "Outline width", ua = "Товщина обводки" },
+    OUTLINE_COLOR = { en = "Outline color", ua = "Колір обводки" },
+    OUTLINE_ALPHA = { en = "Outline alpha", ua = "Прозорість обводки" },
+    SHADOW = { en = "Shadow", ua = "Тінь" },
+    SHADOW_OFFSET_X = { en = "Shadow offset X", ua = "Зсув тіні X" },
+    SHADOW_OFFSET_Y = { en = "Shadow offset Y", ua = "Зсув тіні Y" },
+    SHADOW_ALPHA = { en = "Shadow alpha", ua = "Прозорість тіні" },
+    FX_ENABLED = { en = "FX ENABLED", ua = "FX ВВІМКНЕНО" },
+    FX_DISABLED = { en = "FX DISABLED", ua = "FX ВИМКНЕНО" },
+    FX_ENABLED_MSG = { en = "FX enabled", ua = "FX ввімкнено" },
+    FX_DISABLED_MSG = { en = "FX disabled", ua = "FX вимкнено" },
+    RESET_STYLES = { en = "Reset styles", ua = "Скинути стилі" },
+    STYLES_RESET = { en = "Styles reset to default", ua = "Стилі скинуто до стандартних" },
+    CUSTOM_FONT_PREFIX = { en = "Custom font: ", ua = "Свій шрифт: " },
+    ADD_CUSTOM_FONT = { en = "Add custom font", ua = "Додати шрифт" },
+    CUSTOM_FONT_CHOOSE = { en = "Choose font", ua = "Вибір шрифту" },
+    CUSTOM_FONT_INPUT = { en = "Font name:,extrawidth=200", ua = "Назва шрифту:,extrawidth=200" },
+    CUSTOM_FONT_SET = { en = "Font '%s' set", ua = "Шрифт '%s' встановлено" },
+    OPEN_TEXT_ITEMS_STYLE = { en = "Open Subass Items style", ua = "Відкрити стилі Subass Items" },
+    SUBASS_ITEMS_EDITOR = { en = "Subass Items Editor", ua = "Редактор Subass Items" },
+    SAVE_TEXT_ITEM = { en = "Save", ua = "Зберегти" },
+    PRESS_ENTER_TO_SAVE = { en = "Press Enter to save", ua = "Натисніть Enter для збереження" },
+    APPLY_TO_ITEM = { en = "Apply to item", ua = "Застосувати до item" },
+    STYLES_APPLIED_TO_ITEM = { en = "Styles applied to item", ua = "Стилі застосовано до item" },
+    NO_ITEM_SELECTED = { en = "No SUBASS_ITEMS items selected", ua = "Немає виділених item SUBASS_ITEMS" },
+    STYLES_APPLIED_TO_ITEMS = { en = "Styles applied to %d item(s)", ua = "Стилі застосовано до %d елемента(ів)" },
 }
 
 function T(key)
@@ -5103,6 +5216,7 @@ local function is_any_text_input_focused()
     if prompter_drawer and prompter_drawer.filter and prompter_drawer.filter.focus then return true end
     if director_state and director_state.input and director_state.input.focus then return true end
     if editor_state and editor_state.input and editor_state.input.focus then return true end
+    if UI_STATE.subass_items_edit_state and UI_STATE.subass_items_edit_state.focus then return true end
     if SEARCH_ITEM and SEARCH_ITEM.show and SEARCH_ITEM.input and SEARCH_ITEM.input.focus then return true end
     if OTHER.find_replace_state and OTHER.find_replace_state.show then
         if OTHER.find_replace_state.find and OTHER.find_replace_state.find.focus then return true end
@@ -8555,6 +8669,7 @@ function UTILS.close_all_modals()
     UI_STATE.show_edit_profile = false
     UI_STATE.show_profile_view = false
     UI_STATE.show_talent_search = false
+    UI_STATE.text_items_style.show = false
 end
 
 UTILS.GLOBAL_HOTKEY_ACTIONS = {
@@ -10165,6 +10280,54 @@ function UTILS.remove_all_acute_for_selected_actors()
     end
 end
 
+-- Save Text Items styles to ExtState
+function UTILS.save_text_items_styles()
+    if not UI_STATE.text_items_style or not UI_STATE.text_items_style.params then
+        return
+    end
+
+    local params = UI_STATE.text_items_style.params
+    local data = {}
+
+    for key, idx in pairs(OTHER.TEXT_ITEMS_PARAM_INDICES) do
+        if params[key] ~= nil then
+            data[key] = tostring(params[key])
+        end
+    end
+
+    -- Also save custom font name
+    if UI_STATE.text_items_style.custom_font_name then
+        data["custom_font_name"] = UI_STATE.text_items_style.custom_font_name
+    end
+
+    local json_str = STATS.json_encode(data)
+    reaper.SetExtState(section_name, "text_items_styles", json_str, true)
+end
+
+-- Load Text Items styles from ExtState
+function UTILS.load_text_items_styles()
+    local json_str = reaper.GetExtState(section_name, "text_items_styles")
+    if not json_str or json_str == "" then
+        return nil
+    end
+
+    local success, data = pcall(function() return STATS.json_decode(json_str) end)
+    if not success or type(data) ~= "table" then
+        return nil
+    end
+
+    local params = {}
+    for key, idx in pairs(OTHER.TEXT_ITEMS_PARAM_INDICES) do
+        if data[key] then
+            params[key] = tonumber(data[key])
+        end
+    end
+
+    local custom_font_name = data["custom_font_name"]
+
+    return { params = params, custom_font_name = custom_font_name }
+end
+
 --- Creates empty "Text Items" on a dedicated SUBASS_ITEMS track from all project regions.
 --- If the track already exists its items are cleared first.
 function UTILS.create_text_items_from_regions()
@@ -10175,18 +10338,18 @@ function UTILS.create_text_items_from_regions()
         if setter then
             if setter(target, fx_idx, "code", code_str) then return true end
         end
-        
+
         -- Fallback to chunk hacking (target is track or take)
         local encoded = "|" .. code_str:gsub("\n", "\n|")
         local ret, chunk
         local item = is_take and reaper.GetMediaItemTake_Item(target) or nil
-        
+
         if is_take then
             ret, chunk = reaper.GetItemStateChunk(item, "", false)
         else
             ret, chunk = reaper.GetTrackStateChunk(target, "", false)
         end
-        
+
         if ret then
             -- Find the fx_idx-th VIDEO_EFFECT block (0-indexed)
             local current_idx = -1
@@ -10195,20 +10358,22 @@ function UTILS.create_text_items_from_regions()
                 local s, e = chunk:find("<VIDEO_EFFECT", s_idx)
                 if not s then break end
                 current_idx = current_idx + 1
-                
+
                 if current_idx == fx_idx then
                     local b_end = chunk:find("\n>", e)
                     if b_end then
                         local code_s, code_e = chunk:find("<CODE.-%s>", s)
                         local new_chunk
                         if code_s and code_s < b_end then
-                            new_chunk = chunk:sub(1, code_s - 1) .. "<CODE\n" .. encoded .. "\n>" .. chunk:sub(code_e + 1)
+                            new_chunk = chunk:sub(1, code_s - 1) ..
+                            "<CODE\n" .. encoded .. "\n>" .. chunk:sub(code_e + 1)
                         else
                             -- Find first newline after VIDEO_EFFECT to insert NI and CODE
                             local head_end = chunk:find("\n", e) or e
-                            new_chunk = chunk:sub(1, head_end) .. "\n<CODE\n" .. encoded .. "\n>" .. chunk:sub(head_end + 1)
+                            new_chunk = chunk:sub(1, head_end) ..
+                            "\n<CODE\n" .. encoded .. "\n>" .. chunk:sub(head_end + 1)
                         end
-                        
+
                         if is_take then
                             reaper.SetItemStateChunk(item, new_chunk, false)
                         else
@@ -10231,7 +10396,7 @@ function UTILS.create_text_items_from_regions()
         local retval, isrgn, pos, rgnend, name = reaper.EnumProjectMarkers3(0, i)
         if retval == 0 then break end
         if isrgn then
-            table.insert(rgns, {pos = pos, rgnend = rgnend, name = name})
+            table.insert(rgns, { pos = pos, rgnend = rgnend, name = name })
             table.insert(time_points, pos)
             table.insert(time_points, rgnend)
         end
@@ -10276,9 +10441,10 @@ function UTILS.create_text_items_from_regions()
     local track_fx_code = [=[// TEXT OVER VIDEO (Direct Screen Render Fix)
 #text="";
 font="Arial";
+#custom_font = "";
 
 //@param1:size 'Size' 0.05 0.01 0.2 0.1 0.001
-//@param4:fontselect 'Font' 0 0 11 6 1
+//@param4:fontselect 'Font' 0 0 12 6 1
 //@param5:fontstyle 'Style' 0 0 3 1.5 1
 //@param6:underline 'Underline' 0 0 1 0.5 1
 //@param7:xpos 'Text X position' 0.5 0 1 0.5 0.01
@@ -10317,13 +10483,13 @@ w == 0 ? (
 );
 
 // 1. Обов'язково малюємо відео на екран
-gfx_blit(0, 1); 
+gfx_blit(0, 1);
 
 project_w <= 0 ? input_info(0, project_w, project_h);
 (project_w <= 0 || project_h <= 0) ? (project_w = 1920; project_h = 1080;);
 
 is_active = gmem[0];
-gmem[0] = 0; 
+gmem[0] = 0;
 
 #text = "";
 
@@ -10349,13 +10515,14 @@ strlen(#text) > 0 ? (
   fontselect == 9  ? font = "Times New Roman";
   fontselect == 10 ? font = "Consolas";
   fontselect == 11 ? font = "Courier New";
+  fontselect == 12 ? font = #custom_font;
 
   style_flag = 0;
   fontstyle == 1 ? style_flag = 'b';
   fontstyle == 2 ? style_flag = 'i';
   fontstyle == 3 ? style_flag = 256 * 'i' + 'b';
   underline > 0.5 ? style_flag = (style_flag > 0) ? (256 * style_flag + 'u') : 'u';
-  
+
   colorspace = 'RGBA';
   gfx_setfont(size * project_h, font, style_flag);
 
@@ -10401,40 +10568,40 @@ strlen(#text) > 0 ? (
       #line = ""; copy_len = i - line_start;
       copy_len > 0 ? ( j = 0; loop(copy_len, str_setchar(#line, j, str_getchar(#text, line_start + j)); j += 1; ); str_setchar(#line, copy_len, 0); );
       gfx_str_measure(#line, line_w, line_h);
-      
-      align == 0 ? cur_lx = xp; 
-      align == 1 ? cur_lx = xp + (txtw - line_w) / 2; 
+
+      align == 0 ? cur_lx = xp;
+      align == 1 ? cur_lx = xp + (txtw - line_w) / 2;
       align == 2 ? cur_lx = xp + (txtw - line_w);
-      
+
       // 1. Тінь
-      (sh_on > 0.5 && sh_a > 0) ? ( 
-        gfx_set(0, 0, 0, sh_a * fga, 0); 
-        gfx_str_draw(#line, cur_lx + sh_x, cur_ly + sh_y); 
+      (sh_on > 0.5 && sh_a > 0) ? (
+        gfx_set(0, 0, 0, sh_a * fga, 0);
+        gfx_str_draw(#line, cur_lx + sh_x, cur_ly + sh_y);
       );
-      
+
       // 2. Обводка
       (ol_on > 0.5 && outline_w > 0) ? (
-        gfx_set(outl_r, outl_g, outl_b, outl_a, 0); 
-        oi = -outline_w; 
-        while(oi <= outline_w) ( 
-          oj = -outline_w; 
-          while(oj <= outline_w) ( 
-            (oi != 0 || oj != 0) ? gfx_str_draw(#line, cur_lx + oi, cur_ly + oj); 
-            oj += outline_w; 
-          ); 
-          oi += outline_w; 
+        gfx_set(outl_r, outl_g, outl_b, outl_a, 0);
+        oi = -outline_w;
+        while(oi <= outline_w) (
+          oj = -outline_w;
+          while(oj <= outline_w) (
+            (oi != 0 || oj != 0) ? gfx_str_draw(#line, cur_lx + oi, cur_ly + oj);
+            oj += outline_w;
+          );
+          oi += outline_w;
         );
       );
-      
+
       // 3. ОСНОВНИЙ ТЕКСТ (Фікс альфа-каналу)
-      // Ми малюємо текст двічі: перший раз з альфою 0 для заповнення, 
+      // Ми малюємо текст двічі: перший раз з альфою 0 для заповнення,
       // а другий раз — як нормальний колір.
-      gfx_set(fgc_r, fgc_g, fgc_b, fga, 0); 
+      gfx_set(fgc_r, fgc_g, fgc_b, fga, 0);
       gfx_str_draw(#line, cur_lx, cur_ly);
       // Якщо він все ще прозорий, додаємо "штамп":
       gfx_set(fgc_r, fgc_g, fgc_b, fga, 1);
       gfx_str_draw(#line, cur_lx, cur_ly);
-      
+
       cur_ly += line_h;
       (ch == 13 && i + 1 < src_len && str_getchar(#text, i + 1) == 10) ? ( i += 1; );
       line_start = i + 1;
@@ -10461,30 +10628,90 @@ strlen(#text) > 0 ? (
             reaper.SetOnlyTrackSelected(target_track)
             reaper.Main_OnCommand(8, 0)
 
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 0, 0.065)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 6, 0.5)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 7, 0.98)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 8, 1.0) 
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 9, 1.0)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 10, 1.0)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 11, 1.0)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 12, 1.0)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 13, 0.0)
+            -- Завантажуємо збережені стилі
+            local saved_styles = UTILS.load_text_items_styles()
 
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 14, 0.5)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 15, 0.5)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 17, 1.1)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 18, 1.1)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 22, 0.5)
+            if saved_styles and saved_styles.params then
+                -- Застосовуємо збережені параметри до FX
+                for key, idx in pairs(OTHER.TEXT_ITEMS_PARAM_INDICES) do
+                    local val = saved_styles.params[key]
+                    if val ~= nil then
+                        reaper.TrackFX_SetParam(target_track, track_fx_idx, idx, val)
+                    end
+                end
 
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 26, 1.0)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 27, 2.0)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 31, 0.15)
- 
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 33, 3.0)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 34, 3.0)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 35, 0.6)
-            reaper.TrackFX_SetParam(target_track, track_fx_idx, 36, 1.0)
+                -- Відновлюємо custom font name
+                if saved_styles.custom_font_name then
+                    local function set_custom_font_to_track(track, fx_idx, font_name)
+                        local ret, chunk = reaper.GetTrackStateChunk(track, "", false)
+                        if not ret then return false end
+
+                        local fx_start = nil
+                        local fx_end = nil
+                        local current_idx = -1
+                        local s_idx = 1
+
+                        while true do
+                            local s, e = chunk:find("<VIDEO_EFFECT", s_idx)
+                            if not s then break end
+                            current_idx = current_idx + 1
+
+                            if current_idx == fx_idx then
+                                fx_start = s
+                                local b_end = chunk:find("\n>", e)
+                                if b_end then
+                                    fx_end = b_end
+                                end
+                                break
+                            end
+                            s_idx = e + 1
+                        end
+
+                        if not fx_start or not fx_end then return false end
+
+                        local fx_chunk = chunk:sub(fx_start, fx_end)
+                        local new_fx_chunk = fx_chunk:gsub('#custom_font = "[^"]*"',
+                            '#custom_font = "' .. font_name .. '"')
+
+                        if new_fx_chunk == fx_chunk then
+                            new_fx_chunk = fx_chunk:gsub('font="Arial";',
+                                'font="Arial";\n#custom_font = "' .. font_name .. '";')
+                        end
+
+                        local new_chunk = chunk:sub(1, fx_start - 1) .. new_fx_chunk .. chunk:sub(fx_end + 1)
+                        reaper.SetTrackStateChunk(track, new_chunk, false)
+                        return true
+                    end
+
+                    set_custom_font_to_track(target_track, track_fx_idx, saved_styles.custom_font_name)
+                end
+            else
+                -- Якщо немає збережених стилів, використовуємо стандартні значення
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 0, 0.065)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 6, 0.5)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 7, 0.98)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 8, 1.0)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 9, 1.0)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 10, 1.0)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 11, 1.0)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 12, 1.0)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 13, 0.0)
+
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 14, 0.5)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 15, 0.5)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 17, 1.1)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 18, 1.1)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 22, 0.5)
+
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 26, 1.0)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 27, 2.0)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 31, 0.15)
+
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 33, 3.0)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 34, 3.0)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 35, 0.6)
+                reaper.TrackFX_SetParam(target_track, track_fx_idx, 36, 1.0)
+            end
         end
     end
 
@@ -10511,7 +10738,7 @@ strlen(#text) > 0 ? (
                 table.insert(lines, current_line)
             end
         end
-        
+
         -- Збираємо все назад у один текст
         return table.concat(lines, "\n")
     end
@@ -10519,15 +10746,15 @@ strlen(#text) > 0 ? (
     table.sort(time_points)
     local unique_points = {}
     for i = 1, #time_points do
-        if i == 1 or time_points[i] ~= time_points[i-1] then
+        if i == 1 or time_points[i] ~= time_points[i - 1] then
             table.insert(unique_points, time_points[i])
         end
     end
 
     for i = 1, #unique_points - 1 do
         local start_t = unique_points[i]
-        local end_t = unique_points[i+1]
-        
+        local end_t = unique_points[i + 1]
+
         -- Знаходимо всі регіони, які активні в цьому сегменті
         local active_names = {}
         for _, rgn in ipairs(rgns) do
@@ -10535,22 +10762,22 @@ strlen(#text) > 0 ? (
                 table.insert(active_names, rgn.name)
             end
         end
-        
+
         -- Якщо в цьому сегменті щось є — створюємо айтем
         if #active_names > 0 then
             local item = reaper.AddMediaItemToTrack(target_track)
             reaper.SetMediaItemInfo_Value(item, "D_POSITION", start_t)
             reaper.SetMediaItemInfo_Value(item, "D_LENGTH", math.max(end_t - start_t, 0.001))
-            
+
             local take = reaper.AddTakeToMediaItem(item)
             if take then
                 -- Об'єднуємо назви через перенос рядка
                 local combined_text = table.concat(active_names, "\n")
                 local formatted_name = format_text(combined_text, 80)
-                
+
                 reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", formatted_name, true)
                 reaper.GetSetMediaItemInfo_String(item, "P_NOTES", formatted_name, true)
-                
+
                 local take_fx = reaper.TakeFX_AddByName(take, "Video processor", 1)
                 if take_fx >= 0 then
                     local item_code = "gfx_blit(0, 1);\ngmem[0] = 1;"
@@ -10564,6 +10791,707 @@ strlen(#text) > 0 ? (
     reaper.UpdateArrange()
     reaper.Undo_EndBlock("Create text items from regions", -1)
     show_snackbar(string.format(T("IN_TEXT_I_SUCC"), #rgns, track_name), "success")
+end
+
+
+--- Open modal window to edit text item styles
+function UTILS.open_text_items_style_editor()
+    -- Знаходимо трек SUBASS_ITEMS
+    local track_name = "SUBASS_ITEMS"
+    local target_track = nil
+    local tc = reaper.CountTracks(0)
+    for t = 0, tc - 1 do
+        local tr = reaper.GetTrack(0, t)
+        local _, tn = reaper.GetTrackName(tr)
+        if tn == track_name then
+            target_track = tr
+            break
+        end
+    end
+
+    -- Завантажуємо збережені стилі
+    local saved_styles = UTILS.load_text_items_styles()
+
+    local current_params = {}
+
+    -- БЕРЕМО ПАРАМЕТРИ ТІЛЬКИ З DEFAULT АБО EXTSTATE
+    for key, default_val in pairs(OTHER.TEXT_ITEMS_DEFAULT_PARAMS) do
+        if saved_styles and saved_styles.params and saved_styles.params[key] ~= nil then
+            current_params[key] = saved_styles.params[key]
+        else
+            current_params[key] = default_val
+        end
+    end
+
+    local fx_idx = -1
+    local custom_font_name = saved_styles and saved_styles.custom_font_name or nil
+
+    if target_track then
+        local num_fx = reaper.TrackFX_GetCount(target_track)
+        for f = 0, num_fx - 1 do
+            local retval, fx_name = reaper.TrackFX_GetFXName(target_track, f, "")
+            if retval and (fx_name:lower():find("video processor") or fx_name:lower():find("video_processor")) then
+                fx_idx = f
+                break
+            end
+        end
+    end
+
+    -- Створюємо стан
+    UI_STATE.text_items_style = {
+        track = target_track,
+        fx_idx = fx_idx,
+        params = current_params,
+        default_params = OTHER.TEXT_ITEMS_DEFAULT_PARAMS,
+        show = true,
+        scroll_y = 0,
+        target_scroll_y = 0,
+        custom_font_name = custom_font_name,
+        subass_items_editor_mode = false,
+    }
+end
+
+--- Apply current styles to all selected items
+function UTILS.apply_styles_to_selected_items()
+    local track_name = "SUBASS_ITEMS"
+    local target_track = nil
+    local tc = reaper.CountTracks(0)
+    for t = 0, tc - 1 do
+        local tr = reaper.GetTrack(0, t)
+        local _, tn = reaper.GetTrackName(tr)
+        if tn == track_name then
+            target_track = tr
+            break
+        end
+    end
+    
+    if not target_track then
+        show_snackbar(T("NO_SUBASS_TRACK"), "warning")
+        return false
+    end
+    
+    if not UI_STATE.text_items_style or not UI_STATE.text_items_style.params then
+        show_snackbar(T("NO_STYLES_TO_APPLY"), "warning")
+        return false
+    end
+    
+    -- Отримуємо тільки виділені items на треку
+    local selected_items = {}
+    local item_count = reaper.CountTrackMediaItems(target_track)
+    
+    for i = 0, item_count - 1 do
+        local item = reaper.GetTrackMediaItem(target_track, i)
+        if reaper.IsMediaItemSelected(item) then
+            local take = reaper.GetActiveTake(item)
+            if take then
+                table.insert(selected_items, {item = item, take = take})
+            end
+        end
+    end
+    
+    if #selected_items == 0 then
+        show_snackbar(T("NO_ITEM_SELECTED"), "warning")
+        return false
+    end
+    
+    -- Prepare styles data
+    local styles_data = {
+        params = {},
+        custom_font_name = UI_STATE.text_items_style.custom_font_name or ""
+    }
+    
+    for key, val in pairs(UI_STATE.text_items_style.params) do
+        styles_data.params[key] = val
+    end
+    
+    -- Generate full Video Processor code
+    local full_code = UTILS.generate_full_video_processor_code(styles_data)
+    
+    -- Вставляємо custom_font у код якщо є
+    local custom_font = styles_data.custom_font_name or ""
+    if custom_font ~= "" then
+        full_code = full_code:gsub('#custom_font = "[^"]*"', '#custom_font = "' .. custom_font .. '"')
+    end
+    
+    -- Застосовуємо стилі до кожного виділеного item
+    local success_count = 0
+    for _, selected in ipairs(selected_items) do
+        local take = selected.take
+        
+        -- Find and remove existing Video Processor FX on take
+        local num_fx = reaper.TakeFX_GetCount(take)
+        for f = num_fx - 1, 0, -1 do
+            local retval, fx_name = reaper.TakeFX_GetFXName(take, f, "")
+            if retval and (fx_name:lower():find("video processor") or fx_name:lower():find("video_processor")) then
+                reaper.TakeFX_Delete(take, f)
+            end
+        end
+        
+        -- Add new Video Processor FX
+        local fx_idx = reaper.TakeFX_AddByName(take, "Video processor", 1)
+        
+        if fx_idx >= 0 then
+            -- Try to set code via SetNamedConfigParm
+            local success = reaper.TakeFX_SetNamedConfigParm(take, fx_idx, "code", full_code)
+            
+            if not success then
+                -- Fallback: try via chunk
+                success = UTILS.set_take_code_via_chunk(take, fx_idx, full_code)
+            end
+            
+            if success then
+                -- Set parameters
+                for key, idx in pairs(OTHER.TEXT_ITEMS_PARAM_INDICES) do
+                    local val = styles_data.params[key]
+                    if val ~= nil then
+                        reaper.TakeFX_SetParam(take, fx_idx, idx, val)
+                    end
+                end
+                
+                -- Apply custom font if exists
+                if custom_font ~= "" then
+                    local item = reaper.GetMediaItemTake_Item(take)
+                    if item then
+                        local ret, chunk = reaper.GetItemStateChunk(item, "", false)
+                        if ret then
+                            local new_chunk = chunk:gsub('#custom_font = "[^"]*"', '#custom_font = "' .. custom_font .. '"')
+                            if new_chunk ~= chunk then
+                                reaper.SetItemStateChunk(item, new_chunk, false)
+                            end
+                        end
+                    end
+                end
+                
+                success_count = success_count + 1
+            end
+        end
+    end
+    
+    if success_count > 0 then
+        show_snackbar(string.format(T("STYLES_APPLIED_TO_ITEMS"), success_count), "success")
+        reaper.UpdateArrange()
+    else
+        show_snackbar(T("FAILED_TO_APPLY_STYLES"), "error")
+    end
+    
+    return success_count > 0
+end
+
+--- Set take code via item chunk (more reliable method)
+function UTILS.set_take_code_via_chunk(take, fx_idx, code)
+    local item = reaper.GetMediaItemTake_Item(take)
+    if not item then return false end
+
+    -- Get item chunk
+    local ret, chunk = reaper.GetItemStateChunk(item, "", false)
+    if not ret then return false end
+
+    -- Find which take number this is
+    local take_num = -1
+    local tc = reaper.CountTakes(item)
+    for t = 0, tc - 1 do
+        if reaper.GetTake(item, t) == take then
+            take_num = t
+            break
+        end
+    end
+
+    if take_num < 0 then return false end
+
+    -- Find the take block
+    local take_start = 1
+    for t = 0, take_num do
+        take_start = chunk:find("<TAKE", take_start)
+        if not take_start then return false end
+        if t < take_num then
+            take_start = chunk:find(">", take_start) + 1
+        end
+    end
+
+    local take_end = chunk:find(">", take_start)
+    if not take_end then return false end
+
+    local take_chunk = chunk:sub(take_start, take_end)
+
+    -- Find VIDEO_EFFECT blocks
+    local fx_start = 1
+    local current_fx = -1
+    local fx_pos_start = nil
+    local fx_pos_end = nil
+
+    while true do
+        local s, e = take_chunk:find("<VIDEO_EFFECT", fx_start)
+        if not s then break end
+        current_fx = current_fx + 1
+
+        if current_fx == fx_idx then
+            fx_pos_start = s
+            local b_end = take_chunk:find("\n>", e)
+            if b_end then
+                fx_pos_end = b_end
+            end
+            break
+        end
+        fx_start = e + 1
+    end
+
+    if not fx_pos_start or not fx_pos_end then return false end
+
+    -- Encode code with pipe characters at line starts
+    local encoded_code = ""
+    for line in code:gmatch("[^\r\n]*") do
+        encoded_code = encoded_code .. "|" .. line .. "\n"
+    end
+
+    -- Build new FX chunk with CODE section
+    local fx_chunk = take_chunk:sub(fx_pos_start, fx_pos_end)
+
+    -- Remove existing CODE section if any
+    local code_start, code_end = fx_chunk:find("<CODE.-%s>")
+    if code_start then
+        fx_chunk = fx_chunk:sub(1, code_start - 1) .. fx_chunk:sub(code_end + 1)
+    end
+
+    -- Insert new CODE section
+    local insert_pos = fx_chunk:find("\n") or 1
+    if insert_pos then
+        fx_chunk = fx_chunk:sub(1, insert_pos) .. "<CODE\n" .. encoded_code .. ">\n" .. fx_chunk:sub(insert_pos + 1)
+    end
+
+    -- Reconstruct chunks
+    local new_take_chunk = take_chunk:sub(1, fx_pos_start - 1) .. fx_chunk .. take_chunk:sub(fx_pos_end + 1)
+    local new_chunk = chunk:sub(1, take_start - 1) .. new_take_chunk .. chunk:sub(take_end + 1)
+
+    return reaper.SetItemStateChunk(item, new_chunk, false)
+end
+
+function UTILS.generate_full_video_processor_code(styles_data)
+    local p = styles_data.params
+    local custom_font = styles_data.custom_font_name or ""
+
+    return string.format([=[// Text
+        #text="";
+
+        #colortext="";  // Колір тексту в форматі RRGGBB або RRGGBBAA
+
+        #colorBG="";    // Колір фону в форматі RRGGBB або RRGGBBAA
+
+        font="";
+        #custom_font = "";
+
+        //@param1:size 'Size' 0.05 0.01 0.2 0.1 0.001
+        //@param2:rotate 'Rotation' 0 -360 360 0 0.1
+
+        //@param4:fontselect 'Font' 0 0 12 6 1
+        //@param5:fontstyle 'Style' 0 0 3 1.5 1
+        //@param6:underline 'Underline' 0 0 1 0.5 1
+        //@param7:xpos 'Text X position' 0.5 0 1 0.5 0.01
+        //@param8:ypos 'Text Y position' 0.5 0 1 0.5 0.01
+        //@param9:fgc_r 'Red text' 1.0 0 1 0.5 0.01
+        //@param10:fgc_g 'Green text' 1.0 0 1 0.5 0.01
+        //@param11:fgc_b 'Blue text' 1.0 0 1 0.5 0.01
+        //@param12:align 'Text align' 1 0 2 1 1
+        //@param13:fga 'Alpha text' 1.0 0 1 0.5 0.01
+
+        //@param14:bg_on 'BG enabled' 0 0 1 0.5 1
+        //@param15:bgypos 'BG Y offset' 0.5 0 1 0.5 0.01
+        //@param16:bgxpos 'BG X offset' 0.5 0 1 0.5 0.01
+        //@param17:bg_rot 'BG rotation (deg)' 0 -360 360 0 0.1
+        //@param18:bgwidth 'BG width' 1.0 0.0 10.0 1.0 0.01
+        //@param19:bgheight 'BG height' 1.0 0.0 10.0 1.0 0.01
+        //@param20:bgc_r 'Red BG' 0.0 0 1 0.5 0.01
+        //@param21:bgc_g 'Green BG' 0.0 0 1 0.5 0.01
+        //@param22:bgc_b 'Blue BG' 0.0 0 1 0.5 0.01
+        //@param23:bga 'Alpha BG' 1 0.001 1 0.5 0.001
+        //@param24:bg_corner 'BG border radius' 0 0 0.5 0.1 0.01
+        //@param25:bg_fade 'BG fade' 0 0 0.5 0 0
+
+        //@param27:ol_on 'Outline enabled' 0 0 1 0.5 1
+        //@param28:outline_w 'Outline width' 2 0 10 2 1
+        //@param29:outl_r 'Red outline' 0.0 0 1 0.5 0.01
+        //@param30:outl_g 'Green outline' 0.0 0 1 0.5 0.01
+        //@param31:outl_b 'Blue outline' 0.0 0 1 0.5 0.01
+        //@param32:outl_a 'Alpha outline' 1.0 0 1 0.5 0.01
+
+        //@param34:sh_x 'Shadow X offset' 5 -100 100 0 1
+        //@param35:sh_y 'Shadow Y offset' 5 -100 100 0 1
+        //@param36:sh_a 'Shadow alpha' 0.5 0 1 0.5 0.01
+        //@param37:sh_on 'Shadow enabled' 1 0 1 0.5 1
+
+        //@param39:ignoreinput 'Ignore input' 0 0 1 0.5 1
+
+        input = ignoreinput ? -2 : 0;
+        project_wh_valid === 0 ? input_info(input, project_w, project_h);
+
+        // 1. Вибір шрифту
+        fontselect == 0  ? font = "Arial";
+        fontselect == 1  ? font = "Calibri";
+        fontselect == 2  ? font = "Roboto";
+        fontselect == 3  ? font = "Segoe UI";
+        fontselect == 4  ? font = "Trebuchet MS";
+        fontselect == 5  ? font = "Verdana";
+        fontselect == 6  ? font = "Cambria";
+        fontselect == 7  ? font = "Impact";
+        fontselect == 8  ? font = "Georgia";
+        fontselect == 9  ? font = "Times New Roman";
+        fontselect == 10 ? font = "Consolas";
+        fontselect == 11 ? font = "Courier New";
+        fontselect == 12 ? font = #custom_font;
+
+        // 2. Парсинг кольору тексту з #colortext
+        strlen(#colortext) >= 6 ? (
+            h1 = str_getchar(#colortext, 0);
+            h2 = str_getchar(#colortext, 1);
+            h3 = str_getchar(#colortext, 2);
+            h4 = str_getchar(#colortext, 3);
+            h5 = str_getchar(#colortext, 4);
+            h6 = str_getchar(#colortext, 5);
+
+            v1 = (h1 >= 48 && h1 <= 57) ? h1 - 48 : (h1 >= 65 && h1 <= 70) ? h1 - 55 : (h1 >= 97 && h1 <= 102) ? h1 - 87 : 0;
+            v2 = (h2 >= 48 && h2 <= 57) ? h2 - 48 : (h2 >= 65 && h2 <= 70) ? h2 - 55 : (h2 >= 97 && h2 <= 102) ? h2 - 87 : 0;
+            v3 = (h3 >= 48 && h3 <= 57) ? h3 - 48 : (h3 >= 65 && h3 <= 70) ? h3 - 55 : (h3 >= 97 && h3 <= 102) ? h3 - 87 : 0;
+            v4 = (h4 >= 48 && h4 <= 57) ? h4 - 48 : (h4 >= 65 && h4 <= 70) ? h4 - 55 : (h4 >= 97 && h4 <= 102) ? h4 - 87 : 0;
+            v5 = (h5 >= 48 && h5 <= 57) ? h5 - 48 : (h5 >= 65 && h5 <= 70) ? h5 - 55 : (h5 >= 97 && h5 <= 102) ? h5 - 87 : 0;
+            v6 = (h6 >= 48 && h6 <= 57) ? h6 - 48 : (h6 >= 65 && h6 <= 70) ? h6 - 55 : (h6 >= 97 && h6 <= 102) ? h6 - 87 : 0;
+
+            fgc_r = (v1 * 16 + v2) / 255;
+            fgc_g = (v3 * 16 + v4) / 255;
+            fgc_b = (v5 * 16 + v6) / 255;
+
+            strlen(#colortext) >= 8 ? (
+                h7 = str_getchar(#colortext, 6);
+                h8 = str_getchar(#colortext, 7);
+                v7 = (h7 >= 48 && h7 <= 57) ? h7 - 48 : (h7 >= 65 && h7 <= 70) ? h7 - 55 : (h7 >= 97 && h7 <= 102) ? h7 - 87 : 0;
+                v8 = (h8 >= 48 && h8 <= 57) ? h8 - 48 : (h8 >= 65 && h8 <= 70) ? h8 - 55 : (h8 >= 97 && h8 <= 102) ? h8 - 87 : 0;
+                fga = (v7 * 16 + v8) / 255;
+            );
+        );
+
+        // 3. Парсинг кольору фону з #colorBG
+        strlen(#colorBG) >= 6 ? (
+            h1 = str_getchar(#colorBG, 0);
+            h2 = str_getchar(#colorBG, 1);
+            h3 = str_getchar(#colorBG, 2);
+            h4 = str_getchar(#colorBG, 3);
+            h5 = str_getchar(#colorBG, 4);
+            h6 = str_getchar(#colorBG, 5);
+
+            v1 = (h1 >= 48 && h1 <= 57) ? h1 - 48 : (h1 >= 65 && h1 <= 70) ? h1 - 55 : (h1 >= 97 && h1 <= 102) ? h1 - 87 : 0;
+            v2 = (h2 >= 48 && h2 <= 57) ? h2 - 48 : (h2 >= 65 && h2 <= 70) ? h2 - 55 : (h2 >= 97 && h2 <= 102) ? h2 - 87 : 0;
+            v3 = (h3 >= 48 && h3 <= 57) ? h3 - 48 : (h3 >= 65 && h3 <= 70) ? h3 - 55 : (h3 >= 97 && h3 <= 102) ? h3 - 87 : 0;
+            v4 = (h4 >= 48 && h4 <= 57) ? h4 - 48 : (h4 >= 65 && h4 <= 70) ? h4 - 55 : (h4 >= 97 && h4 <= 102) ? h4 - 87 : 0;
+            v5 = (h5 >= 48 && h5 <= 57) ? h5 - 48 : (h5 >= 65 && h5 <= 70) ? h5 - 55 : (h5 >= 97 && h5 <= 102) ? h5 - 87 : 0;
+            v6 = (h6 >= 48 && h6 <= 57) ? h6 - 48 : (h6 >= 65 && h6 <= 70) ? h6 - 55 : (h6 >= 97 && h6 <= 102) ? h6 - 87 : 0;
+
+            bgc_r = (v1 * 16 + v2) / 255;
+            bgc_g = (v3 * 16 + v4) / 255;
+            bgc_b = (v5 * 16 + v6) / 255;
+
+            strlen(#colorBG) >= 8 ? (
+                h7 = str_getchar(#colorBG, 6);
+                h8 = str_getchar(#colorBG, 7);
+                v7 = (h7 >= 48 && h7 <= 57) ? h7 - 48 : (h7 >= 65 && h7 <= 70) ? h7 - 55 : (h7 >= 97 && h7 <= 102) ? h7 - 87 : 0;
+                v8 = (h8 >= 48 && h8 <= 57) ? h8 - 48 : (h8 >= 65 && h8 <= 70) ? h8 - 55 : (h8 >= 97 && h8 <= 102) ? h8 - 87 : 0;
+                bga = (v7 * 16 + v8) / 255;
+            );
+            bg_on = 1;
+        );
+
+        // 4. Стилі
+        style_flag = 0;
+        fontstyle == 1 ? style_flag = 'b';
+        fontstyle == 2 ? style_flag = 'i';
+        fontstyle == 3 ? style_flag = 256 * 'i' + 'b';
+        underline > 0.5 ? style_flag = (style_flag > 0) ? (256 * style_flag + 'u') : 'u';
+        gfx_a2 = 0;
+        gfx_blit(input, 1);
+        colorspace = 'RGBA';
+        gfx_setfont(size * project_h, font, style_flag);
+
+        // 5. Читаємо текст
+        strcmp(#text, "") == 0 ? input_get_name(-1, #text);
+
+        // 6. Розбиваємо на рядки через str_getchar (шукаємо код 10 = \n)
+        // Підраховуємо кількість рядків і максимальну ширину блоку
+        line_count = 0;
+        max_line_w = 0;
+        total_line_h = 0;
+        src_len = strlen(#text);
+
+        // Перший прохід: міряємо
+        i = 0;
+        line_start = 0;
+        loop(src_len + 1,
+          ch = (i < src_len) ? str_getchar(#text, i) : 10;
+          (ch == 10 || ch == 13) ? (
+            // Витягуємо рядок [line_start .. i-1]
+            #line = "";
+            copy_len = i - line_start;
+            copy_len > 0 ? (
+              j = 0;
+              loop(copy_len,
+                str_setchar(#line, j, str_getchar(#text, line_start + j));
+                j += 1;
+              );
+              str_setchar(#line, copy_len, 0);
+            );
+            gfx_str_measure(#line, lw, lh);
+            lw > max_line_w ? max_line_w = lw;
+            total_line_h += lh;
+            line_h_single = lh;
+            line_count += 1;
+            // Пропускаємо \r\n як одне
+            (ch == 13 && i + 1 < src_len && str_getchar(#text, i + 1) == 10) ? (
+              i += 1;
+            );
+            line_start = i + 1;
+          );
+          i += 1;
+        );
+
+        // Якщо рядків не знайдено (немає \n взагалі) — весь текст один рядок
+        line_count == 0 ? (
+          gfx_str_measure(#text, max_line_w, total_line_h);
+          line_h_single = total_line_h;
+          line_count = 1;
+        );
+
+        txtw = max_line_w;
+        txth = total_line_h;
+
+        // 7. Позиція текстового блоку
+        ty = ((project_h - txth) * ypos) | 0;
+        xp = (xpos * (project_w - txtw)) | 0;
+
+        // 8. Розміри та позиція фону
+        // Фон прив'язаний до тексту; bgxpos/bgypos — додатковий зсув
+        bgw = bg_on ? txtw * bgwidth : project_w * bgwidth;
+        bgh = bg_on ? txth * bgheight : project_h * bgheight;
+        bgx = xp - (bgw - txtw) / 2 + (bgxpos - 0.5) * project_w;
+        bgy = ty  - (bgh - txth) / 2 + (bgypos - 0.5) * project_h;
+
+        // 9. Межі всього об'єкта
+        obj_x1 = min(xp - outline_w - abs(sh_x), bgx);
+        obj_y1 = min(ty - outline_w - abs(sh_y), bgy);
+        obj_x2 = max(xp + txtw + outline_w + abs(sh_x), bgx + bgw);
+        obj_y2 = max(ty + txth + outline_w + abs(sh_y), bgy + bgh);
+        obj_w = obj_x2 - obj_x1;
+        obj_h = obj_y2 - obj_y1;
+        obj_diag = ceil(sqrt(obj_w * obj_w + obj_h * obj_h)) + 32;
+
+        // 10. Створення прозорого буфера
+        img_obj = gfx_img_alloc(obj_diag, obj_diag, 1);
+        gfx_dest = img_obj;
+        gfx_clear = 0;
+
+        // 11. Локальні координати в буфері
+        buf_x = (obj_diag - obj_w) / 2;
+        buf_y = (obj_diag - obj_h) / 2;
+        lx  = buf_x + (xp  - obj_x1);
+        ly  = buf_y + (ty  - obj_y1);
+        lbgx = buf_x + (bgx - obj_x1);
+        lbgy = buf_y + (bgy - obj_y1);
+
+        // 12. Малювання фону з fade (виправлено: краї прозорі, не чорні)
+        (bg_on > 0.5 && bga > 0) ? (
+          bg_diag = ceil(sqrt(bgw * bgw + bgh * bgh));
+          img_bg = gfx_img_alloc(bg_diag, bg_diag, 1);
+          gfx_dest = img_bg;
+          // Спочатку очищаємо в повністю прозорий стан
+          gfx_set(0, 0, 0, 0);
+          gfx_clear = 1;
+          gfx_a2 = 1;
+
+          bg_cx = (bg_diag - bgw) / 2;
+          bg_cy = (bg_diag - bgh) / 2;
+
+          fade_px  = floor(min(bgw, bgh) * bg_fade);
+          corner_px = floor(min(bgw, bgh) * bg_corner);
+          corner_px < fade_px ? corner_px = fade_px;
+
+          // Центральні суцільні прямокутники
+          gfx_set(bgc_r, bgc_g, bgc_b, bga);
+          gfx_fillrect(bg_cx + fade_px,   bg_cy + corner_px, bgw - fade_px * 2,   bgh - corner_px * 2);
+          gfx_fillrect(bg_cx + corner_px, bg_cy + fade_px,   bgw - corner_px * 2, bgh - fade_px * 2);
+
+          // Верхня межа (fade: прозоро вгорі → повна альфа знизу)
+          y = 0;
+          loop(fade_px,
+            alpha = bga * (y / max(fade_px, 1));
+            gfx_set(bgc_r, bgc_g, bgc_b, alpha);
+            gfx_fillrect(bg_cx + corner_px, bg_cy + y, bgw - corner_px * 2, 1);
+            y += 1;
+          );
+
+          // Нижня межа
+          y = 0;
+          loop(fade_px,
+            alpha = bga * (y / max(fade_px, 1));
+            gfx_set(bgc_r, bgc_g, bgc_b, alpha);
+            gfx_fillrect(bg_cx + corner_px, bg_cy + bgh - 1 - y, bgw - corner_px * 2, 1);
+            y += 1;
+          );
+
+          // Ліва межа
+          x = 0;
+          loop(fade_px,
+            alpha = bga * (x / max(fade_px, 1));
+            gfx_set(bgc_r, bgc_g, bgc_b, alpha);
+            gfx_fillrect(bg_cx + x, bg_cy + corner_px, 1, bgh - corner_px * 2);
+            x += 1;
+          );
+
+          // Права межа
+          x = 0;
+          loop(fade_px,
+            alpha = bga * (x / max(fade_px, 1));
+            gfx_set(bgc_r, bgc_g, bgc_b, alpha);
+            gfx_fillrect(bg_cx + bgw - 1 - x, bg_cy + corner_px, 1, bgh - corner_px * 2);
+            x += 1;
+          );
+
+          // Кути: d > corner_px — не малюємо (вже прозорі після gfx_clear)
+          y = 0;
+          loop(corner_px,
+            x = 0;
+            loop(corner_px,
+              dx = corner_px - x;
+              dy = corner_px - y;
+              d = sqrt(dx * dx + dy * dy);
+              d <= corner_px ? (
+                d <= corner_px - fade_px ? (
+                  alpha = bga;
+                ) : (
+                  alpha = bga * (1 - (d - (corner_px - fade_px)) / max(fade_px, 1));
+                );
+                alpha < 0 ? alpha = 0;
+                gfx_set(bgc_r, bgc_g, bgc_b, alpha);
+                gfx_fillrect(bg_cx + x,           bg_cy + y,           1, 1);
+                gfx_fillrect(bg_cx + bgw - 1 - x, bg_cy + y,           1, 1);
+                gfx_fillrect(bg_cx + x,           bg_cy + bgh - 1 - y, 1, 1);
+                gfx_fillrect(bg_cx + bgw - 1 - x, bg_cy + bgh - 1 - y, 1, 1);
+              );
+              x += 1;
+            );
+            y += 1;
+          );
+
+          gfx_dest = img_obj;
+          blit_x = lbgx + bgw / 2 - bg_diag / 2;
+          blit_y = lbgy + bgh / 2 - bg_diag / 2;
+          gfx_a2 = 0;
+          gfx_set(1, 1, 1, 1, 0x10000);
+          gfx_rotoblit(img_bg, bg_rot * $pi / 180, blit_x, blit_y, bg_diag, bg_diag, 0, 0, bg_diag, bg_diag);
+          gfx_img_free(img_bg);
+        );
+
+        // 13. Малюємо рядки з вирівнюванням
+        cur_ly = ly;
+        i = 0;
+        line_start = 0;
+        loop(src_len + 1,
+          ch = (i < src_len) ? str_getchar(#text, i) : 10;
+          (ch == 10 || ch == 13) ? (
+            #line = "";
+            copy_len = i - line_start;
+            copy_len > 0 ? (
+              j = 0;
+              loop(copy_len,
+                str_setchar(#line, j, str_getchar(#text, line_start + j));
+                j += 1;
+              );
+              str_setchar(#line, copy_len, 0);
+            );
+
+            gfx_str_measure(#line, line_w, line_h);
+
+            // Вирівнювання X для цього рядка
+            align == 0 ? cur_lx = lx;
+            align == 1 ? cur_lx = lx + (txtw - line_w) / 2;
+            align == 2 ? cur_lx = lx + (txtw - line_w);
+
+            // Тінь
+            (sh_on > 0.5 && sh_a > 0) ? (
+              gfx_a2 = 0;
+              gfx_set(0, 0, 0, sh_a * fga);
+              gfx_str_draw(#line, cur_lx + sh_x, cur_ly + sh_y);
+            );
+
+            // Контур
+            (ol_on > 0.5 && outline_w > 0) ? (
+              gfx_a2 = 0;
+              gfx_set(outl_r, outl_g, outl_b, outl_a);
+              oi = -outline_w;
+              while(oi <= outline_w) (
+                oj = -outline_w;
+                while(oj <= outline_w) (
+                  (oi != 0 || oj != 0) ? gfx_str_draw(#line, cur_lx + oi, cur_ly + oj);
+                  oj += outline_w;
+                );
+                oi += outline_w;
+              );
+            );
+
+            // Основний текст
+            gfx_a2 = 0;
+            gfx_set(fgc_r, fgc_g, fgc_b, fga);
+            gfx_str_draw(#line, cur_lx, cur_ly);
+
+            cur_ly += line_h;
+
+            // Пропускаємо \r\n як одне
+            (ch == 13 && i + 1 < src_len && str_getchar(#text, i + 1) == 10) ? (
+              i += 1;
+            );
+            line_start = i + 1;
+          );
+          i += 1;
+        );
+
+        // 14. Повернення на основний canvas
+        gfx_dest = -1;
+
+        // 15. Рендер з поворотом
+        final_x = obj_x1 + obj_w / 2 - obj_diag / 2;
+        final_y = obj_y1 + obj_h / 2 - obj_diag / 2;
+        gfx_set(1, 1, 1, 1, 0x10000);
+        gfx_rotoblit(img_obj, rotate * $pi / 180, final_x, final_y, obj_diag, obj_diag, 0, 0, obj_diag, obj_diag);
+
+        // 16. Очистка
+        gfx_img_free(img_obj);
+    ]=],
+        custom_font,
+        p.size or 0.065,
+        math.floor((p.fontselect or 0) + 0.5),
+        math.floor((p.fontstyle or 0) + 0.5),
+        math.floor((p.underline or 0) + 0.5),
+        p.xpos or 0.5,
+        p.ypos or 0.98,
+        p.fgc_r or 1.0,
+        p.fgc_g or 1.0,
+        p.fgc_b or 1.0,
+        math.floor((p.align or 1) + 0.5),
+        p.fga or 1.0,
+        math.floor((p.bg_on or 0) + 0.5),
+        p.bgypos or 0.5,
+        p.bgxpos or 0.5,
+        p.bgwidth or 1.0,
+        p.bgheight or 1.0,
+        p.bgc_r or 0.0,
+        p.bgc_g or 0.0,
+        p.bgc_b or 0.0,
+        p.bga or 1.0,
+        math.floor((p.ol_on or 0) + 0.5),
+        math.floor((p.outline_w or 2) + 0.5),
+        p.outl_r or 0.0,
+        p.outl_g or 0.0,
+        p.outl_b or 0.0,
+        p.outl_a or 1.0,
+        math.floor((p.sh_x or 5) + 0.5),
+        math.floor((p.sh_y or 5) + 0.5),
+        p.sh_a or 0.5,
+        math.floor((p.sh_on or 1) + 0.5)
+    )
 end
 
 --- Compact render for selected tracks
@@ -17012,6 +17940,1231 @@ function DRAW_WINDOW.draw_text_editor(input_queue)
     return true
 end
 
+--- Draw Text Items Style Editor Modal
+function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
+    if not UI_STATE.text_items_style or not UI_STATE.text_items_style.show then
+        return false
+    end
+
+    local state = UI_STATE.text_items_style
+    local pad = S(20)
+    local header_h = S(65)
+    local footer_editor_h = UI_STATE.subass_items_editor_mode and S(140) or 0
+    local content_h = gfx.h - header_h - footer_editor_h
+
+    -- Перевірка чи трек ще існує
+    local track_exists = false
+    local tc = reaper.CountTracks(0)
+    for t = 0, tc - 1 do
+        local tr = reaper.GetTrack(0, t)
+        if tr == state.track then
+            track_exists = true
+            break
+        end
+    end
+
+    -- Якщо трек видалено
+    if not track_exists then
+        set_color(UI.C_BG, 1.0)
+        gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+        local title = T("TEXT_ITEMS_STYLE_TITLE")
+        local desc = ""
+        local btn_msg = T("CREATE_TEXT_ITEMS_FROM_REGIONS")
+
+        gfx.setfont(F.title)
+        local title_w, title_h = gfx.measurestr(title)
+
+        gfx.setfont(F.std)
+        local desc_w, desc_h = gfx.measurestr(desc)
+
+        local bw = S(220)
+        local bh = S(42)
+
+        local total_h = title_h + desc_h + S(26) + bh
+        local start_y = (gfx.h - total_h) / 2
+
+        gfx.setfont(F.title)
+        set_color(UI.C_TXT, 1)
+        gfx.x = (gfx.w - title_w) / 2
+        gfx.y = start_y
+        gfx.drawstr(title)
+
+        gfx.setfont(F.std)
+        set_color(UI.C_TXT_DIM or UI.C_TXT, 1)
+        gfx.x = (gfx.w - desc_w) / 2
+        gfx.y = start_y + title_h + S(8)
+        gfx.drawstr(desc)
+
+        local btn_y = start_y + title_h + desc_h + S(26)
+
+        if btn((gfx.w - bw) / 2, btn_y, bw, bh, btn_msg, UI.C_BTN_MEDIUM, UI.C_TXT, true) then
+            UTILS.create_text_items_from_regions()
+
+            local new_track = nil
+            local tc = reaper.CountTracks(0)
+            for t = 0, tc - 1 do
+                local tr = reaper.GetTrack(0, t)
+                local _, tn = reaper.GetTrackName(tr)
+                if tn == "SUBASS_ITEMS" then
+                    new_track = tr
+                    break
+                end
+            end
+
+            if new_track then
+                local new_fx_idx = -1
+                local num_fx = reaper.TrackFX_GetCount(new_track)
+                for f = 0, num_fx - 1 do
+                    local retval, fx_name = reaper.TrackFX_GetFXName(new_track, f, "")
+                    if retval and (fx_name:lower():find("video processor") or fx_name:lower():find("video_processor")) then
+                        new_fx_idx = f
+                        break
+                    end
+                end
+
+                if new_fx_idx >= 0 then
+                    -- Завантажуємо збережені стилі з ExtState
+                    local saved_styles = UTILS.load_text_items_styles()
+
+                    if saved_styles and saved_styles.params then
+                        -- Застосовуємо збережені параметри до FX
+                        for key, idx in pairs(OTHER.TEXT_ITEMS_PARAM_INDICES) do
+                            local val = saved_styles.params[key]
+                            if val ~= nil then
+                                reaper.TrackFX_SetParam(new_track, new_fx_idx, idx, val)
+                                UI_STATE.text_items_style.params[key] = val
+                            else
+                                -- Якщо в збережених немає - беремо з DEFAULT
+                                local default_val = OTHER.TEXT_ITEMS_DEFAULT_PARAMS[key]
+                                reaper.TrackFX_SetParam(new_track, new_fx_idx, idx, default_val)
+                                UI_STATE.text_items_style.params[key] = default_val
+                            end
+                        end
+
+                        -- Відновлюємо custom font name
+                        if saved_styles.custom_font_name then
+                            UI_STATE.text_items_style.custom_font_name = saved_styles.custom_font_name
+                            -- Застосовуємо custom font до Video Processor
+                            local function set_custom_font_to_track(track, fx_idx, font_name)
+                                local ret, chunk = reaper.GetTrackStateChunk(track, "", false)
+                                if not ret then return false end
+
+                                local fx_start = nil
+                                local fx_end = nil
+                                local current_idx = -1
+                                local s_idx = 1
+
+                                while true do
+                                    local s, e = chunk:find("<VIDEO_EFFECT", s_idx)
+                                    if not s then break end
+                                    current_idx = current_idx + 1
+
+                                    if current_idx == fx_idx then
+                                        fx_start = s
+                                        local b_end = chunk:find("\n>", e)
+                                        if b_end then
+                                            fx_end = b_end
+                                        end
+                                        break
+                                    end
+                                    s_idx = e + 1
+                                end
+
+                                if not fx_start or not fx_end then return false end
+
+                                local fx_chunk = chunk:sub(fx_start, fx_end)
+                                local new_fx_chunk = fx_chunk:gsub('#custom_font = "[^"]*"',
+                                    '#custom_font = "' .. font_name .. '"')
+
+                                if new_fx_chunk == fx_chunk then
+                                    new_fx_chunk = fx_chunk:gsub('font="Arial";',
+                                        'font="Arial";\n#custom_font = "' .. font_name .. '";')
+                                end
+
+                                local new_chunk = chunk:sub(1, fx_start - 1) .. new_fx_chunk .. chunk:sub(fx_end + 1)
+                                reaper.SetTrackStateChunk(track, new_chunk, false)
+                                return true
+                            end
+
+                            set_custom_font_to_track(new_track, new_fx_idx, saved_styles.custom_font_name)
+                        end
+                    else
+                        -- Якщо немає збережених стилів, використовуємо DEFAULT
+                        for key, default_val in pairs(OTHER.TEXT_ITEMS_DEFAULT_PARAMS) do
+                            reaper.TrackFX_SetParam(new_track, new_fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[key], default_val)
+                            UI_STATE.text_items_style.params[key] = default_val
+                        end
+                    end
+
+                    UI_STATE.text_items_style.track = new_track
+                    UI_STATE.text_items_style.fx_idx = new_fx_idx
+                end
+            end
+
+            show_snackbar(T("TRACK_CREATED"), "success")
+        end
+
+        -- Close button
+        local close_sz = S(24)
+        local close_x = gfx.w - S(20) - close_sz
+
+        if btn(close_x, S(20), close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT, true) then
+            UI_STATE.text_items_style = nil
+        end
+
+        -- ESC to close
+        if input_queue then
+            for _, c in ipairs(input_queue) do
+                if c == 27 then
+                    UI_STATE.text_items_style = nil
+                    break
+                end
+            end
+        end
+
+        UI_STATE.mouse_handled = true
+        return true
+    end
+    -- Background overlay
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, gfx.h, 1)
+
+    -- Content area with scroll
+    local content_y = header_h
+    local cy = content_y + S(20) - (state.scroll_y or 0)
+
+    -- Local checkbox drawing function
+    local function draw_checkbox_local(x, y, checked)
+        local chk_sz = S(18)
+        set_color(UI.C_ED_GUTTER)
+        gfx.rect(x, y, chk_sz, chk_sz, 0)
+        if checked then
+            set_color(UI.C_TXT)
+            gfx.line(x + S(4), y + S(9), x + S(8), y + S(13))
+            gfx.line(x + S(5), y + S(9), x + S(9), y + S(13))
+            gfx.line(x + S(8), y + S(13), x + S(14), y + S(5))
+            gfx.line(x + S(9), y + S(13), x + S(15), y + S(5))
+        end
+    end
+
+    -- Helper functions
+    local function draw_slider(label, param_key, min_val, max_val, decimals)
+        local val = state.params[param_key]
+        if not val then return end
+
+        local row_h = S(60)
+        local label_w = S(140)
+        local slider_w = gfx.w - pad * 2 - label_w - S(60)
+
+        if cy + row_h > content_y and cy < content_y + content_h then
+            -- Label
+            set_color(UI.C_TXT)
+            gfx.setfont(F.std)
+            gfx.x, gfx.y = pad, cy + S(12)
+            gfx.drawstr(label)
+
+            -- Value display
+            local fmt = decimals == 0 and "%.0f" or "%.2f"
+            local val_str = string.format(fmt, val)
+            local val_w = gfx.measurestr(val_str)
+            local slider_x = pad + label_w
+            local val_x = slider_x + slider_w + S(5)
+
+            gfx.x, gfx.y = val_x, cy + S(5)
+            gfx.drawstr(val_str)
+
+            -- Slider background (сірий)
+            set_color(UI.C_BTN)
+            gfx.rect(slider_x, cy + S(15), slider_w, S(10), 1)
+
+            -- ВИЗНАЧАЄМО ТИП ПАРАМЕТРА ДЛЯ РІЗНОГО ЗАПОВНЕННЯ
+            local is_center_param = (param_key == "xpos" or param_key == "ypos" or
+                param_key == "bgxpos" or param_key == "bgypos" or
+                param_key == "sh_x" or param_key == "sh_y")
+
+            local t = (val - min_val) / (max_val - min_val)
+            local handle_radius = S(10)
+            local handle_x = slider_x + t * slider_w
+            local handle_y = cy + S(20)
+
+            -- ЗАПОВНЕННЯ СЛАЙДЕРА
+            if is_center_param then
+                -- Для X, Y, bgxpos, bgypos: заповнення ВІД ЦЕНТРУ
+                local center_t = 0.5
+                local center_x = slider_x + center_t * slider_w
+
+                if handle_x >= center_x then
+                    -- Заповнення від центру вправо
+                    local fill_w = handle_x - center_x
+                    if fill_w > 0 then
+                        set_color(UI.C_GREEN, 0.6)
+                        gfx.rect(center_x, cy + S(15), fill_w, S(10), 1)
+                    end
+                else
+                    -- Заповнення від центру вліво
+                    local fill_w = center_x - handle_x
+                    if fill_w > 0 then
+                        set_color(UI.C_BLUE_BRIGHT, 0.6)
+                        gfx.rect(handle_x, cy + S(15), fill_w, S(10), 1)
+                    end
+                end
+                -- Малюємо центральну позначку
+                set_color(UI.C_WHITE, 0.8)
+                gfx.line(center_x, cy + S(12), center_x, cy + S(28))
+            else
+                -- Для звичайних параметрів: заповнення ЗЛІВА НАПРАВО
+                local fill_w = handle_x - slider_x
+                if fill_w > 0 then
+                    local progress = t
+                    local r = math.min(1.0, progress * 2)
+                    local g = math.min(1.0, (1 - progress) * 2)
+                    set_color({ r, g, 0.2 }, 0.6)
+                    gfx.rect(slider_x, cy + S(15), fill_w, S(10), 1)
+                end
+            end
+
+            -- КРУГЛА РУЧКА
+            set_color(UI.C_RED)
+            gfx.circle(handle_x, handle_y, handle_radius, 1)
+
+            -- Чорний обідок
+            set_color(UI.C_BLACK, 0.8)
+            gfx.circle(handle_x, handle_y, handle_radius, 0)
+
+            -- ПОДВІЙНИЙ КЛІК ПО РУЧЦІ - СКИДАННЯ ДО СТАНДАРТНОГО ЗНАЧЕННЯ
+            local now = reaper.time_precise()
+            local hover_handle = UI_STATE.window_focused and
+                math.sqrt((gfx.mouse_x - handle_x) ^ 2 + (gfx.mouse_y - handle_y) ^ 2) <= handle_radius + S(4)
+
+            if hover_handle and (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) then
+                if UI_STATE.last_click_time and (now - UI_STATE.last_click_time) < 0.3 then
+                    -- Подвійний клік
+                    local default_val = state.default_params[param_key]
+                    if default_val ~= nil then
+                        state.params[param_key] = default_val
+                        reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[param_key],
+                            default_val)
+                        UTILS.save_text_items_styles()
+                    end
+                    UI_STATE.last_click_time = nil
+                    UI_STATE.mouse_handled = true
+                else
+                    UI_STATE.last_click_time = now
+                end
+            end
+
+            -- КЛІК ПО ЛІНІЇ СЛАЙДЕРА
+            local hover_line = UI_STATE.window_focused and
+                gfx.mouse_x >= slider_x and gfx.mouse_x <= slider_x + slider_w and
+                gfx.mouse_y >= cy + S(15) and gfx.mouse_y <= cy + S(25)
+
+            if hover_line and (gfx.mouse_cap & 1 == 1) and (UI_STATE.last_mouse_cap & 1 == 0) and not UI_STATE.mouse_handled then
+                local dist_to_handle = math.sqrt((gfx.mouse_x - handle_x) ^ 2 + (gfx.mouse_y - handle_y) ^ 2)
+                if dist_to_handle > handle_radius + S(2) then
+                    -- Переміщуємо ручку в позицію кліку
+                    local mouse_t = (gfx.mouse_x - slider_x) / slider_w
+                    mouse_t = math.max(0, math.min(1, mouse_t))
+                    local new_val = min_val + mouse_t * (max_val - min_val)
+                    if decimals == 0 then
+                        new_val = math.floor(new_val + 0.5)
+                    end
+                    state.params[param_key] = new_val
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[param_key], new_val)
+                    UTILS.save_text_items_styles()
+                    UI_STATE.mouse_handled = true
+                end
+            end
+
+            -- Звичайне перетягування за ручку
+            local hover_drag = UI_STATE.window_focused and
+                math.sqrt((gfx.mouse_x - handle_x) ^ 2 + (gfx.mouse_y - handle_y) ^ 2) <= handle_radius + S(4)
+
+            if (state.dragging == param_key) or (hover_drag and is_mouse_clicked() and not UI_STATE.mouse_handled) then
+                state.dragging = param_key
+                UI_STATE.mouse_handled = true
+            end
+
+            if state.dragging == param_key and (gfx.mouse_cap & 1 == 1) then
+                local mouse_t = (gfx.mouse_x - slider_x) / slider_w
+                mouse_t = math.max(0, math.min(1, mouse_t))
+                local new_val = min_val + mouse_t * (max_val - min_val)
+                if decimals == 0 then
+                    new_val = math.floor(new_val + 0.5)
+                end
+                state.params[param_key] = new_val
+                reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[param_key], new_val)
+                UTILS.save_text_items_styles()
+            elseif state.dragging == param_key then
+                state.dragging = nil
+            end
+        end
+        cy = cy + row_h + S(5)
+    end
+
+    -- Font list
+    local font_options = { "Arial", "Calibri", "Roboto", "Segoe UI", "Trebuchet MS", "Verdana", "Cambria", "Impact",
+        "Georgia", "Times New Roman", "Consolas", "Courier New" }
+
+    -- Helper function to set custom font in Video Processor
+    local function set_custom_font(font_name)
+        -- Get the track chunk to modify the custom_font variable
+        local ret, chunk = reaper.GetTrackStateChunk(state.track, "", false)
+        if not ret then return false end
+
+        -- Find the Video Processor FX block
+        local fx_start = nil
+        local fx_end = nil
+        local current_idx = -1
+        local s_idx = 1
+
+        while true do
+            local s, e = chunk:find("<VIDEO_EFFECT", s_idx)
+            if not s then break end
+            current_idx = current_idx + 1
+
+            if current_idx == state.fx_idx then
+                fx_start = s
+                local b_end = chunk:find("\n>", e)
+                if b_end then
+                    fx_end = b_end
+                end
+                break
+            end
+            s_idx = e + 1
+        end
+
+        if not fx_start or not fx_end then return false end
+
+        -- Find and replace #custom_font value
+        local fx_chunk = chunk:sub(fx_start, fx_end)
+        local new_fx_chunk = fx_chunk:gsub('#custom_font = "[^"]*"', '#custom_font = "' .. font_name .. '"')
+
+        if new_fx_chunk == fx_chunk then
+            -- If not found, insert the variable
+            new_fx_chunk = fx_chunk:gsub('font="Arial";', 'font="Arial";\n#custom_font = "' .. font_name .. '";')
+        end
+
+        -- Replace in main chunk
+        local new_chunk = chunk:sub(1, fx_start - 1) .. new_fx_chunk .. chunk:sub(fx_end + 1)
+        reaper.SetTrackStateChunk(state.track, new_chunk, false)
+
+        return true
+    end
+
+    -- Font list with custom font option (index 12, after separator at 13)
+    local custom_font_label = state.custom_font_name and (T("CUSTOM_FONT_PREFIX") .. state.custom_font_name) or
+    T("ADD_CUSTOM_FONT")
+    local font_options_with_custom = { "Arial", "Calibri", "Roboto", "Segoe UI", "Trebuchet MS", "Verdana", "Cambria",
+        "Impact", "Georgia", "Times New Roman", "Consolas", "Courier New", custom_font_label }    
+
+    local function draw_color_picker(label, r_key, g_key, b_key)
+        local row_h = S(45)
+
+        if cy + row_h > content_y and cy < content_y + content_h then
+            set_color(UI.C_TXT)
+            gfx.setfont(F.std)
+            gfx.x, gfx.y = pad, cy + S(10)
+            gfx.drawstr(label)
+
+            local box_sz = S(24)
+            local bx = pad + S(140)
+            local r = state.params[r_key] or 0
+            local g = state.params[g_key] or 0
+            local b = state.params[b_key] or 0
+
+            set_color({ r, g, b })
+            gfx.rect(bx, cy + S(8), box_sz, box_sz, 1)
+            set_color(UI.C_TXT)
+            gfx.rect(bx, cy + S(8), box_sz, box_sz, 0)
+
+            if is_mouse_clicked() and gfx.mouse_x >= bx and gfx.mouse_x <= bx + box_sz and
+                gfx.mouse_y >= cy + S(8) and gfx.mouse_y <= cy + S(8) + box_sz then
+                local native_color = reaper.ColorToNative(math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
+                local retval, color = reaper.GR_SelectColor(reaper.GetMainHwnd(), native_color)
+                if retval > 0 then
+                    local nr, ng, nb = reaper.ColorFromNative(color)
+                    state.params[r_key] = nr / 255
+                    state.params[g_key] = ng / 255
+                    state.params[b_key] = nb / 255
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[r_key],
+                        state.params[r_key])
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[g_key],
+                        state.params[g_key])
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[b_key],
+                        state.params[b_key])
+                    UTILS.save_text_items_styles()
+                end
+                UI_STATE.mouse_handled = true
+            end
+        end
+        cy = cy + row_h + S(5)
+    end
+
+    local function draw_checkbox(label, param_key)
+        local val = state.params[param_key] > 0.5
+        local row_h = S(35)
+
+        if cy + row_h > content_y and cy < content_y + content_h then
+            local chk_sz = S(18)
+            local chk_x = pad
+            local chk_y = cy + S(5)
+
+            draw_checkbox_local(chk_x, chk_y, val)
+
+            set_color(UI.C_TXT)
+            gfx.setfont(F.std)
+            gfx.x, gfx.y = chk_x + chk_sz + S(8), chk_y + S(2)
+            gfx.drawstr(label)
+
+            local hover = UI_STATE.window_focused and
+                gfx.mouse_x >= chk_x and gfx.mouse_x <= chk_x + chk_sz + gfx.measurestr(label) + S(15) and
+                gfx.mouse_y >= chk_y and gfx.mouse_y <= chk_y + chk_sz
+
+            if hover and is_mouse_clicked() and not UI_STATE.mouse_handled then
+                state.params[param_key] = val and 0 or 1
+                reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[param_key],
+                    state.params[param_key])
+                UTILS.save_text_items_styles()
+                UI_STATE.mouse_handled = true
+            end
+        end
+        cy = cy + row_h + S(5)
+    end
+
+    -- Функція для Шрифт, Стиль, Вирівнювання
+    local function draw_font_dropdown()
+        local row_h = S(45)
+        local btn_w = S(120)
+        local gap = S(6)
+
+        -- Отримуємо поточні значення
+        local font_val = math.floor(state.params["fontselect"] + 0.5)
+        local style_val = math.floor(state.params["fontstyle"] + 0.5)
+        local align_val = math.floor(state.params["align"] + 0.5)
+
+        -- Тексти для кнопок
+        local font_options_list = font_options_with_custom
+        local style_options_list = { T("FONT_NORMAL"), T("FONT_BOLD"), T("FONT_ITALIC"), T("FONT_BOLD_ITALIC") }
+        local align_options_list = { T("LEFT"), T("CENTER"), T("RIGHT") }
+        local style_labels = { T("FONT_NORMAL"), T("FONT_BOLD"), T("FONT_ITALIC"), T("FONT_BOLD_ITALIC") }
+        local align_labels = { T("LEFT"), T("CENTER"), T("RIGHT") }
+
+        -- Поточні вибрані значення
+        local current_font = font_options_list[font_val + 1] or tostring(font_val)
+        local current_style = style_options_list[style_val + 1] or tostring(style_val)
+        local current_align = align_options_list[align_val + 1] or tostring(align_val)
+
+        -- Розраховуємо позиції
+        local total_width = btn_w * 3 + gap * 2
+        local start_x = pad + S(140)
+
+        if cy + row_h > content_y and cy < content_y + content_h then
+            -- Лейбл "Шрифт"
+            set_color(UI.C_TXT)
+            gfx.setfont(F.std)
+            gfx.x, gfx.y = pad, cy + S(12)
+            gfx.drawstr(T("FONT_NAME"))
+
+            -- Кнопка вибору шрифта
+            if btn(start_x, cy + S(2), btn_w, S(32), current_font, UI.C_BTN, UI.C_TXT, true) then
+                local menu_str = table.concat(font_options_list, "|")
+                local ret = gfx.showmenu(menu_str)
+                if ret > 0 then
+                    local new_val = ret - 1
+                    if new_val == 12 then -- custom font
+                        local ok, font_name = reaper.GetUserInputs(T("CUSTOM_FONT_CHOOSE"), 1, T("CUSTOM_FONT_INPUT"),
+                            state.custom_font_name or "")
+                        if ok and font_name ~= "" then
+                            set_custom_font(font_name)
+                            state.custom_font_name = font_name
+                            state.params["fontselect"] = new_val
+                            reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES["fontselect"],
+                                new_val)
+                            UTILS.save_text_items_styles()
+                            show_snackbar(string.format(T("CUSTOM_FONT_SET"), font_name), "success")
+                        else
+                            state.params["fontselect"] = font_val
+                        end
+                    else
+                        state.params["fontselect"] = new_val
+                        reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES["fontselect"],
+                            new_val)
+                        UTILS.save_text_items_styles()
+                    end
+                    UI_STATE.mouse_handled = true
+                end
+            end
+
+            -- Кнопка вибору стилю шрифта
+            local style_x = start_x + btn_w + gap
+            if btn(style_x, cy + S(2), btn_w, S(32), current_style, UI.C_BTN, UI.C_TXT, true) then
+                local menu_str = table.concat(style_labels, "|")
+                local ret = gfx.showmenu(menu_str)
+                if ret > 0 then
+                    local new_val = ret - 1
+                    state.params["fontstyle"] = new_val
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES["fontstyle"], new_val)
+                    UTILS.save_text_items_styles()
+                    UI_STATE.mouse_handled = true
+                end
+            end
+
+            -- Кнопка вибору вирівнювання
+            local align_x = style_x + btn_w + gap
+            if btn(align_x, cy + S(2), btn_w, S(32), current_align, UI.C_BTN, UI.C_TXT, true) then
+                local menu_str = table.concat(align_labels, "|")
+                local ret = gfx.showmenu(menu_str)
+                if ret > 0 then
+                    local new_val = ret - 1
+                    state.params["align"] = new_val
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES["align"], new_val)
+                    UTILS.save_text_items_styles()
+                    UI_STATE.mouse_handled = true
+                end
+            end
+        end
+        cy = cy + row_h + S(5)
+    end
+
+    -- Функція для рядка: Колір тексту + Підкреслення
+    local function draw_underline_color_row()
+        local row_h = S(45)
+        local chk_sz = S(18)
+        local color_box_sz = S(24)
+        local center_y = cy + S(12)
+
+        if cy + row_h > content_y and cy < content_y + content_h then
+            -- Колір тексту
+            local color_label = T("TEXT_COLOR")
+            set_color(UI.C_TXT)
+            gfx.setfont(F.std)
+            gfx.x, gfx.y = pad, center_y
+            gfx.drawstr(color_label)
+
+            -- Квадрат кольору
+            local bx = pad + S(140)
+            local box_y = cy + S(8)
+            local r = state.params["fgc_r"] or 0
+            local g = state.params["fgc_g"] or 0
+            local b = state.params["fgc_b"] or 0
+
+            set_color({ r, g, b })
+            gfx.rect(bx, box_y, color_box_sz, color_box_sz, 1)
+            set_color(UI.C_TXT)
+            gfx.rect(bx, box_y, color_box_sz, color_box_sz, 0)
+
+            if is_mouse_clicked() and gfx.mouse_x >= bx and gfx.mouse_x <= bx + color_box_sz and
+                gfx.mouse_y >= box_y and gfx.mouse_y <= box_y + color_box_sz then
+                local native_color = reaper.ColorToNative(math.floor(r * 255), math.floor(g * 255), math.floor(b * 255))
+                local retval, color = reaper.GR_SelectColor(reaper.GetMainHwnd(), native_color)
+                if retval > 0 then
+                    local nr, ng, nb = reaper.ColorFromNative(color)
+                    state.params["fgc_r"] = nr / 255
+                    state.params["fgc_g"] = ng / 255
+                    state.params["fgc_b"] = nb / 255
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES["fgc_r"],
+                        state.params["fgc_r"])
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES["fgc_g"],
+                        state.params["fgc_g"])
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES["fgc_b"],
+                        state.params["fgc_b"])
+                    UTILS.save_text_items_styles()
+                end
+                UI_STATE.mouse_handled = true
+            end
+
+            -- Підкреслення праворуч від кольору
+            local underline_val = state.params["underline"] > 0.5
+            local chk_x = bx + color_box_sz + S(25)
+            local chk_y = cy + S(10)
+
+            draw_checkbox_local(chk_x, chk_y, underline_val)
+
+            set_color(UI.C_TXT)
+            gfx.setfont(F.std)
+            gfx.x, gfx.y = chk_x + chk_sz + S(8), chk_y + S(2)
+            gfx.drawstr(T("UNDERLINE"))
+
+            local hover_underline = UI_STATE.window_focused and
+                gfx.mouse_x >= chk_x and gfx.mouse_x <= chk_x + chk_sz + gfx.measurestr(T("UNDERLINE")) + S(15) and
+                gfx.mouse_y >= chk_y and gfx.mouse_y <= chk_y + chk_sz
+
+            if hover_underline and is_mouse_clicked() and not UI_STATE.mouse_handled then
+                state.params["underline"] = underline_val and 0 or 1
+                reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES["underline"],
+                    state.params["underline"])
+                UTILS.save_text_items_styles()
+                UI_STATE.mouse_handled = true
+            end
+        end
+        cy = cy + row_h + S(5)
+    end
+
+    -- Draw all controls
+    draw_slider(T("TEXT_SIZE"), "size", 0.01, 0.2, 3)
+    draw_font_dropdown()
+    draw_underline_color_row()
+
+    draw_slider(T("POSITION_X"), "xpos", 0, 1, 2)
+    draw_slider(T("POSITION_Y"), "ypos", 0, 1, 2)
+    draw_slider(T("TEXT_ALPHA"), "fga", 0, 1, 2)
+
+    draw_checkbox(T("BACKGROUND"), "bg_on")
+    if state.params.bg_on > 0.5 then
+        draw_color_picker(T("BG_COLOR"), "bgc_r", "bgc_g", "bgc_b")
+        draw_slider(T("BG_ALPHA"), "bga", 0, 1, 2)
+        draw_slider(T("BG_OFFSET_X"), "bgxpos", 0, 1, 2)
+        draw_slider(T("BG_OFFSET_Y"), "bgypos", 0, 1, 2)
+        draw_slider(T("BG_WIDTH"), "bgwidth", 0.5, 2, 2)
+        draw_slider(T("BG_HEIGHT"), "bgheight", 0.5, 2, 2)
+    end
+
+    draw_checkbox(T("OUTLINE"), "ol_on")
+    if state.params.ol_on > 0.5 then
+        draw_color_picker(T("OUTLINE_COLOR"), "outl_r", "outl_g", "outl_b")
+        draw_slider(T("OUTLINE_WIDTH"), "outline_w", 1, 10, 0)
+        draw_slider(T("OUTLINE_ALPHA"), "outl_a", 0, 1, 2)
+    end
+
+    draw_checkbox(T("SHADOW"), "sh_on")
+    if state.params.sh_on > 0.5 then
+        draw_slider(T("SHADOW_OFFSET_X"), "sh_x", -100, 100, 0)
+        draw_slider(T("SHADOW_OFFSET_Y"), "sh_y", -100, 100, 0)
+        draw_slider(T("SHADOW_ALPHA"), "sh_a", 0, 1, 2)
+    end
+
+    -- Store total height for scroll
+    local total_h = cy - (content_y + S(20)) + (state.scroll_y or 0) + S(40)
+    local max_scroll = math.max(0, total_h - content_h)
+
+    -- Mouse wheel для прокрутки
+    if gfx.mouse_wheel ~= 0 and gfx.mouse_x >= 0 and gfx.mouse_x <= gfx.w and
+        gfx.mouse_y >= content_y and gfx.mouse_y <= content_y + content_h then
+        state.target_scroll_y = (state.target_scroll_y or 0) - (gfx.mouse_wheel * 0.5)
+        gfx.mouse_wheel = 0
+    end
+
+    state.target_scroll_y = math.max(0, math.min(state.target_scroll_y or 0, max_scroll))
+    local diff = (state.target_scroll_y or 0) - (state.scroll_y or 0)
+    if math.abs(diff) > 0.5 then
+        state.scroll_y = (state.scroll_y or 0) + diff * 0.8
+    else
+        state.scroll_y = state.target_scroll_y or 0
+    end
+
+    -- Scrollbar
+    if max_scroll > 0 then
+        local new_scroll = draw_scrollbar(gfx.w - S(10), content_y, S(10), content_h, total_h, content_h,
+            state.scroll_y or 0)
+        if new_scroll ~= (state.scroll_y or 0) then
+            state.scroll_y = new_scroll
+            state.target_scroll_y = new_scroll
+        end
+    end
+
+    -- Header
+    set_color(UI.C_BG, 1.0)
+    gfx.rect(0, 0, gfx.w, header_h, 1)
+    set_color(UI.C_TXT, 0.1)
+    gfx.line(0, header_h, gfx.w, header_h)
+
+    gfx.setfont(F.title)
+    set_color(UI.C_TXT)
+    gfx.x, gfx.y = pad, pad - S(2)
+    gfx.drawstr(T("TEXT_ITEMS_STYLE_TITLE"))
+
+    -- Close button (X) - Top Right
+    local close_sz = S(24)
+    local close_x = gfx.w - pad - close_sz
+
+    local close_hover = UI_STATE.window_focused and (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
+        gfx.mouse_y >= pad and gfx.mouse_y <= pad + close_sz)
+
+    -- Tooltip для кнопки Close
+    if close_hover then
+        local tip_id = "close_text_items_style"
+        if UI_STATE.tooltip_state.hover_id ~= tip_id then
+            UI_STATE.tooltip_state.hover_id = tip_id
+            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+        end
+        UI_STATE.tooltip_state.text = "Esc"
+    end
+
+    -- Обробка кліку миші по кнопці Close
+    if btn(close_x, pad, close_sz, close_sz, "X", UI.C_BTN, UI.C_TXT, true) then
+        UTILS.save_text_items_styles()
+        UI_STATE.text_items_style = nil
+        UI_STATE.apply_button_active = false
+        UI_STATE.text_items_style_backup = nil
+    end
+
+    -- Обробка Esc для кнопки Close
+    if input_queue then
+        for _, c in ipairs(input_queue) do
+            if c == 27 then
+                UTILS.save_text_items_styles()
+                UI_STATE.text_items_style = nil
+                UI_STATE.apply_button_active = false
+                UI_STATE.text_items_style_backup = nil
+                break
+            end
+        end
+    end
+
+    -- FX Toggle Button
+    local bypass_w = S(160)
+    local bypass_x = close_x - bypass_w - S(10)
+    
+    -- Track FX enabled state
+    local fx_enabled = state.track and (reaper.GetMediaTrackInfo_Value(state.track, "I_FXEN") > 0) or false
+    -- Track mute state
+    local track_muted = state.track and (reaper.GetMediaTrackInfo_Value(state.track, "B_MUTE") > 0) or false
+    
+    local bypass_text = ""
+    local bypass_color = UI.C_BTN_MEDIUM
+    
+    if track_muted then
+        bypass_text = T("FX_DISABLED")
+        bypass_color = UI.C_BTN_ERROR
+    elseif fx_enabled then
+        bypass_text = T("FX_ENABLED")
+        bypass_color = UI.C_BTN_MEDIUM
+    else
+        bypass_text = T("FX_DISABLED")
+        bypass_color = UI.C_BTN_ERROR
+    end
+    
+    if btn(bypass_x, pad, bypass_w, S(25), bypass_text, bypass_color, UI.C_TXT, true) then
+        if state.track then
+            if track_muted then
+                -- Якщо доріжка в mute, вимикаємо mute і вмикаємо FX
+                reaper.SetMediaTrackInfo_Value(state.track, "B_MUTE", 0)
+                reaper.SetMediaTrackInfo_Value(state.track, "I_FXEN", 1)
+                show_snackbar(T("FX_ENABLED_MSG"), "info")
+            elseif fx_enabled then
+                -- Якщо FX увімкнено, вимикаємо FX і вмикаємо mute
+                reaper.SetMediaTrackInfo_Value(state.track, "I_FXEN", 0)
+                reaper.SetMediaTrackInfo_Value(state.track, "B_MUTE", 1)
+                show_snackbar(T("FX_DISABLED_MSG"), "info")
+            else
+                -- Якщо FX вимкнено і доріжка не в mute, просто вмикаємо FX
+                reaper.SetMediaTrackInfo_Value(state.track, "I_FXEN", 1)
+                show_snackbar(T("FX_ENABLED_MSG"), "info")
+            end
+        end
+    end
+
+    -- Reset Button (зліва від FX Toggle, на 8 пікселів)
+    local reset_w = S(80)
+    local reset_x = bypass_x - reset_w - S(8)
+
+    if btn(reset_x, pad, reset_w, S(25), T("RESET_STYLES"), UI.C_BTN, UI.C_TXT, true) then
+        -- Reset all parameters to default values
+        for key, default_val in pairs(state.default_params) do
+            state.params[key] = default_val
+            if state.fx_idx and state.fx_idx >= 0 then
+                reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[key], default_val)
+            end
+        end
+        UTILS.save_text_items_styles()
+        show_snackbar(T("STYLES_RESET"), "success")
+    end
+
+    -- Apply to Item button (toggle)
+    local apply_w = S(120)
+    local apply_x = reset_x - apply_w - S(8)
+    
+    local apply_active = UI_STATE.apply_to_item_mode or false
+    local apply_color = apply_active and UI.C_BTN_MEDIUM or UI.C_BTN
+    
+    if btn(apply_x, pad, apply_w, S(25), T("APPLY_TO_ITEM"), apply_color, UI.C_TXT, true) then
+        if not apply_active then
+            -- Активація: зберігаємо бекап параметрів у ExtState
+            local backup = {}
+            if UI_STATE.text_items_style and UI_STATE.text_items_style.params then
+                for key, val in pairs(UI_STATE.text_items_style.params) do
+                    backup[key] = val
+                end
+            end
+            backup["_custom_font_name"] = UI_STATE.text_items_style and UI_STATE.text_items_style.custom_font_name or ""
+            local json_str = STATS.json_encode(backup)
+            reaper.SetExtState(section_name, "apply_to_item_backup", json_str, false)
+            UI_STATE.apply_to_item_mode = true
+        else
+            -- Деактивація: застосовуємо до всіх виділених item, потім відновлюємо бекап
+            UTILS.apply_styles_to_selected_items()
+            
+            -- Відновлюємо бекап
+            local json_str = reaper.GetExtState(section_name, "apply_to_item_backup")
+            if json_str and json_str ~= "" then
+                local success, backup = pcall(function() return STATS.json_decode(json_str) end)
+                if success and type(backup) == "table" and UI_STATE.text_items_style then
+                    for key, _ in pairs(OTHER.TEXT_ITEMS_PARAM_INDICES) do
+                        if backup[key] ~= nil then
+                            local val = tonumber(backup[key]) or backup[key]
+                            UI_STATE.text_items_style.params[key] = val
+                            if UI_STATE.text_items_style.track and UI_STATE.text_items_style.fx_idx >= 0 then
+                                reaper.TrackFX_SetParam(UI_STATE.text_items_style.track, UI_STATE.text_items_style.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[key], val)
+                            end
+                        end
+                    end
+                    if backup["_custom_font_name"] and backup["_custom_font_name"] ~= "" then
+                        UI_STATE.text_items_style.custom_font_name = backup["_custom_font_name"]
+                    end
+                    UTILS.save_text_items_styles()
+                end
+            end
+            
+            reaper.SetExtState(section_name, "apply_to_item_backup", "", false)
+            UI_STATE.apply_to_item_mode = false
+        end
+    end
+
+    -- Toggle Button for SUBASS ITEMS Editor
+    local editor_toggle_w = S(40)
+    local editor_toggle_x = apply_x - editor_toggle_w - S(8)
+    local editor_toggle_text = UI_STATE.subass_items_editor_mode and "✏" or "✏"
+    local editor_toggle_bg = UI_STATE.subass_items_editor_mode and UI.C_BTN_MEDIUM or UI.C_BTN
+
+    if btn(editor_toggle_x, pad, editor_toggle_w, S(25), editor_toggle_text, editor_toggle_bg, UI.C_TXT, true) then
+        UI_STATE.subass_items_editor_mode = not UI_STATE.subass_items_editor_mode
+    end
+
+    -- Tooltip для кнопки редактора
+    local editor_toggle_hover = UI_STATE.window_focused and
+    (gfx.mouse_x >= editor_toggle_x and gfx.mouse_x <= editor_toggle_x + editor_toggle_w and
+        gfx.mouse_y >= pad and gfx.mouse_y <= pad + S(25))
+    if editor_toggle_hover then
+        local tip_id = "subass_items_editor_toggle"
+        if UI_STATE.tooltip_state.hover_id ~= tip_id then
+            UI_STATE.tooltip_state.hover_id = tip_id
+            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+        end
+        UI_STATE.tooltip_state.text = T("SUBASS_ITEMS_EDITOR")
+    end
+
+    -- Simplified robust helper to set FX code (Track or Take)
+    local function set_fx_code_simple(target, fx_idx, code_str, is_take)
+        -- Try API first
+        local setter = is_take and reaper.TakeFX_SetNamedConfigParm or reaper.TrackFX_SetNamedConfigParm
+        if setter then
+            if setter(target, fx_idx, "code", code_str) then return true end
+        end
+
+        -- Fallback to chunk hacking (target is track or take)
+        local encoded = "|" .. code_str:gsub("\n", "\n|")
+        local ret, chunk
+        local item = is_take and reaper.GetMediaItemTake_Item(target) or nil
+
+        if is_take then
+            ret, chunk = reaper.GetItemStateChunk(item, "", false)
+        else
+            ret, chunk = reaper.GetTrackStateChunk(target, "", false)
+        end
+
+        if ret then
+            -- Find the fx_idx-th VIDEO_EFFECT block (0-indexed)
+            local current_idx = -1
+            local s_idx = 1
+            while true do
+                local s, e = chunk:find("<VIDEO_EFFECT", s_idx)
+                if not s then break end
+                current_idx = current_idx + 1
+
+                if current_idx == fx_idx then
+                    local b_end = chunk:find("\n>", e)
+                    if b_end then
+                        local code_s, code_e = chunk:find("<CODE.-%s>", s)
+                        local new_chunk
+                        if code_s and code_s < b_end then
+                            new_chunk = chunk:sub(1, code_s - 1) ..
+                            "<CODE\n" .. encoded .. "\n>" .. chunk:sub(code_e + 1)
+                        else
+                            -- Find first newline after VIDEO_EFFECT to insert NI and CODE
+                            local head_end = chunk:find("\n", e) or e
+                            new_chunk = chunk:sub(1, head_end) ..
+                            "\n<CODE\n" .. encoded .. "\n>" .. chunk:sub(head_end + 1)
+                        end
+
+                        if is_take then
+                            reaper.SetItemStateChunk(item, new_chunk, false)
+                        else
+                            reaper.SetTrackStateChunk(target, new_chunk, false)
+                        end
+                        return true
+                    end
+                end
+                s_idx = e + 1
+            end
+        end
+        return false
+    end
+
+    -- Редактор SUBASS ITEMS (футер)
+    if UI_STATE.subass_items_editor_mode then
+        local editor_panel_h = S(140)
+        local editor_panel_y = gfx.h - editor_panel_h
+        local editor_panel_w = gfx.w
+        local editor_panel_x = 0
+
+        -- Фон панелі
+        set_color(UI.C_BG, 0.98)
+        gfx.rect(editor_panel_x, editor_panel_y, editor_panel_w, editor_panel_h, 1)
+        set_color(UI.C_MEDIUM_GREY)
+        gfx.line(editor_panel_x, editor_panel_y, editor_panel_w, editor_panel_y)
+
+        -- Заголовок панелі
+        gfx.setfont(F.std)
+        set_color(UI.C_TXT, 0.7)
+        gfx.x, gfx.y = pad, editor_panel_y + S(8)
+        gfx.drawstr(T("SUBASS_ITEMS_EDITOR"))
+
+        -- Отримуємо виділення (Time Selection)
+        local sel_start, sel_end = reaper.GetSet_LoopTimeRange2(0, false, false, 0, 0, false)
+        local has_time_selection = (sel_start ~= sel_end and sel_end > sel_start)
+        local cursor_pos = reaper.GetCursorPosition()
+        local is_in_selection = has_time_selection and cursor_pos >= sel_start and cursor_pos <= sel_end
+
+        -- Отримуємо item під курсором на треку SUBASS_ITEMS
+        local track_name = "SUBASS_ITEMS"
+        local target_track = nil
+        local tc = reaper.CountTracks(0)
+        for t = 0, tc - 1 do
+            local tr = reaper.GetTrack(0, t)
+            local _, tn = reaper.GetTrackName(tr)
+            if tn == track_name then
+                target_track = tr
+                break
+            end
+        end
+
+        local current_item = nil
+        local current_text = ""
+        local is_editing_existing = false
+
+        if target_track then
+            local item_count = reaper.CountTrackMediaItems(target_track)
+
+            -- Шукаємо item під курсором
+            for i = 0, item_count - 1 do
+                local item = reaper.GetTrackMediaItem(target_track, i)
+                local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
+                local item_len = reaper.GetMediaItemInfo_Value(item, "D_LENGTH")
+
+                if cursor_pos >= item_pos and cursor_pos <= item_pos + item_len then
+                    current_item = item
+                    local take = reaper.GetActiveTake(item)
+                    if take then
+                        local ret, name = reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", "", false)
+                        if ret then current_text = name end
+                    end
+                    is_editing_existing = true
+                    break
+                end
+            end
+        end
+
+        -- Якщо є Time Selection і курсор в ньому, і немає item під курсором - створюємо новий
+        local can_create_new = has_time_selection and is_in_selection and not is_editing_existing
+
+        -- Поле для редагування тексту
+        local input_x = pad
+        local input_y = editor_panel_y + S(30)
+        local input_w = gfx.w - pad * 2 - S(110)
+        local input_h = editor_panel_h - S(50)
+
+        -- Стан для редактора тексту
+        if not UI_STATE.subass_items_edit_state then
+            UI_STATE.subass_items_edit_state = {
+                text = "",
+                cursor = 0,
+                anchor = 0,
+                focus = false,
+                history = {},
+                history_pos = 0
+            }
+        end
+
+        -- Оновлюємо текст при зміні item або створенні нового
+        local should_update = (UI_STATE.subass_items_edit_state.last_item ~= current_item) or
+            (UI_STATE.subass_items_edit_state.last_selection_start ~= sel_start) or
+            (UI_STATE.subass_items_edit_state.last_selection_end ~= sel_end)
+
+        if should_update then
+            if is_editing_existing then
+                UI_STATE.subass_items_edit_state.text = current_text
+            elseif can_create_new then
+                UI_STATE.subass_items_edit_state.text = ""
+            end
+            UI_STATE.subass_items_edit_state.cursor = #UI_STATE.subass_items_edit_state.text
+            UI_STATE.subass_items_edit_state.anchor = #UI_STATE.subass_items_edit_state.text
+            UI_STATE.subass_items_edit_state.last_item = current_item
+            UI_STATE.subass_items_edit_state.last_selection_start = sel_start
+            UI_STATE.subass_items_edit_state.last_selection_end = sel_end
+            UI_STATE.subass_items_edit_state.focus = true
+            record_field_history(UI_STATE.subass_items_edit_state)
+        end
+
+        -- Функція форматування тексту (перенос рядків)
+        local function format_text(in_text, limit)
+            local text = in_text:gsub("{{+.-}}+", ""):gsub("{.-}", "")
+
+            local lines = {}
+            -- Розбиваємо вхідний текст на існуючі рядки
+            for line in text:gmatch("[^\r\n]+") do
+                -- Якщо рядок короткий, додаємо як є
+                if #line <= limit then
+                    table.insert(lines, line)
+                else
+                    -- Якщо рядок задовгий, розбиваємо його на підрядки
+                    local current_line = ""
+                    for word in line:gmatch("%S+") do
+                        if #current_line + #word + 1 > limit then
+                            table.insert(lines, current_line)
+                            current_line = word
+                        else
+                            current_line = (current_line == "" and "" or current_line .. " ") .. word
+                        end
+                    end
+                    table.insert(lines, current_line)
+                end
+            end
+
+            -- Збираємо все назад у один текст
+            return table.concat(lines, "\n")
+        end
+
+        -- Функція створення нового TEXT ITEM
+        local function create_text_item_from_selection(text_content)
+            if not has_time_selection or not is_in_selection then
+                show_snackbar(T("NO_REGIONS_IN_PROJ"), "warning")
+                return false
+            end
+
+            -- Знаходимо або створюємо трек
+            if not target_track then
+                reaper.InsertTrackAtIndex(0, true)
+                target_track = reaper.GetTrack(0, 0)
+                reaper.GetSetMediaTrackInfo_String(target_track, "P_NAME", track_name, true)
+
+                -- Додаємо FX на новий трек
+                local track_fx_idx = reaper.TrackFX_AddByName(target_track, "Video processor", false, 1)
+                if track_fx_idx >= 0 then
+                    local saved_styles = UTILS.load_text_items_styles()
+                    if saved_styles and saved_styles.params then
+                        for key, idx in pairs(OTHER.TEXT_ITEMS_PARAM_INDICES) do
+                            local val = saved_styles.params[key]
+                            if val then reaper.TrackFX_SetParam(target_track, track_fx_idx, idx, val) end
+                        end
+                    end
+                end
+            end
+
+            -- Створюємо item в межах Time Selection
+            local item = reaper.AddMediaItemToTrack(target_track)
+            reaper.SetMediaItemInfo_Value(item, "D_POSITION", sel_start)
+            reaper.SetMediaItemInfo_Value(item, "D_LENGTH", math.max(sel_end - sel_start, 0.001))
+
+            local take = reaper.AddTakeToMediaItem(item)
+            if take then
+                -- Форматуємо текст з переносом рядків
+                local formatted_text = format_text(text_content, 80)
+
+                reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", formatted_text, true)
+                reaper.GetSetMediaItemInfo_String(item, "P_NOTES", formatted_text, true)
+
+                -- Додаємо Video Processor FX на take
+                local take_fx = reaper.TakeFX_AddByName(take, "Video processor", 1)
+                if take_fx >= 0 then
+                    local item_code = "gfx_blit(0, 1);\ngmem[0] = 1;"
+                    set_fx_code_simple(take, take_fx, item_code, true)
+                end
+            end
+
+            reaper.UpdateItemInProject(item)
+            return true
+        end
+
+        -- Функція збереження
+        local function save_subass_item()
+            local new_text = UI_STATE.subass_items_edit_state.text
+
+            if new_text == "" then
+                show_snackbar(T("NO_EMPTY_NAME"), "warning")
+                return
+            end
+
+            if is_editing_existing and current_item then
+                -- Редагуємо існуючий item
+                push_undo("Edit Subass Text Item")
+                local take = reaper.GetActiveTake(current_item)
+                if take then
+                    local formatted_text = new_text
+                    reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", formatted_text, true)
+                    reaper.GetSetMediaItemInfo_String(current_item, "P_NOTES", formatted_text, true)
+                    reaper.UpdateItemInProject(current_item)
+                    show_snackbar(T("SAVED"), "success")
+                end
+            elseif can_create_new then
+                -- Створюємо новий item з виділення
+                push_undo("Create Subass Text Item")
+                if create_text_item_from_selection(new_text) then
+                    show_snackbar(T("TRACK_CREATED"), "success")
+                    -- Оновлюємо стан після створення
+                    UI_STATE.subass_items_edit_state.last_item = nil
+                end
+            else
+                show_snackbar(T("SELECT_AND_GO_REGION"), "warning")
+            end
+        end
+
+        -- Запам'ятовуємо стан фокусу
+        local was_focused = UI_STATE.subass_items_edit_state and UI_STATE.subass_items_edit_state.focus
+
+        -- Нормалізуємо input_queue
+        local normalized_queue = nil
+        if input_queue and was_focused then
+            normalized_queue = {}
+            for _, char in ipairs(input_queue) do
+                if char == 0 then
+                    table.insert(normalized_queue, 32) -- пробіл
+                else
+                    table.insert(normalized_queue, char)
+                end
+            end
+        else
+            normalized_queue = input_queue
+        end
+
+        -- Малюємо поле вводу
+        ui_text_input("subass_items_editor", input_x, input_y, input_w, input_h,
+            UI_STATE.subass_items_edit_state, "", normalized_queue, true, false, F[cfg.t_editor_size])
+
+        -- Кнопка Save
+        local save_btn_w = S(90)
+        local save_btn_x = input_x + input_w + S(10)
+        local save_btn_y = input_y
+
+        if btn(save_btn_x, save_btn_y, save_btn_w, input_h, T("SAVE_TEXT_ITEM"), UI.C_BTN_MEDIUM, UI.C_TXT, true) then
+            save_subass_item()
+        end
+
+        -- Обробка Enter для збереження
+        if normalized_queue and was_focused then
+            for _, char in ipairs(normalized_queue) do
+                if char == 13 then -- 13 = Enter
+                    save_subass_item()
+                    break
+                end
+            end
+        end
+    end
+
+    UI_STATE.mouse_handled = true
+    return true
+end
+
 -- --- Search Item Modal ---
 
 function SEARCH_ITEM.open()
@@ -22775,7 +24928,7 @@ function DRAW_TABS.draw_file()
         
         local has_dubbers = DUBBERS.data and DUBBERS.data.names and #DUBBERS.data.names > 0
         local dubbers_ass = has_dubbers and "||" .. T("EXPORT_ASS_SPLIT_DUBBERS") or ""
-        local menu = "|>" .. T("SPECIAL_ACTIONS") .. "|" .. T("DELETE_ALL_DATA") .. "||" .. T("CREATE_TEXT_ITEMS_FROM_REGIONS") .. "||" .. T("CALCULATE_LINES_BY_ACTORS") .. "|" .. T("REMOVE_ACCENTS_FROM_LINES") .. "||" .. T("COMPACT_RENDER_WAV") .. "|<|||" .. T("SPLIT_BY_DUBBERS") .. "|" .. T("VIEW_MY_DEADLINES") .. "||>" .. T("EXPORT_SUBTITLES") .. "|" .. T("EXPORT_AS_SRT") .. "|" .. T("EXPORT_AS_ASS") .. dubbers_ass .. "|<"
+        local menu = "|>" .. T("SPECIAL_ACTIONS") .. "|" .. T("DELETE_ALL_DATA") .. "||" .. T("CREATE_TEXT_ITEMS_FROM_REGIONS") .. "|" .. T("OPEN_TEXT_ITEMS_STYLE") .. "||" .. T("CALCULATE_LINES_BY_ACTORS") .. "|" .. T("REMOVE_ACCENTS_FROM_LINES") .. "||" .. T("COMPACT_RENDER_WAV") .. "|<|||" .. T("SPLIT_BY_DUBBERS") .. "|" .. T("VIEW_MY_DEADLINES") .. "||>" .. T("EXPORT_SUBTITLES") .. "|" .. T("EXPORT_AS_SRT") .. "|" .. T("EXPORT_AS_ASS") .. dubbers_ass .. "|<"
 
         -- Add "Change Dubber" submenu if dubbers exist
         if has_dubbers then
@@ -22809,9 +24962,9 @@ function DRAW_TABS.draw_file()
         UI_STATE.mouse_handled = true -- Tell framework we handled this click
         
         -- Mapping logic for dynamic menu
-        -- Fixed items: 1=delete regions, 2=create text items, 3=calc replicas, 4=remove accents, 5=compact render, 6=dubbers dashboard, 7=deadlines, 8=export SRT, 9=export ASS, 10=export ASS (dubbers) if has_dubbers
+        -- Fixed items: 1=delete regions, 2=create text items, 3=open style editor, 4=calc replicas, 5=remove accents, 6=compact render, 7=dubbers dashboard, 8=deadlines, 9=export SRT, 10=export ASS, 11=export ASS (dubbers) if has_dubbers
         local dubber_count = has_dubbers and #DUBBERS.data.names or 0
-        local base_items = has_dubbers and 10 or 9
+        local base_items = has_dubbers and 11 or 10
         -- After fixed items come dubber selection items (if any), then dict items, then dock
         local dict_start = base_items + dubber_count + 1 -- +1: submenu header ">Словники" doesn't count as a clickable item
         local dock_ret = dict_start + (dict_count > 0 and dict_count or 1) -- skip dict items or the disabled placeholder
@@ -22821,25 +24974,27 @@ function DRAW_TABS.draw_file()
         elseif ret == 2 then
             UTILS.create_text_items_from_regions()
         elseif ret == 3 then
-            UTILS.calc_track_items_by_actor()
+            UTILS.open_text_items_style_editor()
         elseif ret == 4 then
-            UTILS.remove_all_acute_for_selected_actors()
+            UTILS.calc_track_items_by_actor()
         elseif ret == 5 then
-            UTILS.compact_render()
+            UTILS.remove_all_acute_for_selected_actors()
         elseif ret == 6 then
+            UTILS.compact_render()
+        elseif ret == 7 then
             DUBBERS.show_dashboard = true
             DUBBERS.load()
-        elseif ret == 7 then
-            DEADLINE.dashboard_show = true
         elseif ret == 8 then
-            export_as_srt()
+            DEADLINE.dashboard_show = true
         elseif ret == 9 then
+            export_as_srt()
+        elseif ret == 10 then
             export_as_ass()
-        elseif has_dubbers and ret == 10 then
+        elseif has_dubbers and ret == 11 then
             DUBBERS.export_as_ass()
-        elseif has_dubbers and ret >= (has_dubbers and 11 or 10) and ret <= base_items + dubber_count then
+        elseif has_dubbers and ret >= (has_dubbers and 12 or 11) and ret <= base_items + dubber_count then
             -- Handle Dubber Selection
-            local offset = has_dubbers and 10 or 9
+            local offset = has_dubbers and 11 or 10
             local selected_name = DUBBERS.data.names[ret - offset]
             DUBBERS.select_dubber(selected_name)
         elseif dict_count > 0 and ret >= dict_start and ret < dict_start + dict_count then
@@ -34570,7 +36725,7 @@ local function main()
     
     if not OTHER.rec_state.show then
         if UI_STATE.inside_window then handle_drag_drop() end
-
+    
         -- Main Drawing Logic
         if DEADLINE.modal.show then 
             DEADLINE.draw_picker(input_queue)
@@ -34592,6 +36747,8 @@ local function main()
             DRAW_WINDOW.draw_dictionary_modal(input_queue)
         elseif text_editor_state.active then
             DRAW_WINDOW.draw_text_editor(input_queue)
+        elseif UI_STATE.text_items_style and UI_STATE.text_items_style.show then
+            DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         else
             if UI_STATE.current_tab == 1 then 
                 if UI_STATE.last_tab ~= 1 then
@@ -34611,7 +36768,7 @@ local function main()
             if not text_editor_state.active and ai_modal.show then
                 DRAW_WINDOW.draw_ai_modal(false)
             end
-
+    
             -- Context Menu logic (Right-click on tab bar / empty space)
             -- Must strictly check UI_STATE.mouse_handled AND window bounds to avoid global capture.
             if UI_STATE.inside_window and gfx.mouse_cap == 2 and UI_STATE.last_mouse_cap == 0 and not UI_STATE.mouse_handled then
