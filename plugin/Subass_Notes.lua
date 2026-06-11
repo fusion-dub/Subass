@@ -96,6 +96,13 @@ local cfg = {
     ai_provider = get_set("ai_provider", "gemini"),
     eleven_api_key = get_set("eleven_api_key", ""),
     hf_token = get_set("hf_token", ""),
+    stt_diarization = (get_set("stt_diarization", "1") == "1" or get_set("stt_diarization", 1) == 1),
+    stt_split_segments = (get_set("stt_split_segments", "1") == "1" or get_set("stt_split_segments", 1) == 1),
+    stt_max_duration = tonumber(get_set("stt_max_duration", 5.0)) or 5.0,
+    stt_max_gap = tonumber(get_set("stt_max_gap", 0.5)) or 0.5,
+    stt_add_offset = (get_set("stt_add_offset", "1") == "1" or get_set("stt_add_offset", 1) == 1),
+    stt_offset_start = tonumber(get_set("stt_offset_start", 0.15)) or 0.15,
+    stt_offset_end = tonumber(get_set("stt_offset_end", 0.15)) or 0.15,
     p_drawer = (get_set("p_drawer", "1") == "1" or get_set("p_drawer", 1) == 1),
     p_drawer_left = (get_set("p_drawer_left", "1") == "1" or get_set("p_drawer_left", 1) == 1),
     p_corr = (get_set("p_corr", "1") == "1" or get_set("p_corr", 1) == 1),
@@ -609,6 +616,17 @@ local I18N = {
     HF_TOKEN = { en = "Hugging Face Token", ua = "Токен Hugging Face" },
     HF_TOKEN_TIP = { en = "Required for WhisperX (Speech to Text) speaker diarization. Get one at hf.co/settings/tokens.", ua = "Необхідний для розділення по спікерам у WhisperX (Speech to Text). Отримайте на hf.co/settings/tokens." },
     HF_TOKEN_EX = { en = "Token (hf_...):,extrawidth=250", ua = "Токен (hf_...):,extrawidth=250" },
+    STT_SECTION_TITLE = { en = "SPEECH-TO-TEXT", ua = "SPEECH-TO-TEXT" },
+    STT_DIARIZATION_T = { en = "Split by speakers (Diarization)", ua = "Розділяти по спікерам (Diarization)" },
+    STT_DIARIZATION_TIP = { en = "Separate segments by speaker using Pyannote model (requires Hugging Face Token).", ua = "Розподіляти репліки по спікерам за допомогою моделі Pyannote (потрібен Hugging Face Token)." },
+    STT_SPLIT_SEGMENTS_T = { en = "Split long dialogue segments", ua = "Нарізати довгі репліки" },
+    STT_SPLIT_SEGMENTS_TIP = { en = "Split long segments into smaller blocks using duration and word silence gaps.", ua = "Розбивати довгі репліки на менші частини на основі тривалості та пауз між словами." },
+    STT_MAX_DURATION = { en = "Max Segment Duration (sec)", ua = "Макс. тривалість репліки (сек)" },
+    STT_MAX_GAP = { en = "Max Silence Gap (sec)", ua = "Макс. пауза між словами (сек)" },
+    STT_ADD_OFFSET_T = { en = "Add edge offset padding", ua = "Додавати додатковий офсет по краям" },
+    STT_ADD_OFFSET_TIP = { en = "Slightly expand each segment's start and end times.", ua = "Трохи розширити час початку та кінця кожної репліки." },
+    STT_OFFSET_LEFT = { en = "Start Offset padding (sec)", ua = "Офсет зліва (сек)" },
+    STT_OFFSET_RIGHT = { en = "End Offset padding (sec)", ua = "Офсет справа (сек)" },
     WHISPER_CANCELED_ACT = { en = "Speech recognition has been canceled", ua = "Розпізнавання мови скасовано" },
     AI_GENERATE_NO_LINES = { en = "There are no lines to process", ua = "Немає реплік для обробки" },
     AI_GENERATE_SELECT_LINES = { en = "Select the lines in the table", ua = "Виділіть репліки в таблиці" },
@@ -4059,6 +4077,13 @@ local function save_settings()
     reaper.SetExtState(section_name, "ai_provider", cfg.ai_provider, true)
     reaper.SetExtState(section_name, "eleven_api_key", cfg.eleven_api_key, true)
     reaper.SetExtState(section_name, "hf_token", cfg.hf_token or "", true)
+    reaper.SetExtState(section_name, "stt_diarization", cfg.stt_diarization and "1" or "0", true)
+    reaper.SetExtState(section_name, "stt_split_segments", cfg.stt_split_segments and "1" or "0", true)
+    reaper.SetExtState(section_name, "stt_max_duration", tostring(cfg.stt_max_duration), true)
+    reaper.SetExtState(section_name, "stt_max_gap", tostring(cfg.stt_max_gap), true)
+    reaper.SetExtState(section_name, "stt_add_offset", cfg.stt_add_offset and "1" or "0", true)
+    reaper.SetExtState(section_name, "stt_offset_start", tostring(cfg.stt_offset_start), true)
+    reaper.SetExtState(section_name, "stt_offset_end", tostring(cfg.stt_offset_end), true)
     reaper.SetExtState(section_name, "p_drawer", cfg.p_drawer and "1" or "0", true)
     reaper.SetExtState(section_name, "p_drawer_left", cfg.p_drawer_left and "1" or "0", true)
     reaper.SetExtState(section_name, "prompter_drawer_width", tostring(prompter_drawer.width), true)
@@ -27483,6 +27508,82 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(25)
     
     -- ═══════════════════════════════════════════
+    -- SPEECH-TO-TEXT (STT) Settings
+    -- ═══════════════════════════════════════════
+    s_section(y_cursor, T("STT_SECTION_TITLE"))
+    y_cursor = y_cursor + S(35)
+
+    -- Split by speakers (Diarization)
+    if checkbox(x_start, y_cursor, T("STT_DIARIZATION_T"), cfg.stt_diarization, T("STT_DIARIZATION_TIP")) then
+        cfg.stt_diarization = not cfg.stt_diarization
+        save_settings()
+    end
+    y_cursor = y_cursor + S(45)
+
+    -- Split long dialogue segments
+    if checkbox(x_start, y_cursor, T("STT_SPLIT_SEGMENTS_T"), cfg.stt_split_segments, T("STT_SPLIT_SEGMENTS_TIP")) then
+        cfg.stt_split_segments = not cfg.stt_split_segments
+        save_settings()
+    end
+    y_cursor = y_cursor + S(45)
+
+    if cfg.stt_split_segments then
+        s_text(x_start + S(25), y_cursor, T("STT_MAX_DURATION") .. ": " .. string.format("%.2f", cfg.stt_max_duration), F.std)
+        if s_btn(x_start + S(250), y_cursor - S(10), S(30), S(30), "－") then
+            cfg.stt_max_duration = math.max(1.0, cfg.stt_max_duration - 0.5)
+            save_settings()
+        end
+        if s_btn(x_start + S(285), y_cursor - S(10), S(30), S(30), "＋") then
+            cfg.stt_max_duration = math.min(20.0, cfg.stt_max_duration + 0.5)
+            save_settings()
+        end
+        y_cursor = y_cursor + S(45)
+
+        s_text(x_start + S(25), y_cursor, T("STT_MAX_GAP") .. ": " .. string.format("%.2f", cfg.stt_max_gap), F.std)
+        if s_btn(x_start + S(250), y_cursor - S(10), S(30), S(30), "－") then
+            cfg.stt_max_gap = math.max(0.1, cfg.stt_max_gap - 0.05)
+            save_settings()
+        end
+        if s_btn(x_start + S(285), y_cursor - S(10), S(30), S(30), "＋") then
+            cfg.stt_max_gap = math.min(5.0, cfg.stt_max_gap + 0.05)
+            save_settings()
+        end
+        y_cursor = y_cursor + S(40)
+    end
+
+    -- Add edge offset padding
+    if checkbox(x_start, y_cursor, T("STT_ADD_OFFSET_T"), cfg.stt_add_offset, T("STT_ADD_OFFSET_TIP")) then
+        cfg.stt_add_offset = not cfg.stt_add_offset
+        save_settings()
+    end
+    y_cursor = y_cursor + S(45)
+
+    if cfg.stt_add_offset then
+        s_text(x_start + S(25), y_cursor, T("STT_OFFSET_LEFT") .. ": " .. string.format("%.2f", cfg.stt_offset_start), F.std)
+        if s_btn(x_start + S(250), y_cursor - S(10), S(30), S(30), "－") then
+            cfg.stt_offset_start = math.max(0.0, cfg.stt_offset_start - 0.05)
+            save_settings()
+        end
+        if s_btn(x_start + S(285), y_cursor - S(10), S(30), S(30), "＋") then
+            cfg.stt_offset_start = math.min(2.0, cfg.stt_offset_start + 0.05)
+            save_settings()
+        end
+        y_cursor = y_cursor + S(45)
+
+        s_text(x_start + S(25), y_cursor, T("STT_OFFSET_RIGHT") .. ": " .. string.format("%.2f", cfg.stt_offset_end), F.std)
+        if s_btn(x_start + S(250), y_cursor - S(10), S(30), S(30), "－") then
+            cfg.stt_offset_end = math.max(0.0, cfg.stt_offset_end - 0.05)
+            save_settings()
+        end
+        if s_btn(x_start + S(285), y_cursor - S(10), S(30), S(30), "＋") then
+            cfg.stt_offset_end = math.min(2.0, cfg.stt_offset_end + 0.05)
+            save_settings()
+        end
+        y_cursor = y_cursor + S(40)
+    end
+    y_cursor = y_cursor + S(15)
+
+    -- ═══════════════════════════════════════════
     -- 14. ІНШЕ
     -- ═══════════════════════════════════════════
     s_section(y_cursor, T("OTHER_UPP"))
@@ -31226,9 +31327,18 @@ function OTHER.speech_to_text_from_item()
         srt_arg = srt_arg:gsub("/", "\\")
     end
     
-    local hf_arg = ""
+    local stt_args = ""
     if cfg.hf_token and cfg.hf_token ~= "" then
-        hf_arg = " --hf-token " .. '"' .. cfg.hf_token .. '"'
+        stt_args = stt_args .. " --hf-token " .. '"' .. cfg.hf_token .. '"'
+    end
+    if cfg.stt_diarization then
+        stt_args = stt_args .. " --diarize"
+    end
+    if cfg.stt_split_segments then
+        stt_args = stt_args .. string.format(" --split-segments --max-duration %.2f --max-gap %.2f", cfg.stt_max_duration or 4.0, cfg.stt_max_gap or 0.4)
+    end
+    if cfg.stt_add_offset then
+        stt_args = stt_args .. string.format(" --offset-start %.2f --offset-end %.2f", cfg.stt_offset_start or 0.1, cfg.stt_offset_end or 0.1)
     end
 
     local cmd
@@ -31263,7 +31373,7 @@ function OTHER.speech_to_text_from_item()
             f_ps1:write(string.format(
                 '%s -u "%s" "%s" "%s" --lang %s --start %f --duration %f%s\r\n',
                 ps_invoke, py_script_arg, source_arg, srt_arg,
-                selected_lang, effective_start, effective_dur, hf_arg
+                selected_lang, effective_start, effective_dur, stt_args
             ))
             f_ps1:close()
         end
@@ -31272,7 +31382,7 @@ function OTHER.speech_to_text_from_item()
         cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' .. ps1_file .. '"'
     else
         cmd = string.format('( PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$PATH %s -u "%s" "%s" "%s" --lang %s --start %f --duration %f%s & echo $!>"%s" ; wait )',
-            py_exe, py_script_arg, source_arg, srt_arg, selected_lang, effective_start, effective_dur, hf_arg, pid_file)
+            py_exe, py_script_arg, source_arg, srt_arg, selected_lang, effective_start, effective_dur, stt_args, pid_file)
     end
     
     local proj_basename = "Unsaved"
