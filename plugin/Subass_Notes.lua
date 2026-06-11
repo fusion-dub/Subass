@@ -6104,9 +6104,12 @@ function DEADLINE.draw_dashboard(input_queue)
     gfx.setfont(F.title)
     set_color(UI.C_TXT)
     gfx.x, gfx.y = pad, pad
+
+    -- Setup Notifications Button
+    local s_btn_w = cfg.lng == "ua" and S(170) or S(117)
     
     -- Truncate title if it gets too close to the close button
-    local avail_tw = cx - pad - S(10)
+    local avail_tw = cx - pad - s_btn_w - S(10)
     local draw_title = fit_text_width(title, avail_tw)
     gfx.drawstr(draw_title)
     
@@ -6118,8 +6121,6 @@ function DEADLINE.draw_dashboard(input_queue)
         close_dash()
     end
 
-    -- Setup Notifications Button
-    local s_btn_w = cfg.lng == "ua" and S(170) or S(117)
     local s_btn_x = cx - s_btn_w - S(10)
     if btn(s_btn_x, cy, s_btn_w, close_sz, T("SET_UP_NOTIFY"), UI.C_ROW, UI.C_TXT) then
         local retval, ret_time = reaper.GetUserInputs(T("NOTIFY_SETTINGS"), 1, T("NOTIFY_SETTINGS_TIME"), cfg.notify_time)
@@ -6148,7 +6149,6 @@ function DEADLINE.draw_dashboard(input_queue)
             end
         end
     end
-
     
     -- Escape key check
     if input_queue then
