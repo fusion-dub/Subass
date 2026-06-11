@@ -95,6 +95,7 @@ local cfg = {
     groq_api_key = get_set("groq_api_key", ""),
     ai_provider = get_set("ai_provider", "gemini"),
     eleven_api_key = get_set("eleven_api_key", ""),
+    hf_token = get_set("hf_token", ""),
     p_drawer = (get_set("p_drawer", "1") == "1" or get_set("p_drawer", 1) == 1),
     p_drawer_left = (get_set("p_drawer_left", "1") == "1" or get_set("p_drawer_left", 1) == 1),
     p_corr = (get_set("p_corr", "1") == "1" or get_set("p_corr", 1) == 1),
@@ -604,7 +605,10 @@ local I18N = {
     WHISPER_SUCC_DONE_2 = { en = "Recognition complete! Go to the  «", ua = "Розпізнавання завершено! Перейдіть на проєкт «" },
     WHISPER_SUCC_DONE_3 = { en = "» project to see result", ua = "» для отримання результату" },
     WHISPER_RUN_START = { en = "Speech recognition has begun...", ua = "Розпочато розпізнавання мови..." },
-    WHISPER_INSTALL_MSG = { en = "Whisper AI (Speech to Text) not found.\n\nRequirements:\n  - openai-whisper, numpy, torch\n  - Model 'turbo' (~1.6 GB)\n\nInstall and download now?\n(A command prompt window will open, displaying the progress of the installation)", ua = "Whisper AI (Speech to Text) не знайдено.\n\nНеобхідно:\n  - openai-whisper, numpy, torch\n  - Model 'turbo' (~1.6 GB)\n\nВстановити та завантажити зараз?\n(Відкриється вікно командного рядка, в якому буде відображатися хід встановлення)" },
+    WHISPER_INSTALL_MSG = { en = "WhisperX AI (Speech to Text) not found.\n\nRequirements:\n  - whisperx, numpy, torch\n  - Model 'turbo' (~1.6 GB)\n\nInstall and download now?\n(A command prompt window will open, displaying the progress of the installation)", ua = "WhisperX AI (Speech to Text) не знайдено.\n\nНеобхідно:\n  - whisperx, numpy, torch\n  - Model 'turbo' (~1.6 GB)\n\nВстановити та завантажити зараз?\n(Відкриється вікно командного рядка, в якому буде відображатися хід встановлення)" },
+    HF_TOKEN = { en = "Hugging Face Token", ua = "Токен Hugging Face" },
+    HF_TOKEN_TIP = { en = "Required for WhisperX (Speech to Text) speaker diarization. Get one at hf.co/settings/tokens.", ua = "Необхідний для розділення по спікерам у WhisperX (Speech to Text). Отримайте на hf.co/settings/tokens." },
+    HF_TOKEN_EX = { en = "Token (hf_...):,extrawidth=250", ua = "Токен (hf_...):,extrawidth=250" },
     WHISPER_CANCELED_ACT = { en = "Speech recognition has been canceled", ua = "Розпізнавання мови скасовано" },
     AI_GENERATE_NO_LINES = { en = "There are no lines to process", ua = "Немає реплік для обробки" },
     AI_GENERATE_SELECT_LINES = { en = "Select the lines in the table", ua = "Виділіть репліки в таблиці" },
@@ -4054,6 +4058,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "groq_api_key", cfg.groq_api_key, true)
     reaper.SetExtState(section_name, "ai_provider", cfg.ai_provider, true)
     reaper.SetExtState(section_name, "eleven_api_key", cfg.eleven_api_key, true)
+    reaper.SetExtState(section_name, "hf_token", cfg.hf_token or "", true)
     reaper.SetExtState(section_name, "p_drawer", cfg.p_drawer and "1" or "0", true)
     reaper.SetExtState(section_name, "p_drawer_left", cfg.p_drawer_left and "1" or "0", true)
     reaper.SetExtState(section_name, "prompter_drawer_width", tostring(prompter_drawer.width), true)
@@ -26427,6 +26432,18 @@ function DRAW_TABS.draw_settings()
         end
     end
    
+    y_cursor = y_cursor + S(45)
+
+    -- Hugging Face Token (WhisperX Diarization)
+    local hf_btn_col = (cfg.hf_token and cfg.hf_token ~= "") and UI.C_BTN_MEDIUM or UI.C_BTN
+    if s_btn(x_start, y_cursor, S(200), S(30), T("HF_TOKEN"), T("HF_TOKEN_TIP"), hf_btn_col) then
+        local retval, key = reaper.GetUserInputs(T("HF_TOKEN"), 1, T("HF_TOKEN_EX"), cfg.hf_token or "")
+        if retval then
+            cfg.hf_token = key
+            save_settings()
+        end
+    end
+
     y_cursor = y_cursor + S(60)
 
     -- ═══════════════════════════════════════════
@@ -30886,12 +30903,10 @@ function OTHER.update_whisper_progress()
     local last_text = ""
     
     -- Match lines like: [00:00.000 --> 00:05.000] text
+    -- We take the last printed progress line in the output stream as the current progress.
     for m1, s1, ms1, m2, s2, ms2, txt in content:gmatch("%[(%d+):(%d+)[%.%:](%d+)%s*%-%->%s*(%d+):(%d+)[%.%:](%d+)%]%s*(.-)[\r\n]") do
-        local t2 = tonumber(m2) * 60 + tonumber(s2) + tonumber(ms2) / 1000
-        if t2 > last_end_time then
-            last_end_time = t2
-            last_text = txt
-        end
+        last_end_time = tonumber(m2) * 60 + tonumber(s2) + tonumber(ms2) / 1000
+        last_text = txt
     end
     
     if last_end_time > 0 and state.effective_dur > 0 then
@@ -30997,6 +31012,16 @@ function OTHER.import_whisper_srt(file_path, timeline_offset, play_rate)
         
         local clean_text = text:gsub("\r", ""):gsub("\n", " "):match("^%s*(.-)%s*$")
         if clean_text ~= "" then
+            local actor = default_actor
+            local speaker_prefix, rest_text = clean_text:match("^%[(SPEAKER_%d+)%]%:%s*(.*)$")
+            if speaker_prefix then
+                local num = tonumber(speaker_prefix:match("SPEAKER_(%d+)"))
+                actor = num and string.format("Whisper-%02d", num + 1) or "Whisper"
+                clean_text = rest_text:match("^%s*(.-)%s*$")
+            end
+            
+            ass_actors[actor] = true
+
             local found = false
             for _, existing in ipairs(ass_lines) do
                 if math.abs(existing.t1 - adjusted_t1) < 0.001 and
@@ -31015,7 +31040,7 @@ function OTHER.import_whisper_srt(file_path, timeline_offset, play_rate)
                     t1 = adjusted_t1,
                     t2 = adjusted_t2,
                     text = clean_text,
-                    actor = default_actor,
+                    actor = actor,
                     enabled = true,
                     index = line_idx_counter
                 })
@@ -31131,7 +31156,7 @@ function OTHER.speech_to_text_from_item()
         -- На Windows ExecProcess запускає процес повністю приховано (без вікна cmd.exe)
         -- Використовуємо find_spec для миттєвої перевірки за 50мс (запобігає таймауту у 3 секунди)
         -- та ASCII-коди символів chr(), щоб уникнути будь-яких вкладених лапок на Windows.
-        check_cmd = py_exe .. ' -c "import importlib.util; print(chr(79)+chr(75) if importlib.util.find_spec(chr(119)+chr(104)+chr(105)+chr(115)+chr(112)+chr(101)+chr(114)) else chr(101)+chr(114)+chr(114))"'
+        check_cmd = py_exe .. ' -c "import importlib.util; print(chr(79)+chr(75) if importlib.util.find_spec(chr(119)+chr(104)+chr(105)+chr(115)+chr(112)+chr(101)+chr(114)+chr(120)) else chr(101)+chr(114)+chr(114))"'
     else
         -- На macOS/Linux запускаємо python напряму без обгортки /bin/sh -c, оскільки
         -- reaper.ExecProcess на macOS не вміє парсити екрановані подвійні лапки всередині інших лапок.
@@ -31140,7 +31165,7 @@ function OTHER.speech_to_text_from_item()
         if clean_py:find("PATH=") then
             clean_py = clean_py:match(" ([^ ]+)$") or "python3"
         end
-        check_cmd = clean_py .. ' -c "import sys; sys.stderr = sys.stdout; import importlib.util; print(\'OK\' if importlib.util.find_spec(\'whisper\') else \'not found\')"'
+        check_cmd = clean_py .. ' -c "import sys; sys.stderr = sys.stdout; import importlib.util; print(\'OK\' if importlib.util.find_spec(\'whisperx\') else \'not found\')"'
     end
 
     local r1 = reaper.ExecProcess(check_cmd, 3000)
@@ -31201,6 +31226,11 @@ function OTHER.speech_to_text_from_item()
         srt_arg = srt_arg:gsub("/", "\\")
     end
     
+    local hf_arg = ""
+    if cfg.hf_token and cfg.hf_token ~= "" then
+        hf_arg = " --hf-token " .. '"' .. cfg.hf_token .. '"'
+    end
+
     local cmd
     local ps1_file
     if is_win then
@@ -31231,9 +31261,9 @@ function OTHER.speech_to_text_from_item()
             f_ps1:write('$PID | Out-File -FilePath "' .. pid_file_win .. '" -Encoding ASCII\r\n')
             f_ps1:write('$env:PYTHONUTF8 = "1"\r\n')
             f_ps1:write(string.format(
-                '%s -u "%s" "%s" "%s" --lang %s --start %f --duration %f\r\n',
+                '%s -u "%s" "%s" "%s" --lang %s --start %f --duration %f%s\r\n',
                 ps_invoke, py_script_arg, source_arg, srt_arg,
-                selected_lang, effective_start, effective_dur
+                selected_lang, effective_start, effective_dur, hf_arg
             ))
             f_ps1:close()
         end
@@ -31241,8 +31271,8 @@ function OTHER.speech_to_text_from_item()
         -- Pass the ps1 invocation as cmd; run_async_command will wrap it in a bat normally
         cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -File "' .. ps1_file .. '"'
     else
-        cmd = string.format('( PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$PATH %s -u "%s" "%s" "%s" --lang %s --start %f --duration %f & echo $!>"%s" ; wait )',
-            py_exe, py_script_arg, source_arg, srt_arg, selected_lang, effective_start, effective_dur, pid_file)
+        cmd = string.format('( PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$PATH %s -u "%s" "%s" "%s" --lang %s --start %f --duration %f%s & echo $!>"%s" ; wait )',
+            py_exe, py_script_arg, source_arg, srt_arg, selected_lang, effective_start, effective_dur, hf_arg, pid_file)
     end
     
     local proj_basename = "Unsaved"
@@ -31275,6 +31305,10 @@ function OTHER.speech_to_text_from_item()
         OTHER.whisper_state.active = false
         
         if is_win and ps1_file then os.remove(ps1_file) end
+
+        if output and (output:find("Warning:") or output:find("Error:") or output:find("CRITICAL")) then
+            reaper.ShowConsoleMsg("--- WhisperX Pipeline Messages ---\n" .. tostring(output) .. "\n----------------------------------\n")
+        end
         
         local f = io.open(temp_srt, "r")
         if not f then
@@ -31634,10 +31668,9 @@ function DRAW_TABS.draw_table(input_queue)
             gfx.rect(filter_x + 1, progress_y + 1, progress_w, progress_h - 2, 1)
         end
         
-        -- Draw text info (e.g. "Whisper: 45% [text snippet]")
+        -- Draw text info (e.g. "WhisperX: 45% [text snippet]")
         set_color(UI.C_TXT or {0.9, 0.9, 0.9, 1})
-        local pct = math.floor((OTHER.whisper_state.progress or 0) * 100)
-        local info_str = string.format("Whisper: %d%%", pct)
+        local info_str = "WhisperX"
         if OTHER.whisper_state.text and OTHER.whisper_state.text ~= "" then
             info_str = info_str .. " | " .. OTHER.whisper_state.text
         end
