@@ -18243,7 +18243,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
     end
 
     -- Helper functions
-    local function draw_slider(label, param_key, min_val, max_val, decimals)
+    local function draw_slider(label, param_key, min_val, max_val, decimals, invert)
         local val = state.params[param_key]
         if not val then return end
 
@@ -18260,7 +18260,8 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
 
              -- Value display
             local fmt = decimals == 0 and "%.0f" or "%.1f"
-            local percent_val = ((val - min_val) / (max_val - min_val)) * 100
+            local display_val = invert and (max_val + min_val - val) or val
+            local percent_val = ((display_val - min_val) / (max_val - min_val)) * 100
             local val_str = string.format(fmt .. "%%", percent_val)
             local val_w = gfx.measurestr(val_str)
             local slider_x = pad + label_w
@@ -18279,6 +18280,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                 param_key == "sh_x" or param_key == "sh_y")
 
             local t = (val - min_val) / (max_val - min_val)
+            if invert then t = 1 - t end
             local handle_radius = S(10)
             local handle_x = slider_x + t * slider_w
             local handle_y = cy + S(20)
@@ -18360,6 +18362,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                     -- Переміщуємо ручку в позицію кліку
                     local mouse_t = (gfx.mouse_x - slider_x) / slider_w
                     mouse_t = math.max(0, math.min(1, mouse_t))
+                    if invert then mouse_t = 1 - mouse_t end
                     local new_val = min_val + mouse_t * (max_val - min_val)
                     if decimals == 0 then
                         new_val = math.floor(new_val + 0.5)
@@ -18383,6 +18386,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
             if state.dragging == param_key and (gfx.mouse_cap & 1 == 1) then
                 local mouse_t = (gfx.mouse_x - slider_x) / slider_w
                 mouse_t = math.max(0, math.min(1, mouse_t))
+                if invert then mouse_t = 1 - mouse_t end
                 local new_val = min_val + mouse_t * (max_val - min_val)
                 if decimals == 0 then
                     new_val = math.floor(new_val + 0.5)
@@ -18703,12 +18707,12 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
 
     draw_slider(T("POSITION_X"), "xpos", 0, 1, 2)
     draw_slider(T("POSITION_Y"), "ypos", 0, 1, 2)
-    draw_slider(T("TEXT_ALPHA"), "fga", 0, 1, 2)
+    draw_slider(T("TEXT_ALPHA"), "fga", 0, 1, 2, true)
 
     draw_checkbox(T("BACKGROUND"), "bg_on")
     if state.params.bg_on > 0.5 then
         draw_color_picker(T("BG_COLOR"), "bgc_r", "bgc_g", "bgc_b")
-        draw_slider(T("BG_ALPHA"), "bga", 0, 1, 2)
+        draw_slider(T("BG_ALPHA"), "bga", 0, 1, 2, true)
         draw_slider(T("BG_OFFSET_X"), "bgxpos", 0, 1, 2)
         draw_slider(T("BG_OFFSET_Y"), "bgypos", 0, 1, 2)
         draw_slider(T("BG_WIDTH"), "bgwidth", 0.5, 2, 2)
@@ -18719,14 +18723,14 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
     if state.params.ol_on > 0.5 then
         draw_color_picker(T("OUTLINE_COLOR"), "outl_r", "outl_g", "outl_b")
         draw_slider(T("OUTLINE_WIDTH"), "outline_w", 1, 10, 0)
-        draw_slider(T("OUTLINE_ALPHA"), "outl_a", 0, 1, 2)
+        draw_slider(T("OUTLINE_ALPHA"), "outl_a", 0, 1, 2, true)
     end
 
     draw_checkbox(T("SHADOW"), "sh_on")
     if state.params.sh_on > 0.5 then
         draw_slider(T("SHADOW_OFFSET_X"), "sh_x", -100, 100, 0)
         draw_slider(T("SHADOW_OFFSET_Y"), "sh_y", -100, 100, 0)
-        draw_slider(T("SHADOW_ALPHA"), "sh_a", 0, 1, 2)
+        draw_slider(T("SHADOW_ALPHA"), "sh_a", 0, 1, 2, true)
     end
 
     -- Store total height for scroll
@@ -18799,6 +18803,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
     -- Розраховуємо доступну ширину для заголовка
     local avail_tw = gfx.w - pad - right_buttons_width - S(10)
     local draw_title = fit_text_width(T("TEXT_ITEMS_STYLE_TITLE"), avail_tw)
+    gfx.x, gfx.y = pad, pad + S(1)
     gfx.drawstr(draw_title)
 
     local close_hover = UI_STATE.window_focused and (gfx.mouse_x >= close_x and gfx.mouse_x <= close_x + close_sz and
@@ -18858,7 +18863,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         bypass_color = UI.C_BTN_ERROR
     end
     
-    if btn(bypass_x, pad, bypass_w, S(25), bypass_text, bypass_color, UI.C_TXT, true) then
+    if btn(bypass_x, pad, bypass_w, close_sz, bypass_text, bypass_color, UI.C_TXT, true) then
         if state.track then
             if track_muted then
                 -- Якщо доріжка в mute, вимикаємо mute і вмикаємо FX
@@ -18882,7 +18887,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
     local reset_w = S(100)
     local reset_x = bypass_x - reset_w - S(8)
 
-    if btn(reset_x, pad, reset_w, S(25), T("RESET_STYLES"), UI.C_BTN, UI.C_TXT, true) then
+    if btn(reset_x, pad, reset_w, close_sz, T("RESET_STYLES"), UI.C_BTN, UI.C_TXT, true) then
         -- Reset all parameters to default values
         for key, default_val in pairs(state.default_params) do
             state.params[key] = default_val
@@ -18901,7 +18906,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
     local apply_active = UI_STATE.apply_to_item_mode or false
     local apply_color = apply_active and UI.C_BTN_MEDIUM or UI.C_BTN
     
-    if btn(apply_x, pad, apply_w, S(25), T("APPLY_TO_ITEM"), apply_color, UI.C_TXT, true) then
+    if btn(apply_x, pad, apply_w, close_sz, T("APPLY_TO_ITEM"), apply_color, UI.C_TXT, true) then
         if not apply_active then
             -- Активація: зберігаємо бекап параметрів у ExtState
             local backup = {}
@@ -18950,14 +18955,14 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
     local editor_toggle_text = UI_STATE.subass_items_editor_mode and "✏" or "✏"
     local editor_toggle_bg = UI_STATE.subass_items_editor_mode and UI.C_BTN_MEDIUM or UI.C_BTN
 
-    if btn(editor_toggle_x, pad, editor_toggle_w, S(25), editor_toggle_text, editor_toggle_bg, UI.C_TXT, true) then
+    if btn(editor_toggle_x, pad, editor_toggle_w, close_sz, editor_toggle_text, editor_toggle_bg, UI.C_TXT, true) then
         UI_STATE.subass_items_editor_mode = not UI_STATE.subass_items_editor_mode
     end
 
     -- Tooltip для кнопки редактора
     local editor_toggle_hover = UI_STATE.window_focused and
     (gfx.mouse_x >= editor_toggle_x and gfx.mouse_x <= editor_toggle_x + editor_toggle_w and
-        gfx.mouse_y >= pad and gfx.mouse_y <= pad + S(25))
+        gfx.mouse_y >= pad and gfx.mouse_y <= pad + close_sz)
     if editor_toggle_hover then
         local tip_id = "subass_items_editor_toggle"
         if UI_STATE.tooltip_state.hover_id ~= tip_id then
@@ -19094,7 +19099,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         -- Поле для редагування тексту
         local input_x = pad
         local input_y = editor_panel_y + S(30)
-        local input_w = gfx.w - pad * 2 - S(110)
+        local input_w = gfx.w - pad * 2 - S(100)
         local input_h = editor_panel_h - S(50)
 
         -- Стан для редактора тексту
@@ -19212,23 +19217,46 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         -- Функція збереження
         local function save_subass_item()
             local new_text = UI_STATE.subass_items_edit_state.text
-
+        
             if new_text == "" then
                 show_snackbar(T("NO_EMPTY_NAME"), "warning")
                 return
             end
-
+        
             if is_editing_existing and current_item then
-                -- Редагуємо існуючий item
                 push_undo("Edit Subass Text Item")
-                local take = reaper.GetActiveTake(current_item)
+                
+                -- Зберігаємо позицію та довжину старого item
+                local item_pos = reaper.GetMediaItemInfo_Value(current_item, "D_POSITION")
+                local item_len = reaper.GetMediaItemInfo_Value(current_item, "D_LENGTH")
+                
+                -- Видаляємо старий item
+                reaper.DeleteTrackMediaItem(target_track, current_item)
+                
+                -- Створюємо новий item на тому ж місці
+                local new_item = reaper.AddMediaItemToTrack(target_track)
+                reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", item_pos)
+                reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH", item_len)
+                
+                local take = reaper.AddTakeToMediaItem(new_item)
                 if take then
+                    -- Форматуємо текст
                     local formatted_text = new_text
+                    
                     reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", formatted_text, true)
-                    reaper.GetSetMediaItemInfo_String(current_item, "P_NOTES", formatted_text, true)
-                    reaper.UpdateItemInProject(current_item)
-                    show_snackbar(T("SAVED"), "success")
+                    reaper.GetSetMediaItemInfo_String(new_item, "P_NOTES", formatted_text, true)
+                    
+                    -- Додаємо Video Processor FX на take
+                    local take_fx = reaper.TakeFX_AddByName(take, "Video processor", 1)
+                    if take_fx >= 0 then
+                        local item_code = "gfx_blit(0, 1);\ngmem[0] = 1;"
+                        set_fx_code_simple(take, take_fx, item_code, true)
+                    end
                 end
+                
+                reaper.UpdateItemInProject(new_item)
+                show_snackbar(T("SAVED"), "success")
+                
             elseif can_create_new then
                 -- Створюємо новий item з виділення
                 push_undo("Create Subass Text Item")
