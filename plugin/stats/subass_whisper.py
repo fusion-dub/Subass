@@ -189,6 +189,211 @@ def print_static_progress(phase_name, effective_dur, scaled_percent):
     ms = int((current_time - int(current_time)) * 1000)
     print(f"[00:00.000 --> {m:02d}:{s:02d}.{ms:03d}] {phase_name} ({scaled_percent:.1f}%)", flush=True)
 
+def resegment_by_speaker(result, language_code):
+    """Splits transcription segments based on speaker changes at the word level."""
+    new_segments = []
+    is_no_space_lang = str(language_code).lower() in ["ja", "zh", "japanese", "chinese"]
+    
+    for segment in result.get("segments", []):
+        words = segment.get("words", [])
+        if not words:
+            new_segments.append(segment)
+            continue
+            
+        current_speaker = None
+        current_words = []
+        
+        for w in words:
+            spk = w.get("speaker", segment.get("speaker"))
+            
+            # If speaker changes, flush the current group of words
+            if spk != current_speaker and len(current_words) > 0:
+                start_time = None
+                for word in current_words:
+                    if "start" in word:
+                        start_time = word["start"]
+                        break
+                if start_time is None:
+                    start_time = segment.get("start", 0.0)
+                    
+                end_time = None
+                for word in reversed(current_words):
+                    if "end" in word:
+                        end_time = word["end"]
+                        break
+                if end_time is None:
+                    end_time = segment.get("end", start_time)
+                
+                word_texts = [x.get("word", "") for x in current_words]
+                if is_no_space_lang:
+                    text = "".join(word_texts).strip()
+                else:
+                    text = " ".join(word_texts).strip()
+                
+                new_seg = {
+                    "start": start_time,
+                    "end": end_time,
+                    "text": text,
+                    "speaker": current_speaker,
+                    "words": current_words
+                }
+                new_segments.append(new_seg)
+                current_words = []
+            
+            current_speaker = spk
+            current_words.append(w)
+            
+        # Flush final group
+        if current_words:
+            start_time = None
+            for word in current_words:
+                if "start" in word:
+                    start_time = word["start"]
+                    break
+            if start_time is None:
+                start_time = segment.get("start", 0.0)
+                
+            end_time = None
+            for word in reversed(current_words):
+                if "end" in word:
+                    end_time = word["end"]
+                    break
+            if end_time is None:
+                end_time = segment.get("end", start_time)
+            
+            word_texts = [x.get("word", "") for x in current_words]
+            if is_no_space_lang:
+                text = "".join(word_texts).strip()
+            else:
+                text = " ".join(word_texts).strip()
+            
+            new_seg = {
+                "start": start_time,
+                "end": end_time,
+                "text": text,
+                "speaker": current_speaker,
+                "words": current_words
+            }
+            new_segments.append(new_seg)
+            
+    result["segments"] = new_segments
+    return result
+
+def split_long_segments(result, language_code, max_duration=4.0, max_gap=0.4):
+    """Splits long segments into smaller ones based on maximum duration and silence gaps between words."""
+    new_segments = []
+    is_no_space_lang = str(language_code).lower() in ["ja", "zh", "japanese", "chinese"]
+    
+    for segment in result.get("segments", []):
+        words = segment.get("words", [])
+        if not words or len(words) <= 1:
+            new_segments.append(segment)
+            continue
+            
+        current_words = []
+        
+        for i, w in enumerate(words):
+            should_split = False
+            
+            if len(current_words) > 0:
+                # 1. Split if there is a silence gap between the previous word and this word
+                prev_word = current_words[-1]
+                if "end" in prev_word and "start" in w:
+                    gap = w["start"] - prev_word["end"]
+                    if gap >= max_gap:
+                        should_split = True
+                
+                # 2. Split if the current accumulated duration exceeds max_duration
+                if not should_split and "start" in w:
+                    current_start_time = None
+                    for word in current_words:
+                        if "start" in word:
+                            current_start_time = word["start"]
+                            break
+                    if current_start_time is None:
+                        current_start_time = segment.get("start", 0.0)
+                        
+                    current_dur = w["start"] - current_start_time
+                    if current_dur >= max_duration:
+                        should_split = True
+            
+            # Suppress splitting if the remaining part would have 2 or fewer words
+            if should_split:
+                remaining_words_count = len(words) - i
+                if remaining_words_count <= 2:
+                    should_split = False
+            
+            if should_split and len(current_words) > 0:
+                start_time = None
+                for word in current_words:
+                    if "start" in word:
+                        start_time = word["start"]
+                        break
+                if start_time is None:
+                    start_time = segment.get("start", 0.0)
+                    
+                end_time = None
+                for word in reversed(current_words):
+                    if "end" in word:
+                        end_time = word["end"]
+                        break
+                if end_time is None:
+                    end_time = w.get("start", segment.get("end", start_time))
+                
+                word_texts = [x.get("word", "") for x in current_words]
+                if is_no_space_lang:
+                    text = "".join(word_texts).strip()
+                else:
+                    text = " ".join(word_texts).strip()
+                
+                new_seg = {
+                    "start": start_time,
+                    "end": end_time,
+                    "text": text,
+                    "speaker": segment.get("speaker"),
+                    "words": current_words
+                }
+                new_segments.append(new_seg)
+                current_words = []
+                
+            current_words.append(w)
+            
+        # Flush the final group
+        if current_words:
+            start_time = None
+            for word in current_words:
+                if "start" in word:
+                    start_time = word["start"]
+                    break
+            if start_time is None:
+                start_time = segment.get("start", 0.0)
+                
+            end_time = None
+            for word in reversed(current_words):
+                if "end" in word:
+                    end_time = word["end"]
+                    break
+            if end_time is None:
+                end_time = segment.get("end", start_time)
+            
+            word_texts = [x.get("word", "") for x in current_words]
+            if is_no_space_lang:
+                text = "".join(word_texts).strip()
+            else:
+                text = " ".join(word_texts).strip()
+            
+            new_seg = {
+                "start": start_time,
+                "end": end_time,
+                "text": text,
+                "speaker": segment.get("speaker"),
+                "words": current_words
+            }
+            new_segments.append(new_seg)
+            
+    result["segments"] = new_segments
+    return result
+
 def write_srt(segments, output_path):
     """Writes segments to an SRT file, optionally including speaker labels."""
     with open(output_path, "w", encoding="utf-8") as f:
@@ -233,6 +438,12 @@ def main():
     parser.add_argument("--start", type=float, default=None, help="Start offset in seconds")
     parser.add_argument("--duration", type=float, default=None, help="Duration in seconds")
     parser.add_argument("--hf-token", default=None, help="Hugging Face user access token for diarization")
+    parser.add_argument("--diarize", action="store_true", help="Enable speaker diarization")
+    parser.add_argument("--split-segments", action="store_true", help="Enable segment splitting by duration and gaps")
+    parser.add_argument("--max-duration", type=float, default=4.0, help="Maximum segment duration in seconds")
+    parser.add_argument("--max-gap", type=float, default=0.4, help="Maximum silence gap between words in seconds")
+    parser.add_argument("--offset-start", type=float, default=0.0, help="Start offset padding in seconds")
+    parser.add_argument("--offset-end", type=float, default=0.0, help="End offset padding in seconds")
     args = parser.parse_args()
 
     # Target model: set to "turbo" for much faster performance on Mac (1.6GB)
@@ -282,7 +493,7 @@ def main():
         
         # Determine ranges
         hf_token = args.hf_token
-        has_diarization = bool(hf_token and hf_token.strip())
+        has_diarization = bool(hf_token and hf_token.strip() and args.diarize)
         tx_start, tx_end = 0.0, 50.0 if has_diarization else 70.0
         al_start, al_end = tx_end, 75.0 if has_diarization else 95.0
 
@@ -323,8 +534,58 @@ def main():
                 diarize_segments = diarize_model(audio_file)
                 print_static_progress("Diarizing", duration, 95.0)
                 result = whisperx.assign_word_speakers(diarize_segments, result)
+                result = resegment_by_speaker(result, detected_lang)
             except Exception as de:
                 print(f"Warning: Diarization failed ({de}). Proceeding without speaker separation.")
+
+        # Resegment long subtitles to prevent huge blocks (especially for languages like Japanese)
+        if detected_lang and args.split_segments:
+            result = split_long_segments(result, detected_lang, max_duration=args.max_duration, max_gap=args.max_gap)
+
+        # Apply edge offset padding if specified (with overlap prevention)
+        if args.offset_start > 0.0 or args.offset_end > 0.0:
+            segments = result.get("segments", [])
+            n_segments = len(segments)
+            padded_starts = []
+            padded_ends = []
+            
+            # 1. Compute initially padded values
+            for i in range(n_segments):
+                seg = segments[i]
+                padded_starts.append(max(0.0, seg.get("start", 0.0) - args.offset_start))
+                padded_ends.append(seg.get("end", 0.0) + args.offset_end)
+                
+            # 2. Prevent overlapping with neighbors
+            for i in range(1, n_segments):
+                orig_end_prev = segments[i-1].get("end", 0.0)
+                orig_start_curr = segments[i].get("start", 0.0)
+                
+                p_end_prev = padded_ends[i-1]
+                p_start_curr = padded_starts[i]
+                
+                if p_end_prev > p_start_curr:
+                    # Overlap! Limit they meet at the midpoint of their original boundaries
+                    midpoint = (orig_end_prev + orig_start_curr) / 2.0
+                    padded_ends[i-1] = midpoint
+                    padded_starts[i] = midpoint
+                    
+            # 3. Apply corrected boundaries and clip word timestamps
+            for i in range(n_segments):
+                seg = segments[i]
+                new_start = padded_starts[i]
+                new_end = padded_ends[i]
+                
+                if "words" in seg:
+                    for w in seg["words"]:
+                        if "start" in w:
+                            w_start = w["start"] - args.offset_start
+                            w["start"] = max(new_start, min(w_start, new_end))
+                        if "end" in w:
+                            w_end = w["end"] + args.offset_end
+                            w["end"] = max(new_start, min(w_end, new_end))
+                            
+                seg["start"] = new_start
+                seg["end"] = new_end
 
         # Write SRT
         write_srt(result["segments"], output_path)
