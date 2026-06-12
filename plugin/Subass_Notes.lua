@@ -3660,6 +3660,10 @@ function ACHIEVEMENTS.check_api_keys_ach_27()
         c = c + 1
     end
 
+    if cfg.hf_token and cfg.hf_token ~= "" then
+        c = c + 1
+    end
+
     if c >= 4 and not ACHIEVEMENTS.stats["ach_27_count"] then
         ACHIEVEMENTS.add_stat("ach_27_count", 1)
     end
