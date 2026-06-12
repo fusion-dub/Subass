@@ -384,6 +384,8 @@ local OTHER = {
     },
     -- Default values for Text Items styles
     TEXT_ITEMS_DEFAULT_PARAMS = {
+        wrap_text = 1,
+        wrap_limit = 80,
         size = 0.065,
         fontselect = 0,
         fontstyle = 0,
@@ -431,7 +433,8 @@ local I18N = {
     TAB_FILE_FAILED_FORMAT = { en = "The file format could not be determined", ua = "Не вдалося визначити формат файлу" },
     FILES_IMPORTED = { en = "Files imported", ua = "Імпортовано файлів" },
     DUPLICATES = { en = "Duplicates", ua = "Дублікатів" },
-    SPLIT_REPLICA_BY_CURSOR = { en = "Split line by cursor", ua = "Розділити репліку по курсору" },
+    SPLIT_REPLICA_BY_CURSOR_EST = { en = "Split line at cursor (estimate times)", ua = "Розділити за курсором (приблизна тривалість)" },
+    SPLIT_REPLICA_BY_CURSOR_PREV = { en = "Split line at cursor (preserve times)", ua = "Розділити за курсором (зберегти тривалість)" },
     SPLIT_CURSOR_EDGE_ERR = { en = "Cannot split at the edge of the text", ua = "Неможливо розділити на краю тексту" },
     REPLICA_SPLIT_SUCCESS = { en = "Line split successfully", ua = "Репліку успішно розділено" },
     RETAKES = { en = "Retakes", ua = "Правки" },
@@ -1477,6 +1480,9 @@ local I18N = {
     STYLES_APPLIED_TO_ITEM = { en = "Styles applied to item", ua = "Стилі застосовано до item" },
     NO_ITEM_SELECTED = { en = "No SUBASS_ITEMS items selected", ua = "Немає виділених item SUBASS_ITEMS" },
     STYLES_APPLIED_TO_ITEMS = { en = "Styles applied to %d item(s)", ua = "Стилі застосовано до %d елемента(ів)" },
+    WRAP_TEXT = { en = "Text wrapping", ua = "Перенос тексту" },
+    WRAP_LIMIT = { en = "Characters per line", ua = "Символів у рядку" },
+    RECREATE_SUBASS_ITEMS = { en = "Recreate Subass Items", ua = "Перестворити Subass Items" },
 }
 
 function T(key)
@@ -10302,6 +10308,14 @@ function UTILS.save_text_items_styles()
         end
     end
 
+    -- Also save custom parameters not in Video Processor
+    if params["wrap_text"] ~= nil then
+        data["wrap_text"] = tostring(params["wrap_text"])
+    end
+    if params["wrap_limit"] ~= nil then
+        data["wrap_limit"] = tostring(params["wrap_limit"])
+    end
+
     -- Also save custom font name
     if UI_STATE.text_items_style.custom_font_name then
         data["custom_font_name"] = UI_STATE.text_items_style.custom_font_name
@@ -10330,71 +10344,147 @@ function UTILS.load_text_items_styles()
         end
     end
 
+    if data["wrap_text"] ~= nil then
+        params["wrap_text"] = tonumber(data["wrap_text"])
+    end
+    if data["wrap_limit"] ~= nil then
+        params["wrap_limit"] = tonumber(data["wrap_limit"])
+    end
+
     local custom_font_name = data["custom_font_name"]
 
     return { params = params, custom_font_name = custom_font_name }
 end
 
+function UTILS.tx_format_text(in_text, preserve_newlines)
+    local text = in_text:gsub("{{+.-}}+", ""):gsub("{.-}", "")
+
+    local wrap_enabled = true
+    local limit = 80
+    local text_size = 0.065
+
+    local params = nil
+    if UI_STATE and UI_STATE.text_items_style and UI_STATE.text_items_style.params then
+        params = UI_STATE.text_items_style.params
+    else
+        local saved_styles = UTILS.load_text_items_styles()
+        if saved_styles and saved_styles.params then
+            params = saved_styles.params
+        end
+    end
+
+    if params then
+        if params.wrap_text ~= nil then
+            wrap_enabled = (params.wrap_text > 0.5)
+        end
+        limit = params.wrap_limit or 80
+        text_size = params.size or 0.065
+    end
+
+    if not wrap_enabled then
+        return text
+    end
+
+    -- Розраховуємо динамічний ліміт на основі розміру шрифту (з логіки update_text_by_size)
+    local max_chars = math.floor(90 / (text_size * 15))
+    max_chars = math.max(20, math.min(120, max_chars))
+
+    local actual_limit = limit or max_chars
+    if limit then
+        actual_limit = math.min(limit, max_chars)
+    end
+
+    if not preserve_newlines then
+        -- Очищаємо текст від попередніх переносів для коректного автопереносу
+        text = text:gsub("\r\n", " "):gsub("\n", " "):gsub("\r", " ")
+        text = text:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    end
+
+    local lines = {}
+    -- Розбиваємо вхідний текст на існуючі рядки
+    for line in text:gmatch("[^\r\n]+") do
+        -- Якщо рядок короткий, додаємо як є
+        if #line <= actual_limit then
+            table.insert(lines, line)
+        else
+            -- Якщо рядок задовгий, розбиваємо його на підрядки
+            local current_line = ""
+            for word in line:gmatch("%S+") do
+                if #current_line + #word + 1 > actual_limit then
+                    table.insert(lines, current_line)
+                    current_line = word
+                else
+                    current_line = (current_line == "" and "" or current_line .. " ") .. word
+                end
+            end
+            table.insert(lines, current_line)
+        end
+    end
+
+    -- Збираємо все назад у один текст
+    return table.concat(lines, "\n")
+end
+
+-- Simplified robust helper to set FX code (Track or Take)
+function UTILS.set_fx_code_simple(target, fx_idx, code_str, is_take)
+    -- Try API first
+    local setter = is_take and reaper.TakeFX_SetNamedConfigParm or reaper.TrackFX_SetNamedConfigParm
+    if setter then
+        if setter(target, fx_idx, "code", code_str) then return true end
+    end
+
+    -- Fallback to chunk hacking (target is track or take)
+    local encoded = "|" .. code_str:gsub("\n", "\n|")
+    local ret, chunk
+    local item = is_take and reaper.GetMediaItemTake_Item(target) or nil
+
+    if is_take then
+        ret, chunk = reaper.GetItemStateChunk(item, "", false)
+    else
+        ret, chunk = reaper.GetTrackStateChunk(target, "", false)
+    end
+
+    if ret then
+        -- Find the fx_idx-th VIDEO_EFFECT block (0-indexed)
+        local current_idx = -1
+        local s_idx = 1
+        while true do
+            local s, e = chunk:find("<VIDEO_EFFECT", s_idx)
+            if not s then break end
+            current_idx = current_idx + 1
+
+            if current_idx == fx_idx then
+                local b_end = chunk:find("\n>", e)
+                if b_end then
+                    local code_s, code_e = chunk:find("<CODE.-%s>", s)
+                    local new_chunk
+                    if code_s and code_s < b_end then
+                        new_chunk = chunk:sub(1, code_s - 1) ..
+                        "<CODE\n" .. encoded .. "\n>" .. chunk:sub(code_e + 1)
+                    else
+                        -- Find first newline after VIDEO_EFFECT to insert NI and CODE
+                        local head_end = chunk:find("\n", e) or e
+                        new_chunk = chunk:sub(1, head_end) ..
+                        "\n<CODE\n" .. encoded .. "\n>" .. chunk:sub(head_end + 1)
+                    end
+
+                    if is_take then
+                        reaper.SetItemStateChunk(item, new_chunk, false)
+                    else
+                        reaper.SetTrackStateChunk(target, new_chunk, false)
+                    end
+                    return true
+                end
+            end
+            s_idx = e + 1
+        end
+    end
+    return false
+end
+
 --- Creates empty "Text Items" on a dedicated SUBASS_ITEMS track from all project regions.
 --- If the track already exists its items are cleared first.
 function UTILS.create_text_items_from_regions()
-    -- Simplified robust helper to set FX code (Track or Take)
-    local function set_fx_code_simple(target, fx_idx, code_str, is_take)
-        -- Try API first
-        local setter = is_take and reaper.TakeFX_SetNamedConfigParm or reaper.TrackFX_SetNamedConfigParm
-        if setter then
-            if setter(target, fx_idx, "code", code_str) then return true end
-        end
-
-        -- Fallback to chunk hacking (target is track or take)
-        local encoded = "|" .. code_str:gsub("\n", "\n|")
-        local ret, chunk
-        local item = is_take and reaper.GetMediaItemTake_Item(target) or nil
-
-        if is_take then
-            ret, chunk = reaper.GetItemStateChunk(item, "", false)
-        else
-            ret, chunk = reaper.GetTrackStateChunk(target, "", false)
-        end
-
-        if ret then
-            -- Find the fx_idx-th VIDEO_EFFECT block (0-indexed)
-            local current_idx = -1
-            local s_idx = 1
-            while true do
-                local s, e = chunk:find("<VIDEO_EFFECT", s_idx)
-                if not s then break end
-                current_idx = current_idx + 1
-
-                if current_idx == fx_idx then
-                    local b_end = chunk:find("\n>", e)
-                    if b_end then
-                        local code_s, code_e = chunk:find("<CODE.-%s>", s)
-                        local new_chunk
-                        if code_s and code_s < b_end then
-                            new_chunk = chunk:sub(1, code_s - 1) ..
-                            "<CODE\n" .. encoded .. "\n>" .. chunk:sub(code_e + 1)
-                        else
-                            -- Find first newline after VIDEO_EFFECT to insert NI and CODE
-                            local head_end = chunk:find("\n", e) or e
-                            new_chunk = chunk:sub(1, head_end) ..
-                            "\n<CODE\n" .. encoded .. "\n>" .. chunk:sub(head_end + 1)
-                        end
-
-                        if is_take then
-                            reaper.SetItemStateChunk(item, new_chunk, false)
-                        else
-                            reaper.SetTrackStateChunk(target, new_chunk, false)
-                        end
-                        return true
-                    end
-                end
-                s_idx = e + 1
-            end
-        end
-        return false
-    end
-
     -- Collect all regions from project
     local rgns = {}
     local time_points = {}
@@ -10631,7 +10721,7 @@ strlen(#text) > 0 ? (
     if track_fx_idx < 0 then
         track_fx_idx = reaper.TrackFX_AddByName(target_track, "Video processor", false, 1) -- add
         if track_fx_idx >= 0 then
-            set_fx_code_simple(target_track, track_fx_idx, track_fx_code, false)
+            UTILS.set_fx_code_simple(target_track, track_fx_idx, track_fx_code, false)
             reaper.SetOnlyTrackSelected(target_track)
             reaper.Main_OnCommand(8, 0)
 
@@ -10722,34 +10812,6 @@ strlen(#text) > 0 ? (
         end
     end
 
-    local function format_text(in_text, limit)
-        text = in_text:gsub("{{+.-}}+", ""):gsub("{.-}", "")
-
-        local lines = {}
-        -- Розбиваємо вхідний текст на існуючі рядки
-        for line in text:gmatch("[^\r\n]+") do
-            -- Якщо рядок короткий, додаємо як є
-            if #line <= limit then
-                table.insert(lines, line)
-            else
-                -- Якщо рядок задовгий, розбиваємо його на підрядки
-                local current_line = ""
-                for word in line:gmatch("%S+") do
-                    if #current_line + #word + 1 > limit then
-                        table.insert(lines, current_line)
-                        current_line = word
-                    else
-                        current_line = (current_line == "" and "" or current_line .. " ") .. word
-                    end
-                end
-                table.insert(lines, current_line)
-            end
-        end
-
-        -- Збираємо все назад у один текст
-        return table.concat(lines, "\n")
-    end
-
     table.sort(time_points)
     local unique_points = {}
     for i = 1, #time_points do
@@ -10780,7 +10842,7 @@ strlen(#text) > 0 ? (
             if take then
                 -- Об'єднуємо назви через перенос рядка
                 local combined_text = table.concat(active_names, "\n")
-                local formatted_name = format_text(combined_text, 80)
+                local formatted_name = UTILS.tx_format_text(combined_text, true)
 
                 reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", formatted_name, true)
                 reaper.GetSetMediaItemInfo_String(item, "P_NOTES", formatted_name, true)
@@ -10788,7 +10850,7 @@ strlen(#text) > 0 ? (
                 local take_fx = reaper.TakeFX_AddByName(take, "Video processor", 1)
                 if take_fx >= 0 then
                     local item_code = "gfx_blit(0, 1);\ngmem[0] = 1;"
-                    set_fx_code_simple(take, take_fx, item_code, true)
+                    UTILS.set_fx_code_simple(take, take_fx, item_code, true)
                 end
             end
         end
@@ -17383,7 +17445,8 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         local split_ret_idx = nil
         if id == "editor_panel" and editor_state.last_line_data then
             table.insert(menu_items, "")
-            table.insert(menu_items, T("SPLIT_REPLICA_BY_CURSOR"))
+            table.insert(menu_items, T("SPLIT_REPLICA_BY_CURSOR_EST"))
+            table.insert(menu_items, T("SPLIT_REPLICA_BY_CURSOR_PREV"))
             split_ret_idx = 8 + #cfg.tts_voices_order
         end
         
@@ -17479,7 +17542,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                         if split_time - t1 < 0.1 then split_time = t1 + 0.1 end
                         if t2 - split_time < 0.1 then split_time = t2 - 0.1 end
                         
-                        push_undo(T("SPLIT_REPLICA_BY_CURSOR"))
+                        push_undo(T("SPLIT_REPLICA_BY_CURSOR_EST"))
                         
                         -- Update first part
                         line.text = part1
@@ -17497,6 +17560,78 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                         new_replica.t2 = t2
                         
                         local r_idx = reaper.AddProjectMarker2(0, true, split_time, t2, part2, -1, col)
+                        local _, _, _, _, _, r_id = reaper.EnumProjectMarkers3(0, r_idx)
+                        new_replica.rgn_idx = r_id
+                        
+                        -- Generate new unique index
+                        local max_idx = 0
+                        for _, l in ipairs(ass_lines) do
+                            if type(l.index) == "number" and l.index > max_idx then
+                                max_idx = l.index
+                            end
+                        end
+                        new_replica.index = max_idx + 1
+                        
+                        table.insert(ass_lines, original_pos + 1, new_replica)
+                        UI_STATE._markers_is_dirty = true
+                        
+                        cleanup_actors()
+                        rebuild_regions()
+                        save_project_data(UI_STATE.last_project_id)
+                        reaper.MarkProjectDirty(0)
+                        
+                        table_selection = {}
+                        table_selection[line.index or original_pos] = true
+                        
+                        table_data_cache.state_count = -1
+                        last_layout_state.state_count = -1
+                        editor_state.needs_sync = true
+                        editor_state.last_region_id = -1
+                        editor_state.last_state_count = -1
+                        
+                        -- Update text input immediately for fluid UX
+                        state.text = part1
+                        state.cursor = #part1
+                        state.anchor = #part1
+                        
+                        show_snackbar(T("REPLICA_SPLIT_SUCCESS"), "success")
+                    end
+                end
+            end
+        elseif split_ret_idx and ret == split_ret_idx + 1 then
+            local line_ref = editor_state.last_line_data
+            if line_ref then
+                local original_pos = line_ref._i
+                local line = ass_lines[original_pos]
+                if line then
+                    local cursor_pos = state.cursor
+                    local txt = state.text
+                    local part1 = txt:sub(1, cursor_pos):match("^%s*(.-)%s*$")
+                    local part2 = txt:sub(cursor_pos + 1):match("^%s*(.-)%s*$")
+                    
+                    if part1 == "" or part2 == "" then
+                        show_snackbar(T("SPLIT_CURSOR_EDGE_ERR"), "warning")
+                    else
+                        local t1 = line.t1
+                        local t2 = line.t2
+                  
+                        push_undo(T("SPLIT_REPLICA_BY_CURSOR_PREV"))
+                        
+                        -- Update first part
+                        line.text = part1
+                        
+                        local col = get_actor_color(line.actor)
+                        if not col or col == 0 then col = -1 end
+                        reaper.SetProjectMarker3(0, line.rgn_idx, true, t1, t2, part1, col)
+                        
+                        -- Create and insert second part
+                        local new_replica = {}
+                        for k, v in pairs(line) do new_replica[k] = v end
+                        new_replica.text = part2
+                        new_replica.t1 = t1
+                        new_replica.t2 = t2
+                        
+                        local r_idx = reaper.AddProjectMarker2(0, true, t1, t2, part2, -1, col)
                         local _, _, _, _, _, r_id = reaper.EnumProjectMarkers3(0, r_idx)
                         new_replica.rgn_idx = r_id
                         
@@ -18082,39 +18217,6 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         return nil
     end
     
-    -- Функція форматування тексту (перенос слів)
-    local function format_text_global(in_text, limit)
-        if not in_text or in_text == "" then return "" end
-        
-        local text = in_text:gsub("{{+.-}}+", ""):gsub("{.-}", "")
-        local words = {}
-        
-        -- Розбиваємо текст на слова
-        for word in text:gmatch("%S+") do
-            table.insert(words, word)
-        end
-        
-        if #words == 0 then return "" end
-        
-        local lines = {}
-        local current_line = words[1]
-        
-        for i = 2, #words do
-            local word = words[i]
-            -- Перевіряємо чи вміститься слово з пробілом
-            if #current_line + 1 + #word <= limit then
-                current_line = current_line .. " " .. word
-            else
-                -- Не вміщається - переносимо слово на наступний рядок
-                table.insert(lines, current_line)
-                current_line = word
-            end
-        end
-        table.insert(lines, current_line)
-        
-        return table.concat(lines, "\n")
-    end
-    
     -- Функція для оновлення тексту в тейку при зміні розміру
     local function update_text_by_size()
         -- Отримуємо поточний item
@@ -18148,16 +18250,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         
         if not original_text or original_text == "" then return end
         
-        -- Отримуємо поточний розмір тексту
-        local text_size = state.params.size or 0.065
-        local max_chars = math.floor(90 / (text_size * 15))
-        max_chars = math.max(20, math.min(120, max_chars))
-        
-        -- Очищаємо оригінальний текст від попередніх переносів
-        local clean_original = original_text:gsub("\n", " ")
-        clean_original = clean_original:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-        
-        local formatted_text = format_text_global(clean_original, max_chars)
+        local formatted_text = UTILS.tx_format_text(original_text)
         
         reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", formatted_text, true)
         reaper.GetSetMediaItemInfo_String(item, "P_NOTES", formatted_text, true)
@@ -18313,7 +18406,10 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                     else
                         -- Якщо немає збережених стилів, використовуємо DEFAULT
                         for key, default_val in pairs(OTHER.TEXT_ITEMS_DEFAULT_PARAMS) do
-                            reaper.TrackFX_SetParam(new_track, new_fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[key], default_val)
+                            local idx = OTHER.TEXT_ITEMS_PARAM_INDICES[key]
+                            if idx then
+                                reaper.TrackFX_SetParam(new_track, new_fx_idx, idx, default_val)
+                            end
                             UI_STATE.text_items_style.params[key] = default_val
                         end
                     end
@@ -18386,10 +18482,15 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
             gfx.drawstr(label)
 
              -- Value display
-            local fmt = decimals == 0 and "%.0f" or "%.1f"
-            local display_val = invert and (max_val + min_val - val) or val
-            local percent_val = ((display_val - min_val) / (max_val - min_val)) * 100
-            local val_str = string.format(fmt .. "%%", percent_val)
+            local val_str
+            if param_key == "wrap_limit" then
+                val_str = string.format("%.0f", val)
+            else
+                local fmt = decimals == 0 and "%.0f" or "%.1f"
+                local display_val = invert and (max_val + min_val - val) or val
+                local percent_val = ((display_val - min_val) / (max_val - min_val)) * 100
+                val_str = string.format(fmt .. "%%", percent_val)
+            end
             local val_w = gfx.measurestr(val_str)
             local slider_x = pad + label_w
             local val_x = slider_x + slider_w + S(15)
@@ -18467,9 +18568,14 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                     local default_val = state.default_params[param_key]
                     if default_val ~= nil then
                         state.params[param_key] = default_val
-                        reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[param_key],
-                            default_val)
+                        local idx = OTHER.TEXT_ITEMS_PARAM_INDICES[param_key]
+                        if idx then
+                            reaper.TrackFX_SetParam(state.track, state.fx_idx, idx, default_val)
+                        end
                         UTILS.save_text_items_styles()
+                        if param_key == "size" or param_key == "wrap_limit" then
+                            update_text_by_size()
+                        end
                     end
                     UI_STATE.last_click_time = nil
                     UI_STATE.mouse_handled = true
@@ -18495,9 +18601,12 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                         new_val = math.floor(new_val + 0.5)
                     end
                     state.params[param_key] = new_val
-                    reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[param_key], new_val)
+                    local idx = OTHER.TEXT_ITEMS_PARAM_INDICES[param_key]
+                    if idx then
+                        reaper.TrackFX_SetParam(state.track, state.fx_idx, idx, new_val)
+                    end
                     UTILS.save_text_items_styles()
-                    if param_key == "size" then
+                    if param_key == "size" or param_key == "wrap_limit" then
                         update_text_by_size()
                     end
                     UI_STATE.mouse_handled = true
@@ -18522,9 +18631,12 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                     new_val = math.floor(new_val + 0.5)
                 end
                 state.params[param_key] = new_val
-                reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[param_key], new_val)
+                local idx = OTHER.TEXT_ITEMS_PARAM_INDICES[param_key]
+                if idx then
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, idx, new_val)
+                end
                 UTILS.save_text_items_styles()
-                if param_key == "size" then
+                if param_key == "size" or param_key == "wrap_limit" then
                    update_text_by_size()
                 end
             elseif state.dragging == param_key then
@@ -18655,9 +18767,14 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
 
             if hover and is_mouse_clicked() and not UI_STATE.mouse_handled then
                 state.params[param_key] = val and 0 or 1
-                reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[param_key],
-                    state.params[param_key])
+                local param_idx = OTHER.TEXT_ITEMS_PARAM_INDICES[param_key]
+                if param_idx then
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, param_idx, state.params[param_key])
+                end
                 UTILS.save_text_items_styles()
+                if param_key == "wrap_text" then
+                    update_text_by_size()
+                end
                 UI_STATE.mouse_handled = true
             end
         end
@@ -18866,6 +18983,11 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         draw_slider(T("SHADOW_ALPHA"), "sh_a", 0, 1, 2, true)
     end
 
+    draw_checkbox(T("WRAP_TEXT"), "wrap_text")
+    if state.params.wrap_text > 0.5 then
+        draw_slider(T("WRAP_LIMIT"), "wrap_limit", 10, 120, 0)
+    end
+
     -- Store total height for scroll
     local total_h = cy - (content_y + S(20)) + (state.scroll_y or 0) + S(40)
     local max_scroll = math.max(0, total_h - content_h)
@@ -19025,7 +19147,10 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         for key, default_val in pairs(state.default_params) do
             state.params[key] = default_val
             if state.fx_idx and state.fx_idx >= 0 then
-                reaper.TrackFX_SetParam(state.track, state.fx_idx, OTHER.TEXT_ITEMS_PARAM_INDICES[key], default_val)
+                local idx = OTHER.TEXT_ITEMS_PARAM_INDICES[key]
+                if idx then
+                    reaper.TrackFX_SetParam(state.track, state.fx_idx, idx, default_val)
+                end
             end
         end
         UTILS.save_text_items_styles()
@@ -19103,63 +19228,6 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
             UI_STATE.tooltip_state.start_time = reaper.time_precise()
         end
         UI_STATE.tooltip_state.text = T("SUBASS_ITEMS_EDITOR")
-    end
-
-    -- Simplified robust helper to set FX code (Track or Take)
-    local function set_fx_code_simple(target, fx_idx, code_str, is_take)
-        -- Try API first
-        local setter = is_take and reaper.TakeFX_SetNamedConfigParm or reaper.TrackFX_SetNamedConfigParm
-        if setter then
-            if setter(target, fx_idx, "code", code_str) then return true end
-        end
-
-        -- Fallback to chunk hacking (target is track or take)
-        local encoded = "|" .. code_str:gsub("\n", "\n|")
-        local ret, chunk
-        local item = is_take and reaper.GetMediaItemTake_Item(target) or nil
-
-        if is_take then
-            ret, chunk = reaper.GetItemStateChunk(item, "", false)
-        else
-            ret, chunk = reaper.GetTrackStateChunk(target, "", false)
-        end
-
-        if ret then
-            -- Find the fx_idx-th VIDEO_EFFECT block (0-indexed)
-            local current_idx = -1
-            local s_idx = 1
-            while true do
-                local s, e = chunk:find("<VIDEO_EFFECT", s_idx)
-                if not s then break end
-                current_idx = current_idx + 1
-
-                if current_idx == fx_idx then
-                    local b_end = chunk:find("\n>", e)
-                    if b_end then
-                        local code_s, code_e = chunk:find("<CODE.-%s>", s)
-                        local new_chunk
-                        if code_s and code_s < b_end then
-                            new_chunk = chunk:sub(1, code_s - 1) ..
-                            "<CODE\n" .. encoded .. "\n>" .. chunk:sub(code_e + 1)
-                        else
-                            -- Find first newline after VIDEO_EFFECT to insert NI and CODE
-                            local head_end = chunk:find("\n", e) or e
-                            new_chunk = chunk:sub(1, head_end) ..
-                            "\n<CODE\n" .. encoded .. "\n>" .. chunk:sub(head_end + 1)
-                        end
-
-                        if is_take then
-                            reaper.SetItemStateChunk(item, new_chunk, false)
-                        else
-                            reaper.SetTrackStateChunk(target, new_chunk, false)
-                        end
-                        return true
-                    end
-                end
-                s_idx = e + 1
-            end
-        end
-        return false
     end
 
     -- Редактор SUBASS ITEMS (футер)
@@ -19275,35 +19343,6 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
             record_field_history(UI_STATE.subass_items_edit_state)
         end
 
-        -- Функція форматування тексту (перенос рядків)
-        local function format_text(in_text, limit)
-            local text = in_text:gsub("{{+.-}}+", ""):gsub("{.-}", "")
-
-            local lines = {}
-            -- Розбиваємо вхідний текст на існуючі рядки
-            for line in text:gmatch("[^\r\n]+") do
-                -- Якщо рядок короткий, додаємо як є
-                if #line <= limit then
-                    table.insert(lines, line)
-                else
-                    -- Якщо рядок задовгий, розбиваємо його на підрядки
-                    local current_line = ""
-                    for word in line:gmatch("%S+") do
-                        if #current_line + #word + 1 > limit then
-                            table.insert(lines, current_line)
-                            current_line = word
-                        else
-                            current_line = (current_line == "" and "" or current_line .. " ") .. word
-                        end
-                    end
-                    table.insert(lines, current_line)
-                end
-            end
-
-            -- Збираємо все назад у один текст
-            return table.concat(lines, "\n")
-        end
-
         -- Функція створення нового TEXT ITEM
         local function create_text_item_from_selection(text_content)
             if not has_time_selection or not is_in_selection then
@@ -19338,7 +19377,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
             local take = reaper.AddTakeToMediaItem(item)
             if take then
                 -- Форматуємо текст з переносом рядків
-                local formatted_text = format_text(text_content, 80)
+                local formatted_text = UTILS.tx_format_text(text_content)
 
                 reaper.GetSetMediaItemTakeInfo_String(take, "P_NAME", formatted_text, true)
                 reaper.GetSetMediaItemInfo_String(item, "P_NOTES", formatted_text, true)
@@ -19347,7 +19386,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                 local take_fx = reaper.TakeFX_AddByName(take, "Video processor", 1)
                 if take_fx >= 0 then
                     local item_code = "gfx_blit(0, 1);\ngmem[0] = 1;"
-                    set_fx_code_simple(take, take_fx, item_code, true)
+                    UTILS.set_fx_code_simple(take, take_fx, item_code, true)
                 end
             end
 
@@ -19391,7 +19430,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                     local take_fx = reaper.TakeFX_AddByName(take, "Video processor", 1)
                     if take_fx >= 0 then
                         local item_code = "gfx_blit(0, 1);\ngmem[0] = 1;"
-                        set_fx_code_simple(take, take_fx, item_code, true)
+                        UTILS.set_fx_code_simple(take, take_fx, item_code, true)
                     end
                 end
                 
@@ -19457,6 +19496,17 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                 end
             end
         end
+    end
+
+    -- ПКМ Контекстне меню (Перестворити Subass Items)
+    if is_mouse_clicked(2) and not UI_STATE.mouse_handled then
+        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+        
+        local ret = gfx.showmenu(T("RECREATE_SUBASS_ITEMS"))
+        if ret == 1 then
+            UTILS.create_text_items_from_regions()
+        end
+        UI_STATE.mouse_handled = true
     end
 
     UI_STATE.mouse_handled = true
@@ -30904,7 +30954,7 @@ function UTILS.integrate_correction_tracks()
     end
     
     -- Simplified robust helper to set FX code (Track or Take)
-    local function set_fx_code_simple(target, fx_idx, code_str, is_take)
+    local function set_fx_code_simple_corr(target, fx_idx, code_str, is_take)
         -- Try API first
         local setter = is_take and reaper.TakeFX_SetNamedConfigParm or reaper.TrackFX_SetNamedConfigParm
         if setter then
@@ -31011,7 +31061,7 @@ gfx_str_draw(#text,xp,yt+b);]=]
     
     local t_fx = reaper.TakeFX_AddByName(t_take, "Video processor", 1)
     if t_fx >= 0 then 
-        set_fx_code_simple(t_take, t_fx, vp_timer, true)
+        set_fx_code_simple_corr(t_take, t_fx, vp_timer, true)
         reaper.TakeFX_SetParam(t_take, t_fx, 0, 0.06) -- size
         reaper.TakeFX_SetParam(t_take, t_fx, 1, 0.05) -- ypos
         reaper.TakeFX_SetParam(t_take, t_fx, 2, 0.95) -- xpos
@@ -31030,7 +31080,7 @@ gfx_str_draw(#text,xp,yt+b);]=]
 gmem[1000]=size; gmem[1001]=ypos; gmem[1002]=xpos; gmem[1003]=bga; gmem[1004]=fga;
 gfx_blit(0,1);]=]
     if c_master >= 0 then 
-        set_fx_code_simple(corr_track, c_master, master_code, false)
+        set_fx_code_simple_corr(corr_track, c_master, master_code, false)
         reaper.TrackFX_SetParam(corr_track, c_master, 0, 0.05)
         reaper.TrackFX_SetParam(corr_track, c_master, 1, 0.5)
         reaper.TrackFX_SetParam(corr_track, c_master, 2, 0.5)
@@ -31105,7 +31155,7 @@ size > 0 ? (
                 if mfx >= 0 then 
                     local safe_dn = dn:gsub('"', [[']])
                     local item_code = slave_template:gsub("INSERT_TEXT_HERE", function() return safe_dn end)
-                    set_fx_code_simple(mt, mfx, item_code, true) 
+                    set_fx_code_simple_corr(mt, mfx, item_code, true) 
                 end
             end
         end
