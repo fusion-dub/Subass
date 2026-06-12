@@ -93,6 +93,7 @@ local cfg = {
     gemini_api_key = get_set("gemini_api_key", ""),
     mistral_api_key = get_set("mistral_api_key", ""),
     groq_api_key = get_set("groq_api_key", ""),
+    deepl_api_key = get_set("deepl_api_key", ""),
     ai_provider = get_set("ai_provider", "gemini"),
     eleven_api_key = get_set("eleven_api_key", ""),
     hf_token = get_set("hf_token", ""),
@@ -117,6 +118,7 @@ local cfg = {
     mistral_key_status = tonumber(reaper.GetExtState(section_name, "mistral_key_status")) or 0,
     groq_key_status = tonumber(reaper.GetExtState(section_name, "groq_key_status")) or 0,
     eleven_key_status = tonumber(reaper.GetExtState(section_name, "eleven_key_status")) or 0,
+    deepl_key_status = tonumber(reaper.GetExtState(section_name, "deepl_key_status")) or 0,
 
     col_table_index = (get_set("col_table_index", "1") == "1" or get_set("col_table_index", 1) == 1),
     col_table_start = (get_set("col_table_start", "1") == "1" or get_set("col_table_start", 1) == 1),
@@ -649,6 +651,8 @@ local I18N = {
     TABLE_MENU_STT = { en = "Speech-to-Text", ua = "Мова в текст (Speech-to-Text)" },
     TABLE_MENU_VN = { en = "Volume normalization (LUFS)", ua = "Нормалізація гучності реплік (Кастомна)" },
     TABLE_MENU_AI_TRANSLATE = { en = "AI Translation", ua = "Переклад з ШІ" },
+    TABLE_MENU_DEEPL_TRANSLATE = { en = "Translate selected lines via DeepL", ua = "Перекласти виділені репліки через DeepL" },
+    DEEPL_TRANSLATE_LINE = { en = "Translate via DeepL", ua = "Перекласти через DeepL" },
     TABLE_MENU_AI_TRANSLATE_P1 = { en = "Generate a prompt for the selected lines (dubbing)", ua = "Згенерувати промпт для виділених реплік (дубляж)" },
     TABLE_MENU_AI_TRANSLATE_P2 = { en = "Generate a prompt for the selected lines (voiceover)", ua = "Згенерувати промпт для виділених реплік (озвучка)" },
     TABLE_MENU_AI_TRANSLATE_INSERT = { en = "Insert the AI result", ua = "Вставити результат від ШІ" },
@@ -713,6 +717,7 @@ local I18N = {
     HF_TOKEN = { en = "Hugging Face Token", ua = "Токен Hugging Face" },
     HF_TOKEN_TIP = { en = "Required for WhisperX (Speech to Text) speaker diarization. Get one at hf.co/settings/tokens.", ua = "Необхідний для розділення по спікерам у WhisperX (Speech to Text). Отримайте на hf.co/settings/tokens." },
     HF_TOKEN_EX = { en = "Token (hf_...):,extrawidth=250", ua = "Токен (hf_...):,extrawidth=250" },
+    DEEPL_KEY_TIP = { en = "DeepL API Key for translation. Get one at deepl.com/pro-api.", ua = "Ключ DeepL API для перекладу. Отримайте на deepl.com/pro-api." },
     STT_SECTION_TITLE = { en = "SPEECH-TO-TEXT", ua = "SPEECH-TO-TEXT" },
     STT_DIARIZATION_T = { en = "Split by speakers (Diarization)", ua = "Розділяти по спікерам (Diarization)" },
     STT_DIARIZATION_TIP = { en = "Separate segments by speaker using Pyannote model (requires Hugging Face Token).", ua = "Розподіляти репліки по спікерам за допомогою моделі Pyannote (потрібен Hugging Face Token)." },
@@ -1235,7 +1240,7 @@ local I18N = {
     ACH_HINT_ach_24 = { en = "Silence recordings of 5+ seconds", ua = "Записів тиші тривалістю 5+ секунд" },
     ACH_HINT_ach_25 = { en = "Number of times developer's name copied", ua = "Кількість копіювання імені розробника" },
     ACH_HINT_ach_26 = { en = "Number of actor statistics copies", ua = "Кількість копіювань статистики по акторам" },
-    ACH_HINT_ach_27 = { en = "Collected all available API keys", ua = "Зібрано всіх доступних API ключів" },
+    ACH_HINT_ach_27 = { en = "Collected 4+ available API keys", ua = "Зібрано 4 і більше доступних API ключів" },
     ACH_HINT_ach_28 = { en = "Lines edited in Editor mode", ua = "Редаговано реплік в режимі Редактора" },
     ACH_HINT_ach_29 = { en = "AI translated lines imported", ua = "Імпортовано перекладених реплік через ШІ" },
     ACH_HINT_ach_30 = { en = "Deadline notifications configured", ua = "Налаштовано сповіщень про дедлайни" },
@@ -1507,6 +1512,14 @@ local I18N = {
     WRAP_TEXT = { en = "Text wrapping", ua = "Перенос тексту" },
     WRAP_LIMIT = { en = "Characters per line", ua = "Символів у рядку" },
     RECREATE_SUBASS_ITEMS = { en = "Recreate Subass Items", ua = "Перестворити Subass Items" },
+    DEEPL_KEY_MISSING = { en = "DeepL API Key is missing. Add it in settings.", ua = "Відсутній ключ API DeepL. Додайте його в налаштуваннях." },
+    DEEPL_TRANSLATING = { en = "Translating via DeepL...", ua = "Переклад через DeepL..." },
+    DEEPL_FAILED_1 = { en = "Failed to write translate payload", ua = "Не вдалося записати перекладене дані" },
+    DEEPL_FAILED_2 = { en = "Failed to write API key file", ua = "Не вдалося записати файл ключа API" },
+    DEEPL_FAILED_3 = { en = "DeepL error: no output received", ua = "Помилка DeepL: вихідні дані не отримано" },
+    DEEPL_FAILED_4 = { en = "DeepL error decoding response", ua = "Помилка DeepL під час розшифрування відповіді" },
+    DEEPL_TR_LINES_C = { en = "DeepL: translated %d lines", ua = "DeepL: перекладено %d реплік" },
+    DEEPL_NO_TR_LINES = { en = "DeepL: no lines updated", ua = "DeepL: жодних рядків не оновлено" }
 }
 
 function T(key)
@@ -3625,7 +3638,29 @@ end
 
 --- Check if the current project has earned the 'Architect' achievement uniquely
 function ACHIEVEMENTS.check_api_keys_ach_27()
-    if cfg.gemini_key_status == 200 and cfg.mistral_key_status == 200 and cfg.groq_key_status == 200 and cfg.eleven_key_status == 200 and not ACHIEVEMENTS.stats["ach_26_count"] then
+    local c = 0
+
+    if cfg.deepl_key_status == 200 then
+        c = c + 1
+    end 
+
+    if cfg.gemini_key_status == 200 then
+        c = c + 1
+    end
+
+    if cfg.mistral_key_status == 200 then
+        c = c + 1
+    end
+
+    if cfg.groq_key_status == 200 then
+        c = c + 1
+    end
+
+    if cfg.eleven_key_status == 200 then
+        c = c + 1
+    end
+
+    if c >= 4 and not ACHIEVEMENTS.stats["ach_27_count"] then
         ACHIEVEMENTS.add_stat("ach_27_count", 1)
     end
 end
@@ -4214,6 +4249,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "gemini_api_key", cfg.gemini_api_key, true)
     reaper.SetExtState(section_name, "mistral_api_key", cfg.mistral_api_key, true)
     reaper.SetExtState(section_name, "groq_api_key", cfg.groq_api_key, true)
+    reaper.SetExtState(section_name, "deepl_api_key", cfg.deepl_api_key, true)
     reaper.SetExtState(section_name, "ai_provider", cfg.ai_provider, true)
     reaper.SetExtState(section_name, "eleven_api_key", cfg.eleven_api_key, true)
     reaper.SetExtState(section_name, "hf_token", cfg.hf_token or "", true)
@@ -8313,6 +8349,57 @@ local function eleven_api_call_async(key, callback)
     end)
 end
 
+--- Asynchronous call to DeepL API to check key validity using subass_deepl.py
+--- @param key string API Key
+--- @param callback function Callback function(status, body)
+local function deepl_api_call_async(key, callback)
+    if not key or key == "" then 
+        callback(0, "No API Key")
+        return 
+    end
+
+    -- Write key to a temp file (to avoid shell injection/quoting issues)
+    local is_win = reaper.GetOS():match("Win")
+    local res_path = reaper.GetResourcePath()
+    local temp_key = res_path .. "/subass_deepl_key.txt"
+    if is_win then
+        temp_key = temp_key:gsub("/", "\\")
+    end
+
+    local fk = io.open(temp_key, "w")
+    if fk then
+        fk:write(key)
+        fk:close()
+    else
+        callback(0, "Failed to write key file")
+        return
+    end
+
+    local py_script = OTHER.SCRIPT_DIR .. "stats/subass_deepl.py"
+    local cmd
+    if is_win then
+        py_script = py_script:gsub("/", "\\")
+        local py_exe = (OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or "py -3"
+        cmd = py_exe .. ' "' .. py_script .. '" --key-file "' .. temp_key .. '" --check-key'
+    else
+        cmd = 'python3 "' .. py_script .. '" --key-file "' .. temp_key .. '" --check-key'
+    end
+
+    run_async_command(cmd, function(output)
+        os.remove(temp_key)
+        if output and output ~= "" then
+            local trimmed = output:gsub("^%s+", ""):gsub("%s+$", "")
+            if trimmed:match("^Valid") then
+                callback(200, trimmed)
+            else
+                callback(403, trimmed)
+            end
+        else
+            callback(0, "No output")
+        end
+    end)
+end
+
 --- Extract text from Gemini JSON response using patterns (Robust)
 --- @param json string JSON response body
 --- @return string|nil Parsed text content
@@ -8507,6 +8594,26 @@ function UTILS.validate_eleven_key(key)
             ACHIEVEMENTS.check_api_keys_ach_27()
         else
             show_snackbar(T("AI_ERR_CODE_IS") .. tostring(status) .. ")", "error")
+        end
+    end)
+end
+
+--- Validate DeepL API Key
+--- @param key string API Key
+function UTILS.validate_deepl_key(key)
+    local trimmed_key = key:gsub("^%s*(.-)%s*$", "%1")
+    show_snackbar(string.format(T("CHECK_KEY_S"), "DeepL"), "info")
+    deepl_api_call_async(trimmed_key, function(status, body)
+        local is_valid = (status == 200)
+
+        cfg.deepl_key_status = status
+        reaper.SetExtState(section_name, "deepl_key_status", tostring(status), true)
+
+        if is_valid then
+            show_snackbar("DeepL API " .. T("AI_CHECK_IS_VALID_KEY"), "success")
+            ACHIEVEMENTS.check_api_keys_ach_27()
+        else
+            show_snackbar(T("AI_ERR_CODE_IS") .. tostring(status) .. " - " .. body .. ")", "error")
         end
     end)
 end
@@ -28901,6 +29008,23 @@ function DRAW_TABS.draw_settings()
         end
     end
 
+    -- DeepL API Key
+    local deepl_btn_col = UI.C_BTN
+    if cfg.deepl_key_status == 200 then
+        deepl_btn_col = UI.C_BTN_MEDIUM -- Greenish
+    elseif cfg.deepl_api_key ~= "" and cfg.deepl_key_status ~= 0 then
+        deepl_btn_col = UI.C_BTN_ERROR -- Reddish
+    end
+
+    if s_btn(x_start + S(215), y_cursor, S(200), S(30), "DeepL API " .. T("KEY"), T("DEEPL_KEY_TIP"), deepl_btn_col) then
+        local retval, key = reaper.GetUserInputs("DeepL API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.deepl_api_key or "")
+        if retval then
+            cfg.deepl_api_key = key
+            save_settings()
+            UTILS.validate_deepl_key(cfg.deepl_api_key)
+        end
+    end
+
     y_cursor = y_cursor + S(60)
 
     -- ═══════════════════════════════════════════
@@ -33397,7 +33521,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             
             if is_hover_panel then
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = T("UNDO_T_EDITOR_CHANGE") .. "|" .. T("REPEAT_THE_LINE") .. "||" .. T("DELETE_LINE")
+                local menu_str = T("UNDO_T_EDITOR_CHANGE") .. "|" .. T("REPEAT_THE_LINE") .. "||" .. T("DEEPL_TRANSLATE_LINE") .. "||" .. T("DELETE_LINE")
                 local ret = gfx.showmenu(menu_str)
                 local c_index = ass_lines[editor_state.last_line_data._i].index
                 if ret == 1 then
@@ -33405,6 +33529,10 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                 elseif ret == 2 then
                     UTILS.duplicate_logic(c_index)
                 elseif ret == 3 then
+                    table_selection = {}
+                    table_selection[c_index] = true
+                    OTHER.deepl_translate_selected()
+                elseif ret == 4 then
                     table_selection = {}
                     table_selection[c_index] = true
                     UTILS.delete_logic()
@@ -33571,6 +33699,145 @@ function OTHER.AI_insert_result()
     else
         show_snackbar(T("AI_NO_ID_FOUND"), "warning")
     end
+end
+
+function OTHER.deepl_translate_selected()
+    if not cfg.deepl_api_key or cfg.deepl_api_key == "" then
+        show_snackbar(T("DEEPL_KEY_MISSING"), "error")
+        return
+    end
+
+    if not ass_lines or #ass_lines == 0 then 
+        show_snackbar(T("AI_GENERATE_NO_LINES"), "error")
+        return 
+    end
+    
+    local selected_lines = {}
+    local line_lookup = {}
+    
+    -- Determine which items to translate based on table selection
+    for i, line in ipairs(ass_lines) do
+        local sel_idx = line.index or i
+        if table_selection[sel_idx] then
+            table.insert(selected_lines, {
+                id = tostring(sel_idx),
+                text = line.text or ""
+            })
+            line_lookup[tostring(sel_idx)] = line
+        end
+    end
+    
+    if #selected_lines == 0 then
+        show_snackbar(T("AI_GENERATE_SELECT_LINES"), "warning")
+        return
+    end
+
+    show_snackbar(T("DEEPL_TRANSLATING"), "info")
+
+    -- Write selected lines and API key to temp files
+    local is_win = reaper.GetOS():match("Win")
+    local res_path = reaper.GetResourcePath()
+    local temp_json_path = res_path .. "/subass_deepl_payload.json"
+    local temp_key_path = res_path .. "/subass_deepl_key.txt"
+    if is_win then
+        temp_json_path = temp_json_path:gsub("/", "\\")
+        temp_key_path = temp_key_path:gsub("/", "\\")
+    end
+
+    -- Save JSON payload
+    local json_payload = STATS.json_encode(selected_lines)
+    local fp = io.open(temp_json_path, "w")
+    if fp then
+        fp:write(json_payload)
+        fp:close()
+    else
+        show_snackbar(T("DEEPL_FAILED_1"), "error")
+        return
+    end
+
+    -- Save API key
+    local fk = io.open(temp_key_path, "w")
+    if fk then
+        fk:write(cfg.deepl_api_key)
+        fk:close()
+    else
+        os.remove(temp_json_path)
+        show_snackbar(T("DEEPL_FAILED_2"), "error")
+        return
+    end
+
+    local py_script = OTHER.SCRIPT_DIR .. "stats/subass_deepl.py"
+    local target_lang = (cfg.lng == "ua") and "UK" or "EN"
+    local cmd
+    if is_win then
+        py_script = py_script:gsub("/", "\\")
+        local py_exe = (OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or "py -3"
+        cmd = py_exe .. ' "' .. py_script .. '" --key-file "' .. temp_key_path .. '" --translate-file "' .. temp_json_path .. '" --target-lang ' .. target_lang
+    else
+        cmd = 'python3 "' .. py_script .. '" --key-file "' .. temp_key_path .. '" --translate-file "' .. temp_json_path .. '" --target-lang ' .. target_lang
+    end
+
+    run_async_command(cmd, function(output)
+        os.remove(temp_json_path)
+        os.remove(temp_key_path)
+
+        if not output or output == "" then
+            show_snackbar(T("DEEPL_FAILED_3"), "error")
+            return
+        end
+
+        local trimmed = output:gsub("^%s+", ""):gsub("%s+$", "")
+        if trimmed:match("^Error:") or trimmed:match("^Error") then
+            show_snackbar("DeepL " .. trimmed, "error")
+            return
+        end
+
+        local decode_status, data = pcall(function() return STATS.json_decode(trimmed) end)
+        if not decode_status or type(data) ~= "table" then
+            show_snackbar(T("DEEPL_FAILED_4"), "error")
+            return
+        end
+
+        -- Update the lines with translated text, saving original in {{}}
+        push_undo(T("TABLE_MENU_DEEPL_TRANSLATE"))
+        local update_count = 0
+        for _, item in ipairs(data) do
+            local id = tostring(item.id)
+            local translated = item.text
+            if id and translated and line_lookup[id] then
+                local target = line_lookup[id]
+                local original_old = target.text
+                
+                -- Strip whitespace and save original in {{}}
+                translated = translated:match("^%s*(.-)%s*$")
+                local formatted_text = string.format("%s\n\n{{ %s }}", translated, original_old)
+                target.text = formatted_text
+                update_count = update_count + 1
+
+                -- If this line is currently being edited in the editor, sync the editor input field
+                if editor_state.last_line_data and tostring(ass_lines[editor_state.last_line_data._i].index or editor_state.last_line_data._i) == id then
+                    editor_state.last_line_data.text = formatted_text
+                    editor_state.input.text = formatted_text
+                    editor_state.original_text = formatted_text
+                    editor_state.needs_sync = true
+                end
+            end
+        end
+
+        if update_count > 0 then
+            UI_STATE._markers_is_dirty = true
+            cleanup_actors()
+            rebuild_regions()
+            save_project_data(UI_STATE.last_project_id)
+            reaper.MarkProjectDirty(0)
+
+            editor_state.last_region_id = -1
+            table_data_cache.state_count = -1 -- Force table refresh
+            show_snackbar(string.format(T("DEEPL_TR_LINES_C"), update_count), "success")
+        else
+            show_snackbar(T("DEEPL_NO_TR_LINES"), "warning")
+        end
+    end)
 end
 
 OTHER.last_progress_check_time = 0
@@ -34177,7 +34444,7 @@ function DRAW_TABS.draw_table(input_queue)
                 local editor_label = (cfg.editor_mode and "• " or "") .. T("TABLE_MENU_SHOW_EDITOR")
                 
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                local menu_str = T("TABLE_MENU_FIND_REPLACE") .. "|" .. reader_label .. "|" .. col_label .. "|" .. T("TABLE_MENU_TIME_SHIFT") .. "||" .. markers_label .. "|" .. director_label .. "||" .. T("SPLIT_BY_DUBBERS") .. "|" .. editor_label .. "||>" .. T("TABLE_MENU_ACTIONS_ON_ITEM") .. "|" .. T("TABLE_MENU_COLOR_BY_ACTOR") .. "|" .. T("TABLE_MENU_REMOVE_COLORING") .. "||" .. T("TABLE_MENU_REMOVE_ITEM_DUP") .. " (Waveform Match)|" .. T("TABLE_MENU_STT") .. "||" .. T("TABLE_MENU_VN") .. "||<|>" .. T("TABLE_MENU_AI_TRANSLATE") .. "|" .. T("TABLE_MENU_AI_TRANSLATE_P1") .. "|" .. T("TABLE_MENU_AI_TRANSLATE_P2") .. "||" .. T("TABLE_MENU_AI_TRANSLATE_INSERT") .. "|<"
+                local menu_str = T("TABLE_MENU_FIND_REPLACE") .. "|" .. reader_label .. "|" .. col_label .. "|" .. T("TABLE_MENU_TIME_SHIFT") .. "||" .. markers_label .. "|" .. director_label .. "||" .. T("SPLIT_BY_DUBBERS") .. "|" .. editor_label .. "||>" .. T("TABLE_MENU_ACTIONS_ON_ITEM") .. "|" .. T("TABLE_MENU_COLOR_BY_ACTOR") .. "|" .. T("TABLE_MENU_REMOVE_COLORING") .. "||" .. T("TABLE_MENU_REMOVE_ITEM_DUP") .. " (Waveform Match)|" .. T("TABLE_MENU_STT") .. "||" .. T("TABLE_MENU_VN") .. "||<|>" .. T("TABLE_MENU_AI_TRANSLATE") .. "|" .. T("TABLE_MENU_DEEPL_TRANSLATE") .. "||" .. T("TABLE_MENU_AI_TRANSLATE_P1") .. "|" .. T("TABLE_MENU_AI_TRANSLATE_P2") .. "||" .. T("TABLE_MENU_AI_TRANSLATE_INSERT") .. "|<"
                 local ret = gfx.showmenu(menu_str)
                 if ret == 1 then
                     OTHER.find_replace_state.show = true
@@ -34229,10 +34496,12 @@ function DRAW_TABS.draw_table(input_queue)
                 elseif ret == 13 then
                     ebu_r128_replicas_normalize()
                 elseif ret == 14 then
-                    OTHER.AI_generate_prompt(true)
+                    OTHER.deepl_translate_selected()
                 elseif ret == 15 then
-                    OTHER.AI_generate_prompt(false)
+                    OTHER.AI_generate_prompt(true)
                 elseif ret == 16 then
+                    OTHER.AI_generate_prompt(false)
+                elseif ret == 17 then
                     OTHER.AI_insert_result()
                 end
             end
