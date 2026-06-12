@@ -71,7 +71,7 @@ except ImportError:
             try:
                 subprocess.check_call(
                     [sys.executable, "-m", "pip", "install",
-                     "whisperx", "numpy", "torch"] + extra_flags
+                     "whisperx", "numpy", "torch", "soundfile"] + extra_flags
                 )
                 install_ok = True
                 break
@@ -115,14 +115,14 @@ except ImportError:
         print("\n[WI] Installing dependencies... (This may take some time)")
         try:
             # Try installing with --break-system-packages for Homebrew/system Python environments
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "whisperx", "numpy", "torch", "--break-system-packages"])
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "whisperx", "numpy", "torch", "soundfile", "--break-system-packages"])
             print("[WI] Packages successfully installed!")
             import whisperx
             import numpy as np
             import torch
         except subprocess.CalledProcessError:
             try:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "whisperx", "numpy", "torch"])
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "whisperx", "numpy", "torch", "soundfile"])
                 print("[WI] Packages successfully installed!")
                 import whisperx
                 import numpy as np
@@ -538,9 +538,23 @@ def main():
             try:
                 from whisperx.diarize import DiarizationPipeline
                 print_static_progress("Diarizing", duration, 75.0)
-                diarize_model = DiarizationPipeline(model_name="pyannote/speaker-diarization-3.1", token=hf_token.strip(), device=device)
-                print_static_progress("Diarizing", duration, 85.0)
-                diarize_segments = diarize_model(audio_file)
+                
+                # Normalize audio file path for Windows Compatibility
+                audio_file_path = os.path.abspath(audio_file).replace('\\', '/')
+                
+                try:
+                    diarize_model = DiarizationPipeline(model_name="pyannote/speaker-diarization-3.1", token=hf_token.strip(), device=device)
+                    print_static_progress("Diarizing", duration, 85.0)
+                    diarize_segments = diarize_model(audio_file_path)
+                except Exception as cuda_err:
+                    if device == "cuda":
+                        print(f"Warning: Diarization on GPU failed ({cuda_err}). Retrying on CPU...")
+                        diarize_model = DiarizationPipeline(model_name="pyannote/speaker-diarization-3.1", token=hf_token.strip(), device="cpu")
+                        print_static_progress("Diarizing", duration, 85.0)
+                        diarize_segments = diarize_model(audio_file_path)
+                    else:
+                        raise cuda_err
+                        
                 print_static_progress("Diarizing", duration, 95.0)
                 result = whisperx.assign_word_speakers(diarize_segments, result)
                 result = resegment_by_speaker(result, detected_lang)
