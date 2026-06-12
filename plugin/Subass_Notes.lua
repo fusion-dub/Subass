@@ -685,7 +685,7 @@ local I18N = {
     WHISPER_SUCC_DONE_2 = { en = "Recognition complete! Go to the  «", ua = "Розпізнавання завершено! Перейдіть на проєкт «" },
     WHISPER_SUCC_DONE_3 = { en = "» project to see result", ua = "» для отримання результату" },
     WHISPER_RUN_START = { en = "Speech recognition has begun...", ua = "Розпочато розпізнавання мови..." },
-    WHISPER_INSTALL_MSG = { en = "WhisperX AI (Speech to Text) not found.\n\nRequirements:\n  - whisperx, numpy, torch\n  - Model 'turbo' (~1.6 GB)\n\nInstall and download now?\n(A command prompt window will open, displaying the progress of the installation)", ua = "WhisperX AI (Speech to Text) не знайдено.\n\nНеобхідно:\n  - whisperx, numpy, torch\n  - Model 'turbo' (~1.6 GB)\n\nВстановити та завантажити зараз?\n(Відкриється вікно командного рядка, в якому буде відображатися хід встановлення)" },
+    WHISPER_INSTALL_MSG = { en = "WhisperX AI (Speech to Text) not found.\n\nRequirements:\n  - whisperx, numpy, torch\n  - Model 'turbo' (~3.6 GB)\n\nInstall and download now?\n(A command prompt window will open, displaying the progress of the installation)", ua = "WhisperX AI (Speech to Text) не знайдено.\n\nНеобхідно:\n  - whisperx, numpy, torch\n  - Model 'turbo' (~3.6 GB)\n\nВстановити та завантажити зараз?\n(Відкриється вікно командного рядка, в якому буде відображатися хід встановлення)" },
     HF_TOKEN = { en = "Hugging Face Token", ua = "Токен Hugging Face" },
     HF_TOKEN_TIP = { en = "Required for WhisperX (Speech to Text) speaker diarization. Get one at hf.co/settings/tokens.", ua = "Необхідний для розділення по спікерам у WhisperX (Speech to Text). Отримайте на hf.co/settings/tokens." },
     HF_TOKEN_EX = { en = "Token (hf_...):,extrawidth=250", ua = "Токен (hf_...):,extrawidth=250" },
