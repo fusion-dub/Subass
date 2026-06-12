@@ -419,6 +419,30 @@ local OTHER = {
     },
 }
 
+--- Get current script absolute path
+function OTHER.get_script_path()
+    local info = debug.getinfo(1, 'S')
+    local path = ""
+    if info and info.source then
+        path = info.source:match("@?(.*)")
+    end
+    
+    -- Fallback: try to get absolute path from action context
+    if path == "" or not path:find("[\\/]") then
+        local _, filename = reaper.get_action_context()
+        if filename and filename ~= "" then
+            path = filename
+        end
+    end
+
+    local separator = package.config:sub(1, 1)
+    local opposite_sep = (separator == "/" and "\\" or "/")
+    return path:gsub(opposite_sep, separator)
+end
+
+OTHER.SCRIPT_PATH = OTHER.get_script_path()
+OTHER.SCRIPT_DIR = OTHER.SCRIPT_PATH:match("^(.*[\\/])") or ""
+
 local I18N = {
     FILE = { en = "File", ua = "Файл" },
     REPLICS = { en = "Lines", ua = "Репліки" },
@@ -2025,12 +2049,10 @@ local DRAW_WINDOW = {}
 local DRAW_TABS = {}
 
 -- Assets Loading
-function OTHER.load_assets()
-    local script_path = debug.getinfo(1, "S").source:match("^@?(.+[/\\])") or ""
-    
+function OTHER.load_assets()    
     -- Load randomized loaders
     for _, loader in ipairs(OTHER.LOADERS_CFG) do
-        local full_path = script_path .. loader.path
+        local full_path = OTHER.SCRIPT_DIR .. loader.path
         if reaper.file_exists(full_path) then
             gfx.loadimg(loader.buf, full_path)
         end
@@ -2038,7 +2060,7 @@ function OTHER.load_assets()
 
     -- Load Deadline GIF
     if OTHER.DEADLINE_GIF_CFG then
-        local df_path = script_path .. OTHER.DEADLINE_GIF_CFG.path
+        local df_path = OTHER.SCRIPT_DIR .. OTHER.DEADLINE_GIF_CFG.path
         if reaper.file_exists(df_path) then
             gfx.loadimg(OTHER.DEADLINE_GIF_CFG.buf, df_path)
         end
@@ -2046,7 +2068,7 @@ function OTHER.load_assets()
 
     -- Load Cats GIF
     if OTHER.CATS_CFG then
-        local df_path = script_path .. OTHER.CATS_CFG.path
+        local df_path = OTHER.SCRIPT_DIR .. OTHER.CATS_CFG.path
         if reaper.file_exists(df_path) then
             gfx.loadimg(OTHER.CATS_CFG.buf, df_path)
         end
@@ -2054,7 +2076,7 @@ function OTHER.load_assets()
 
     -- Load Ach place
     if OTHER.ACH_PLACE_CFG then
-        local df_path = script_path .. OTHER.ACH_PLACE_CFG.path
+        local df_path = OTHER.SCRIPT_DIR .. OTHER.ACH_PLACE_CFG.path
         if reaper.file_exists(df_path) then
             gfx.loadimg(OTHER.ACH_PLACE_CFG.buf, df_path)
         end
@@ -2062,7 +2084,7 @@ function OTHER.load_assets()
 
     -- Load Copa GIF
     if OTHER.COPA_GIF_CFG then
-        local df_path = script_path .. OTHER.COPA_GIF_CFG.path
+        local df_path = OTHER.SCRIPT_DIR .. OTHER.COPA_GIF_CFG.path
         if reaper.file_exists(df_path) then
             gfx.loadimg(OTHER.COPA_GIF_CFG.buf, df_path)
         end
@@ -2070,7 +2092,7 @@ function OTHER.load_assets()
 
     -- Load Copa GIF
     if OTHER.COPA_INACTIVE_CFG then
-        local df_path = script_path .. OTHER.COPA_INACTIVE_CFG.path
+        local df_path = OTHER.SCRIPT_DIR .. OTHER.COPA_INACTIVE_CFG.path
         if reaper.file_exists(df_path) then
             gfx.loadimg(OTHER.COPA_INACTIVE_CFG.buf, df_path)
         end
@@ -2584,16 +2606,14 @@ end
 function ACHIEVEMENTS.load_assets()
     if ACHIEVEMENTS.is_load_assets then return end
     
-    local script_path = debug.getinfo(1, "S").source:match("^@?(.+[/\\])") or ""
-    
     -- Load achievements
     for _, ach in ipairs(OTHER.ACH_CFG) do
-        local full_path = script_path .. ach.path
+        local full_path = OTHER.SCRIPT_DIR .. ach.path
         if reaper.file_exists(full_path) then
             gfx.loadimg(ach.buf, full_path)
         end
 
-        local dis_full_path = script_path .. ach.dis_path
+        local dis_full_path = OTHER.SCRIPT_DIR .. ach.dis_path
         if reaper.file_exists(dis_full_path) then
             gfx.loadimg(ach.dis_buf, dis_full_path)
         end
@@ -2685,10 +2705,7 @@ local STATS = {
 }
 
 -- Initialize stats directory path
-do
-    local script_path = debug.getinfo(1, "S").source:match("^@?(.+[/\\])") or ""
-    STATS.stats_dir = script_path .. "stats/"
-end
+STATS.stats_dir = OTHER.SCRIPT_DIR .. "stats/"
 
 --- Simple JSON encoder (handles basic types: string, number, boolean, table)
 function STATS.json_encode(val, indent)
@@ -4300,8 +4317,7 @@ end
 
 function UTILS.run_satellite_script(folder, filename, label)
     local sep = package.config:sub(1, 1)
-    local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
-    local full_path = script_path .. folder .. sep .. filename
+    local full_path = OTHER.SCRIPT_DIR .. folder .. sep .. filename
     
     -- Check if file exists
     local f_check = io.open(full_path, "r")
@@ -4694,23 +4710,20 @@ end
 function UTILS.restart_script()
     -- Signal other scripts to close
     reaper.SetExtState("Subass_Global", "ForceCloseComplementary", "1", false)
-    
-    local script_path = debug.getinfo(1, 'S').source:match("^@?(.*)")
+
     if gfx.quit then gfx.quit() end
     
     UI_STATE.is_restarting = true
     
     reaper.defer(function()
-        dofile(script_path)
+        dofile(OTHER.SCRIPT_PATH)
     end)
 end
 
 --- Launch standalone python script in separate terminal window (Fire-and-Forget)
 function UTILS.launch_python_script(py_script_rel)
     local os_name = reaper.GetOS()
-    local source = debug.getinfo(1,'S').source
-    local script_path = source:match([[^@?(.*[\\/])]]) or ""
-    local full_script_path = script_path .. py_script_rel
+    local full_script_path = OTHER.SCRIPT_DIR .. py_script_rel
     
     if os_name:match("Win") then
         local py_exe = UTILS.get_win_py_exe(OTHER.rec_state.python.executable or "py -3")
@@ -6134,10 +6147,8 @@ function DEADLINE.draw_dashboard(input_queue)
             cfg.notify_time = ret_time
             reaper.SetExtState(section_name, "notify_time", ret_time, true)
             
-            local source = debug.getinfo(1,'S').source
-            local script_path = source:match([[^@?(.*[\\/])]]) or ""
-            if script_path ~= "" then
-                local py_script = script_path .. "stats/subass_notifier.py"
+            local py_script = OTHER.SCRIPT_DIR .. "stats/subass_notifier.py"
+            if py_script ~= "" then
                 local cmd_args = ' --setup --time "' .. ret_time .. '"'
                 
                 if reaper.GetOS():match("Win") then
@@ -7053,9 +7064,7 @@ end
 
 function DICT.load(dont_push)
     -- Resolve path relative to this script's location
-    local script_path = ({reaper.get_action_context()})[2]
-    local base_dir = script_path:match("^(.*[\\/])") or ""
-    local dict_file = base_dir .. "dictionary/data/user_dictionaries.json"
+    local dict_file = OTHER.SCRIPT_DIR .. "dictionary/data/user_dictionaries.json"
 
     local f = io.open(dict_file, "r")
     if not f then DICT.dicts = {} return end
@@ -8241,9 +8250,7 @@ local function ai_api_call_async(provider, key, prompt, final_callback, use_json
     if fk then fk:write(key); fk:close()
     else final_callback(0, "Failed to write key file"); return end
 
-    local source = debug.getinfo(1, 'S').source
-    local script_dir = source:match([[^@?(.*[\\/])]]) or ""
-    local py_script = script_dir .. "stats/subass_ai.py"
+    local py_script = OTHER.SCRIPT_DIR .. "stats/subass_ai.py"
     local schema_flag = use_json_schema and " --json-schema" or ""
 
     local cmd
@@ -12795,9 +12802,7 @@ end
 function STATS.register_plugin_usage(callback, is_silent, profile_override) 
     if is_silent == nil then is_silent = true end
     -- Build Python script path
-    local source = debug.getinfo(1,'S').source
-    local script_path = source:match([[^@?(.*[\\/])]]) or ""
-    local full_script_path = script_path .. "stats/subass_extra_stats.py"
+    local full_script_path = OTHER.SCRIPT_DIR .. "stats/subass_extra_stats.py"
     
     -- Get or generate stable Machine ID
     local machine_id = reaper.GetExtState(section_name, "MachineID")
@@ -12808,7 +12813,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
     end
     
     -- Serialize ACHIEVEMENTS.stats to a temp JSON file
-    local stats_file_path = script_path .. "stats/subass_ach_stats.json"
+    local stats_file_path = OTHER.SCRIPT_DIR .. "stats/subass_ach_stats.json"
     local p = profile_override or cfg
     local stats_json = STATS.json_encode({
         stats=ACHIEVEMENTS.stats,
@@ -12849,7 +12854,7 @@ function STATS.register_plugin_usage(callback, is_silent, profile_override)
     --- @param silent_mode boolean If true, don't show error snackbar
     --- @return boolean success
     local function update_rankings_from_disk(silent_mode)
-        local rankings_path = script_path .. "stats/subass_rankings.json"
+        local rankings_path = OTHER.SCRIPT_DIR .. "stats/subass_rankings.json"
         local f = io.open(rankings_path, "r")
         if f then
             local content = f:read("*a")
@@ -12918,9 +12923,7 @@ end
 function ACHIEVEMENTS.fetch_profile(machine_id)
     if not machine_id or machine_id == "" then return end
     
-    local source = debug.getinfo(1,'S').source
-    local script_path = source:match([[^@?(.*[\\/])]]) or ""
-    local py_path = script_path .. "stats/subass_extra_stats.py"
+    local py_path = OTHER.SCRIPT_DIR .. "stats/subass_extra_stats.py"
     
     local cmd = string.format('python3 "%s" --get-profile "%s"', py_path, machine_id)
     local is_windows = reaper.GetOS():match("Win")
@@ -12938,7 +12941,7 @@ function ACHIEVEMENTS.fetch_profile(machine_id)
     run_async_command(cmd, function(exit_code)
         UI_STATE.script_loading_state.active = false
         
-        local profile_path = script_path .. "stats/subass_profile_details.json"
+        local profile_path = OTHER.SCRIPT_DIR .. "stats/subass_profile_details.json"
         local f = io.open(profile_path, "r")
         if f then
             local content = f:read("*a")
@@ -12965,9 +12968,7 @@ function ACHIEVEMENTS.fetch_talents(page)
     local limit = 20
     local offset = (page - 1) * limit
     
-    local source = debug.getinfo(1,'S').source
-    local script_path = source:match([[^@?(.*[\\/])]]) or ""
-    local py_path = script_path .. "stats/subass_extra_stats.py"
+    local py_path = OTHER.SCRIPT_DIR .. "stats/subass_extra_stats.py"
     
     local f = UI_STATE.talents_filters or {}
     local function t2s(t)
@@ -12987,7 +12988,7 @@ function ACHIEVEMENTS.fetch_talents(page)
         status = f.status,
     }
     
-    local filter_file = script_path .. "stats/subass_talents_filter.json"
+    local filter_file = OTHER.SCRIPT_DIR .. "stats/subass_talents_filter.json"
     local json_str = STATS.json_encode(f_data)
     local ff = io.open(filter_file, "w")
     if ff then
@@ -13010,7 +13011,7 @@ function ACHIEVEMENTS.fetch_talents(page)
     run_async_command(cmd, function(exit_code)
         UI_STATE.talents_loading = false
         
-        local talents_path = script_path .. "stats/subass_talents.json"
+        local talents_path = OTHER.SCRIPT_DIR .. "stats/subass_talents.json"
         local f = io.open(talents_path, "r")
         if f then
             local content = f:read("*a")
@@ -15269,9 +15270,7 @@ local function import_ass(file_path, dont_rebuild)
             local imported_dicts = imported_payload.dicts or imported_payload
             if type(imported_dicts) == "table" and #imported_dicts > 0 then
                 -- Load existing dictionaries
-                local script_path = ({reaper.get_action_context()})[2]
-                local base_dir = script_path:match("^(.*[\\/])") or ""
-                local dict_file = base_dir .. "dictionary/data/user_dictionaries.json"
+                local dict_file = OTHER.SCRIPT_DIR .. "dictionary/data/user_dictionaries.json"
                 
                 local existing_data = { dictionaries = {} }
                 local f = io.open(dict_file, "r")
@@ -15612,43 +15611,8 @@ apply_stress_marks_async = function()
     UI_STATE.script_loading_state.active = true
     UI_STATE.script_loading_state.text = T("STRESS_INIT")
     
-    -- Calculate paths OUTSIDE coroutine to avoid debug.getinfo issues
-    local function get_actual_script_path()
-        local info = debug.getinfo(1, "S")
-        local path = info.source
-        if path:sub(1, 1) == "@" then path = path:sub(2) end
-        
-        -- Fallback: try to get absolute path from action context if path is just a filename
-        if not path:find("[\\/]") then
-            local _, filename = reaper.get_action_context()
-            if filename and filename ~= "" and filename:find("[\\/]") then
-                path = filename
-            end
-        end
-
-        local separator = package.config:sub(1, 1)
-        local opposite_sep = (separator == "/" and "\\" or "/")
-        
-        -- Normalize path separators
-        path = path:gsub(opposite_sep, separator)
-        
-        -- Extract the directory part (everything up to the last separator)
-        local dir = path:gsub("[^" .. (separator == "\\" and "\\\\" or separator) .. "]*$", "")
-
-        if not dir or dir == "" then 
-            -- Ultimate fallback to ResourcePath/Scripts
-            dir = reaper.GetResourcePath() .. separator .. "Scripts" .. separator
-            dir = dir:gsub(opposite_sep, separator)
-        end
-
-        -- Ensure trailing separator and append 'stress'
-        if dir:sub(-1) ~= separator then
-            dir = dir .. separator
-        end
-        
-        return dir .. "stress" .. separator
-    end
-    local script_path = get_actual_script_path()
+    local sep = package.config:sub(1, 1)
+    local script_path = OTHER.SCRIPT_DIR .. "stress" .. sep
 
     -- Use global coroutine for setup phase to allow yielding (fix initial freeze)
     global_coroutine = coroutine.create(function()
@@ -15842,33 +15806,12 @@ local function delete_all_regions()
     end
 end
 
---- Get current script absolute path
-local function get_script_path()
-    local info = debug.getinfo(1, 'S')
-    local path = ""
-    if info and info.source then
-        path = info.source:match("@?(.*)")
-    end
-    
-    -- Fallback: try to get absolute path from action context
-    if path == "" or not path:find("[\\/]") then
-        local _, filename = reaper.get_action_context()
-        if filename and filename ~= "" then
-            path = filename
-        end
-    end
-
-    local separator = package.config:sub(1, 1)
-    local opposite_sep = (separator == "/" and "\\" or "/")
-    return path:gsub(opposite_sep, separator)
-end
-
 --- Manage REAPER startup script. Edit REAPER __startup.lua file with our startup logic
 --- @param enable boolean
 local function toggle_reaper_startup(enable)
     local resource_path = reaper.GetResourcePath()
     local startup_path = resource_path:gsub("\\", "/") .. "/Scripts/__startup.lua"
-    local script_path = get_script_path():gsub("\\", "/")
+    local script_path = OTHER.SCRIPT_PATH:gsub("\\", "/")
     
     if script_path == "" then return false end
     
@@ -15986,8 +15929,7 @@ end
 --- Run auto-update script and show results
 --- @param is_silent boolean If true, don't show "checking" loader or "up-to-date" message
 local function check_for_updates(is_silent)
-    local script_path = debug.getinfo(1,'S').source:match([[^@?(.*[\/])]])
-    local py_script = script_path .. "subass_autoupdate.py"
+    local py_script = OTHER.SCRIPT_DIR .. "subass_autoupdate.py"
     local py_exe = OTHER.rec_state.python.executable 
     
     if not py_exe or py_exe == "" then
@@ -16625,8 +16567,7 @@ local function play_tts_audio(text, save_to_timeline)
     end
 
     -- Path to python script
-    local script_path = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])")
-    local tts_script = script_path .. "tts/ukrainian_tts.py"
+    local tts_script = OTHER.SCRIPT_DIR .. "tts/ukrainian_tts.py"
     
     -- Check if TTS script exists
     local f = io.open(tts_script, "r")
@@ -16653,7 +16594,7 @@ local function play_tts_audio(text, save_to_timeline)
     
     -- Build command using standardized python executable if available
     local is_windows = reaper.GetOS():match("Win")
-    local tts_input_file = (script_path .. "/tts/tts_input.txt")
+    local tts_input_file = (OTHER.SCRIPT_DIR .. "/tts/tts_input.txt")
     if is_windows then tts_input_file = tts_input_file:gsub("/", "\\") end
 
     local f_in = io.open(tts_input_file, "w")
@@ -19564,18 +19505,8 @@ function SEARCH_ITEM.perform_search()
     SEARCH_ITEM.last_query = q
     SEARCH_ITEM.loading = true
     
-    local info = debug.getinfo(1, 'S')
-    local path = info.source:match("@?(.*)")
-    local dir = path:match("(.*[/\\])")
-    
-    if not dir then
-        show_snackbar(T("SRC_PATH_ERR") .. tostring(path), "error")
-        SEARCH_ITEM.loading = false
-        return
-    end
-
     local separator = package.config:sub(1,1)
-    local python_tool = dir .. "stats" .. separator .. "subass_search.py"
+    local python_tool = OTHER.SCRIPT_DIR .. "stats" .. separator .. "subass_search.py"
     local search_item_path = cfg.search_item_path
 
     local py_exe = is_windows and UTILS.get_win_py_exe(OTHER.rec_state.python.executable or "py -3") or "python3"
@@ -20176,9 +20107,7 @@ function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key, page)
     ACHIEVEMENTS.loading_ach = ach_id
     local current_page = page or 1
     
-    local source = debug.getinfo(1,'S').source
-    local script_path = source:match([[^@?(.*[\\/])]]) or ""
-    local full_script_path = script_path .. "stats/subass_extra_stats.py"
+    local full_script_path = OTHER.SCRIPT_DIR .. "stats/subass_extra_stats.py"
     
     local machine_id = reaper.GetExtState(section_name, "MachineID")
     if not machine_id or machine_id == "" then
@@ -20202,7 +20131,7 @@ function ACHIEVEMENTS.fetch_leaderboard(ach_id, rank_key, page)
     
     run_async_command(cmd, function()
         ACHIEVEMENTS.loading_ach = nil
-        local leaderboard_path = script_path .. "stats/subass_leaderboard.json"
+        local leaderboard_path = OTHER.SCRIPT_DIR .. "stats/subass_leaderboard.json"
         local f = io.open(leaderboard_path, "r")
         if f then
             local content = f:read("*a")
@@ -33942,9 +33871,7 @@ function OTHER.speech_to_text_from_item()
             return
         end
 
-        local src_info = debug.getinfo(1, 'S').source
-        local script_dir = src_info:match([[^@?(.*[\/])]]) or ""
-        local py_script = script_dir .. "stats/subass_whisper.py"
+        local py_script = OTHER.SCRIPT_DIR .. "stats/subass_whisper.py"
 
         local install_cmd
         if is_win then
@@ -33963,9 +33890,7 @@ function OTHER.speech_to_text_from_item()
     end
 
     local item_pos = reaper.GetMediaItemInfo_Value(item, "D_POSITION")
-    local src_info = debug.getinfo(1, 'S').source
-    local script_dir = src_info:match([[^@?(.*[\/])]]) or ""
-    local py_script = script_dir .. "stats/subass_whisper.py"
+    local py_script = OTHER.SCRIPT_DIR .. "stats/subass_whisper.py"
     
     local source_proj, filename = reaper.EnumProjects(-1)
     local id_fname = (not filename or filename == "") and "unsaved" or filename
