@@ -79,6 +79,10 @@ except ImportError:
                 continue
         if not install_ok:
             print("\n[WI] ❌ Installation error.")
+            print("[WI] Common causes on Windows / macOS:")
+            print("[WI] 1. You might be using a 32-bit version of Python (ctranslate2/torch require 64-bit Python).")
+            print("[WI] 2. You might be using Python 3.13+ (ctranslate2 4.4.0 does not support Python 3.13 yet. Please use Python 3.10, 3.11, or 3.12).")
+            print("[WI] 3. Outdated pip. Try running: python -m pip install --upgrade pip setuptools wheel")
             print("[WI] Try manually: pip install whisperx numpy torch --break-system-packages")
             input("Press Enter to exit...")
             sys.exit(1)
@@ -124,7 +128,12 @@ except ImportError:
                 import numpy as np
                 import torch
             except:
-                print("[WI] Installation error. Try manually: 'pip install whisperx numpy torch --break-system-packages'")
+                print("[WI] Installation error.")
+                print("[WI] Common causes on Windows / macOS:")
+                print("[WI] 1. You might be using a 32-bit version of Python (ctranslate2/torch require 64-bit Python).")
+                print("[WI] 2. You might be using Python 3.13+ (ctranslate2 4.4.0 does not support Python 3.13 yet. Please use Python 3.10, 3.11, or 3.12).")
+                print("[WI] 3. Outdated pip. Try running: python -m pip install --upgrade pip setuptools wheel")
+                print("[WI] Try manually: 'pip install whisperx numpy torch --break-system-packages'")
                 sys.exit(1)
     else:
         print("[WI] Installation cancelled.")
