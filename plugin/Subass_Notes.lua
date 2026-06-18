@@ -9391,14 +9391,17 @@ local function save_project_data()
     reaper.gmem_write(101, (reaper.gmem_read(101) or 0) + 1)
 end
 
---- Ensure all ass_lines have unique numeric indices
-local function sanitize_indices()
+--- Ensure all ass_lines have unique numeric indices and optionally clear rgn_idx
+local function sanitize_indices(clear_rgn_idx)
     if not ass_lines then return end
     local used = {}
     local next_id = 1
     
-    -- First pass: find max used numeric index to avoid collisions
+    -- First pass: find max used numeric index to avoid collisions and optionally clear rgn_idx
     for _, l in ipairs(ass_lines) do
+        if clear_rgn_idx then
+            l.rgn_idx = nil
+        end
         if type(l.index) == "number" and l.index >= next_id then
             next_id = l.index + 1
         end
@@ -10103,16 +10106,10 @@ local function deep_copy_table(t)
 end
 
 local function rebuild_regions()
-    sanitize_indices()
     reaper.PreventUIRefresh(1)
     reaper.Undo_BeginBlock()
     
-    -- Clear all tracked region indices for ass_lines before rebuild
-    if ass_lines then
-        for _, line in ipairs(ass_lines) do
-            line.rgn_idx = nil
-        end
-    end
+    sanitize_indices(true)
     
     -- Fast Delete: Repeatedly delete the first marker until none remain.
     local safety_cnt = 0
@@ -17940,6 +17937,35 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
     end
     if state.text ~= before_text then
         record_field_history(state)
+    end
+
+    if id == "editor_panel" then
+        local dur = nil
+        local line_data = editor_state.last_line_data
+        if line_data and line_data.t1 and line_data.t2 then
+            dur = line_data.t2 - line_data.t1
+        else
+            local start_ts, end_ts = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
+            if start_ts and end_ts and end_ts > start_ts then
+                dur = end_ts - start_ts
+            end
+        end
+        
+        if dur and dur > 0 then
+            local text_to_calc = state.text or ""
+            local clean_text = text_to_calc:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("\n", ""):gsub(" ", ""):gsub(acute, "")
+            local char_count = utf8.len(clean_text) or #clean_text
+            local cps = char_count / dur
+            local cps_str = string.format("%.1f", cps)
+            gfx.setfont(F.tip)
+            local str_w, str_h = gfx.measurestr(cps_str)
+            local cps_x = w - str_w - padding
+            local cps_y = h - str_h - padding + S(2)
+            local col = UTILS.get_cps_color(cps)
+            set_color(col)
+            gfx.x, gfx.y = cps_x, cps_y
+            gfx.drawstr(cps_str)
+        end
     end
 
     gfx.dest = prev_dest
@@ -33512,7 +33538,13 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
 
         gfx.setfont(F.std)
         if draw_actor_btn_inline(save_x, save_y, save_btn_w, save_h, save_label, save_col) then
-            if not is_disabled then save_editor_changes() end
+            if is_disabled then
+                editor_state.last_region_id = -1
+                editor_state.needs_sync = true
+                editor_state.input.text = ""
+            else
+                save_editor_changes()
+            end
         end
 
         if input_queue and not is_disabled then
