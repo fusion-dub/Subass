@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 8.0
+-- @version 8.1
 -- @author Fusion
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v8.0",
+    script_title = "Subass Notes v8.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -10103,6 +10103,7 @@ local function deep_copy_table(t)
 end
 
 local function rebuild_regions()
+    sanitize_indices()
     reaper.PreventUIRefresh(1)
     reaper.Undo_BeginBlock()
     
@@ -10234,6 +10235,7 @@ local function undo_action()
     DUBBERS.save()
     cleanup_actors()
     rebuild_regions()
+    editor_state.needs_sync = true
     save_project_data(UI_STATE.last_project_id) -- Sync to metadata
     show_snackbar(T("UNDO_SNC") .. last_state.label, "info")
 end
@@ -10281,6 +10283,7 @@ local function redo_action()
     DUBBERS.save()
     cleanup_actors()
     rebuild_regions()
+    editor_state.needs_sync = true
     save_project_data(UI_STATE.last_project_id) -- Sync to metadata
     show_snackbar(T("REDO_SNC") .. next_state.label, "info")
 end
@@ -32282,6 +32285,7 @@ function UTILS.delete_logic()
         table_data_cache.state_count = -1
         last_layout_state.state_count = -1
         prompter_drawer.marker_cache.count = -1
+        editor_state.needs_sync = true
         show_snackbar(T("REMOVED_TABLE_LINES_EX") .. total_deleted, "error")
     end
 end
@@ -32289,7 +32293,7 @@ end
 function UTILS.duplicate_logic(target_id)
     local original_pos = nil
     for p, l in ipairs(ass_lines) do
-        if (l.index or p) == target_id then
+        if l.index == target_id or (l.index == nil and p == target_id) then
             original_pos = p
             break
         end
@@ -32499,6 +32503,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                 editor_state.input.anchor = #current_region.name
                 editor_state.input.history = nil -- Очищаємо історію при зміні регіону
                 ai_modal.show = false
+                ai_modal.target_state = nil
                 if cfg.editor_auto_scroll then
                     editor_state.scroll_to_actor = current_region.actor
                 end
@@ -32515,6 +32520,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                 editor_state.current_actor = ""
                 editor_state.input.focus = false
                 editor_state.input.history = nil -- Очищаємо історію
+                ai_modal.target_state = nil
             end
             editor_state.last_region_id = nil
             editor_state.last_line_data = nil
@@ -35446,7 +35452,7 @@ function DRAW_TABS.draw_table(input_queue)
                             -- Click to Jump
                             if is_mouse_clicked(1) then
                                 for j, l in ipairs(data_source) do
-                                    if (l.index or j) == conflict.partner_id then
+                                    if l.index == conflict.partner_id or (l.index == nil and j == conflict.partner_id) then
                                         local target_layout = table_layout_cache[j]
                                         if target_layout then
                                             UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, target_layout.y - (avail_h / 2) + (target_layout.h / 2)))
