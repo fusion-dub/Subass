@@ -17942,12 +17942,27 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
     if id == "editor_panel" then
         local dur = nil
         local line_data = editor_state.last_line_data
-        if line_data and line_data.t1 and line_data.t2 then
-            dur = line_data.t2 - line_data.t1
-        else
-            local start_ts, end_ts = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
-            if start_ts and end_ts and end_ts > start_ts then
-                dur = end_ts - start_ts
+        if line_data and line_data.rgn_idx then
+            local count = reaper.CountProjectMarkers(0)
+            for i = 0, count - 1 do
+                local retval, isrgn, pos, rgnend, _, idx = reaper.EnumProjectMarkers3(0, i)
+                if retval and isrgn and idx == line_data.rgn_idx then
+                    dur = rgnend - pos
+                    line_data.t1 = pos
+                    line_data.t2 = rgnend
+                    break
+                end
+            end
+        end
+        
+        if not dur then
+            if line_data and line_data.t1 and line_data.t2 then
+                dur = line_data.t2 - line_data.t1
+            else
+                local start_ts, end_ts = reaper.GetSet_LoopTimeRange(false, false, 0, 0, false)
+                if start_ts and end_ts and end_ts > start_ts then
+                    dur = end_ts - start_ts
+                end
             end
         end
         
@@ -28968,15 +28983,6 @@ function DRAW_TABS.draw_settings()
         gemini_btn_col = UI.C_BTN_ERROR -- Reddish (Theme Aware)
     end
 
-    if s_btn(x_start, y_cursor, S(200), S(30), "Gemini API " .. T("KEY"), T("AI_KEY_D_1") .. "Gemini AI" .. T("AI_KEY_D_2"), gemini_btn_col) then
-        local retval, key = reaper.GetUserInputs("Gemini API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.gemini_api_key)
-        if retval then
-            cfg.gemini_api_key = key
-            save_settings()
-            UTILS.validate_gemini_key(cfg.gemini_api_key)
-        end
-    end
-
     -- ElevenLabs API Key
     local eleven_btn_col = UI.C_BTN
     if cfg.eleven_key_status == 200 then
@@ -28985,32 +28991,12 @@ function DRAW_TABS.draw_settings()
         eleven_btn_col = UI.C_BTN_ERROR -- Reddish (Theme Aware)
     end
 
-    if s_btn(x_start + S(215), y_cursor, S(200), S(30), "ElevenLabs API " .. T("KEY"), T("ELEVENLABS_KEY_TIP"), eleven_btn_col) then
-        local retval, key = reaper.GetUserInputs("ElevenLabs API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.eleven_api_key)
-        if retval then
-            cfg.eleven_api_key = key
-            save_settings()
-            UTILS.validate_eleven_key(cfg.eleven_api_key)
-        end
-    end
-
-    y_cursor = y_cursor + S(45)
-
-    -- Mistral & Groq Row
+    -- Mistral & Groq
     local mistral_btn_col = UI.C_BTN
     if cfg.mistral_key_status == 200 or cfg.mistral_key_status == 429 then
         mistral_btn_col = UI.C_BTN_MEDIUM -- Greenish
     elseif cfg.mistral_api_key ~= "" and cfg.mistral_key_status ~= 0 then
         mistral_btn_col = UI.C_BTN_ERROR
-    end
-
-    if s_btn(x_start, y_cursor, S(200), S(30), "Mistral API " .. T("KEY"), T("AI_KEY_D_1") .. "Mistral AI" .. T("AI_KEY_D_2"), mistral_btn_col) then
-        local retval, key = reaper.GetUserInputs("Mistral API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.mistral_api_key)
-        if retval then
-            cfg.mistral_api_key = key
-            save_settings()
-            UTILS.validate_mistral_key(cfg.mistral_api_key)
-        end
     end
 
     local groq_btn_col = UI.C_BTN
@@ -29020,26 +29006,8 @@ function DRAW_TABS.draw_settings()
         groq_btn_col = UI.C_BTN_ERROR
     end
 
-    if s_btn(x_start + S(215), y_cursor, S(200), S(30), "Groq API " .. T("KEY"), T("AI_KEY_D_1") .. "Groq AI (Llama-3)" .. T("AI_KEY_D_2"), groq_btn_col) then
-        local retval, key = reaper.GetUserInputs("Groq API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.groq_api_key)
-        if retval then
-            cfg.groq_api_key = key
-            save_settings()
-            UTILS.validate_groq_key(cfg.groq_api_key)
-        end
-    end
-   
-    y_cursor = y_cursor + S(45)
-
     -- Hugging Face Token (WhisperX Diarization)
     local hf_btn_col = (cfg.hf_token and cfg.hf_token ~= "") and UI.C_BTN_MEDIUM or UI.C_BTN
-    if s_btn(x_start, y_cursor, S(200), S(30), T("HF_TOKEN"), T("HF_TOKEN_TIP"), hf_btn_col) then
-        local retval, key = reaper.GetUserInputs(T("HF_TOKEN"), 1, T("HF_TOKEN_EX"), cfg.hf_token or "")
-        if retval then
-            cfg.hf_token = key
-            save_settings()
-        end
-    end
 
     -- DeepL API Key
     local deepl_btn_col = UI.C_BTN
@@ -29049,16 +29017,118 @@ function DRAW_TABS.draw_settings()
         deepl_btn_col = UI.C_BTN_ERROR -- Reddish
     end
 
-    if s_btn(x_start + S(215), y_cursor, S(200), S(30), "DeepL API " .. T("KEY"), T("DEEPL_KEY_TIP"), deepl_btn_col) then
-        local retval, key = reaper.GetUserInputs("DeepL API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.deepl_api_key or "")
-        if retval then
-            cfg.deepl_api_key = key
-            save_settings()
-            UTILS.validate_deepl_key(cfg.deepl_api_key)
+    local api_keys_list = {
+        {
+            name = "Gemini API " .. T("KEY"),
+            tip = T("AI_KEY_D_1") .. "Gemini AI" .. T("AI_KEY_D_2"),
+            col = gemini_btn_col,
+            action = function()
+                local retval, key = reaper.GetUserInputs("Gemini API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.gemini_api_key)
+                if retval then
+                    cfg.gemini_api_key = key
+                    save_settings()
+                    UTILS.validate_gemini_key(cfg.gemini_api_key)
+                end
+            end
+        },
+        {
+            name = "ElevenLabs API " .. T("KEY"),
+            tip = T("ELEVENLABS_KEY_TIP"),
+            col = eleven_btn_col,
+            action = function()
+                local retval, key = reaper.GetUserInputs("ElevenLabs API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.eleven_api_key)
+                if retval then
+                    cfg.eleven_api_key = key
+                    save_settings()
+                    UTILS.validate_eleven_key(cfg.eleven_api_key)
+                end
+            end
+        },
+        {
+            name = "Mistral API " .. T("KEY"),
+            tip = T("AI_KEY_D_1") .. "Mistral AI" .. T("AI_KEY_D_2"),
+            col = mistral_btn_col,
+            action = function()
+                local retval, key = reaper.GetUserInputs("Mistral API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.mistral_api_key)
+                if retval then
+                    cfg.mistral_api_key = key
+                    save_settings()
+                    UTILS.validate_mistral_key(cfg.mistral_api_key)
+                end
+            end
+        },
+        {
+            name = "Groq API " .. T("KEY"),
+            tip = T("AI_KEY_D_1") .. "Groq AI (Llama-3)" .. T("AI_KEY_D_2"),
+            col = groq_btn_col,
+            action = function()
+                local retval, key = reaper.GetUserInputs("Groq API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.groq_api_key)
+                if retval then
+                    cfg.groq_api_key = key
+                    save_settings()
+                    UTILS.validate_groq_key(cfg.groq_api_key)
+                end
+            end
+        },
+        {
+            name = T("HF_TOKEN"),
+            tip = T("HF_TOKEN_TIP"),
+            col = hf_btn_col,
+            action = function()
+                local retval, key = reaper.GetUserInputs(T("HF_TOKEN"), 1, T("HF_TOKEN_EX"), cfg.hf_token or "")
+                if retval then
+                    cfg.hf_token = key
+                    save_settings()
+                end
+            end
+        },
+        {
+            name = "DeepL API " .. T("KEY"),
+            tip = T("DEEPL_KEY_TIP"),
+            col = deepl_btn_col,
+            action = function()
+                local retval, key = reaper.GetUserInputs("DeepL API " .. T("KEY"), 1, T("KEY_API_EX"), cfg.deepl_api_key or "")
+                if retval then
+                    cfg.deepl_api_key = key
+                    save_settings()
+                    UTILS.validate_deepl_key(cfg.deepl_api_key)
+                end
+            end
+        }
+    }
+
+    local btn_w = S(200)
+    local btn_h = S(30)
+    local gap = S(15)
+    local row_h = S(45)
+
+    local avail_w = gfx.w - x_start * 2
+    local fit_count = math.floor((avail_w + gap) / (btn_w + gap))
+    if fit_count < 1 then fit_count = 1 end
+
+    if fit_count == 1 then
+        btn_w = avail_w
+    end
+
+    local row = 0
+    local col = 0
+    for i, item in ipairs(api_keys_list) do
+        local bx = x_start + col * (btn_w + gap)
+        local by = y_cursor + row * row_h
+        
+        if s_btn(bx, by, btn_w, btn_h, item.name, item.tip, item.col) then
+            item.action()
+        end
+        
+        col = col + 1
+        if col >= fit_count then
+            col = 0
+            row = row + 1
         end
     end
 
-    y_cursor = y_cursor + S(60)
+    local total_rows = math.ceil(#api_keys_list / fit_count)
+    y_cursor = y_cursor + total_rows * row_h + S(15)
 
     -- ═══════════════════════════════════════════
     -- 2. ІМПОРТ ТА РОБОТА З ТЕКСТОМ (Import & Data)
