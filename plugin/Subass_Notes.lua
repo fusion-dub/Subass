@@ -20401,9 +20401,11 @@ function ACHIEVEMENTS.draw_dialog()
                     gfx.rect(x + S(5), ry, w - S(10), row_h, 1)
                 end
                 
-                -- Full row hover & click detection
+                -- Full row hover & click detection (restricted to visible list height bounds)
                 local mx, my = gfx.mouse_x, gfx.mouse_y
-                local row_hover = mx >= x + S(5) and mx <= x + w - S(5) and my >= ry and my <= ry + row_h
+                local row_hover = mx >= x + S(5) and mx <= x + w - S(5) and
+                                  my >= ry and my <= ry + row_h and
+                                  my >= content_y and my < content_y + list_h
                 
                 if row_hover then
                     set_color(UI.C_TXT, 0.05)
