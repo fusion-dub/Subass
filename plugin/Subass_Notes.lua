@@ -34692,10 +34692,14 @@ function DRAW_TABS.draw_table(input_queue)
                     OTHER.col_vis_menu.show = true
                     OTHER.col_vis_menu.x = (btn_x + opt_btn_w) - S(180)
                     OTHER.col_vis_menu.y = filter_y + filter_h + gap
+                    cfg.director_mode = false
+                    cfg.editor_mode = false
                 elseif ret == 4 then
                     OTHER.time_shift_menu.show = true
                     OTHER.time_shift_menu.x = (btn_x + opt_btn_w) - S(280)
                     OTHER.time_shift_menu.y = filter_y + filter_h + gap
+                    cfg.director_mode = false
+                    cfg.editor_mode = false
                 elseif ret == 5 then
                     cfg.show_markers_in_table = not cfg.show_markers_in_table
                     save_settings()
