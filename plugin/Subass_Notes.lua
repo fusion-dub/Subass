@@ -32628,6 +32628,123 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
     local is_editing = (current_region ~= nil)
     local is_creating = (not is_editing and ((end_ts > start_ts) and cur_time >= start_ts and cur_time <= end_ts))
     local is_disabled = (not is_editing and not is_creating)
+
+    local has_changes = (editor_state.input.text ~= editor_state.original_text)
+    local can_navigate = not is_creating and not has_changes
+
+    if UI_STATE.window_focused and can_navigate and input_queue and not is_any_text_input_focused() then
+        -- Optimize: Only perform sorting and list building if there is actually a navigation key in the queue
+        local has_nav_key = false
+        for idx = 1, #input_queue do
+            local char = input_queue[idx]
+            if char == 1818584692 or char == 60 or char == 1919379572 or char == 62 then
+                has_nav_key = true
+                break
+            end
+        end
+
+        if has_nav_key then
+            -- Build and sort visible lines list chronologically
+            local sorted_lines = {}
+            for _, line in ipairs(ass_lines or {}) do
+                if line.enabled ~= false then
+                    table.insert(sorted_lines, line)
+                end
+            end
+            table.sort(sorted_lines, function(a, b)
+                if math.abs(a.t1 - b.t1) < 0.001 then
+                    if math.abs(a.t2 - b.t2) < 0.001 then
+                        return (a.rgn_idx or 0) < (b.rgn_idx or 0)
+                    else
+                        return a.t2 < b.t2
+                    end
+                else
+                    return a.t1 < b.t1
+                end
+            end)
+
+            for i = #input_queue, 1, -1 do
+                local char = input_queue[i]
+                if char == 1818584692 or char == 60 then
+                    -- Find index of the currently active region in sorted_lines
+                    local current_idx = nil
+                    if editor_state.last_region_id and editor_state.last_region_id ~= -1 then
+                        for idx, line in ipairs(sorted_lines) do
+                            if line.rgn_idx == editor_state.last_region_id then
+                                current_idx = idx
+                                break
+                            end
+                        end
+                    end
+                    
+                    -- Fallback: estimate current index based on cur_time
+                    if not current_idx then
+                        for idx, line in ipairs(sorted_lines) do
+                            if line.t1 >= cur_time then
+                                current_idx = idx
+                                break
+                            end
+                        end
+                        if not current_idx then
+                            current_idx = #sorted_lines + 1
+                        end
+                    end
+
+                    -- Find previous visible region in sorted_lines starting from current_idx - 1
+                    local prev_line = nil
+                    local target_idx = current_idx and (current_idx - 1) or #sorted_lines
+                    if target_idx >= 1 and target_idx <= #sorted_lines then
+                        prev_line = sorted_lines[target_idx]
+                    end
+
+                    if prev_line then
+                        reaper.SetEditCurPos(prev_line.t1, true, false)
+                        editor_state.last_region_id = prev_line.rgn_idx
+                        editor_state.needs_sync = true
+                    end
+                    table.remove(input_queue, i)
+                elseif char == 1919379572 or char == 62 then
+                    -- Find index of the currently active region in sorted_lines
+                    local current_idx = nil
+                    if editor_state.last_region_id and editor_state.last_region_id ~= -1 then
+                        for idx, line in ipairs(sorted_lines) do
+                            if line.rgn_idx == editor_state.last_region_id then
+                                current_idx = idx
+                                break
+                            end
+                        end
+                    end
+                    
+                    -- Fallback: estimate current index based on cur_time
+                    if not current_idx then
+                        for idx, line in ipairs(sorted_lines) do
+                            if line.t1 >= cur_time then
+                                current_idx = idx
+                                break
+                            end
+                        end
+                        if not current_idx then
+                            current_idx = #sorted_lines + 1
+                        end
+                    end
+
+                    -- Find next visible region in sorted_lines starting from current_idx + 1 (or current_idx if current_region was nil)
+                    local next_line = nil
+                    local target_idx = current_idx and (current_region and current_idx + 1 or current_idx) or 1
+                    if target_idx >= 1 and target_idx <= #sorted_lines then
+                        next_line = sorted_lines[target_idx]
+                    end
+
+                    if next_line then
+                        reaper.SetEditCurPos(next_line.t1, true, false)
+                        editor_state.last_region_id = next_line.rgn_idx
+                        editor_state.needs_sync = true
+                    end
+                    table.remove(input_queue, i)
+                end
+            end
+        end
+    end
     
     local opt_btn_w = S(30)
     local opt_x = panel_x + panel_w - padding - opt_btn_w
