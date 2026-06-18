@@ -10142,7 +10142,7 @@ local function rebuild_regions()
                 t2 = t2 + 0.001
             end
             
-            local rgn_idx = reaper.AddProjectMarker2(0, true, t1, t2, line.text, -1, col)
+            local rgn_idx = reaper.AddProjectMarker2(0, true, t1, t2, line.text, line.index, col)
             line.rgn_idx = rgn_idx
             
             last_t1, last_t2, last_text = t1, t2, line.text
@@ -33710,7 +33710,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         local has_changes = (editor_state.input.text ~= editor_state.original_text)
         local is_empty = (editor_state.input.text == "")
         local save_col = is_disabled and UI.C_TAB_INA or (is_creating and UI.C_ACCENT_G or (has_changes and UI.C_BTN_UPDATE or UI.C_BTN))
-        local save_label = is_editing and T("UPDATE") .. " (#" .. editor_state.last_region_id .. ")" or (is_disabled and T("NOT_IN_REGION") or T("CREATE"))
+        local save_label = is_editing and T("UPDATE") .. " [" .. (editor_state and editor_state.last_region_id or -1) .. "]" or (is_disabled and T("NOT_IN_REGION") or T("CREATE"))
 
         if is_editing and is_empty then
             save_label = T("DELETE")
