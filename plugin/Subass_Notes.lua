@@ -782,7 +782,7 @@ local I18N = {
     ADD_NEW_PRESET = { en = "Add a new custom preset", ua = "Додати новий пресет" },
     UPDATE = { en = "Update", ua = "Оновити" },
     CREATE = { en = "Create", ua = "Створити" },
-    NOT_IN_REGION = { en = "Not in region", ua = "Не в регіоні" },
+    NOT_IN_REGION = { en = "Not in region\n(clear)", ua = "Не в регіоні\n(очистити)" },
     SELECT_AND_GO_REGION = { en = "Select and go to the region...", ua = "Виділіть та перейдіть до регіону..." },
     EDITION_THE_LINE = { en = "Editing the line...", ua = "Редагування репліки.." },
     COPY_ALL_RETAKES_TO_CB = { en = "Copy all retakes to the clipboard", ua = "Копіювати всі правки в буфер" },
@@ -33593,7 +33593,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         local has_changes = (editor_state.input.text ~= editor_state.original_text)
         local is_empty = (editor_state.input.text == "")
         local save_col = is_disabled and UI.C_TAB_INA or (is_creating and UI.C_ACCENT_G or (has_changes and UI.C_BTN_UPDATE or UI.C_BTN))
-        local save_label = is_editing and T("UPDATE") or (is_disabled and T("NOT_IN_REGION") or T("CREATE"))
+        local save_label = is_editing and T("UPDATE") .. " (#" .. editor_state.last_region_id .. ")" or (is_disabled and T("NOT_IN_REGION") or T("CREATE"))
 
         if is_editing and is_empty then
             save_label = T("DELETE")
