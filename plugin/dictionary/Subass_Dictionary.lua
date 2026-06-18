@@ -1,5 +1,5 @@
 -- @description Subass Dictionary
--- @version 2.1
+-- @version 2.2
 -- @author Fusion
 -- @about Dictionary of slang, idioms and terminology for dubbing.
 
@@ -149,6 +149,7 @@ local translations = {
         cut_count_lbl     = "Вирізати (%d)",
         auto_sub_suffix   = " (Авто)",
         cat_dialect       = "Діалектизми / Говірка",
+        cat_feminitives   = "Фемінітиви",
         cat_assimilation  = "Асиміляція",
         cat_declensions   = "Відмінки",
         cat_slang         = "Лайка / Сленг",
@@ -275,6 +276,7 @@ local translations = {
         cut_count_lbl     = "Cut (%d)",
         auto_sub_suffix   = " (Auto)",
         cat_dialect       = "Dialectisms",
+        cat_feminitives   = "Feminitives",
         cat_assimilation  = "Assimilation",
         cat_declensions   = "Declensions",
         cat_slang         = "Slang",
@@ -293,6 +295,7 @@ local function translate_category(name)
     if name == "Відмінки" then return T("cat_declensions") end
     if name == "Лайка / Сленг" then return T("cat_slang") end
     if name == "Фразеологізми" then return T("cat_idioms") end
+    if name == "Фемінітиви" then return T("cat_feminitives") end
     return name
 end
 
