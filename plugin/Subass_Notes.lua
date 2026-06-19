@@ -19499,9 +19499,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                 return
             end
         
-            if is_editing_existing and current_item then
-                push_undo("Edit Subass Text Item")
-                
+            if is_editing_existing and current_item then                
                 -- Зберігаємо позицію та довжину старого item
                 local item_pos = reaper.GetMediaItemInfo_Value(current_item, "D_POSITION")
                 local item_len = reaper.GetMediaItemInfo_Value(current_item, "D_LENGTH")
@@ -19535,7 +19533,6 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
                 
             elseif can_create_new then
                 -- Створюємо новий item з виділення
-                push_undo("Create Subass Text Item")
                 if create_text_item_from_selection(new_text) then
                     show_snackbar(T("TRACK_CREATED"), "success")
                     -- Оновлюємо стан після створення
