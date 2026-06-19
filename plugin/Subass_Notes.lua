@@ -981,7 +981,7 @@ local I18N = {
     DISPLAY_DC_CONFLICTS = { en = "Display Dubber-Character (Actor) Conflicts", ua = "Відображати конфлікти Дабер-Персонаж" },
     DISPLAY_DC_CONFLICTS_TIP = { en = "Show conflicts between different actors/characters played by the same voice actor (overlaps and short pauses) in the ‘Dubber’ column", ua = "Показувати конфлікти між різними акторами/персонажами одного дабера (накладки та тісні паузи) у колонці 'Дабер'" },
     TABLE_SCROLL_PAGE = { en = "Page-based table auto-scroll", ua = "Сторінковий автоскрол таблиці" },
-    TABLE_SCROLL_PAGE_TIP = { en = "If enabled, auto-scroll moves the active row to the top of the table when it goes out of view, instead of centering it.", ua = "Якщо увімкнено, автоскрол поміщає активний рядок на початок таблиці, коли він виходить за межі видимості, замість центрування." },
+    TABLE_SCROLL_PAGE_TIP = { en = "If enabled, auto-scroll shifts the table in page jumps when the active row goes out of view, keep one row context visible.", ua = "Якщо увімкнено, автоскрол прокручує список сторінками, коли активний рядок виходить за межі видимості, залишає один рядок для контексту." },
     PAUSE_THRESHOLD_ST = { en = "Pause threshold: %.1fs", ua = "Поріг паузи: %.1fс" },
     PAUSE_THRESHOLD_ST_TIP = { en = "If the pause between lines spoken by the same voice actor (but for different characters) is shorter than this threshold, they are considered a conflict", ua = "Якщо пауза між репліками одного дабера (але різних персонажів) менша за цей поріг, то вони вважаються конфліктом" },
     RECORDING_A_TRIM = { en = "RECORDING AND AUTO-TRIM", ua = "ЗАПИС ТА АВТО-ПІДРІЗАННЯ" },
@@ -35393,7 +35393,23 @@ function DRAW_TABS.draw_table(input_queue)
                 if table_layout_cache[i] then
                     local layout = table_layout_cache[i]
                     if cfg.table_scroll_page then
-                        UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y))
+                        local top_bound = layout.y
+                        if i > 1 and table_layout_cache[i - 1] then
+                            top_bound = table_layout_cache[i - 1].y
+                        end
+                        local bottom_bound = layout.y + layout.h
+                        if i < #data_source and table_layout_cache[i + 1] then
+                            bottom_bound = table_layout_cache[i + 1].y + table_layout_cache[i + 1].h
+                        end
+
+                        local is_outside = (top_bound < UI_STATE.target_scroll_y) or (bottom_bound > UI_STATE.target_scroll_y + avail_h)
+                        if is_outside then
+                            local target_y = layout.y
+                            if i > 1 and table_layout_cache[i - 1] then
+                                target_y = table_layout_cache[i - 1].y
+                            end
+                            UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, target_y))
+                        end
                     else
                         UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
                     end
@@ -35444,9 +35460,22 @@ function DRAW_TABS.draw_table(input_queue)
         if active_line_idx and table_layout_cache[active_line_idx] then
             local layout = table_layout_cache[active_line_idx]
             if cfg.table_scroll_page then
-                local is_outside = (layout.y < UI_STATE.target_scroll_y) or (layout.y + layout.h > UI_STATE.target_scroll_y + avail_h)
+                local top_bound = layout.y
+                if active_line_idx > 1 and table_layout_cache[active_line_idx - 1] then
+                    top_bound = table_layout_cache[active_line_idx - 1].y
+                end
+                local bottom_bound = layout.y + layout.h
+                if active_line_idx < #data_source and table_layout_cache[active_line_idx + 1] then
+                    bottom_bound = table_layout_cache[active_line_idx + 1].y + table_layout_cache[active_line_idx + 1].h
+                end
+
+                local is_outside = (top_bound < UI_STATE.target_scroll_y) or (bottom_bound > UI_STATE.target_scroll_y + avail_h)
                 if is_outside then
-                    UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y))
+                    local target_y = layout.y
+                    if active_line_idx > 1 and table_layout_cache[active_line_idx - 1] then
+                        target_y = table_layout_cache[active_line_idx - 1].y
+                    end
+                    UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, target_y))
                 end
             else
                 -- Center the line
