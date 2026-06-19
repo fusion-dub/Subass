@@ -27351,7 +27351,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
         
         -- 6. Attempts
         local num_regions = (regions and #regions > 0) and #regions or 1
-        local attempts = takes / num_regions
+        local attempts = takes / (num_regions * (progress/100))
         local attempts_txt = string.format(T("ATTEMPTS_IDLE"), attempts)
         local spw, sph = gfx.measurestr(attempts_txt)
         gfx.x, gfx.y = cx - spw/2, pb_y + pb_h + S(18)
