@@ -84,6 +84,7 @@ local cfg = {
     p_font = get_set("p_font", "Arial"),
     show_dubber_conflicts = (get_set("show_dubber_conflicts", "1") == "1" or get_set("show_dubber_conflicts", 1) == 1),
     dubber_conflict_threshold = tonumber(get_set("dubber_conflict_threshold", 5.0)) or 5.0,
+    table_scroll_page = (get_set("table_scroll_page", "1") == "1" or get_set("table_scroll_page", 1) == 1),
     p_info = (get_set("p_info", "1") == "1" or get_set("p_info", 1) == 1),
     p_progress = (get_set("p_progress", "1") == "1" or get_set("p_progress", 1) == 1),
     p_always_show_left = (get_set("p_always_show_left", "1") == "1" or get_set("p_always_show_left", 1) == 1),
@@ -979,6 +980,8 @@ local I18N = {
     LINE_FONT_SIZE = { en = "Line font size:", ua = "Розмір шрифту рядків:" },
     DISPLAY_DC_CONFLICTS = { en = "Display Dubber-Character (Actor) Conflicts", ua = "Відображати конфлікти Дабер-Персонаж" },
     DISPLAY_DC_CONFLICTS_TIP = { en = "Show conflicts between different actors/characters played by the same voice actor (overlaps and short pauses) in the ‘Dubber’ column", ua = "Показувати конфлікти між різними акторами/персонажами одного дабера (накладки та тісні паузи) у колонці 'Дабер'" },
+    TABLE_SCROLL_PAGE = { en = "Page-based table auto-scroll", ua = "Сторінковий автоскрол таблиці" },
+    TABLE_SCROLL_PAGE_TIP = { en = "If enabled, auto-scroll moves the active row to the top of the table when it goes out of view, instead of centering it.", ua = "Якщо увімкнено, автоскрол поміщає активний рядок на початок таблиці, коли він виходить за межі видимості, замість центрування." },
     PAUSE_THRESHOLD_ST = { en = "Pause threshold: %.1fs", ua = "Поріг паузи: %.1fс" },
     PAUSE_THRESHOLD_ST_TIP = { en = "If the pause between lines spoken by the same voice actor (but for different characters) is shorter than this threshold, they are considered a conflict", ua = "Якщо пауза між репліками одного дабера (але різних персонажів) менша за цей поріг, то вони вважаються конфліктом" },
     RECORDING_A_TRIM = { en = "RECORDING AND AUTO-TRIM", ua = "ЗАПИС ТА АВТО-ПІДРІЗАННЯ" },
@@ -4183,6 +4186,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "t_r_size", cfg.t_r_size, true)
     reaper.SetExtState(section_name, "show_dubber_conflicts", cfg.show_dubber_conflicts and "1" or "0", true)
     reaper.SetExtState(section_name, "dubber_conflict_threshold", tostring(cfg.dubber_conflict_threshold), true)
+    reaper.SetExtState(section_name, "table_scroll_page", cfg.table_scroll_page and "1" or "0", true)
 
     reaper.SetExtState(section_name, "t_editor_size", cfg.t_editor_size, true)
     reaper.SetExtState(section_name, "t_corr_size", cfg.t_corr_size, true)
@@ -29669,6 +29673,12 @@ function DRAW_TABS.draw_settings()
     s_section(y_cursor, T("TABLE"))
     y_cursor = y_cursor + S(35)
 
+    if checkbox(x_start, y_cursor, T("TABLE_SCROLL_PAGE"), cfg.table_scroll_page, T("TABLE_SCROLL_PAGE_TIP")) then
+        cfg.table_scroll_page = not cfg.table_scroll_page
+        save_settings()
+    end
+    y_cursor = y_cursor + S(45)
+
     s_text(x_start, y_cursor, T("COLOR_OF_A_LINE"))
     y_cursor = y_cursor + S(25)
     y_cursor = y_cursor + draw_color_palette(x_start, {{0.2, 0.9, 0.2}, {1.0, 1.0, 0.0}}, cfg.t_ar_r, cfg.t_ar_g, cfg.t_ar_b, function(r, g, b)
@@ -35382,7 +35392,11 @@ function DRAW_TABS.draw_table(input_queue)
                 -- 2. Scroll
                 if table_layout_cache[i] then
                     local layout = table_layout_cache[i]
-                    UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
+                    if cfg.table_scroll_page then
+                        UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y))
+                    else
+                        UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
+                    end
                 end
                 
                 director_state.pending_scroll_id = nil
@@ -35429,8 +35443,15 @@ function DRAW_TABS.draw_table(input_queue)
         
         if active_line_idx and table_layout_cache[active_line_idx] then
             local layout = table_layout_cache[active_line_idx]
-            -- Center the line
-            UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
+            if cfg.table_scroll_page then
+                local is_outside = (layout.y < UI_STATE.target_scroll_y) or (layout.y + layout.h > UI_STATE.target_scroll_y + avail_h)
+                if is_outside then
+                    UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y))
+                end
+            else
+                -- Center the line
+                UI_STATE.target_scroll_y = math.max(0, math.min(max_scroll, layout.y - (avail_h / 2) + (layout.h / 2)))
+            end
         end
     end
     
