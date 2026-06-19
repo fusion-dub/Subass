@@ -1283,6 +1283,7 @@ local I18N = {
     PASTE = { en = "Paste", ua = "Вставити" },
     CUT = { en = "Cut", ua = "Вирізати" },
     SELECT_ALL = { en = "Select all", ua = "Виділити все" },
+    INSERT_ACCENT_MARK = { en = "Insert accent mark:  ́", ua = "Вставити символ наголосу:  ́" },
     FAST_UA_INPUT = { en = "Quick UA Input:\nAllows you to type in Ukrainian using an English keyboard layout", ua = "Швидкий UA ввід:\nДозволяє писати українською на англійській розкладці клавіатури" },
     TAKES_PROCC_CTI = { en = "Takes processed: ", ua = "Оброблено реплік: " },
     SELECT_1_MORE_T_CTI = { en = "Select one or more actor tracks for analysis.", ua = "Оберіть один або кілька треків акторів для аналізу." },
@@ -17491,7 +17492,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         
         -- Build Dynamic Menu
         local dict_label = has_sel and T("SEARCH_IN_GOROH") or T("FIND_NEW_G_PCX")
-        local menu_items = { T("CUT"), T("COPY"), T("PASTE"), T("SELECT_ALL"), "", dict_label, "", T("VOICE_OVER_M"), T("VOICE_OVER_SAVE_M"), "", T("CHANGE_VOICE_M") }
+        local menu_items = { T("CUT"), T("COPY"), T("PASTE"), T("SELECT_ALL"), "", T("INSERT_ACCENT_MARK"), dict_label, "", T("VOICE_OVER_M"), T("VOICE_OVER_SAVE_M"), "", T("CHANGE_VOICE_M") }
         for _, v_name in ipairs(cfg.tts_voices_order) do
             local check = (v_name == cfg.tts_voice) and "• " or ""
             table.insert(menu_items, check .. (v_name:gsub("|", "||")))
@@ -17503,7 +17504,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             table.insert(menu_items, "")
             table.insert(menu_items, T("SPLIT_REPLICA_BY_CURSOR_EST"))
             table.insert(menu_items, T("SPLIT_REPLICA_BY_CURSOR_PREV"))
-            split_ret_idx = 8 + #cfg.tts_voices_order
+            split_ret_idx = 9 + #cfg.tts_voices_order
         end
         
         local menu_str = table.concat(menu_items, "|")
@@ -17542,6 +17543,18 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             state.anchor = 0
             state.cursor = #state.text
         elseif ret == 5 then
+            -- Insert accent mark: ́ (insert after the last selected character if there is a selection, otherwise at cursor)
+            local accent = "́"
+            if has_sel then
+                state.text = state.text:sub(1, sel_max) .. accent .. state.text:sub(sel_max + 1)
+                state.cursor = sel_max + #accent
+            else
+                state.text = state.text:sub(1, state.cursor) .. accent .. state.text:sub(state.cursor + 1)
+                state.cursor = state.cursor + #accent
+            end
+            state.anchor = state.cursor
+            record_field_history(state)
+        elseif ret == 6 then
             -- Search in GOROH
             if has_sel then
                 local target = state.text:sub(sel_min + 1, sel_max)
@@ -17554,7 +17567,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                     trigger_dictionary_lookup(input)
                 end
             end
-        elseif ret == 6 or ret == 7 then
+        elseif ret == 7 or ret == 8 then
             -- Speak (Озвучити) / Speak & Save
             local text_to_speak = ""
             if not has_sel then
@@ -17567,11 +17580,11 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             end
 
             if text_to_speak ~= "" then
-                play_tts_audio(text_to_speak, ret == 7)
+                play_tts_audio(text_to_speak, ret == 8)
             end
-        elseif ret >= 8 and ret < 8 + #cfg.tts_voices_order then
+        elseif ret >= 9 and ret < 9 + #cfg.tts_voices_order then
             -- Change TTS Voice
-            cfg.tts_voice = cfg.tts_voices_order[ret - 7]
+            cfg.tts_voice = cfg.tts_voices_order[ret - 8]
             save_settings()
             show_snackbar(T("VOICE_HB_CHANGED_TO") .. cfg.tts_voice)
         elseif split_ret_idx and ret == split_ret_idx then
