@@ -17489,7 +17489,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
         local sel_min, sel_max = math.min(state.cursor, state.anchor), math.max(state.cursor, state.anchor)
         local has_sel = sel_min ~= sel_max
-        
+
         -- Build Dynamic Menu
         local dict_label = has_sel and T("SEARCH_IN_GOROH") or T("FIND_NEW_G_PCX")
         local menu_items = { T("CUT"), T("COPY"), T("PASTE"), T("SELECT_ALL"), "", T("INSERT_ACCENT_MARK"), dict_label, "", T("VOICE_OVER_M"), T("VOICE_OVER_SAVE_M"), "", T("CHANGE_VOICE_M") }
@@ -17585,7 +17585,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         elseif ret >= 9 and ret < 9 + #cfg.tts_voices_order then
             -- Change TTS Voice
             cfg.tts_voice = cfg.tts_voices_order[ret - 8]
-            save_settings()
+            reaper.SetExtState(section_name, "tts_voice", cfg.tts_voice, true)
             show_snackbar(T("VOICE_HB_CHANGED_TO") .. cfg.tts_voice)
         elseif split_ret_idx and ret == split_ret_idx then
             local line_ref = editor_state.last_line_data
@@ -34975,7 +34975,7 @@ function DRAW_TABS.draw_table(input_queue)
 
                 -- Navigation: Up (30064), Down (1685026670)
                 if key == 30064 or key == 1685026670 then
-                    local ds = ass_lines
+                    local ds = table_data_cache.list or {}
                     local curr_idx = 0
                     
                     -- Find last selected index
