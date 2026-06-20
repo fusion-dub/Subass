@@ -37932,12 +37932,30 @@ local function main()
                 gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                 local dock_state = gfx.dock(-1)
                 local check = (dock_state > 0) and "!" or ""
-                local ret = gfx.showmenu(check .. T("DOCK_THE_WINDOW"))
-                if ret == 1 then
-                    local target_dock = dock_state > 0 and 0 or (GL.last_dock_id or 1)
-                    gfx.dock(target_dock)
-                    GL.last_dock_state = gfx.dock(-1) -- Get the actual new index
-                    save_settings()
+                
+                local menu_str = check .. T("DOCK_THE_WINDOW")
+                local has_paste = (UI_STATE.current_tab == 2)
+                if has_paste then
+                    menu_str = T("PASTE") .. "||" .. menu_str
+                end
+                
+                local ret = gfx.showmenu(menu_str)
+                if has_paste then
+                    if ret == 1 then
+                        UTILS.paste_dialogue_from_clipboard()
+                    elseif ret == 2 then
+                        local target_dock = dock_state > 0 and 0 or (GL.last_dock_id or 1)
+                        gfx.dock(target_dock)
+                        GL.last_dock_state = gfx.dock(-1) -- Get the actual new index
+                        save_settings()
+                    end
+                else
+                    if ret == 1 then
+                        local target_dock = dock_state > 0 and 0 or (GL.last_dock_id or 1)
+                        gfx.dock(target_dock)
+                        GL.last_dock_state = gfx.dock(-1) -- Get the actual new index
+                        save_settings()
+                    end
                 end
             end
         end
