@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 8.1
+-- @version 8.2
 -- @author Fusion
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v8.1",
+    script_title = "Subass Notes v8.2",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -35138,6 +35138,12 @@ function DRAW_TABS.draw_table(input_queue)
                 -- Ctrl+C (Copy Selected Rows in ASS Format)
                 if key == 3 then
                     copy_selected_rows_to_clipboard()
+                end
+
+                -- Ctrl+X (Cut Selected Rows: Copy and then Delete)
+                if key == 24 then
+                    copy_selected_rows_to_clipboard()
+                    UTILS.delete_logic()
                 end
 
                 -- Ctrl+V (Paste ASS Dialogue lines from Clipboard)
