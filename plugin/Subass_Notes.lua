@@ -30921,7 +30921,7 @@ function UTILS.paste_dialogue_from_clipboard()
         
         editor_state.last_region_id = -1
         table_data_cache.state_count = -1 -- Force table refresh
-        UI_STATE._markers_is_dirty = false
+        UI_STATE._markers_is_dirty = true
         
         -- Show snackbar with details
         local msg = ""
@@ -32805,7 +32805,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             table.sort(sorted_lines, function(a, b)
                 if math.abs(a.t1 - b.t1) < 0.001 then
                     if math.abs(a.t2 - b.t2) < 0.001 then
-                        return (a.rgn_idx or 0) < (b.rgn_idx or 0)
+                        return (a.index or 0) < (b.index or 0)
                     else
                         return a.t2 < b.t2
                     end
@@ -32821,7 +32821,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     local current_idx = nil
                     if editor_state.last_region_id and editor_state.last_region_id ~= -1 then
                         for idx, line in ipairs(sorted_lines) do
-                            if line.rgn_idx == editor_state.last_region_id then
+                            if line.rgn_idx == editor_state.last_region_id or line.index == editor_state.last_region_id then
                                 current_idx = idx
                                 break
                             end
@@ -32852,6 +32852,9 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                         reaper.SetEditCurPos(prev_line.t1, true, false)
                         editor_state.last_region_id = prev_line.rgn_idx
                         editor_state.needs_sync = true
+
+                        table_selection = {}
+                        table_selection[prev_line.index] = true
                     end
                     table.remove(input_queue, i)
                 elseif char == 1919379572 or char == 62 then
@@ -32859,7 +32862,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     local current_idx = nil
                     if editor_state.last_region_id and editor_state.last_region_id ~= -1 then
                         for idx, line in ipairs(sorted_lines) do
-                            if line.rgn_idx == editor_state.last_region_id then
+                            if line.rgn_idx == editor_state.last_region_id or line.index == editor_state.last_region_id then
                                 current_idx = idx
                                 break
                             end
@@ -32890,6 +32893,9 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                         reaper.SetEditCurPos(next_line.t1, true, false)
                         editor_state.last_region_id = next_line.rgn_idx
                         editor_state.needs_sync = true
+
+                        table_selection = {}
+                        table_selection[next_line.index] = true
                     end
                     table.remove(input_queue, i)
                 end
