@@ -35014,6 +35014,84 @@ function DRAW_TABS.draw_table(input_queue)
                         end
                     end
                 end
+                if not cfg.editor_mode and (key == 1818584692 or key == 1919379572 or key == 60 or key == 62) then
+                    local ds = table_data_cache.list or {}
+                    local curr_idx = 0
+                    for i, l in ipairs(ds) do
+                        local original_idx = l.index or i
+                        if table_selection[original_idx] then
+                            curr_idx = i
+                            break
+                        end
+                    end
+                    if curr_idx == 0 and #ds > 0 then curr_idx = 1 end
+                    
+                    local new_idx = curr_idx
+                    if key == 1818584692 or key == 60 then
+                        new_idx = new_idx - 1
+                    else
+                        new_idx = new_idx + 1
+                    end
+                    
+                    -- Clamp
+                    if new_idx < 1 then new_idx = 1 end
+                    if new_idx > #ds then new_idx = #ds end
+                    
+                    -- Apply Selection & Navigate
+                    local item = ds[new_idx]
+                    if item then
+                        table_selection = {}
+                        table_selection[item.index or new_idx] = true
+                        last_selected_row = new_idx
+                        UI_STATE.last_tracked_pos = item.t1
+                        last_auto_scroll_idx = new_idx
+                        reaper.SetEditCurPos(item.t1, true, false)
+                        
+                        -- Auto-Scroll (Dynamic)
+                        local layout = table_layout_cache[new_idx]
+                        if layout then
+                            local item_y = layout.y
+                            local row_h_local = layout.h
+                            local view_h = gfx.h - S(110)
+                            
+                            if item_y < UI_STATE.target_scroll_y then
+                                UI_STATE.target_scroll_y = item_y
+                            elseif item_y + row_h_local > UI_STATE.target_scroll_y + view_h then
+                                UI_STATE.target_scroll_y = item_y + row_h_local - view_h
+                            end
+                        end
+                    end
+                end
+
+                -- Enter Key (13) -> Activate selected replica if editor mode is closed
+                if not cfg.editor_mode and not cfg.director_mode and key == 13 then
+                    local sel_count = 0
+                    local target_idx = nil
+                    for idx, _ in pairs(table_selection) do
+                        sel_count = sel_count + 1
+                        target_idx = idx
+                    end
+                    
+                    if sel_count == 1 and target_idx then
+                        local ds = table_data_cache.list or {}
+                        local item = nil
+                        local item_idx = nil
+                        for i, l in ipairs(ds) do
+                            if (l.index or i) == target_idx then
+                                item = l
+                                item_idx = i
+                                break
+                            end
+                        end
+                        if item then
+                            UI_STATE.last_tracked_pos = item.t1
+                            if item_idx then
+                                last_auto_scroll_idx = item_idx
+                            end
+                            reaper.SetEditCurPos(item.t1, true, false)
+                        end
+                    end
+                end
             end
         end
     end
