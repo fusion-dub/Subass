@@ -34723,6 +34723,31 @@ function OTHER.speech_to_text_from_item()
     show_snackbar(T("WHISPER_RUN_START"), "info")
 end
 
+local function copy_selected_rows_to_clipboard()
+    local sel_lines = {}
+    local current_data = table_data_cache.list or {}
+    
+    -- Collect selected lines in visual/current order
+    for _, line in ipairs(current_data) do
+        if table_selection[line.index] then
+            table.insert(sel_lines, line)
+        end
+    end
+    
+    if #sel_lines > 0 then
+        local lines_text = {}
+        for _, l in ipairs(sel_lines) do
+            table.insert(lines_text, UTILS.format_dialogue(l))
+        end
+        
+        local copied_text = table.concat(lines_text, "\n")
+        set_clipboard(copied_text)
+        
+        local count = #sel_lines
+        show_snackbar(T("COPIED") .. " (" .. count .. ")", "success")
+    end
+end
+
 function DRAW_TABS.draw_table(input_queue)
     local show_actor = UI_STATE.ass_file_loaded
     local start_y = S(65)
@@ -35106,28 +35131,7 @@ function DRAW_TABS.draw_table(input_queue)
 
                 -- Ctrl+C (Copy Selected Rows in ASS Format)
                 if key == 3 then
-                    local sel_lines = {}
-                    local current_data = table_data_cache.list or {}
-                    
-                    -- Collect selected lines in visual/current order
-                    for _, line in ipairs(current_data) do
-                        if table_selection[line.index] then
-                            table.insert(sel_lines, line)
-                        end
-                    end
-                    
-                    if #sel_lines > 0 then
-                        local lines_text = {}
-                        for _, l in ipairs(sel_lines) do
-                            table.insert(lines_text, UTILS.format_dialogue(l))
-                        end
-                        
-                        local copied_text = table.concat(lines_text, "\n")
-                        set_clipboard(copied_text)
-                        
-                        local count = #sel_lines
-                        show_snackbar(T("COPIED") .. " (" .. count .. ")", "success")
-                    end
+                    copy_selected_rows_to_clipboard()
                 end
 
                 -- Ctrl+V (Paste ASS Dialogue lines from Clipboard)
@@ -36220,9 +36224,9 @@ function DRAW_TABS.draw_table(input_queue)
                     -- If only markers are selected
                     if ass_count == 0 and marker_count > 0 then
                         if marker_count == 1 then
-                            menu_str = T("COPY_START_TIME") .. "||" .. T("DELETE_RETAKE")
+                            menu_str = T("COPY_START_TIME") .. "|" .. T("COPY") .. "||" .. T("DELETE_RETAKE")
                         else
-                            menu_str = T("DELETE_RETAKES")
+                            menu_str = T("COPY") .. "||" .. T("DELETE_RETAKES")
                         end
                         
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
@@ -36232,21 +36236,27 @@ function DRAW_TABS.draw_table(input_queue)
                                 set_clipboard(line.t1_str)
                                 show_snackbar(T("COPIED") .. ": " .. line.t1_str, "info")
                             elseif ret == 2 then
+                                copy_selected_rows_to_clipboard()
+                            elseif ret == 3 then
                                 UTILS.delete_logic()
                             end
                         else
                             if ret == 1 then
+                                copy_selected_rows_to_clipboard()
+                            elseif ret == 2 then
                                 UTILS.delete_logic()
                             end
                         end
 
                     -- Mixed Selection (Markers + ASS lines)
                     elseif ass_count > 0 and marker_count > 0 then
-                        menu_str = T("DELETE_SELECTED_L_AND_R")
+                        menu_str = T("COPY") .. "||" .. T("DELETE_SELECTED_L_AND_R")
                         
                         gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                         local ret = gfx.showmenu(menu_str)
                         if ret == 1 then
+                            copy_selected_rows_to_clipboard()
+                        elseif ret == 2 then
                             UTILS.delete_logic()
                         end
 
@@ -36303,9 +36313,11 @@ function DRAW_TABS.draw_table(input_queue)
                         
                         if has_single then
                             table.insert(menu_items, T("COPY_START_TIME"))
+                            table.insert(menu_items, T("COPY"))
                             table.insert(menu_items, T("REPEAT_THE_LINE"))
                             table.insert(menu_items, "|" .. T("DELETE_LINE"))
                         else
+                            table.insert(menu_items, T("COPY"))
                             table.insert(menu_items, "|" .. T("DELETE_SELECTED_LINES"))
                         end
                         
@@ -36449,12 +36461,20 @@ function DRAW_TABS.draw_table(input_queue)
                                 set_clipboard(line.t1_str)
                                 show_snackbar(T("COPIED") .. ": " .. line.t1_str, "info")
                             elseif ret == dubber_end_idx + 2 then
-                                UTILS.duplicate_logic(sel_indices[1])
+                                copy_selected_rows_to_clipboard()
                             elseif ret == dubber_end_idx + 3 then
+                                UTILS.duplicate_logic(sel_indices[1])
+                            elseif ret == dubber_end_idx + 4 then
                                 UTILS.delete_logic()
                             end
-                        elseif (has_merge and ret == dubber_end_idx + 2) or (not has_merge and ret == dubber_end_idx + 1) then
-                            UTILS.delete_logic()
+                        else
+                            local copy_idx = has_merge and (dubber_end_idx + 2) or (dubber_end_idx + 1)
+                            local delete_idx = has_merge and (dubber_end_idx + 3) or (dubber_end_idx + 2)
+                            if ret == copy_idx then
+                                copy_selected_rows_to_clipboard()
+                            elseif ret == delete_idx then
+                                UTILS.delete_logic()
+                            end
                         end
                     end -- End of selection type check
                 end
