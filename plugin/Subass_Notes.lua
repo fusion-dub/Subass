@@ -33830,12 +33830,20 @@ function OTHER.AI_generate_prompt(is_dub)
         local line = item.line
         local id = item.sel_idx
         local start_t = format_timestamp(line.t1 or 0)
-        local end_t = format_timestamp(line.t2 or 0)
+        local dur = (line.t2 or 0) - (line.t1 or 0)
+        local cps_str = "0.0"
+        local dur_str = string.format("%.2f", dur)
+        if dur > 0 then
+            local text_to_calc = line.text or ""
+            local clean_text = text_to_calc:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("\n", ""):gsub(" ", ""):gsub(acute, "")
+            local char_count = utf8.len(clean_text) or #clean_text
+            cps_str = string.format("%.1f", char_count / dur)
+        end
         local actor = line.actor or "Unknown"
         -- Replace newlines with spaces to keep each line in the prompt as a single unit
         local text = (line.text or ""):gsub("\n", " "):gsub("\r", "")
         
-        table.insert(selected_lines, string.format("id:%s,start:%s,end:%s,actor:%s,text:%s", id, start_t, end_t, actor, text))
+        table.insert(selected_lines, string.format("id:%s,start:%s,dur:%s,cps:%s,actor:%s,text:%s", id, start_t, dur_str, cps_str, actor, text))
     end
     
     if #selected_lines == 0 then
@@ -33847,10 +33855,10 @@ function OTHER.AI_generate_prompt(is_dub)
 
     if is_dub then
         prompt = cfg.lng == "ua" and [[Ти — професійний перекладач та лінійний продюсер дубляжу. Твоє завдання: адаптувати наданий текст **{{language}}** мовою для максимально точного візуального та змістовного потрапляння в персонажа.
-1. **Ліпсінк (Артикуляція)**: Переклад має максимально відповідати довжині оригіналу та ритміці губ (кількість складів має бути приблизно рівною оригіналу). Звертай особливу увагу на відкриті голосні в кінці фраз та вибухові приголосні, щоб артикуляція виглядала природно. Особливо критичні білабіальні (М, Б, П) — вони мають збігатися з оригіналом за можливості.
+1. **Ліпсінк (Артикуляція) та Темп**: Переклад має максимально відповідати довжині оригіналу та ритміці губ. Використовуй тривалість `dur` (у секундах) та `cps` (символів за секунду для оригінального тексту): якщо `cps` високий (швидкий темп, >15), роби переклад лаконічним; якщо низький (<9) — можна трішки розширити (але якщо контекст дозволяє). Звертай особливу увагу на відкриті голосні в кінці фраз та вибухові приголосні. Особливо критичні білабіальні (М, Б, П) — вони мають збігатися з оригіналом за можливості.
 2. **Логіка та Контекст**: Пріоритет — жива розмовна мова. Уникай буквалізму. Переклад має передавати той самий емоційний підтекст, що і в оригіналі, зберігаючи логічний зв'язок між репліками. Зберігай соціолект персонажа: якщо герой говорить грубо, просторічно або навпаки — офіційно, відтворюй це.
 3. **Сталість звертань та термінології**: Витримуй єдиний стиль звертання (Ти/Ви) між конкретними героями протягом усього фрагмента. Зберігай єдині переклади власних назв, термінів та прізвиськ протягом усього фрагмента.
-4. **Формат даних**: Поверни результат виключно у тому ж форматі, який надано в оригіналі (id:...,start:...,end:...,actor:...,text:...). Не змінюй ID, таймкоди чи імена персонажів.
+4. **Формат даних**: Поверни результат виключно у тому ж форматі, який надано в оригіналі (id:...,start:...,dur:...,cps:...,actor:...,text:...). Не змінюй ID, таймкоди, тривалість, CPS чи імена персонажів.
 5. **Контекстуальна цілісність**: Забезпеч логічний зв'язок між репліками. Враховуй, що попередня фраза (id:1) визначає тон та зміст наступної (id:2).
 6. **Суворі обмеження**: Не додавай жодних вступних чи підсумкових фраз.
  - Тільки "сирі" дані.
@@ -33860,10 +33868,10 @@ function OTHER.AI_generate_prompt(is_dub)
 
 **Оригінал для перекладу**:
 ]] or [[You are a professional translator and dubbing line producer. Your task is to adapt the provided text into **{{language}}** so that it matches the character’s visual and contextual nuances as closely as possible.
-1. **Lip-sync (Articulation)**: The translation should match the length of the original and the lip rhythm as closely as possible (the number of syllables should be approximately equal to the original). Pay special attention to open vowels at the end of phrases and plosive consonants to ensure natural-sounding articulation. Bilabials (M, B, P) are particularly critical—they should match the original whenever possible.
+1. **Lip-sync (Articulation) and Tempo**: The translation should match the length of the original and the lip rhythm as closely as possible. Use the duration `dur` (in seconds) and `cps` (characters per second of the original text): if `cps` is high (fast tempo >15), make the translation concise; if low (<9), you can expand it a litle (only if context allow). Pay special attention to open vowels at the end of phrases and plosive consonants. Bilabials (M, B, P) are particularly critical—they should match the original whenever possible.
 2. **Logic and Context**: Prioritize natural, conversational language. Avoid literalism. The translation should convey the same emotional undertones as the original while maintaining the logical flow between lines. Maintain the character’s sociolect: if a character speaks rudely, colloquially, or, conversely, formally, reflect that.
 3. **Consistency in Address and Terminology**: Maintain a consistent style of address between specific characters throughout the entire fragment. Maintain consistent translations of proper nouns, terms, and nicknames throughout the entire fragment.
-4. **Data format**: Return the result exclusively in the same format as provided in the original (id:...,start:...,end:...,actor:...,text:...). Do not change IDs, timecodes, or actor names.
+4. **Data format**: Return the result exclusively in the same format as provided in the original (id:...,start:...,dur:...,cps:...,actor:...,text:...). Do not change IDs, timecodes, durations, CPS, or actor names.
 5. **Contextual integrity**: Ensure a logical connection between lines. Keep in mind that the previous phrase (id:1) sets the tone and context for the next one (id:2).
 6. **Strict restrictions**: Do not add any introductory or concluding phrases.
  - Only “raw” data.
@@ -33877,8 +33885,8 @@ function OTHER.AI_generate_prompt(is_dub)
         prompt = cfg.lng == "ua" and [[Ти — професійний перекладач та спеціаліст з адаптації контенту для закадрового озвучення (Voice-over). Твоє завдання: створити текст, який максимально точно передає зміст, емоційне забарвлення та контекст оригіналу, не обмежуючись вимогами ліпсінку.
 1. **Пріоритет сенсу над формою**: Головна мета — передати контекст та підтекст. Переклад має бути художнім та природним для **{{language}}** вуха. Відходь від кількості складів оригіналу на користь влучних **{{language}}** відповідників та ідіом.
 2. **Природність мовлення**: Текст має звучати як жива мова, а не механічний переклад. Уникай кальки. Якщо фраза в оригіналі має специфічне культурне значення — адаптуй її. Зберігай соціолект персонажа: якщо герой говорить грубо, просторічно або навпаки — офіційно, відтворюй це.
-3. **Таймінг**: Хоча ліпсінк не потрібен, фраза має вкладатися в часовий проміжок (start/end). Краще скоротити фразу, ніж подовжити — актор може тримати паузу, але не може прискорити темп понад природний.
-4. **Формат даних**: Поверни результат виключно у тому ж форматі, який надано в оригіналі (id:...,start:...,end:...,actor:...,text:...). Не змінюй ID, таймкоди чи імена персонажів.
+3. **Таймінг та Темп**: Фраза має вкладатися в часовий проміжок `dur` секунд. Використовуй `cps` (символів на секунду), щоб зрозуміти темп оригінальної мови. Краще скоротити фразу, ніж подовжити — актор може тримати паузу, але не може прискорити темп понад природний.
+4. **Формат даних**: Поверни результат виключно у тому ж форматі, який надано в оригіналі (id:...,start:...,dur:...,cps:...,actor:...,text:...). Не змінюй ID, таймкоди, тривалість, CPS чи імена персонажів.
 5. **Контекстуальна цілісність**: Забезпеч логічний зв'язок між репліками. Враховуй, що попередня фраза (id:1) визначає тон та зміст наступної (id:2).
 6. **Сталість звертань та термінології**: Витримуй єдиний стиль звертання (Ти/Ви) між конкретними героями протягом усього фрагмента. Зберігай єдині переклади власних назв, термінів та прізвиськ протягом усього фрагмента.
 7. **Суворі обмеження**: Не додавай жодних вступних чи підсумкових фраз.
@@ -33891,8 +33899,8 @@ function OTHER.AI_generate_prompt(is_dub)
 ]] or [[You are a professional translator and specialist in adapting content for voice-over. Your task is to create a text that conveys the meaning, emotional tone, and context of the original as accurately as possible, without being limited by lip-sync requirements.
 1. **Prioritize meaning over form**: The main goal is to convey context and subtext. The translation should be artistic and sound natural to a **{{language}}** ear. Focus on finding apt **{{language}}** equivalents and idioms rather than matching the number of syllables in the original.
 2. **Natural speech**: The text should sound like spoken language, not a mechanical translation. Avoid literal translations. If a phrase in the original has a specific cultural meaning—adapt it. Preserve the character’s sociolect: if the character speaks crudely, colloquially, or, conversely, formally, reflect that.
-3. **Timing**: Although lip-syncing isn’t required, the phrase must fit within the specified time frame (start/end). It’s better to shorten the phrase than to lengthen it—the actor may pause, but must not speed up the pace beyond what sounds natural.
-4. **Data Format**: Return the result exclusively in the same format as provided in the original (id:...,start:...,end:...,actor:...,text:...). Do not change IDs, timecodes, or character names.
+3. **Timing and Tempo**: The phrase must fit within the time frame of `dur` seconds. Use `cps` (characters per second) to understand the tempo of the original speech. It’s better to shorten the phrase than to lengthen it—the actor may pause, but must not speed up the pace beyond what sounds natural.
+4. **Data Format**: Return the result exclusively in the same format as provided in the original (id:...,start:...,dur:...,cps:...,actor:...,text:...). Do not change IDs, timecodes, durations, CPS, or character names.
 5. **Contextual Integrity**: Ensure a logical connection between lines. Keep in mind that the previous phrase (id:1) sets the tone and context for the next one (id:2).
 6. **Consistency in forms of address and terminology**: Maintain a consistent form of address between specific characters throughout the entire excerpt. Maintain consistent translations of proper nouns, terms, and nicknames throughout the entire excerpt.
 7. **Strict restrictions**: Do not add any introductory or concluding phrases.
