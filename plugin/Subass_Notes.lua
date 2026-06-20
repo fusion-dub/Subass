@@ -738,6 +738,8 @@ local I18N = {
     AI_INSERT_RESULT = { en = "Insert the AI result", ua = "Вставити результат ШІ" },
     D_LINES_UPDATED = { en = "%d lines updated", ua = "Оновлено %d реплік" },
     AI_NO_ID_FOUND = { en = "No matches found by IDs", ua = "Не знайдено жодної відповідності по ID" },
+    IMPORT_FROM_CLIPBOARD = { en = "Import from Clipboard", ua = "Імпорт з буфера обміну" },
+    PASTED = { en = "Pasted", ua = "Вставлено" },
     PROMPT_LANGUAGE = { en = "English", ua = "Українська" },
     DOCK_BOTTOM = { en = "Dock the window at the bottom", ua = "Прикріпити вікно знизу" },
     DOCK_RIGHT = { en = "Dock the window on the right", ua = "Прикріпити вікно праворуч" },
@@ -5568,6 +5570,53 @@ function ACHIEVEMENTS.draw_ach_snackbar()
     gfx.x = snack_x + padding
     gfx.y = snack_y + padding / 2
     gfx.drawstr(ACHIEVEMENTS.ach_snackbar_state.text)
+end
+
+--- Форматування часу в ASS формат (h:mm:ss.cs)
+--- @param secs number Час в секундах
+--- @return string Форматований час
+function UTILS.fmt_time_ass(secs)
+    local h = math.floor(secs / 3600)
+    local m = math.floor((secs % 3600) / 60)
+    local s = math.floor(secs % 60)
+    local ms = math.floor((secs % 1) * 100 + 0.5) % 100
+    return string.format("%d:%02d:%02d.%02d", h, m, s, ms)
+end
+
+--- Форматування об'єкта репліки в Dialogue рядок для ASS файлу
+--- @param l table Об'єкт репліки
+--- @return string Сформований рядок Dialogue
+function UTILS.format_dialogue(l)
+    if not ASS.ass_format_order or #ASS.ass_format_order == 0 then
+        -- Default fallback
+        local txt = l.text or ""
+        local text = txt:gsub("\r\n", "\n"):gsub("\n", "\\N")
+        return string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s", 
+            UTILS.fmt_time_ass(l.t1), UTILS.fmt_time_ass(l.t2), l.actor or "Default", text)
+    end
+    
+    local fields = {}
+    for _, field in ipairs(ASS.ass_format_order) do
+        local val = ""
+        if field == "Start" then
+            val = UTILS.fmt_time_ass(l.t1)
+        elseif field == "End" then
+            val = UTILS.fmt_time_ass(l.t2)
+        elseif field == "Text" then
+            local txt = l.text or ""
+            val = txt:gsub("\r\n", "\n"):gsub("\n", "\\N")
+        elseif field == "Name" or field == "Actor" then
+            val = l.actor or "Default"
+        elseif field == "Style" then
+            val = (l.metadata and l.metadata[field]) or "Default"
+        elseif field == "Effect" then
+            val = (l.metadata and l.metadata[field]) or ""
+        else
+            val = (l.metadata and l.metadata[field]) or "0"
+        end
+        table.insert(fields, val)
+    end
+    return "Dialogue: " .. table.concat(fields, ",")
 end
 
 --- Підготовка даних для експорту субтитрів (фільтрація, сортування, генерація імені файлу)
@@ -13460,47 +13509,6 @@ function DUBBERS.export_as_ass(deadline_str)
             return
         end
 
-        local function fmt_time_ass(secs)
-            local h = math.floor(secs / 3600)
-            local m = math.floor((secs % 3600) / 60)
-            local s = math.floor(secs % 60)
-            local ms = math.floor((secs % 1) * 100 + 0.5) % 100
-            return string.format("%d:%02d:%02d.%02d", h, m, s, ms)
-        end
-
-        local function format_dialogue(l)
-            if not ASS.ass_format_order or #ASS.ass_format_order == 0 then
-                -- Default fallback
-                local txt = l.text or ""
-                local text = txt:gsub("\r\n", "\n"):gsub("\n", "\\N")
-                return string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s", 
-                    fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text)
-            end
-            
-            local fields = {}
-            for _, field in ipairs(ASS.ass_format_order) do
-                local val = ""
-                if field == "Start" then
-                    val = fmt_time_ass(l.t1)
-                elseif field == "End" then
-                    val = fmt_time_ass(l.t2)
-                elseif field == "Text" then
-                    local txt = l.text or ""
-                    val = txt:gsub("\r\n", "\n"):gsub("\n", "\\N")
-                elseif field == "Name" or field == "Actor" then
-                    val = l.actor or "Default"
-                elseif field == "Style" then
-                    val = (l.metadata and l.metadata[field]) or "Default"
-                elseif field == "Effect" then
-                    val = (l.metadata and l.metadata[field]) or ""
-                else
-                    val = (l.metadata and l.metadata[field]) or "0"
-                end
-                table.insert(fields, val)
-            end
-            return "Dialogue: " .. table.concat(fields, ",")
-        end
-
         if ASS.ass_header_order and #ASS.ass_header_order > 0 then
             for _, section_name in ipairs(ASS.ass_header_order) do
                 local lines = ASS.ass_header_sections[section_name]
@@ -13512,11 +13520,11 @@ function DUBBERS.export_as_ass(deadline_str)
                 
                 if section_name == "Events" then
                     -- Metadata Line
-                    file:write(format_dialogue({
+                    file:write(UTILS.format_dialogue({
                         t1 = 0, t2 = 0, actor = "SubassMetadata", text = json_meta, enabled = true
                     }) .. "\n")
                     if json_dicts then
-                        file:write(format_dialogue({
+                        file:write(UTILS.format_dialogue({
                             t1 = 0, t2 = 0, actor = "SubassDict", text = json_dicts, enabled = true
                         }) .. "\n")
                     end
@@ -13527,7 +13535,7 @@ function DUBBERS.export_as_ass(deadline_str)
                     table.sort(out_lines, function(a, b) return (a.index or 0) < (b.index or 0) end)
                     
                     for _, l in ipairs(out_lines) do
-                        file:write(format_dialogue(l) .. "\n")
+                        file:write(UTILS.format_dialogue(l) .. "\n")
                         export_count = export_count + 1
                     end
                 end
@@ -13548,7 +13556,7 @@ function DUBBERS.export_as_ass(deadline_str)
             -- Strict sort by index to preserve original file order and layering
             table.sort(out_lines, function(a, b) return (a.index or 0) < (b.index or 0) end)
             for _, l in ipairs(out_lines) do
-                file:write(format_dialogue(l) .. "\n")
+                file:write(UTILS.format_dialogue(l) .. "\n")
                 export_count = export_count + 1
             end
         end
@@ -14659,44 +14667,6 @@ local function export_as_ass()
             return
         end
 
-        local function fmt_time_ass(secs)
-            local h = math.floor(secs / 3600)
-            local m = math.floor((secs % 3600) / 60)
-            local s = math.floor(secs % 60)
-            local ms = math.floor((secs % 1) * 100 + 0.5) % 100
-            return string.format("%d:%02d:%02d.%02d", h, m, s, ms)
-        end
-
-        local function format_dialogue(l)
-            if not ASS.ass_format_order or #ASS.ass_format_order == 0 then
-                local text = l.text:gsub("\r\n", "\n"):gsub("\n", "\\N")
-                return string.format("Dialogue: 0,%s,%s,Default,%s,0,0,0,,%s", 
-                    fmt_time_ass(l.t1), fmt_time_ass(l.t2), l.actor or "Default", text)
-            end
-            
-            local fields = {}
-            for _, field in ipairs(ASS.ass_format_order) do
-                local val = ""
-                if field == "Start" then
-                    val = fmt_time_ass(l.t1)
-                elseif field == "End" then
-                    val = fmt_time_ass(l.t2)
-                elseif field == "Text" then
-                    val = l.text:gsub("\r\n", "\n"):gsub("\n", "\\N")
-                elseif field == "Name" or field == "Actor" then
-                    val = l.actor or "Default"
-                elseif field == "Style" then
-                    val = (l.metadata and l.metadata[field]) or "Default"
-                elseif field == "Effect" then
-                    val = (l.metadata and l.metadata[field]) or ""
-                else
-                    val = (l.metadata and l.metadata[field]) or "0"
-                end
-                table.insert(fields, val)
-            end
-            return "Dialogue: " .. table.concat(fields, ",")
-        end
-
         if ASS.ass_header_order and #ASS.ass_header_order > 0 then
             for _, section_name in ipairs(ASS.ass_header_order) do
                 local lines = ASS.ass_header_sections[section_name]
@@ -14708,12 +14678,12 @@ local function export_as_ass()
                 
                 if section_name == "Events" then
                     if json_dicts then
-                        file:write(format_dialogue({
+                        file:write(UTILS.format_dialogue({
                             t1 = 0, t2 = 0, actor = "SubassDict", text = json_dicts, enabled = true
                         }) .. "\n")
                     end
                     for _, l in ipairs(out_lines) do
-                        file:write(format_dialogue(l) .. "\n")
+                        file:write(UTILS.format_dialogue(l) .. "\n")
                     end
                 end
             end
@@ -14727,7 +14697,7 @@ local function export_as_ass()
                 file:write(string.format("Dialogue: 0,0:00:00.00,0:00:00.00,Default,SubassDict,0,0,0,,%s\n", json_dicts))
             end
             for _, l in ipairs(out_lines) do
-                file:write(format_dialogue(l) .. "\n")
+                file:write(UTILS.format_dialogue(l) .. "\n")
             end
         end
         
@@ -30807,6 +30777,167 @@ function UTILS.clean_name_ass_actor(name)
     return name:gsub("\239\184\143", ""):match("^%s*(.-)%s*$")
 end
 
+--- Parse a single ASS dialogue line into fields
+function UTILS.parse_ass_dialogue_line(line_text)
+    line_text = line_text:match("^%s*(.-)%s*$")
+    if line_text == "" then return nil end
+    
+    -- Strip optional Dialogue: prefix
+    local content = line_text:match("^Dialogue:%s*(.*)$")
+    if not content then
+        content = line_text
+    end
+    
+    local format_order = ASS.ass_format_order
+    local num_fields = (format_order and #format_order > 0) and #format_order or 10
+    
+    local fields = {}
+    local current_pos = 1
+    for i = 1, num_fields - 1 do
+        local comma_pos = content:find(",", current_pos)
+        if not comma_pos then
+            break
+        end
+        table.insert(fields, content:sub(current_pos, comma_pos - 1))
+        current_pos = comma_pos + 1
+    end
+    table.insert(fields, content:sub(current_pos))
+    
+    if #fields < 3 then
+        return nil
+    end
+    
+    local result = {}
+    if format_order and #format_order > 0 then
+        for idx, field in ipairs(format_order) do
+            local val = fields[idx] or ""
+            if field == "Start" then
+                result.start_str = val
+            elseif field == "End" then
+                result.end_str = val
+            elseif field == "Text" then
+                result.text = val
+            elseif field == "Name" or field == "Actor" then
+                result.actor = val
+            end
+        end
+    else
+        -- Default: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+        result.start_str = fields[2] or ""
+        result.end_str = fields[3] or ""
+        result.actor = fields[5] or ""
+        result.text = fields[10] or ""
+    end
+    
+    return result
+end
+
+--- Paste ASS Dialogue lines from clipboard
+function UTILS.paste_dialogue_from_clipboard()
+    local function parse_ass_timestamp(str)
+        local h, m, s, cs = str:match("(%d+):(%d+):(%d+)%.(%d+)")
+        if not h then return 0 end
+        local frac = tonumber("0." .. cs) or 0
+        return (tonumber(h) * 3600) + (tonumber(m) * 60) + tonumber(s) + frac
+    end
+
+    local clipboard = get_clipboard()
+    if not clipboard or clipboard == "" then
+        show_snackbar(T("CLIPBOARD_IS_EMPTY"), "error")
+        return
+    end
+    
+    local regions_added = 0
+    local markers_added = 0
+    local line_idx_counter = get_next_line_index()
+    
+    -- For marker duplicate checking
+    update_marker_cache()
+    local existing_markers = {}
+    for _, m in ipairs(prompter_drawer.marker_cache.markers) do
+        local key = string.format("%.3f_%s", m.pos, m.name)
+        existing_markers[key] = true
+    end
+    
+    local parsed_lines = {}
+    for line_text in clipboard:gmatch("[^\r\n]+") do
+        local parsed = UTILS.parse_ass_dialogue_line(line_text)
+        if parsed then
+            local t1 = parse_ass_timestamp(parsed.start_str)
+            local t2 = parse_ass_timestamp(parsed.end_str)
+            if t1 and t2 then
+                parsed.t1 = t1
+                parsed.t2 = t2
+                table.insert(parsed_lines, parsed)
+            end
+        end
+    end
+    
+    if #parsed_lines == 0 then
+        show_snackbar(T("SRC_NO_FOUND"), "error")
+        return
+    end
+    
+    push_undo(T("IMPORT_FROM_CLIPBOARD"))
+    
+    for _, parsed in ipairs(parsed_lines) do
+        local text = parsed.text:gsub("\\N", "\n"):gsub("\\n", "\n")
+        local actor = parsed.actor or "Default"
+        
+        -- Check if it is a marker:
+        -- t1 and t2 are the same and actor name is ":ПРАВКА:" or ":RETAKE:"
+        local is_same_time = math.abs(parsed.t1 - parsed.t2) < 0.001
+        local is_retake_actor = (actor == ":ПРАВКА:" or actor == ":RETAKE:")
+        
+        if is_same_time and is_retake_actor then
+            -- It is a marker!
+            local new_idx = reaper.AddProjectMarker(0, false, parsed.t1, 0, text, -1)
+            reaper.SetProjectMarker4(0, new_idx, false, parsed.t1, 0, text, 0, 0)
+
+            markers_added = markers_added + 1
+        else
+            -- It is a region/replica!
+            ass_actors[actor] = true
+            table.insert(ass_lines, {
+                t1 = parsed.t1,
+                t2 = parsed.t2,
+                text = text,
+                actor = actor,
+                enabled = true,
+                index = line_idx_counter
+            })
+            line_idx_counter = line_idx_counter + 1
+            regions_added = regions_added + 1
+        end
+    end
+    
+    if regions_added > 0 or markers_added > 0 then
+        ass_markers = capture_project_markers()
+
+        cleanup_actors()
+        rebuild_regions()
+        save_project_data(UI_STATE.last_project_id)
+        reaper.MarkProjectDirty(0)
+        
+        editor_state.last_region_id = -1
+        table_data_cache.state_count = -1 -- Force table refresh
+        UI_STATE._markers_is_dirty = false
+        
+        -- Show snackbar with details
+        local msg = ""
+        if regions_added > 0 and markers_added > 0 then
+            msg = T("PASTED") .. ": " .. regions_added .. T("EXPORTED_3") .. ", " .. markers_added .. T("RETAKES_COPY_END")
+        elseif regions_added > 0 then
+            msg = T("PASTED") .. ": " .. regions_added .. T("EXPORTED_3")
+        else
+            msg = T("PASTED") .. ": " .. markers_added  .. T("RETAKES_COPY_END")
+        end
+        show_snackbar(msg, "success")
+    else
+        show_snackbar(T("SRC_NO_FOUND"), "info")
+    end
+end
+
 --- Build (or rebuild) a t1-sorted index of ass_lines for fast binary search.
 --- Called automatically by get_ass_actors_at_time when ass_lines reference changes.
 function UTILS.rebuild_actors_index()
@@ -34973,6 +35104,37 @@ function DRAW_TABS.draw_table(input_queue)
                     end
                 end
 
+                -- Ctrl+C (Copy Selected Rows in ASS Format)
+                if key == 3 then
+                    local sel_lines = {}
+                    local current_data = table_data_cache.list or {}
+                    
+                    -- Collect selected lines in visual/current order
+                    for _, line in ipairs(current_data) do
+                        if table_selection[line.index] then
+                            table.insert(sel_lines, line)
+                        end
+                    end
+                    
+                    if #sel_lines > 0 then
+                        local lines_text = {}
+                        for _, l in ipairs(sel_lines) do
+                            table.insert(lines_text, UTILS.format_dialogue(l))
+                        end
+                        
+                        local copied_text = table.concat(lines_text, "\n")
+                        set_clipboard(copied_text)
+                        
+                        local count = #sel_lines
+                        show_snackbar(T("COPIED") .. " (" .. count .. ")", "success")
+                    end
+                end
+
+                -- Ctrl+V (Paste ASS Dialogue lines from Clipboard)
+                if key == 22 then
+                    UTILS.paste_dialogue_from_clipboard()
+                end
+
                 -- Navigation: Up (30064), Down (1685026670)
                 if key == 30064 or key == 1685026670 then
                     local ds = table_data_cache.list or {}
@@ -35551,7 +35713,13 @@ function DRAW_TABS.draw_table(input_queue)
     -- Find which line corresponds to current position
     local active_line_idx = nil
     for i, line in ipairs(data_source) do
-        if current_pos >= line.t1 and current_pos < line.t2 then
+        local matches = false
+        if line.is_marker then
+            matches = (math.abs(current_pos - line.t1) < 0.02)
+        else
+            matches = (current_pos >= line.t1 and current_pos < line.t2)
+        end
+        if matches then
             active_line_idx = i
             break
         end
@@ -35673,7 +35841,12 @@ function DRAW_TABS.draw_table(input_queue)
             local play_pos = reaper.GetPlayPosition()
             local edit_pos = reaper.GetCursorPosition()
             local current_time = reaper.GetPlayState() > 0 and play_pos or edit_pos
-            local is_active_row = (current_time >= line.t1 and current_time < line.t2)
+            local is_active_row
+            if line.is_marker then
+                is_active_row = (math.abs(current_time - line.t1) < 0.02)
+            else
+                is_active_row = (current_time >= line.t1 and current_time < line.t2)
+            end
             
             if is_selected then
                 if line.is_marker then
