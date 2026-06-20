@@ -33730,7 +33730,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         local has_changes = (editor_state.input.text ~= editor_state.original_text)
         local is_empty = (editor_state.input.text == "")
         local save_col = is_disabled and UI.C_TAB_INA or (is_creating and UI.C_ACCENT_G or (has_changes and UI.C_BTN_UPDATE or UI.C_BTN))
-        local save_label = is_editing and T("UPDATE") .. " [" .. (editor_state and editor_state.last_region_id or -1) .. "]" or (is_disabled and T("NOT_IN_REGION") or T("CREATE"))
+        local save_label = is_editing and T("UPDATE") .. " #" .. (editor_state and editor_state.last_region_id or -1) or (is_disabled and T("NOT_IN_REGION") or T("CREATE"))
 
         if is_editing and is_empty then
             save_label = T("DELETE")
@@ -33802,20 +33802,40 @@ function OTHER.AI_generate_prompt(is_dub)
         return 
     end
     
-    local selected_lines = {}
+    local selected_data = {}
     -- Determine which items to include based on table selection
     for i, line in ipairs(ass_lines) do
         local sel_idx = line.index or i
         if table_selection[sel_idx] then
-            local id = sel_idx
-            local start_t = format_timestamp(line.t1 or 0)
-            local end_t = format_timestamp(line.t2 or 0)
-            local actor = line.actor or "Unknown"
-            -- Replace newlines with spaces to keep each line in the prompt as a single unit
-            local text = (line.text or ""):gsub("\n", " "):gsub("\r", "")
-            
-            table.insert(selected_lines, string.format("id:%s,start:%s,end:%s,actor:%s,text:%s", id, start_t, end_t, actor, text))
+            table.insert(selected_data, {
+                line = line,
+                i = i,
+                sel_idx = sel_idx
+            })
         end
+    end
+
+    table.sort(selected_data, function(a, b)
+        local t1_a = a.line.t1 or 0
+        local t1_b = b.line.t1 or 0
+        if t1_a ~= t1_b then
+            return t1_a < t1_b
+        else
+            return a.i < b.i
+        end
+    end)
+
+    local selected_lines = {}
+    for _, item in ipairs(selected_data) do
+        local line = item.line
+        local id = item.sel_idx
+        local start_t = format_timestamp(line.t1 or 0)
+        local end_t = format_timestamp(line.t2 or 0)
+        local actor = line.actor or "Unknown"
+        -- Replace newlines with spaces to keep each line in the prompt as a single unit
+        local text = (line.text or ""):gsub("\n", " "):gsub("\r", "")
+        
+        table.insert(selected_lines, string.format("id:%s,start:%s,end:%s,actor:%s,text:%s", id, start_t, end_t, actor, text))
     end
     
     if #selected_lines == 0 then
