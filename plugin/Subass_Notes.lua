@@ -778,10 +778,8 @@ local I18N = {
     FMT_REMOVE_HIDDEN = { en = "Delete hidden comments {{ ... }}", ua = "Видалити приховані коментарі {{ ... }}" },
     NO_HIDDEN_COMMENTS_TO_DELETE = { en = "No hidden comments {{}} were found to delete.", ua = "Не знайдено приховані коментарі {{}} для видалення." },
     SPLIT_NL_NOT_FOUND_ERR = { en = "No newline character found to split.", ua = "Не знайдено новий рядок для розділення." },
-    SPLIT_REPLICA_BY_NL_EST = { en = "Split line by newline (estimate times)", ua = "Розділити за новим рядком (приблизна тривалість)" },
-    SPLIT_REPLICA_BY_NL_PREV = { en = "Split line by newline (preserve times)", ua = "Розділити за новим рядком (зберегти тривалість)" },
-    FMT_SPLIT_NL_EST = { en = "Split by newline (estimate duration): /--", ua = "Розділити за новим рядком (приблизна тривалість): /--" },
-    FMT_SPLIT_NL_PREV = { en = "Split by newline (preserve duration): /==", ua = "Розділити за новим рядком (зберегти тривалість): /==" },
+    FMT_SPLIT_NL_EST = { en = "Split by newline (estimate duration)", ua = "Розділити за новим рядком (приблизна тривалість)" },
+    FMT_SPLIT_NL_PREV = { en = "Split by newline (preserve duration)", ua = "Розділити за новим рядком (зберегти тривалість)" },
     ASK_NAME = { en = "Ask ", ua = "Запитати " },
     EDIT_DELETE_PRESET_MENU = { en = "Edit preset|Delete preset||", ua = "Редагувати пресет|Видалити пресет||" },
     PRESET_MOVE_LEFT_MENU = { en = "Move left|", ua = "Перемістити ліворуч|" },
@@ -33796,13 +33794,13 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                         current_time = next_time
                     end
                     
-                    push_undo(T("SPLIT_REPLICA_BY_NL_EST"))
+                    push_undo(T("FMT_SPLIT_NL_EST"))
                 else
                     for i = 1, #lines_text do
                         table.insert(times, {t1, t2})
                     end
                     
-                    push_undo(T("SPLIT_REPLICA_BY_NL_PREV"))
+                    push_undo(T("FMT_SPLIT_NL_PREV"))
                 end
                 
                 -- Update first part in place
