@@ -2948,11 +2948,12 @@ function OTHER.load_other_exts()
         { btn = "{/}", tag = "c", tip = "FMT_COMMENT" },
         { btn = "{x}", tag = "x", tip = "FMT_REMOVE_HIDDEN" },
         { btn = "TR", tag = "translate_deepl", tip = "DEEPL_TRANSLATE_LINE", hidden = true },
-        { btn = "DL", tag = "duplicate_line", tip = "REPEAT_THE_LINE", hidden = true },
+        { btn = "DP", tag = "duplicate_line", tip = "REPEAT_THE_LINE", hidden = true },
+        { btn = "DL", tag = "delete_line", tip = "DELETE_LINE", hidden = true },
         { btn = "/--", tag = "split_nl_est", tip = "FMT_SPLIT_NL_EST", hidden = true },
         { btn = "/==", tag = "split_nl_prev", tip = "FMT_SPLIT_NL_PREV", hidden = true },
     }
-    local raw_sys_presets = reaper.GetExtState(section_name, "sys_presets_ext")
+    local raw_sys_presets = reaper.GetExtState(section_name, "fmt_sys_presets_ext")
     if raw_sys_presets ~= "" then
         local loaded = STATS.json_decode(UTILS.unicode_unescape(raw_sys_presets))
         if type(loaded) == "table" and #loaded > 0 then
@@ -4361,7 +4362,7 @@ local function save_settings()
 
     reaper.SetExtState(section_name, "hotkeys", cfg.hotkeys, true)
     reaper.SetExtState(section_name, "fmt_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.fmt_presets or {})), true)
-    reaper.SetExtState(section_name, "sys_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.sys_presets_order or {})), true)
+    reaper.SetExtState(section_name, "fmt_sys_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.sys_presets_order or {})), true)
     reaper.SetExtState(section_name, "dir_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.director_presets or {})), true)
     reaper.SetExtState(section_name, "dict_auto_rules", UTILS.unicode_escape(STATS.json_encode(cfg.dict_auto_rules or {})), true)
     reaper.SetExtState(section_name, "dubber_char_rules", UTILS.unicode_escape(STATS.json_encode(cfg.dubber_char_rules or {})), true)
@@ -33664,7 +33665,8 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             { btn = "{/}", tag = "c", tip = "FMT_COMMENT" },
             { btn = "{x}", tag = "x", tip = "FMT_REMOVE_HIDDEN" },
             { btn = "TR", tag = "translate_deepl", tip = "DEEPL_TRANSLATE_LINE", hidden = true },
-            { btn = "DL", tag = "duplicate_line", tip = "REPEAT_THE_LINE", hidden = true },
+            { btn = "DP", tag = "duplicate_line", tip = "REPEAT_THE_LINE", hidden = true },
+            { btn = "DL", tag = "delete_line", tip = "DELETE_LINE", hidden = true },
             { btn = "/--", tag = "split_nl_est", tip = "FMT_SPLIT_NL_EST", hidden = true },
             { btn = "/==", tag = "split_nl_prev", tip = "FMT_SPLIT_NL_PREV", hidden = true },
         }
@@ -33738,6 +33740,18 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     if line then
                         local c_index = line.index or original_pos
                         UTILS.duplicate_logic(c_index)
+                    end
+                end
+            elseif tag == "delete_line" then
+                local line_ref = editor_state.last_line_data
+                if line_ref then
+                    local original_pos = line_ref._i
+                    local line = ass_lines[original_pos]
+                    if line then
+                        local c_index = line.index or original_pos
+                        table_selection = {}
+                        table_selection[c_index] = true
+                        UTILS.delete_logic()
                     end
                 end
             elseif tag == "split_nl_est" or tag == "split_nl_prev" then
