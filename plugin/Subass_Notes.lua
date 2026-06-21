@@ -33686,11 +33686,16 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     inp.anchor = inp.cursor
                 end
             elseif tag == "x" then
-                -- Remove {{}} block (supports 2 or more braces) and preceding whitespace/newlines
-                local new_txt = txt:gsub("%s*\n\n{{+.-}}+", "")
-                if new_txt == txt then
-                    -- Fallback: try removing without double newline if the first pattern didn't match
-                    new_txt = txt:gsub("%s*{{+.-}}+", "")
+                -- Recursively remove {{}} blocks (supports nested comments and 2 or more braces)
+                local new_txt = txt
+                local changed = true
+                while changed do
+                    local updated, count = new_txt:gsub("%s*{{+[^{}]-}}+", "")
+                    if count == 0 then
+                        changed = false
+                    else
+                        new_txt = updated
+                    end
                 end
                 
                 if new_txt ~= txt then
