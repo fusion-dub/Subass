@@ -15024,7 +15024,8 @@ local function import_notes()
         local key = string.format("%.3f_%s", note.time, note.text)
         if not existing_markers[key] then
             -- Always create marker (not region)
-            reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, reaper.ColorToNative(255, 200, 100) | 0x1000000)
+            local new_idx = reaper.AddProjectMarker(0, false, note.time, 0, note.text, -1)
+            reaper.SetProjectMarker4(0, new_idx, false, note.time, 0, note.text, 0, 0)
             created_count = created_count + 1
         else
             skipped_count = skipped_count + 1
@@ -15214,8 +15215,12 @@ local function import_notes_from_csv(file_path)
     for _, note in ipairs(notes) do
         local key = string.format("%.3f_%s", note.time, note.text)
         if not existing_markers[key] then
-            local marker_color = note.color or (reaper.ColorToNative(255, 200, 100) | 0x1000000)
-            reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, marker_color)
+            if note.color then
+                reaper.AddProjectMarker2(0, false, note.time, 0, note.text, -1, note.color)
+            else
+                local new_idx = reaper.AddProjectMarker(0, false, note.time, 0, note.text, -1)
+                reaper.SetProjectMarker4(0, new_idx, false, note.time, 0, note.text, 0, 0)
+            end
             created_count = created_count + 1
         else
             skipped_count = skipped_count + 1
@@ -25409,7 +25414,15 @@ function DRAW_TABS.draw_file()
         elseif ret == 10 then
             export_as_ass()
         elseif has_dubbers and ret == 11 then
-            DUBBERS.export_as_ass()
+            DEADLINE.open_picker(nil, function(ts)
+                if not ts then 
+                    DUBBERS.export_as_ass()
+                else
+                    local dt = os.date("*t", ts)
+                    local d_str = string.format("[%02d.%02d.%02d]", dt.day, dt.month, dt.year % 100)
+                    DUBBERS.export_as_ass(d_str)
+                end
+            end)
         elseif has_dubbers and ret >= (has_dubbers and 12 or 11) and ret <= base_items + dubber_count then
             -- Handle Dubber Selection
             local offset = has_dubbers and 11 or 10
