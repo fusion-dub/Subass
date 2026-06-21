@@ -32547,6 +32547,9 @@ function UTILS.delete_logic()
         table_data_cache.state_count = -1
         last_layout_state.state_count = -1
         prompter_drawer.marker_cache.count = -1
+        prompter_drawer.filtered_cache.state_count = -1
+        prompter_drawer.has_markers_cache.count = -1
+        UI_STATE._markers_is_dirty = true
         editor_state.needs_sync = true
         show_snackbar(T("REMOVED_TABLE_LINES_EX") .. total_deleted, "error")
     end
