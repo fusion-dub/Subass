@@ -177,6 +177,7 @@ local cfg = {
     -- hotkeys for 12 actions (string, defaults: 1,2,3,4,5,6,7,8,9,0,-,=)
     hotkeys = get_set("hotkeys", "1,2,3,4,5,6,7,8,9,0,-,="),
     fmt_presets = {}, -- Loaded below after STATS module
+    sys_presets_order = {}, -- Loaded below after STATS module
     director_presets = {}, -- Loaded below after STATS module
     dict_auto_rules = {},
     dubber_char_rules = {},
@@ -775,10 +776,21 @@ local I18N = {
     FMT_COMMENT = { en = "Enclose in curly brackets, comment: { ... }", ua = "Огорнути у фігурні дужки, коментар: { ... }" },
     FMT_REMOVE_HIDDEN = { en = "Delete hidden comments {{ ... }}", ua = "Видалити приховані коментарі {{ ... }}" },
     NO_HIDDEN_COMMENTS_TO_DELETE = { en = "No hidden comments {{}} were found to delete.", ua = "Не знайдено приховані коментарі {{}} для видалення." },
+    SPLIT_NL_NOT_FOUND_ERR = { en = "No newline character found to split.", ua = "Не знайдено новий рядок для розділення." },
+    SPLIT_REPLICA_BY_NL_EST = { en = "Split line by newline (estimate times)", ua = "Розділити за новим рядком (приблизна тривалість)" },
+    SPLIT_REPLICA_BY_NL_PREV = { en = "Split line by newline (preserve times)", ua = "Розділити за новим рядком (зберегти тривалість)" },
+    FMT_SPLIT_NL_EST = { en = "Split by newline (estimate duration): /--", ua = "Розділити за новим рядком (приблизна тривалість): /--" },
+    FMT_SPLIT_NL_PREV = { en = "Split by newline (preserve duration): /==", ua = "Розділити за новим рядком (зберегти тривалість): /==" },
     ASK_NAME = { en = "Ask ", ua = "Запитати " },
     EDIT_DELETE_PRESET_MENU = { en = "Edit preset|Delete preset||", ua = "Редагувати пресет|Видалити пресет||" },
-    PRESET_MOVE_LEFT_MENU = { en = "Move left|", ua = "Перемістити вліво|" },
-    PRESET_MOVE_RIGHT_MENU = { en = "Move right", ua = "Перемістити вправо" },
+    PRESET_MOVE_LEFT_MENU = { en = "Move left|", ua = "Перемістити ліворуч|" },
+    PRESET_MOVE_RIGHT_MENU = { en = "Move right", ua = "Перемістити праворуч" },
+    HIDE_PRESET_MENU = { en = "Hide preset", ua = "Приховати пресет" },
+    DELETE_SEPARATOR_MENU = { en = "Delete separator", ua = "Видалити роздільник" },
+    RESTORE_PRESET = { en = "Restore", ua = "Відобразити" },
+    SHOW_HIDDEN_PRESETS_SUBMENU = { en = "Restore hidden presets", ua = "Відобразити приховані пресети" },
+    FMT_SEPARATOR = { en = "Separator", ua = "Роздільник" },
+    ADD_SEPARATOR_MENU = { en = "Add separator", ua = "Додати роздільник" },
     DELETE_PRESET_MB_1 = { en = "Are you sure you want to delete the '", ua = "Ви дійсно хочете видалити пресет '" },
     DELETE_PRESET_MB_2 = { en = "' preset?", ua = "'?" },
     DELETION_THE_PRESET = { en = "Deleting the preset", ua = "Видалення пресета" },
@@ -2926,6 +2938,42 @@ function OTHER.load_other_exts()
         cfg.fmt_presets = {}
     end
 
+    local default_sys_presets = {
+        { btn = "B", tag = "b", tip = "FMT_BOLD" },
+        { btn = "I", tag = "i", tip = "FMT_ITALIC" },
+        { btn = "U", tag = "u", tip = "FMT_UNDERLINE" },
+        { btn = "S", tag = "s", tip = "FMT_CROSSLINE" },
+        { btn = "|", tag = "separator", tip = "FMT_SEPARATOR" },
+        { btn = "{/}", tag = "c", tip = "FMT_COMMENT" },
+        { btn = "{x}", tag = "x", tip = "FMT_REMOVE_HIDDEN" },
+        { btn = "TR", tag = "translate_deepl", tip = "DEEPL_TRANSLATE_LINE", hidden = true },
+        { btn = "DL", tag = "duplicate_line", tip = "REPEAT_THE_LINE", hidden = true },
+        { btn = "/--", tag = "split_nl_est", tip = "FMT_SPLIT_NL_EST", hidden = true },
+        { btn = "/==", tag = "split_nl_prev", tip = "FMT_SPLIT_NL_PREV", hidden = true },
+    }
+    local raw_sys_presets = reaper.GetExtState(section_name, "sys_presets_ext")
+    if raw_sys_presets ~= "" then
+        local loaded = STATS.json_decode(UTILS.unicode_unescape(raw_sys_presets))
+        if type(loaded) == "table" and #loaded > 0 then
+            local present = {}
+            for _, item in ipairs(loaded) do
+                if item.tag then
+                    present[item.tag] = true
+                end
+            end
+            for _, def in ipairs(default_sys_presets) do
+                if not present[def.tag] then
+                    table.insert(loaded, def)
+                end
+            end
+            cfg.sys_presets_order = loaded
+        else
+            cfg.sys_presets_order = default_sys_presets
+        end
+    else
+        cfg.sys_presets_order = default_sys_presets
+    end
+
     local raw_dir_presets = reaper.GetExtState(section_name, "dir_presets_ext")
     if raw_dir_presets ~= "" then
         cfg.director_presets = STATS.json_decode(UTILS.unicode_unescape(raw_dir_presets)) or {}
@@ -4311,6 +4359,7 @@ local function save_settings()
 
     reaper.SetExtState(section_name, "hotkeys", cfg.hotkeys, true)
     reaper.SetExtState(section_name, "fmt_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.fmt_presets or {})), true)
+    reaper.SetExtState(section_name, "sys_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.sys_presets_order or {})), true)
     reaper.SetExtState(section_name, "dir_presets_ext", UTILS.unicode_escape(STATS.json_encode(cfg.director_presets or {})), true)
     reaper.SetExtState(section_name, "dict_auto_rules", UTILS.unicode_escape(STATS.json_encode(cfg.dict_auto_rules or {})), true)
     reaper.SetExtState(section_name, "dubber_char_rules", UTILS.unicode_escape(STATS.json_encode(cfg.dubber_char_rules or {})), true)
@@ -33594,16 +33643,25 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         -- 1. CONTROL ROW (Formatting + Save)
         local fmt_btn_w = S(28)
         local fmt_gap = S(4)
-        local fmt_btns = {"B", "I", "U", "S", "{/}", "{x}"}
-        local fmt_tags = {"b", "i", "u", "s", "c", "x"}
-        local fmt_tips = {
-            T("FMT_BOLD"),
-            T("FMT_ITALIC"),
-            T("FMT_UNDERLINE"),
-            T("FMT_CROSSLINE"),
-            T("FMT_COMMENT"),
-            T("FMT_REMOVE_HIDDEN")
+        local sys_presets = cfg.sys_presets_order or {
+            { btn = "B", tag = "b", tip = "FMT_BOLD" },
+            { btn = "I", tag = "i", tip = "FMT_ITALIC" },
+            { btn = "U", tag = "u", tip = "FMT_UNDERLINE" },
+            { btn = "S", tag = "s", tip = "FMT_CROSSLINE" },
+            { btn = "|", tag = "separator", tip = "FMT_SEPARATOR" },
+            { btn = "{/}", tag = "c", tip = "FMT_COMMENT" },
+            { btn = "{x}", tag = "x", tip = "FMT_REMOVE_HIDDEN" },
+            { btn = "TR", tag = "translate_deepl", tip = "DEEPL_TRANSLATE_LINE", hidden = true },
+            { btn = "DL", tag = "duplicate_line", tip = "REPEAT_THE_LINE", hidden = true },
+            { btn = "/--", tag = "split_nl_est", tip = "FMT_SPLIT_NL_EST", hidden = true },
+            { btn = "/==", tag = "split_nl_prev", tip = "FMT_SPLIT_NL_PREV", hidden = true },
         }
+        local visible_sys_presets = {}
+        for _, item in ipairs(sys_presets) do
+            if not item.hidden then
+                table.insert(visible_sys_presets, item)
+            end
+        end
         
         local function apply_fmt(tag)
             if is_disabled then return end
@@ -33643,6 +33701,148 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                 else
                     show_snackbar(T("NO_HIDDEN_COMMENTS_TO_DELETE"), "warning")
                 end
+            elseif tag == "translate_deepl" then
+                local line_ref = editor_state.last_line_data
+                if line_ref then
+                    local original_pos = line_ref._i
+                    local line = ass_lines[original_pos]
+                    if line then
+                        local c_index = line.index or original_pos
+                        table_selection = {}
+                        table_selection[c_index] = true
+                        OTHER.deepl_translate_selected()
+                    end
+                end
+            elseif tag == "duplicate_line" then
+                local line_ref = editor_state.last_line_data
+                if line_ref then
+                    local original_pos = line_ref._i
+                    local line = ass_lines[original_pos]
+                    if line then
+                        local c_index = line.index or original_pos
+                        UTILS.duplicate_logic(c_index)
+                    end
+                end
+            elseif tag == "split_nl_est" or tag == "split_nl_prev" then
+                local lines_text = {}
+                for line_str in txt:gmatch("([^\r\n]+)") do
+                    local trimmed = line_str:match("^%s*(.-)%s*$")
+                    if trimmed ~= "" then
+                        table.insert(lines_text, trimmed)
+                    end
+                end
+                
+                if #lines_text < 2 then
+                    show_snackbar(T("SPLIT_NL_NOT_FOUND_ERR"), "warning")
+                    return
+                end
+                
+                local line_ref = editor_state.last_line_data
+                if not line_ref then return end
+                local original_pos = line_ref._i
+                local line = ass_lines[original_pos]
+                if not line then return end
+                
+                local t1 = line.t1
+                local t2 = line.t2
+                local col = get_actor_color(line.actor)
+                if not col or col == 0 then col = -1 end
+                
+                local times = {}
+                if tag == "split_nl_est" then
+                    local lengths = {}
+                    local total_len = 0
+                    for i, lt in ipairs(lines_text) do
+                        local len = utf8.len(lt) or #lt
+                        lengths[i] = len
+                        total_len = total_len + len
+                    end
+                    
+                    local current_time = t1
+                    for i, len in ipairs(lengths) do
+                        local share = (total_len > 0) and (len / total_len) or (1 / #lines_text)
+                        local next_time = current_time + (t2 - t1) * share
+                        if i < #lines_text then
+                            if next_time - current_time < 0.1 then
+                                next_time = current_time + 0.1
+                            end
+                            local remaining_parts = #lines_text - i
+                            if t2 - next_time < remaining_parts * 0.1 then
+                                next_time = t2 - remaining_parts * 0.1
+                            end
+                        else
+                            next_time = t2
+                        end
+                        table.insert(times, {current_time, next_time})
+                        current_time = next_time
+                    end
+                    
+                    push_undo(T("SPLIT_REPLICA_BY_NL_EST"))
+                else
+                    for i = 1, #lines_text do
+                        table.insert(times, {t1, t2})
+                    end
+                    
+                    push_undo(T("SPLIT_REPLICA_BY_NL_PREV"))
+                end
+                
+                -- Update first part in place
+                line.text = lines_text[1]
+                line.t1 = times[1][1]
+                line.t2 = times[1][2]
+                reaper.SetProjectMarker3(0, line.rgn_idx, true, line.t1, line.t2, line.text, col)
+                
+                -- Helper to get current max index of markers
+                local function get_max_idx()
+                    local m = 0
+                    for _, l in ipairs(ass_lines) do
+                        if type(l.index) == "number" and l.index > m then
+                            m = l.index
+                        end
+                    end
+                    return m
+                end
+                
+                -- Create and insert subsequent parts
+                local last_max_idx = get_max_idx()
+                for i = 2, #lines_text do
+                    local new_replica = {}
+                    for k, v in pairs(line) do new_replica[k] = v end
+                    new_replica.text = lines_text[i]
+                    new_replica.t1 = times[i][1]
+                    new_replica.t2 = times[i][2]
+                    
+                    local r_idx = reaper.AddProjectMarker2(0, true, new_replica.t1, new_replica.t2, new_replica.text, -1, col)
+                    local _, _, _, _, _, r_id = reaper.EnumProjectMarkers3(0, r_idx)
+                    new_replica.rgn_idx = r_id
+                    
+                    last_max_idx = last_max_idx + 1
+                    new_replica.index = last_max_idx
+                    
+                    table.insert(ass_lines, original_pos + i - 1, new_replica)
+                end
+                
+                UI_STATE._markers_is_dirty = true
+                cleanup_actors()
+                rebuild_regions()
+                save_project_data(UI_STATE.last_project_id)
+                reaper.MarkProjectDirty(0)
+                
+                table_selection = {}
+                table_selection[line.index or original_pos] = true
+                
+                table_data_cache.state_count = -1
+                last_layout_state.state_count = -1
+                editor_state.needs_sync = true
+                editor_state.last_region_id = -1
+                editor_state.last_state_count = -1
+                
+                -- Update text input immediately
+                inp.text = lines_text[1]
+                inp.cursor = #lines_text[1]
+                inp.anchor = #lines_text[1]
+                
+                show_snackbar(T("REPLICA_SPLIT_SUCCESS"), "success")
             else
                 if s_idx ~= e_idx then
                     -- Wrap selection in both tags
@@ -33712,57 +33912,178 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         local ai_btn_x = input_draw_x + left_w - ai_btn_w
         local ai_b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
 
-        for i, label in ipairs(fmt_btns) do
-            local bx = input_draw_x + (i-1) * (fmt_btn_w + fmt_gap)
+        local current_x = input_draw_x
+        for i, item in ipairs(visible_sys_presets) do
+            local label = item.btn
+            local item_w = (item.tag == "separator") and S(5) or fmt_btn_w
+            local bx = current_x
             
             -- Only draw if it does not overlap with the AI button
-            if bx + fmt_btn_w <= ai_btn_x then
-                local b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
-                
-                -- Apply styling for preview
-                if label == "B" then gfx.setfont(F.bld)
-                elseif label == "I" then gfx.setfont(F.ital)
-                else gfx.setfont(F.std) end
+            if bx + item_w <= ai_btn_x then
+                local is_hover = UI_STATE.window_focused and 
+                                 (gfx.mouse_x >= bx and gfx.mouse_x <= bx + item_w and 
+                                  gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
 
-                if draw_actor_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, label, b_col) then
-                    apply_fmt(fmt_tags[i])
+                if item.tag == "separator" then
+                    -- Draw vertical separator line
+                    set_color(UI.C_MEDIUM_GREY, 0.5)
+                    gfx.rect(bx + S(2), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
+                else
+                    local b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
+                    
+                    -- Apply styling for preview
+                    if label == "B" then gfx.setfont(F.bld)
+                    elseif label == "I" then gfx.setfont(F.ital)
+                    else gfx.setfont(F.std) end
+
+                    if draw_actor_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, label, b_col) then
+                        apply_fmt(item.tag)
+                    end
+
+                    -- Draw extra lines for U and S
+                    local str_w, str_h = gfx.measurestr(label)
+                    local tx = bx + (fmt_btn_w - str_w) / 2
+                    local ty = control_draw_y + (control_row_h - str_h) / 2
+                    local s1 = S(1)
+                    local s2 = S(2)
+
+                    if label == "U" then
+                        set_color(UI.C_TXT)
+                        gfx.line(tx, ty + str_h - s1, tx + str_w, ty + str_h - s1)
+                    elseif label == "S" then
+                        set_color(UI.C_TXT)
+                        gfx.line(tx - s2, ty + str_h/2 - s2, tx + str_w + s2, ty + str_h/2 - s2)
+                    end
                 end
                 
-                local is_hover = UI_STATE.window_focused and 
-                                 (gfx.mouse_x >= bx and gfx.mouse_x <= bx + fmt_btn_w and 
-                                  gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
                 if is_hover then 
                     local tip_id = "fmt_" .. i
                     if UI_STATE.tooltip_state.hover_id ~= tip_id then
                         UI_STATE.tooltip_state.hover_id = tip_id
                         UI_STATE.tooltip_state.start_time = reaper.time_precise()
                     end
-                    UI_STATE.tooltip_state.text = fmt_tips[i]
-                end
+                    UI_STATE.tooltip_state.text = T(item.tip)
 
-                -- Draw extra lines for U and S
-                local str_w, str_h = gfx.measurestr(label)
-                local tx = bx + (fmt_btn_w - str_w) / 2
-                local ty = control_draw_y + (control_row_h - str_h) / 2
-                local s1 = S(1)
-                local s2 = S(2)
+                    if is_mouse_clicked(2) then
+                        UI_STATE.mouse_handled = true
+                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                        local move_up_tag = (i > 1) and "" or "#"
+                        local move_down_tag = (i < #visible_sys_presets) and "" or "#"
+                        
+                        local visible_presets_count = 0
+                        for _, p in ipairs(cfg.sys_presets_order) do
+                            if not p.hidden and p.tag ~= "separator" then
+                                visible_presets_count = visible_presets_count + 1
+                            end
+                        end
+                        local hide_tag = (item.tag ~= "separator" and visible_presets_count <= 1) and "#" or ""
 
-                if label == "U" then
-                    set_color(UI.C_TXT)
-                    gfx.line(tx, ty + str_h - s1, tx + str_w, ty + str_h - s1)
-                elseif label == "S" then
-                    set_color(UI.C_TXT)
-                    gfx.line(tx - s2, ty + str_h/2 - s2, tx + str_w + s2, ty + str_h/2 - s2)
+                        local menu_items = {
+                            move_up_tag .. T("PRESET_MOVE_LEFT_MENU") .. move_down_tag .. T("PRESET_MOVE_RIGHT_MENU"),
+                            "",
+                            hide_tag .. (item.tag == "separator" and T("DELETE_SEPARATOR_MENU") or T("HIDE_PRESET_MENU")),
+                            T("ADD_SEPARATOR_MENU")
+                        }
+                        
+                        local hidden_sys = {}
+                        for _, p in ipairs(sys_presets) do
+                            if p.hidden then
+                                table.insert(hidden_sys, p)
+                            end
+                        end
+                        
+                        if #hidden_sys > 0 then
+                            table.insert(menu_items, "")
+                            for _, p in ipairs(hidden_sys) do
+                                table.insert(menu_items, T("RESTORE_PRESET") .. ": " .. T(p.tip))
+                            end
+                        end
+                        
+                        local full_menu_str = table.concat(menu_items, "|")
+                        local sel = gfx.showmenu(full_menu_str)
+                        
+                        if sel == 1 then
+                            if i > 1 then
+                                local prev_item = visible_sys_presets[i - 1]
+                                local orig_idx, prev_idx
+                                for idx, p in ipairs(cfg.sys_presets_order) do
+                                    if p == item then orig_idx = idx end
+                                    if p == prev_item then prev_idx = idx end
+                                end
+                                if orig_idx and prev_idx then
+                                    cfg.sys_presets_order[orig_idx], cfg.sys_presets_order[prev_idx] = cfg.sys_presets_order[prev_idx], cfg.sys_presets_order[orig_idx]
+                                    save_settings()
+                                end
+                            end
+                        elseif sel == 2 then
+                            if i < #visible_sys_presets then
+                                local next_item = visible_sys_presets[i + 1]
+                                local orig_idx, next_idx
+                                for idx, p in ipairs(cfg.sys_presets_order) do
+                                    if p == item then orig_idx = idx end
+                                    if p == next_item then next_idx = idx end
+                                end
+                                if orig_idx and next_idx then
+                                    cfg.sys_presets_order[orig_idx], cfg.sys_presets_order[next_idx] = cfg.sys_presets_order[next_idx], cfg.sys_presets_order[orig_idx]
+                                    save_settings()
+                                end
+                            end
+                        elseif sel == 3 then
+                            if item.tag == "separator" then
+                                -- Delete separator entirely
+                                for idx, p in ipairs(cfg.sys_presets_order) do
+                                    if p == item then
+                                        table.remove(cfg.sys_presets_order, idx)
+                                        break
+                                    end
+                                end
+                            else
+                                -- Hide preset
+                                for _, p in ipairs(cfg.sys_presets_order) do
+                                    if p == item then
+                                        p.hidden = true
+                                        break
+                                    end
+                                end
+                            end
+                            save_settings()
+                        elseif sel == 4 then
+                            local orig_idx
+                            for idx, p in ipairs(cfg.sys_presets_order) do
+                                if p == item then
+                                    orig_idx = idx
+                                    break
+                                end
+                            end
+                            if orig_idx then
+                                table.insert(cfg.sys_presets_order, orig_idx + 1, { btn = "|", tag = "separator", tip = "FMT_SEPARATOR" })
+                                save_settings()
+                            end
+                        elseif sel >= 5 then
+                            local target_item = hidden_sys[sel - 4]
+                            if target_item then
+                                for _, p in ipairs(cfg.sys_presets_order) do
+                                    if p == target_item then
+                                        p.hidden = false
+                                        break
+                                    end
+                                end
+                                save_settings()
+                            end
+                        end
+                    end
                 end
             end
+            current_x = current_x + item_w + fmt_gap
         end
 
         -- Separator and Presets
-        local last_x = input_draw_x + (#fmt_btns) * (fmt_btn_w + fmt_gap)
+        local last_x = current_x
         if last_x + S(10) <= ai_btn_x then
             -- Vertical Separator
             set_color(UI.C_MEDIUM_GREY, 0.5)
-            gfx.rect(last_x + S(3), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
+            gfx.rect(last_x + S(2), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
+            gfx.rect(last_x + S(4), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
             last_x = last_x + S(10)
             
             -- Custom Presets
@@ -33839,7 +34160,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                 end
             end
         end
-        
+
         gfx.setfont(F.std)
 
         if ai_btn_x >= input_draw_x then
