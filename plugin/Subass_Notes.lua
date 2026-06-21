@@ -69,6 +69,7 @@ local cfg = {
     show_actor_name_infront = (get_set("show_actor_name_infront", "0") == "1" or get_set("show_actor_name_infront", 0) == 1),
     show_final_stats = (get_set("show_final_stats", "1") == "1" or get_set("show_final_stats", 1) == 1),
     show_speed_in_prompter = (get_set("show_speed_in_prompter", "1") == "1" or get_set("show_speed_in_prompter", 1) == 1),
+    show_zebra_in_slider_mode = (get_set("show_zebra_in_slider_mode", "0") == "1" or get_set("show_zebra_in_slider_mode", 0) == 1),
 
     wave_bg = (get_set("wave_bg", "1") == "1" or get_set("wave_bg", 1) == 1),
     wave_bg_progress = (get_set("wave_bg_progress", "0") == "1" or get_set("wave_bg_progress", 0) == 1),
@@ -954,6 +955,8 @@ local I18N = {
     DISPLAY_FINAL_STATS_TIP = { en = "Display statistics at the end of each take showing how many takes were shot and how much time was spent.", ua = "Відображати статистику в кінці реплік по тому скільки зрблено дублів, скільки витрачено часу." },
     DISPLAY_R_SPEED = { en = "Display the recording speed", ua = "Відображати швидкість запису" },
     DISPLAY_R_SPEED_TIP = { en = "Display the recording speed and estimated time in the prompter's context menu (to ensure the estimated time is displayed correctly, you must select the track(s) containing your recordings).", ua = "Відображати швидкість запису та прогнозований час в контексному меню суфлера (для коректного відображення прогнозованого часу потрібно виділяти трек/треки з вашими записами)." },
+    SLIDER_COLOR_L_ZEBRA = { en = "Display the zebra in Slider mode", ua = "Відображати зебру в режимі Слайдера" },
+    SLIDER_COLOR_L_ZEBRA_TIP = { en = "Display a zebra-striped color pattern for different rows in Slider mode.", ua = "Відображати кольоровий патерн зебри для різних рядків в режимі Слайдера." },
     INTERFACE_THEME = { en = "INTERFACE THEME", ua = "ТЕМА ІНТЕРФЕЙСУ" },
     TITANIUM = { en = "Titanium", ua = "Титан" },
     OBSIDIAN = { en = "Obsidian", ua = "Обсидіан" },
@@ -4295,6 +4298,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "show_actor_name_infront", cfg.show_actor_name_infront and "1" or "0", true)
     reaper.SetExtState(section_name, "show_final_stats", cfg.show_final_stats and "1" or "0", true)
     reaper.SetExtState(section_name, "show_speed_in_prompter", cfg.show_speed_in_prompter and "1" or "0", true)
+    reaper.SetExtState(section_name, "show_zebra_in_slider_mode", cfg.show_zebra_in_slider_mode and "1" or "0", true)
 
     reaper.SetExtState(section_name, "wave_bg", cfg.wave_bg and "1" or "0", true)
     reaper.SetExtState(section_name, "wave_bg_progress", cfg.wave_bg_progress and "1" or "0", true)
@@ -27646,7 +27650,7 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
     end
 
     local diff = UI_STATE.prompter_slider_target_y - UI_STATE.prompter_slider_y
-    if math.abs(diff) > 0.1 then UI_STATE.prompter_slider_y = UI_STATE.prompter_slider_y + diff * 0.15 else UI_STATE.prompter_slider_y = UI_STATE.prompter_slider_target_y end
+    if math.abs(diff) > 0.1 then UI_STATE.prompter_slider_y = UI_STATE.prompter_slider_y + diff * 0.35 else UI_STATE.prompter_slider_y = UI_STATE.prompter_slider_target_y end
 
     local screen_center_y = gfx.h / 2
     local draw_y_offset = screen_center_y - UI_STATE.prompter_slider_y
@@ -27736,6 +27740,11 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
             local text_y = y_top + (item.type == "region" and S(20) or S(10))
             
             if item.type == "region" then
+                if cfg.show_zebra_in_slider_mode and item.region_idx % 2 == 0 then
+                    set_color(UI.GET_P_COLOR(0.02))
+                    gfx.rect(content_offset_left, y_top, available_w, item.h, 1)
+                end
+
                 local is_active = (item.region_idx == active_idx)
                 local alpha = is_active and 1.0 or 0.2
                 set_color(UI.GET_P_COLOR(alpha))
@@ -29397,6 +29406,11 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, T("DISPLAY_R_SPEED"), cfg.show_speed_in_prompter, T("DISPLAY_R_SPEED_TIP")) then
         cfg.show_speed_in_prompter = not cfg.show_speed_in_prompter
+        save_settings()
+    end
+    y_cursor = y_cursor + S(35)
+    if checkbox(x_start, y_cursor, T("SLIDER_COLOR_L_ZEBRA"), cfg.show_zebra_in_slider_mode, T("SLIDER_COLOR_L_ZEBRA_TIP")) then
+        cfg.show_zebra_in_slider_mode = not cfg.show_zebra_in_slider_mode
         save_settings()
     end
     y_cursor = y_cursor + S(60)
