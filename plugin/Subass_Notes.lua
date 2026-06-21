@@ -27422,6 +27422,38 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
     return false
 end
 
+function DRAW_WINDOW.draw_cps_warning(active_regions, content_offset_left, available_w)
+    if cfg.cps_warning then
+        local max_cps = 0
+        local regions_to_check = active_regions
+        
+        -- If no active regions, check the next available region
+        if #active_regions == 0 and next_rgn then
+            regions_to_check = {next_rgn}
+        end
+
+        if #regions_to_check > 0 then
+            for _, rgn in ipairs(regions_to_check) do
+                local dur = rgn.rgnend - rgn.pos
+                if dur > 0 then
+                    -- Strip formatting and comments for accurate char count
+                    local clean_text = rgn.name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("\n", ""):gsub(" ", ""):gsub(acute, "")
+                    -- Use utf8.len
+                    local char_count = utf8.len(clean_text) or #clean_text
+                    local cps = char_count / dur
+                    if cps > max_cps then max_cps = cps end
+                end
+            end
+
+            if max_cps >= 15 then
+                local col = UTILS.get_cps_color(max_cps)
+                set_color({col[1], col[2], col[3], 0.8})
+                gfx.rect(content_offset_left, S(25), available_w, S(2), 1) -- Top warning strip
+            end
+        end
+    end
+end
+
 function DRAW_WINDOW.draw_prompter_slider(input_queue)
     local bg_r, bg_g, bg_b = cfg.bg_cr, cfg.bg_cg, cfg.bg_cb
     set_color({bg_r, bg_g, bg_b})
@@ -27515,6 +27547,8 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
 
     local state_count = reaper.GetProjectStateChangeCount(0)
     local dict_ts = DICT.last_update_ts or ""
+
+    DRAW_WINDOW.draw_cps_warning(current_active_regions, content_offset_left, available_w)
     
     if (prompter_slider_cache.state_count ~= state_count and UTILS.is_markers_regions_changed()) or prompter_slider_cache.state_count == -1 or prompter_slider_cache.w ~= available_w or 
        prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
@@ -27937,35 +27971,7 @@ function DRAW_TABS.draw_prompter(input_queue)
     end
 
     -- CPS Warning Strip
-    if cfg.cps_warning then
-        local max_cps = 0
-        local regions_to_check = active_regions
-        
-        -- If no active regions, check the next available region
-        if #active_regions == 0 and next_rgn then
-            regions_to_check = {next_rgn}
-        end
-
-        if #regions_to_check > 0 then
-            for _, rgn in ipairs(regions_to_check) do
-                local dur = rgn.rgnend - rgn.pos
-                if dur > 0 then
-                    -- Strip formatting and comments for accurate char count
-                    local clean_text = rgn.name:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", ""):gsub("\n", ""):gsub(" ", ""):gsub(acute, "")
-                    -- Use utf8.len
-                    local char_count = utf8.len(clean_text) or #clean_text
-                    local cps = char_count / dur
-                    if cps > max_cps then max_cps = cps end
-                end
-            end
-
-            if max_cps >= 15 then
-                local col = UTILS.get_cps_color(max_cps)
-                set_color({col[1], col[2], col[3], 0.8})
-                gfx.rect(content_offset_left, S(25), available_w, S(2), 1) -- Top warning strip
-            end
-        end
-    end
+    DRAW_WINDOW.draw_cps_warning(active_regions, content_offset_left, available_w)
     
     -- Use first active region for interactions (backward compatibility)
     local region_idx = -1
