@@ -16162,144 +16162,152 @@ local function wrap_rich_text(segments, max_w, font_slot, font_name, base_size, 
     local last_was_space = true -- Track if we are at a word boundary
     
     for _, seg in ipairs(segments) do
-        local tokens = {}
-        -- Extract leading spaces if any
-        local leading_sp = seg.text:match("^(%s+)")
-        if leading_sp then table.insert(tokens, leading_sp) end
-        
-        -- Extract words and their trailing spaces
-        for word, sp in seg.text:gmatch("(%S+)(%s*)") do
-            table.insert(tokens, word)
-            if sp ~= "" then table.insert(tokens, sp) end
-        end
-        
-        if #tokens == 0 and #seg.text > 0 then
-            table.insert(tokens, seg.text)
-        end
-        
-        for _, token in ipairs(tokens) do
-            local is_space = token:match("^%s+$") ~= nil
+        if seg.is_newline then
+            table.insert(lines, current_line)
+            current_line = {}
+            current_w = 0
+            is_first_line = false
+            last_was_space = true
+        else
+            local tokens = {}
+            -- Extract leading spaces if any
+            local leading_sp = seg.text:match("^(%s+)")
+            if leading_sp then table.insert(tokens, leading_sp) end
             
-            -- Apply font based on segment/header status for measurement
-            local f_flags, effective_font = 0, font_name
-            local is_bold = seg.b or seg.is_bold or (is_header and not (seg.is_plain or seg.s))
-            local is_italic = seg.i or seg.is_italic
-            
-            if is_italic then
-                if font_name == "Helvetica" then effective_font = "Helvetica Oblique"
-                else f_flags = f_flags + string.byte('i') end
+            -- Extract words and their trailing spaces
+            for word, sp in seg.text:gmatch("(%S+)(%s*)") do
+                table.insert(tokens, word)
+                if sp ~= "" then table.insert(tokens, sp) end
             end
-            if is_bold then
-                if effective_font == font_name then 
-                    if is_italic then f_flags = string.byte('b') | (string.byte('i') << 8)
-                    else f_flags = string.byte('b') end
-                elseif is_italic and font_name == "Helvetica" then 
-                    effective_font = "Helvetica Bold Oblique"
-                    f_flags = 0
+            
+            if #tokens == 0 and #seg.text > 0 then
+                table.insert(tokens, seg.text)
+            end
+            
+            for _, token in ipairs(tokens) do
+                local is_space = token:match("^%s+$") ~= nil
+                
+                -- Apply font based on segment/header status for measurement
+                local f_flags, effective_font = 0, font_name
+                local is_bold = seg.b or seg.is_bold or (is_header and not (seg.is_plain or seg.s))
+                local is_italic = seg.i or seg.is_italic
+                
+                if is_italic then
+                    if font_name == "Helvetica" then effective_font = "Helvetica Oblique"
+                    else f_flags = f_flags + string.byte('i') end
                 end
-            end
-            gfx.setfont(font_slot, effective_font, base_size, f_flags)
-            
-            -- Ignore stress marks for layout measurement
-            local measure_word_for_width = token:gsub(acute, "")
-            local token_w = gfx.measurestr(measure_word_for_width)
-            
-            local effective_max_w = (is_first_line and first_line_indent) and (max_w - first_line_indent) or max_w
-            
-            -- Trigger wrap if any part of a word overflows the line
-            if not is_space and current_w + token_w > effective_max_w and current_w > 0 then
-                if last_was_space then
-                    -- Normal word-boundary break
-                    table.insert(lines, current_line)
-                    current_line = {}
-                    current_w = 0
-                    is_first_line = false
-                else
-                    -- Mid-word overflow! Backtrack to previous space in current line
-                    local last_space_idx = nil
-                    for j = #current_line, 1, -1 do
-                        if current_line[j].text:match("%s$") then
-                            last_space_idx = j
-                            break
-                        end
+                if is_bold then
+                    if effective_font == font_name then 
+                        if is_italic then f_flags = string.byte('b') | (string.byte('i') << 8)
+                        else f_flags = string.byte('b') end
+                    elseif is_italic and font_name == "Helvetica" then 
+                        effective_font = "Helvetica Bold Oblique"
+                        f_flags = 0
                     end
-                    
-                    if last_space_idx then
-                        -- Everything after last_space_idx is part of the current word
-                        local word_parts = {}
-                        for j = last_space_idx + 1, #current_line do
-                            table.insert(word_parts, current_line[j])
-                        end
-                        -- Remove from current line
-                        for j = #current_line, last_space_idx + 1, -1 do
-                            table.remove(current_line, j)
-                        end
-                        
-                        table.insert(lines, current_line)
-                        current_line = word_parts
-                        current_w = 0
-                        for _, p in ipairs(word_parts) do current_w = current_w + (p.width or 0) end
-                        is_first_line = false
-                    else
-                        -- Entire line is one long word that doesn't fit. 
-                        -- Move to new line (already ensured current_w > 0)
+                end
+                gfx.setfont(font_slot, effective_font, base_size, f_flags)
+                
+                -- Ignore stress marks for layout measurement
+                local measure_word_for_width = token:gsub(acute, "")
+                local token_w = gfx.measurestr(measure_word_for_width)
+                
+                local effective_max_w = (is_first_line and first_line_indent) and (max_w - first_line_indent) or max_w
+                
+                -- Trigger wrap if any part of a word overflows the line
+                if not is_space and current_w + token_w > effective_max_w and current_w > 0 then
+                    if last_was_space then
+                        -- Normal word-boundary break
                         table.insert(lines, current_line)
                         current_line = {}
                         current_w = 0
                         is_first_line = false
+                    else
+                        -- Mid-word overflow! Backtrack to previous space in current line
+                        local last_space_idx = nil
+                        for j = #current_line, 1, -1 do
+                            if current_line[j].text:match("%s$") then
+                                last_space_idx = j
+                                break
+                            end
+                        end
+                        
+                        if last_space_idx then
+                            -- Everything after last_space_idx is part of the current word
+                            local word_parts = {}
+                            for j = last_space_idx + 1, #current_line do
+                                table.insert(word_parts, current_line[j])
+                            end
+                            -- Remove from current line
+                            for j = #current_line, last_space_idx + 1, -1 do
+                                table.remove(current_line, j)
+                            end
+                            
+                            table.insert(lines, current_line)
+                            current_line = word_parts
+                            current_w = 0
+                            for _, p in ipairs(word_parts) do current_w = current_w + (p.width or 0) end
+                            is_first_line = false
+                        else
+                            -- Entire line is one long word that doesn't fit. 
+                            -- Move to new line (already ensured current_w > 0)
+                            table.insert(lines, current_line)
+                            current_line = {}
+                            current_w = 0
+                            is_first_line = false
+                        end
                     end
                 end
-            end
-            
-            -- Skip leading spaces on a new line to avoid indenting wrapped text
-            if current_w == 0 and is_space and #lines > 0 then
-                -- skip this token
-            else
-                local last_seg = current_line[#current_line]
                 
-                -- Helper to compare colors
-                local colors_match = false
-                if not last_seg then
-                elseif not last_seg.color and not seg.color then
-                    colors_match = true
-                elseif last_seg.color and seg.color then
-                    colors_match = (last_seg.color[1] == seg.color[1] and 
-                                    last_seg.color[2] == seg.color[2] and 
-                                    last_seg.color[3] == seg.color[3])
-                end
-
-                local can_merge = last_seg and 
-                    (last_seg.is_link == seg.is_link) and 
-                    (last_seg.is_plain == seg.is_plain) and 
-                    ((last_seg.b or last_seg.is_bold) == (seg.b or seg.is_bold)) and
-                    ((last_seg.i or last_seg.is_italic) == (seg.i or seg.is_italic)) and
-                    ((last_seg.u or false) == (seg.u or false)) and
-                    ((last_seg.u_wave or false) == (seg.u_wave or false)) and
-                    ((last_seg.s or false) == (seg.s or false)) and
-                    (last_seg.comment == seg.comment) and
-                    (last_seg.word == seg.word) and
-                    colors_match
-                
-                if can_merge then
-                    last_seg.text = last_seg.text .. token
-                    last_seg.width = (last_seg.width or 0) + token_w
+                -- Skip leading spaces on a new line to avoid indenting wrapped text
+                if current_w == 0 and is_space and #lines > 0 then
+                    -- skip this token
                 else
-                    local new_seg = {}
-                    for k, v in pairs(seg) do new_seg[k] = v end
-                    new_seg.text = token
-                    new_seg.width = token_w
-                    -- clear flags
-                    new_seg.b = seg.b or seg.is_bold
-                    new_seg.i = seg.i or seg.is_italic
-                    new_seg.is_bold = new_seg.b
-                    new_seg.is_italic = new_seg.i
-                    new_seg.is_plain = seg.is_plain or false  -- Explicitly preserve is_plain
+                    local last_seg = current_line[#current_line]
                     
-                    table.insert(current_line, new_seg)
+                    -- Helper to compare colors
+                    local colors_match = false
+                    if not last_seg then
+                    elseif not last_seg.color and not seg.color then
+                        colors_match = true
+                    elseif last_seg.color and seg.color then
+                        colors_match = (last_seg.color[1] == seg.color[1] and 
+                                        last_seg.color[2] == seg.color[2] and 
+                                        last_seg.color[3] == seg.color[3])
+                    end
+
+                    local can_merge = last_seg and 
+                        (last_seg.is_link == seg.is_link) and 
+                        (last_seg.is_plain == seg.is_plain) and 
+                        ((last_seg.b or last_seg.is_bold) == (seg.b or seg.is_bold)) and
+                        ((last_seg.i or last_seg.is_italic) == (seg.i or seg.is_italic)) and
+                        ((last_seg.u or false) == (seg.u or false)) and
+                        ((last_seg.u_wave or false) == (seg.u_wave or false)) and
+                        ((last_seg.s or false) == (seg.s or false)) and
+                        (last_seg.comment == seg.comment) and
+                        (last_seg.word == seg.word) and
+                        colors_match
+                    
+                    if can_merge then
+                        last_seg.text = last_seg.text .. token
+                        last_seg.width = (last_seg.width or 0) + token_w
+                    else
+                        local new_seg = {}
+                        for k, v in pairs(seg) do new_seg[k] = v end
+                        new_seg.text = token
+                        new_seg.width = token_w
+                        -- clear flags
+                        new_seg.b = seg.b or seg.is_bold
+                        new_seg.i = seg.i or seg.is_italic
+                        new_seg.is_bold = new_seg.b
+                        new_seg.is_italic = new_seg.i
+                        new_seg.is_plain = seg.is_plain or false  -- Explicitly preserve is_plain
+                        
+                        table.insert(current_line, new_seg)
+                    end
+                    current_w = current_w + token_w
                 end
-                current_w = current_w + token_w
+                last_was_space = is_space
             end
-            last_was_space = is_space
         end
     end
     
@@ -29206,10 +29214,12 @@ function DRAW_TABS.draw_settings()
         gfx.drawstr(tostring(cfg.wrap_length))
         if s_btn(x_start + S(200), y_cursor - S(10), S(30), S(30), "－") then
             cfg.wrap_length = math.max(10, cfg.wrap_length - 2)
+            prompter_slider_cache.state_count = -1
             save_settings()
         end
         if s_btn(x_start + S(235), y_cursor - S(10), S(30), S(30), "＋") then
             cfg.wrap_length = math.min(100, cfg.wrap_length + 2)
+            prompter_slider_cache.state_count = -1
             save_settings()
         end
     end
@@ -29386,11 +29396,13 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, T("ALL_CAPS"), cfg.all_caps, T("ALL_CAPS_TIP")) then
         cfg.all_caps = not cfg.all_caps
+        prompter_slider_cache.state_count = -1
         save_settings()
     end
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, T("SOFT_HYPHENS"), cfg.p_soft_n, T("SOFT_HYPHENS_TIP")) then
         cfg.p_soft_n = not cfg.p_soft_n
+        prompter_slider_cache.state_count = -1
         save_settings()
     end
     y_cursor = y_cursor + S(35)
