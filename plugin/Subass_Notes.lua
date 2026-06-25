@@ -18478,7 +18478,7 @@ function DRAW_WINDOW.draw_text_editor(input_queue)
     -- AI Button dimensions
     local provider_name = (cfg.ai_provider == "mistral") and "Mistral" or (cfg.ai_provider == "groq" and "Groq" or "Gemini")
     local ai_btn_text = T("ASK_NAME") .. provider_name
-    local ai_btn_w, ai_btn_h = cfg.lng == "ua" and S(130) or S(90), S(24)
+    local ai_btn_w, ai_btn_h = cfg.lng == "ua" and S(120) or S(90), S(24)
     local ai_btn_x, ai_btn_y = box_x + box_w - ai_btn_w - S(10), box_y + S(8)
     local ai_box_x = box_w - S(24)
 
@@ -31973,13 +31973,14 @@ function UTILS.check_spelling(line_index, clean_text, raw_text)
     
     if is_windows then
         py_script = py_script:gsub("/", "\\")
+        py_exe = UTILS.get_win_py_exe(py_exe)
     end
     
     local lt_lang = "en-US"
     if cfg.lng == "ua" or cfg.lng == "uk" then
         lt_lang = "uk-UA"
     end
-    local cmd = string.format('"%s" "%s" --text-file "%s" --output-file "%s" --lang "%s"', py_exe, py_script, write_path, write_out_path, lt_lang)
+    local cmd = py_exe .. ' "' .. py_script .. '" --text-file "' .. write_path .. '" --output-file "' .. write_out_path .. '" --lang "' .. lt_lang .. '"'
     
     run_async_command(cmd, function(output)
         local file_content = ""
@@ -32135,13 +32136,14 @@ function UTILS.check_spelling_all()
     
     if is_windows then
         py_script = py_script:gsub("/", "\\")
+        py_exe = UTILS.get_win_py_exe(py_exe)
     end
     
     local lt_lang = "en-US"
     if cfg.lng == "ua" or cfg.lng == "uk" then
         lt_lang = "uk-UA"
     end
-    local cmd = string.format('"%s" "%s" --text-file "%s" --output-file "%s" --lang "%s"', py_exe, py_script, write_path, write_out_path, lt_lang)
+    local cmd = py_exe .. ' "' .. py_script .. '" --text-file "' .. write_path .. '" --output-file "' .. write_out_path .. '" --lang "' .. lt_lang .. '"'
     
     run_async_command(cmd, function(output)
         local file_content = ""
@@ -34774,7 +34776,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         -- Calculate AI Button position first
         local provider_name = (cfg.ai_provider == "mistral") and "Mistral" or (cfg.ai_provider == "groq" and "Groq" or "Gemini")
         local ai_btn_text = T("ASK_NAME") .. provider_name
-        local ai_btn_w = cfg.lng == "ua" and S(130) or S(90)
+        local ai_btn_w = cfg.lng == "ua" and S(120) or S(90)
         local ai_btn_x = input_draw_x + left_w - ai_btn_w
         local ai_b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
 
