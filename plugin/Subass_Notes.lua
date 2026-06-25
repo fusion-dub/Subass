@@ -786,6 +786,8 @@ local I18N = {
     FMT_ITALIC = { en = "Italic: {\\i1} ... {\\i0}", ua = "Курсив: {\\i1} ... {\\i0}" },
     FMT_UNDERLINE = { en = "Underline: {\\u1} ... {\\u0}", ua = "Підкреслення: {\\u1} ... {\\u0}" },
     FMT_CROSSLINE = { en = "Strikethrough: {\\s1} ... {\\s0}", ua = "Закреслення: {\\s1} ... {\\s0}" },
+    FMT_UPPERCASE = { en = "Convert selected text to uppercase", ua = "Перевести виділений текст у верхній регістр" },
+    FMT_LOWERCASE = { en = "Convert selected text to lowercase", ua = "Перевести виділений текст у нижній регістр" },
     FMT_COMMENT = { en = "Enclose in curly brackets, comment: { ... }", ua = "Огорнути у фігурні дужки, коментар: { ... }" },
     FMT_REMOVE_HIDDEN = { en = "Delete hidden comments {{ ... }}", ua = "Видалити приховані коментарі {{ ... }}" },
     NO_HIDDEN_COMMENTS_TO_DELETE = { en = "No hidden comments {{}} were found to delete.", ua = "Не знайдено приховані коментарі {{}} для видалення." },
@@ -2969,6 +2971,8 @@ function OTHER.load_other_exts()
         { btn = "DL", tag = "delete_line", tip = "DELETE_LINE", hidden = true },
         { btn = "/--", tag = "split_nl_est", tip = "FMT_SPLIT_NL_EST", hidden = true },
         { btn = "/==", tag = "split_nl_prev", tip = "FMT_SPLIT_NL_PREV", hidden = true },
+        { btn = "UC", tag = "uppercase", tip = "FMT_UPPERCASE", hidden = true },
+        { btn = "LC", tag = "lowercase", tip = "FMT_LOWERCASE", hidden = true },
     }
     local raw_sys_presets = reaper.GetExtState(section_name, "fmt_sys_presets_ext")
     if raw_sys_presets ~= "" then
@@ -32010,7 +32014,24 @@ function UTILS.check_spelling(line_index, clean_text, raw_text)
         }
         
         if not is_table then
-            show_snackbar(T("LTOOL_CHECK_FAILED"), "error")
+            local clean_err = ""
+            if file_content and file_content ~= "" then
+                local err_match = file_content:match('"error"%s*:%s*"([^"]+)"')
+                if err_match then
+                    clean_err = err_match
+                else
+                    clean_err = file_content:gsub("[\r\n]+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+                    if #clean_err > 120 then
+                        clean_err = clean_err:sub(1, 120) .. "..."
+                    end
+                end
+            end
+            if clean_err == "" then
+                clean_err = T("LTOOL_CHECK_FAILED")
+            else
+                clean_err = T("LTOOL_ERROR_PREFIX") .. clean_err
+            end
+            show_snackbar(clean_err, "error")
         elseif result.error then
             show_snackbar(T("LTOOL_ERROR_PREFIX") .. tostring(result.error), "error")
         else
@@ -32148,7 +32169,24 @@ function UTILS.check_spelling_all()
             for _, item in ipairs(batch) do
                 SUBASS_LT_RESULT[item.line_index] = nil
             end
-            show_snackbar(T("LTOOL_CHECK_FAILED"), "error")
+            local clean_err = ""
+            if file_content and file_content ~= "" then
+                local err_match = file_content:match('"error"%s*:%s*"([^"]+)"')
+                if err_match then
+                    clean_err = err_match
+                else
+                    clean_err = file_content:gsub("[\r\n]+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+                    if #clean_err > 120 then
+                        clean_err = clean_err:sub(1, 120) .. "..."
+                    end
+                end
+            end
+            if clean_err == "" then
+                clean_err = T("LTOOL_CHECK_FAILED")
+            else
+                clean_err = T("LTOOL_ERROR_PREFIX") .. clean_err
+            end
+            show_snackbar(clean_err, "error")
             save_project_data()
             return
         elseif result.error then
@@ -34394,6 +34432,8 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             { btn = "DL", tag = "delete_line", tip = "DELETE_LINE", hidden = true },
             { btn = "/--", tag = "split_nl_est", tip = "FMT_SPLIT_NL_EST", hidden = true },
             { btn = "/==", tag = "split_nl_prev", tip = "FMT_SPLIT_NL_PREV", hidden = true },
+            { btn = "UC", tag = "uppercase", tip = "FMT_UPPERCASE", hidden = true },
+            { btn = "LC", tag = "lowercase", tip = "FMT_LOWERCASE", hidden = true },
         }
         local visible_sys_presets = {}
         for _, item in ipairs(sys_presets) do
@@ -34409,7 +34449,35 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             local e_idx = math.max(inp.cursor, inp.anchor)
             local txt = inp.text
             
-            if tag == "c" then
+            if tag == "uppercase" then
+                if s_idx ~= e_idx then
+                    local selected = txt:sub(s_idx + 1, e_idx)
+                    local converted = utf8_upper(selected)
+                    local new_txt = txt:sub(1, s_idx) .. converted .. txt:sub(e_idx + 1)
+                    inp.text = new_txt
+                    inp.cursor = s_idx + #converted
+                    inp.anchor = inp.cursor
+                else
+                    local converted = utf8_upper(txt)
+                    inp.text = converted
+                    inp.cursor = #converted
+                    inp.anchor = inp.cursor
+                end
+            elseif tag == "lowercase" then
+                if s_idx ~= e_idx then
+                    local selected = txt:sub(s_idx + 1, e_idx)
+                    local converted = utf8_lower(selected)
+                    local new_txt = txt:sub(1, s_idx) .. converted .. txt:sub(e_idx + 1)
+                    inp.text = new_txt
+                    inp.cursor = s_idx + #converted
+                    inp.anchor = inp.cursor
+                else
+                    local converted = utf8_lower(txt)
+                    inp.text = converted
+                    inp.cursor = #converted
+                    inp.anchor = inp.cursor
+                end
+            elseif tag == "c" then
                 if s_idx ~= e_idx then
                     -- Wrap selection in braces
                     local selected = txt:sub(s_idx + 1, e_idx)
