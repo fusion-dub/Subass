@@ -36635,7 +36635,7 @@ function DRAW_TABS.draw_table(input_queue)
                         
                         -- Special Command: %UC - All Uppercase (Caps Lock filter)
                         if q == "%UC" and not is_replace_mode then
-                            local visible = target_text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", "")
+                            local visible = target_text:gsub("{{+.-}}+", ""):gsub("<[^>]+>", ""):gsub("{.-}", ""):gsub("\\N", "")
                             -- Remove spaces, punctuation and digits to check only actual letters
                             local letters_only = visible:gsub("%s+", ""):gsub("[%p%d]", "")
                             if #letters_only > 0 and letters_only == utf8_upper(letters_only) then
