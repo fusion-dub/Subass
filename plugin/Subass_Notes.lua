@@ -37257,6 +37257,50 @@ function DRAW_TABS.draw_table(input_queue)
                         local dot_y = buf_y + (row_h_dynamic - S(3)) / 2
                         gfx.circle(dot_x, dot_y, dot_sz, 1)
                         text_draw_x = text_draw_x + S(16)
+                        
+                        local circle_y = screen_y + (row_h_dynamic - S(3)) / 2
+                        if row_hover and 
+                           (gfx.mouse_x >= dot_x - dot_sz - S(2) and gfx.mouse_x <= dot_x + dot_sz + S(2)) and
+                           (gfx.mouse_y >= circle_y - dot_sz - S(2) and gfx.mouse_y <= circle_y + dot_sz + S(2)) then
+                            local chars = {}
+                            if lt_data.clean_text then
+                                for char in lt_data.clean_text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+                                    table.insert(chars, char)
+                                end
+                            end
+                            
+                            local messages = {}
+                            for _, issue in ipairs(res) do
+                                if type(issue) == "table" and issue.message then
+                                    local err_word = ""
+                                    if #chars > 0 and issue.offset and issue.error_length then
+                                        local word_chars = {}
+                                        local start_idx = issue.offset + 1
+                                        local end_idx = start_idx + issue.error_length - 1
+                                        for k = start_idx, end_idx do
+                                            if chars[k] then table.insert(word_chars, chars[k]) end
+                                        end
+                                        err_word = table.concat(word_chars)
+                                    end
+                                    
+                                    local msg = "• "
+                                    if err_word ~= "" then
+                                        msg = msg .. "(" .. err_word .. ") "
+                                    end
+                                    msg = msg .. issue.message
+                                    table.insert(messages, msg)
+                                end
+                            end
+                            if #messages > 0 then
+                                local tip_id = "lt_err_table_" .. original_idx
+                                if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                                    UI_STATE.tooltip_state.hover_id = tip_id
+                                    UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                                end
+                                UI_STATE.tooltip_state.text = table.concat(messages, "\n")
+                                UI_STATE.tooltip_state.immediate = true
+                            end
+                        end
                     end
                 end
             end
