@@ -715,6 +715,15 @@ local I18N = {
     WHISPER_INSTALL_CANCELED = { en = "Whisper installation canceled", ua = "Whisper встановлення скасовано" },
     WHISPER_INSTALL_START = { en = "Installation has begun—please check the terminal", ua = "Почалося встановлення — перевірте термінал" },
     WHISPER_ERROR_1 = { en = "Recognition error: Unable to generate subtitles", ua = "Помилка розпізнавання: не вдалося створити субтитри" },
+    LTOOL_CORRECTOR = { en = "Spell and grammar checker (LanguageTool)", ua = "Перевірка орфографії та граматики (LanguageTool)" },
+    LTOOL_TEXT_EMPTY = { en = "Text is empty", ua = "Текст порожній" },
+    LTOOL_NO_TEXT_AFTER_TAGS = { en = "No text to check after removing tags", ua = "Немає тексту для перевірки після видалення тегів" },
+    LTOOL_TEMP_FILE_ERR = { en = "Failed to create temporary input file", ua = "Не вдалося створити тимчасовий файл" },
+    LTOOL_CHECK_FAILED = { en = "LanguageTool check failed", ua = "Помилка перевірки LanguageTool" },
+    LTOOL_ERROR_PREFIX = { en = "LanguageTool error: ", ua = "Помилка LanguageTool: " },
+    LTOOL_NO_ISSUES = { en = "No spelling or grammar issues found!", ua = "Помилок або граматичних вад не знайдено!" },
+    LTOOL_ISSUES_FOUND = { en = "LanguageTool: found %d issues!", ua = "LanguageTool: знайдено %d помилок!" },
+    LTOOL_CHECK_ALL = { en = "Check all lines for spelling errors", ua = "Перевірити всі рядки на помилки" },
     WHISPER_SUCC_DONE_1 = { en = "Recognition completed successfully!", ua = "Розпізнавання успішно завершено!" },
     WHISPER_SUCC_DONE_2 = { en = "Recognition complete! Go to the  «", ua = "Розпізнавання завершено! Перейдіть на проєкт «" },
     WHISPER_SUCC_DONE_3 = { en = "» project to see result", ua = "» для отримання результату" },
@@ -2416,6 +2425,8 @@ local director_state = {
     last_ass_actor = nil,        -- To track character changes for auto-fill
 }
 
+SUBASS_LT_RESULT = {}
+
 -- Editor Mode State
 local editor_state = {
     input = { text = "", cursor = 0, anchor = 0, focus = false },
@@ -2952,6 +2963,7 @@ function OTHER.load_other_exts()
         { btn = "|", tag = "separator", tip = "FMT_SEPARATOR" },
         { btn = "{/}", tag = "c", tip = "FMT_COMMENT" },
         { btn = "{x}", tag = "x", tip = "FMT_REMOVE_HIDDEN" },
+        { btn = "CR", tag = "corrector", tip = "LTOOL_CORRECTOR" },
         { btn = "TR", tag = "translate_deepl", tip = "DEEPL_TRANSLATE_LINE", hidden = true },
         { btn = "DP", tag = "duplicate_line", tip = "REPEAT_THE_LINE", hidden = true },
         { btn = "DL", tag = "delete_line", tip = "DELETE_LINE", hidden = true },
@@ -9501,6 +9513,18 @@ local function save_project_data()
     end
     save_chunked("ass_markers", mark_tbl)
     
+    -- Save LanguageTool spellcheck results
+    if SUBASS_LT_RESULT then
+        local success, json_lt = pcall(function() return STATS.json_encode(SUBASS_LT_RESULT) end)
+        if success and json_lt then
+            save_chunked("subass_lt_result", {json_lt})
+        else
+            reaper.SetProjExtState(0, section_name, "subass_lt_result_count", "0")
+        end
+    else
+        reaper.SetProjExtState(0, section_name, "subass_lt_result_count", "0")
+    end
+    
     -- Signal change to external scripts (Overlay)
     reaper.gmem_write(101, (reaper.gmem_read(101) or 0) + 1)
 end
@@ -9587,6 +9611,7 @@ local function load_project_data()
     UI_STATE.is_loading = true
     -- ALWAYS reset state first
     ass_lines = {}
+    SUBASS_LT_RESULT = {}
     
     -- Reset temporary session takes for ach_12 (King of the Hill)
     if STATS and STATS.etc then STATS.etc.replica_takes = {} end
@@ -9798,6 +9823,34 @@ local function load_project_data()
             ASS.ass_events_header_lines = h_data.events_header or {}
             ASS.ass_format_order = h_data.format_order or {}
         end
+    end
+
+    -- Load LanguageTool spellcheck results
+    local lt_dump = ""
+    local okLTC, lt_count_str = reaper.GetProjExtState(0, section_name, "subass_lt_result_count")
+    if okLTC and lt_count_str ~= "" then
+        local count = tonumber(lt_count_str) or 0
+        for i = 1, count do
+            local okX, chunk = reaper.GetProjExtState(0, section_name, "subass_lt_result_chunk_" .. i)
+            if okX then lt_dump = lt_dump .. chunk end
+        end
+    end
+    if lt_dump ~= "" then
+        local success, lt_data = pcall(function() return STATS.json_decode(lt_dump) end)
+        if success and type(lt_data) == "table" then
+            SUBASS_LT_RESULT = {}
+            for k, v in pairs(lt_data) do
+                local num_key = tonumber(k)
+                local key = num_key or k
+                if not (type(v) == "table" and v.loading) then
+                    SUBASS_LT_RESULT[key] = v
+                end
+            end
+        else
+            SUBASS_LT_RESULT = {}
+        end
+    else
+        SUBASS_LT_RESULT = {}
     end
 
     STATS.update_metadata()
@@ -16967,12 +17020,14 @@ function UTILS.calc_track_items_by_actor()
     show_snackbar(T("TAKES_PROCC_CTI") .. changed_count, "success")
 end
 
+local INPUT_ST = {}
+
 --- Handle keyboard input for a text field state
 --- @param input_queue table Key inputs
 --- @param state table Input state {text, cursor, anchor}
 --- @param is_multiline boolean Allow newlines
 --- @return boolean True if text changed
-local function process_input_events(input_queue, state, is_multiline, visual_lines)
+function INPUT_ST.process_input_events(input_queue, state, is_multiline, visual_lines)
     if not input_queue or #input_queue == 0 then return false end
     
     -- Reset auto-scroll suppression on any keyboard activity
@@ -17263,7 +17318,7 @@ local function process_input_events(input_queue, state, is_multiline, visual_lin
 end
 
 -- Helper: Get char index from relative X
-local function get_char_index_at_x(text, rel_x)
+function INPUT_ST.get_char_index_at_x(text, rel_x)
     if not text or text == "" then return 0 end
     local best_idx = 0
     local best_dist = 1000000
@@ -17293,7 +17348,7 @@ local function get_char_index_at_x(text, rel_x)
     return best_idx
 end
 
-local function record_field_history(state)
+function INPUT_ST.record_field_history(state)
     if not state.history then state.history = {} end
     if not state.history_pos then state.history_pos = 0 end
     
@@ -17322,7 +17377,168 @@ local function record_field_history(state)
     end
 end
 
-local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is_multiline, is_director_mode, font_category_size, max_len)
+function INPUT_ST.get_error_color(category, issue_type)
+    local cat = tostring(category or ""):lower()
+    local typ = tostring(issue_type or ""):lower()
+    
+    if typ:find("casing") or cat:find("casing") then
+        return {0.9, 0.8, 0.5, 0.9} -- White (Capitalization error)
+    elseif typ:find("misspelling") or typ:find("spelling") or cat:find("typos") then
+        return {0.9, 0.1, 0.1, 0.9} -- Red (Spelling error)
+    elseif typ:find("grammar") or cat:find("grammar") then
+        return {0.1, 0.7, 0.2, 0.9} -- Green (Grammar error)
+    elseif typ:find("style") or cat:find("style") or typ:find("tone") then
+        return {0.1, 0.5, 0.9, 0.9} -- Blue (Style/Tone suggestion)
+    elseif typ:find("typographical") or typ:find("whitespace") or typ:find("duplication") or cat:find("typography") or cat:find("punctuation") then
+        return {0.9, 0.6, 0.0, 0.9} -- Orange/Yellow (Typography/Whitespace/Punctuation)
+    else
+        return {0.9, 0.1, 0.1, 0.9} -- Red (Default)
+    end
+end
+
+function INPUT_ST.get_languagetool_highlights(raw_text, issues)
+    if not raw_text or not issues or #issues == 0 then return {} end
+    
+    local raw_chars = {}
+    for char in raw_text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        table.insert(raw_chars, char)
+    end
+    
+    local clean_chars = {}
+    local clean_to_raw = {}
+    
+    local i = 1
+    local n = #raw_chars
+    while i <= n do
+        if raw_chars[i] == "{" then
+            local j = i
+            while j <= n and raw_chars[j] ~= "}" do
+                j = j + 1
+            end
+            i = j + 1
+        elseif i < n and raw_chars[i] == "\\" and (raw_chars[i+1] == "N" or raw_chars[i+1] == "n") then
+            table.insert(clean_chars, " ")
+            table.insert(clean_to_raw, i)
+            i = i + 2
+        else
+            table.insert(clean_chars, raw_chars[i])
+            table.insert(clean_to_raw, i)
+            i = i + 1
+        end
+    end
+    
+    local final_chars = {}
+    local final_to_raw = {}
+    
+    local start_idx = 1
+    while start_idx <= #clean_chars and clean_chars[start_idx]:match("%s") do
+        start_idx = start_idx + 1
+    end
+    
+    local end_idx = #clean_chars
+    while end_idx >= start_idx and clean_chars[end_idx]:match("%s") do
+        end_idx = end_idx - 1
+    end
+    
+    local in_space = false
+    for k = start_idx, end_idx do
+        local c = clean_chars[k]
+        if c:match("%s") then
+            if not in_space then
+                table.insert(final_chars, " ")
+                table.insert(final_to_raw, clean_to_raw[k])
+                in_space = true
+            end
+        else
+            table.insert(final_chars, c)
+            table.insert(final_to_raw, clean_to_raw[k])
+            in_space = false
+        end
+    end
+    
+    local highlights = {}
+    for _, issue in ipairs(issues) do
+        local offset = issue.offset
+        local err_len = issue.error_length or 0
+        
+        local final_start = offset + 1
+        local final_end = offset + err_len
+        
+        local raw_start_char = final_to_raw[final_start]
+        local raw_end_char = final_to_raw[final_end]
+        
+        if raw_start_char and raw_end_char then
+            local byte_start = 1
+            for k = 1, raw_start_char - 1 do
+                byte_start = byte_start + #raw_chars[k]
+            end
+            local byte_end = byte_start
+            for k = raw_start_char, raw_end_char do
+                byte_end = byte_end + #raw_chars[k]
+            end
+            
+            table.insert(highlights, {
+                s = byte_start - 1,
+                e = byte_end - 1,
+                message = issue.message,
+                replacements = issue.replacements,
+                color = INPUT_ST.get_error_color(issue.category, issue.rule_issue_type)
+            })
+        end
+    end
+    
+    return highlights
+end
+
+function INPUT_ST.draw_wavy_underline(x1, x2, y, color)
+    set_color(color or {0.9, 0.1, 0.1, 0.9})
+    local step = S(3)
+    local wave = S(1)
+    local is_up = true
+    for px = x1, x2 - 1, step do
+        local next_x = math.min(px + step, x2)
+        local wave_y = y + (is_up and wave or 0)
+        gfx.line(px, wave_y, next_x, wave_y)
+        is_up = not is_up
+    end
+end
+
+function INPUT_ST.find_spelling_error_at_xy(state, rx, ry, spelling_errors, is_multiline, visual_lines, line_h, padding, h, text_w)
+    if not spelling_errors or #spelling_errors == 0 then return nil end
+    
+    if not is_multiline then
+        local ty = (h - line_h) / 2
+        if ry >= ty and ry <= ty + line_h then
+            for _, err in ipairs(spelling_errors) do
+                local x1 = padding + gfx.measurestr(state.text:sub(1, err.s)) - state.scroll
+                local x2 = padding + gfx.measurestr(state.text:sub(1, err.e)) - state.scroll
+                if rx >= x1 and rx <= x2 then
+                    return err
+                end
+            end
+        end
+    else
+        for i, v_line in ipairs(visual_lines) do
+            local ly = padding + (i-1) * line_h - state.scroll
+            if ry >= ly and ry <= ly + line_h then
+                local l_start, l_end = v_line.start_idx, v_line.start_idx + #v_line.text
+                for _, err in ipairs(spelling_errors) do
+                    local b_start, b_end = math.max(l_start, err.s), math.min(l_end, err.e)
+                    if b_start < b_end then
+                        local x1 = padding + gfx.measurestr(v_line.text:sub(1, b_start - l_start))
+                        local x2 = padding + gfx.measurestr(v_line.text:sub(1, b_end - l_start))
+                        if rx >= x1 and rx <= x2 then
+                            return err
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+function INPUT_ST.ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is_multiline, is_director_mode, font_category_size, max_len)
     -- Load persistent UA mode if ID is provided and state is not yet initialized for this session
     if id and state.ua_mode == nil then
         state.ua_mode = (reaper.GetExtState(section_name, "ua_mode_" .. id) == "1")
@@ -17348,7 +17564,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
     if not state.history then
         state.history = {}
         state.history_pos = 0
-        record_field_history(state)
+        INPUT_ST.record_field_history(state)
     end
 
     local before_text = state.text or ""
@@ -17394,6 +17610,24 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
 
     -- --- INTERACTION ---
     local hover = UI_STATE.window_focused and (gfx.mouse_x >= x and gfx.mouse_x <= x + w and gfx.mouse_y >= y and gfx.mouse_y <= y + h)
+
+    -- Resolve spelling checker highlight ranges
+    local spelling_errors = {}
+    if id == "editor_panel" and state.text then
+        local active_line = editor_state.last_line_data
+        local line_id = active_line and (active_line.rgn_idx or active_line.index or active_line._i) or nil
+        if line_id and SUBASS_LT_RESULT then
+            local lt_data = SUBASS_LT_RESULT[line_id] or SUBASS_LT_RESULT[tostring(line_id)]
+            if lt_data and not lt_data.loading then
+                if lt_data.original_text == state.text and lt_data.response then
+                    local res = lt_data.response
+                    if type(res) == "table" and not res.error then
+                        spelling_errors = INPUT_ST.get_languagetool_highlights(state.text, res)
+                    end
+                end
+            end
+        end
+    end
     
     -- UA Toggle Button (Triangle in top-right)
     local ua_btn_w, ua_btn_h = S(16), S(16)
@@ -17421,14 +17655,14 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
     local function get_cursor_from_xy(mx, my)
         if not is_multiline then
             local rel_x = mx - (x + padding) + state.scroll
-            return get_char_index_at_x(state.text, rel_x)
+            return INPUT_ST.get_char_index_at_x(state.text, rel_x)
         else
             local rel_y = my - (y + padding) + state.scroll
             local v_idx = math.floor(rel_y / line_h) + 1
             v_idx = math.max(1, math.min(v_idx, #visual_lines))
             local v_line = visual_lines[v_idx]
             local rel_x = mx - (x + padding)
-            local char_idx = get_char_index_at_x(v_line.text, rel_x)
+            local char_idx = INPUT_ST.get_char_index_at_x(v_line.text, rel_x)
             return v_line.start_idx + char_idx
         end
     end
@@ -17438,6 +17672,41 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         if state.interaction_start_time and reaper.time_precise() < state.interaction_start_time then
             -- Ignore this click
         else
+            -- Check if left clicked on a spelling error word
+            local rx = gfx.mouse_x - x
+            local ry = gfx.mouse_y - y
+            local clicked_err = INPUT_ST.find_spelling_error_at_xy(state, rx, ry, spelling_errors, is_multiline, visual_lines, line_h, padding, h, text_w)
+            
+            if clicked_err and clicked_err.replacements and #clicked_err.replacements > 0 then
+                local menu_items = {}
+                for idx, rep in ipairs(clicked_err.replacements) do
+                    if idx <= 5 then
+                        table.insert(menu_items, (rep:gsub("|", "||")))
+                    end
+                end
+                
+                gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                local ret = gfx.showmenu(table.concat(menu_items, "|"))
+                
+                UI_STATE.last_mouse_cap = gfx.mouse_cap
+                UI_STATE.mouse_handled = true
+                state.focus = true
+                
+                if ret > 0 then
+                    local selected_rep = clicked_err.replacements[ret]
+                    local start_byte = clicked_err.s + 1
+                    local end_byte = clicked_err.e
+                    state.text = state.text:sub(1, start_byte - 1) .. selected_rep .. state.text:sub(end_byte + 1)
+                    state.cursor = start_byte - 1 + #selected_rep
+                    state.anchor = state.cursor
+                    INPUT_ST.record_field_history(state)
+                    if id == "editor_panel" then
+                        state.needs_respell = true
+                    end
+                end
+                return
+            end
+            
             state.focus = true
             state.is_dragging = true
             local idx = get_cursor_from_xy(gfx.mouse_x, gfx.mouse_y)
@@ -17562,7 +17831,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             set_clipboard(state.text:sub(sel_min + 1, sel_max))
             state.text = state.text:sub(1, sel_min) .. state.text:sub(sel_max + 1)
             state.cursor, state.anchor = sel_min, sel_min
-            record_field_history(state)
+            INPUT_ST.record_field_history(state)
         elseif ret == 2 and has_sel then
             -- Copy
             set_clipboard(state.text:sub(sel_min + 1, sel_max))
@@ -17579,7 +17848,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                     state.cursor = state.cursor + #clip
                 end
                 state.anchor = state.cursor
-                record_field_history(state)
+                INPUT_ST.record_field_history(state)
             end
         elseif ret == 4 then
             -- Select All
@@ -17596,7 +17865,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                 state.cursor = state.cursor + #accent
             end
             state.anchor = state.cursor
-            record_field_history(state)
+            INPUT_ST.record_field_history(state)
         elseif ret == 6 then
             -- Search in GOROH
             if has_sel then
@@ -17785,7 +18054,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         end
     end
     
-    if state.focus then process_input_events(input_queue, state, is_multiline, visual_lines) end
+    if state.focus then INPUT_ST.process_input_events(input_queue, state, is_multiline, visual_lines) end
     
     if max_len and utf8.len(state.text or "") > max_len then
         local offset = utf8.offset(state.text, max_len + 1)
@@ -17915,6 +18184,27 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
             gfx.x, gfx.y = padding - state.scroll, ty
             gfx.drawstr(state.focus and state.text or fit_text_width(state.text, text_w))
             
+            -- Draw spelling wavy underlines and check hover for single line
+            local rx = gfx.mouse_x - x
+            local ry = gfx.mouse_y - y
+            local mouse_in_widget = hover and not UI_STATE.mouse_handled
+            for _, err in ipairs(spelling_errors) do
+                local x1 = padding + gfx.measurestr(state.text:sub(1, err.s)) - state.scroll
+                local x2 = padding + gfx.measurestr(state.text:sub(1, err.e)) - state.scroll
+                local underline_y = ty + line_h - S(1)
+                INPUT_ST.draw_wavy_underline(x1, x2, underline_y, err.color)
+                
+                if mouse_in_widget and rx >= x1 and rx <= x2 and ry >= ty and ry <= ty + line_h then
+                    local tip_id = "spelling_err_" .. tostring(err.s) .. "_" .. tostring(err.e)
+                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                        UI_STATE.tooltip_state.hover_id = tip_id
+                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                    end
+                    UI_STATE.tooltip_state.immediate = true
+                    UI_STATE.tooltip_state.text = err.message
+                end
+            end
+            
             if state.focus and (math.floor(reaper.time_precise() * 2) % 2 == 0) then
                 local cur_x = padding + cx - state.scroll
                 set_color(UI.C_TXT)
@@ -17975,6 +18265,30 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
                     gfx.x, gfx.y = padding, ly
                     gfx.drawstr(v_line.text)
                     
+                    -- Draw spelling wavy underlines and check hover for multi-line
+                    local rx = gfx.mouse_x - x
+                    local ry = gfx.mouse_y - y
+                    local mouse_in_widget = hover and not UI_STATE.mouse_handled
+                    for _, err in ipairs(spelling_errors) do
+                        local b_start, b_end = math.max(l_start, err.s), math.min(l_end, err.e)
+                        if b_start < b_end then
+                            local x1 = padding + gfx.measurestr(v_line.text:sub(1, b_start - l_start))
+                            local x2 = padding + gfx.measurestr(v_line.text:sub(1, b_end - l_start))
+                            local underline_y = ly + line_h - S(1)
+                            INPUT_ST.draw_wavy_underline(x1, x2, underline_y, err.color)
+                            
+                            if mouse_in_widget and rx >= x1 and rx <= x2 and ry >= ly and ry <= ly + line_h then
+                                local tip_id = "spelling_err_" .. tostring(err.s) .. "_" .. tostring(err.e)
+                                if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                                    UI_STATE.tooltip_state.hover_id = tip_id
+                                    UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                                end
+                                UI_STATE.tooltip_state.immediate = true
+                                UI_STATE.tooltip_state.text = err.message
+                            end
+                        end
+                    end
+                    
                     if state.focus and (math.floor(reaper.time_precise() * 2) % 2 == 0) then
                         if state.cursor >= l_start and state.cursor <= l_end then
                             -- Check if cursor is at the very end of a wrapped line (should stay on this line, but if empty, it's ambiguous)
@@ -17996,7 +18310,7 @@ local function ui_text_input(id, x, y, w, h, state, placeholder, input_queue, is
         end
     end
     if state.text ~= before_text then
-        record_field_history(state)
+        INPUT_ST.record_field_history(state)
     end
 
     if id == "editor_panel" then
@@ -18140,7 +18454,7 @@ function DRAW_WINDOW.draw_text_editor(input_queue)
     if DRAW_WINDOW.draw_ai_modal(true) then 
         content_changed = true 
         -- Update history via the new unified helper for AI changes
-        record_field_history(text_editor_state)
+        INPUT_ST.record_field_history(text_editor_state)
         -- Reset auto-scroll suppression for immediate feedback
         text_editor_state.suppress_auto_scroll_until = 0
     end
@@ -18241,7 +18555,7 @@ function DRAW_WINDOW.draw_text_editor(input_queue)
     local text_w, text_h = box_w - S(20), box_h - S(80)
 
     -- Main editor interaction
-    ui_text_input("text_editor", text_x, text_y, text_w, text_h, text_editor_state, T("ENTER_TEXT_DOTS"), input_queue, true, text_editor_state.is_director_mode, F[cfg.t_editor_size])
+    INPUT_ST.ui_text_input("text_editor", text_x, text_y, text_w, text_h, text_editor_state, T("ENTER_TEXT_DOTS"), input_queue, true, text_editor_state.is_director_mode, F[cfg.t_editor_size])
 
     local btn_y = box_y + box_h - S(40)
     if btn(box_x + S(10), btn_y, S(90), S(30), T("CANCEL")) then 
@@ -18271,7 +18585,7 @@ function DRAW_WINDOW.draw_text_editor(input_queue)
         
         for _, char in ipairs(input_queue) do
             -- Undo / Redo (Fallback for focus loss)
-            if not text_editor_state.focus then -- Only run here if ui_text_input didn't already process it
+            if not text_editor_state.focus then -- Only run here if INPUT_ST.ui_text_input didn't already process it
                 if (char == 26) or (is_mod and (char == 122 or char == 90)) then
                     if text_editor_state.history and text_editor_state.history_pos then
                         if is_shift then
@@ -19496,7 +19810,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
             UI_STATE.subass_items_edit_state.last_selection_start = sel_start
             UI_STATE.subass_items_edit_state.last_selection_end = sel_end
             UI_STATE.subass_items_edit_state.focus = true
-            record_field_history(UI_STATE.subass_items_edit_state)
+            INPUT_ST.record_field_history(UI_STATE.subass_items_edit_state)
         end
 
         -- Функція створення нового TEXT ITEM
@@ -19622,7 +19936,7 @@ function DRAW_WINDOW.draw_text_items_style_editor(input_queue)
         end
 
         -- Малюємо поле вводу
-        ui_text_input("subass_items_editor", input_x, input_y, input_w, input_h,
+        INPUT_ST.ui_text_input("subass_items_editor", input_x, input_y, input_w, input_h,
             UI_STATE.subass_items_edit_state, "", normalized_queue, true, false, F[cfg.t_editor_size])
 
         -- Кнопка Save
@@ -20268,7 +20582,7 @@ function SEARCH_ITEM.draw_window(input_queue)
     local spacing = S(8)
     local input_w = gfx.w - pad*2 - s_btn_w - f_btn_sz - spacing*2
     
-    ui_text_input("search_modal", pad, content_y, input_w, input_h, SEARCH_ITEM.input, T("SRC_ENTER_TEXT_SEARCH_WANT"), input_queue)
+    INPUT_ST.ui_text_input("search_modal", pad, content_y, input_w, input_h, SEARCH_ITEM.input, T("SRC_ENTER_TEXT_SEARCH_WANT"), input_queue)
     
     -- Search Button next to input
     local s_btn_x = pad + input_w + spacing
@@ -21186,7 +21500,7 @@ function DRAW_WINDOW.draw_edit_profile(input_queue)
                 gfx.drawstr(label)
             end
             
-            ui_text_input("profile_" .. state_key, ix, iy, iw, h, state[state_key], placeholder or "", input_queue, is_multi, nil, nil, max_len)
+            INPUT_ST.ui_text_input("profile_" .. state_key, ix, iy, iw, h, state[state_key], placeholder or "", input_queue, is_multi, nil, nil, max_len)
         end
         cy = cy + row_h + spacing
     end
@@ -26498,7 +26812,7 @@ function DRAW_WINDOW.draw_prompter_drawer(input_queue)
                 local p_count_text = tostring(#prompter_drawer.filtered_cache.list)
                 p_counter_reserve = gfx.measurestr(p_count_text) + S(16)
             end
-            ui_text_input("prompter_filter", drawer_x + padding, drawer_top_y + padding, filter_w - p_counter_reserve, close_sz, prompter_drawer.filter, T("SEARCH_AND_OR"), input_queue)
+            INPUT_ST.ui_text_input("prompter_filter", drawer_x + padding, drawer_top_y + padding, filter_w - p_counter_reserve, close_sz, prompter_drawer.filter, T("SEARCH_AND_OR"), input_queue)
 
             -- Results count
             if p_counter_reserve > 0 then
@@ -31608,6 +31922,291 @@ size > 0 ? (
     reaper.UpdateArrange()
 end
 
+
+--- Check spelling and grammar using LanguageTool
+--- @param line_index number|string Unique identifier of the line
+--- @param raw_text string Raw input text
+--- Check spelling and grammar using LanguageTool
+--- @param line_index number|string Unique identifier of the line
+--- @param clean_text string The already cleaned text to check
+--- @param raw_text string Raw input text
+function UTILS.check_spelling(line_index, clean_text, raw_text)
+    if not line_index then return end
+
+    -- Immediately set loading status in global table
+    if not SUBASS_LT_RESULT then SUBASS_LT_RESULT = {} end
+    SUBASS_LT_RESULT[line_index] = {
+        loading = true,
+        original_text = raw_text,
+        clean_text = clean_text
+    }
+    save_project_data()
+
+    local temp_input_file = reaper.GetResourcePath() .. "/Scripts/async_lt_in_" .. line_index .. ".tmp"
+    local temp_output_file = reaper.GetResourcePath() .. "/Scripts/async_lt_out_" .. line_index .. ".tmp"
+    
+    -- Normalize paths for Windows if needed
+    local is_windows = reaper.GetOS():match("Win")
+    local write_path = temp_input_file
+    local write_out_path = temp_output_file
+    if is_windows then 
+        write_path = write_path:gsub("/", "\\")
+        write_out_path = write_out_path:gsub("/", "\\")
+    end
+    
+    local f_in = io.open(write_path, "w")
+    if f_in then
+        f_in:write(clean_text)
+        f_in:close()
+    else
+        SUBASS_LT_RESULT[line_index] = nil -- Reset loading status
+        show_snackbar(T("LTOOL_TEMP_FILE_ERR"), "error")
+        return
+    end
+    
+    local py_script = OTHER.SCRIPT_DIR .. "stats/subass_languagetool.py"
+    local py_exe = (OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or (is_windows and "py -3" or "python3")
+    
+    if is_windows then
+        py_script = py_script:gsub("/", "\\")
+    end
+    
+    local lt_lang = "en-US"
+    if cfg.lng == "ua" or cfg.lng == "uk" then
+        lt_lang = "uk-UA"
+    end
+    local cmd = string.format('"%s" "%s" --text-file "%s" --output-file "%s" --lang "%s"', py_exe, py_script, write_path, write_out_path, lt_lang)
+    
+    run_async_command(cmd, function(output)
+        local file_content = ""
+        local f_out = io.open(write_out_path, "r")
+        if f_out then
+            file_content = f_out:read("*all")
+            f_out:close()
+            os.remove(write_out_path) -- Clean up output file
+        else
+            -- Fallback to using output directly if output file could not be read
+            file_content = output
+        end
+        os.remove(write_path) -- Clean up the input file
+        
+        local success, result = pcall(function()
+            -- Strip non-JSON warnings or messages printed prior to JSON output
+            local json_start = file_content:find("[%[{]")
+            if json_start then
+                file_content = file_content:sub(json_start)
+            end
+            return STATS.json_decode(file_content)
+        end)
+        
+        local is_table = success and type(result) == "table"
+        
+        -- Update global result state for this line
+        SUBASS_LT_RESULT[line_index] = {
+            loading = false,
+            original_text = raw_text,
+            clean_text = clean_text,
+            response = is_table and result or { error = "Failed to parse JSON output", raw = file_content }
+        }
+        
+        if not is_table then
+            show_snackbar(T("LTOOL_CHECK_FAILED"), "error")
+        elseif result.error then
+            show_snackbar(T("LTOOL_ERROR_PREFIX") .. tostring(result.error), "error")
+        else
+            if #result == 0 then
+                show_snackbar(T("LTOOL_NO_ISSUES"), "info")
+            else
+                show_snackbar(string.format(T("LTOOL_ISSUES_FOUND"), #result), "warning")
+            end
+        end
+        save_project_data()
+    end, true, "Checking text...", false)
+end
+
+--- Check spelling for all lines in one batch run
+function UTILS.check_spelling_all()
+    if not ass_lines or #ass_lines == 0 then
+        show_snackbar(T("AI_GENERATE_NO_LINES"), "warning")
+        return
+    end
+
+    -- Collect lines to check
+    local batch = {}
+    local concatenated_tbl = {}
+    local current_offset = 0
+
+    if not SUBASS_LT_RESULT then SUBASS_LT_RESULT = {} end
+
+    for i, l in ipairs(ass_lines) do
+        local raw_text = l.text
+        if raw_text and raw_text ~= "" then
+            -- Clean text (remove ASS comments, tags, formatting)
+            local clean_text = raw_text:gsub("{.-}", ""):gsub("\\[Nn]", " ")
+            clean_text = clean_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+            
+            if clean_text ~= "" then
+                local line_index = l.rgn_idx or l.index or i
+                
+                -- Set temporary loading state
+                SUBASS_LT_RESULT[line_index] = {
+                    loading = true,
+                    original_text = raw_text,
+                    clean_text = clean_text
+                }
+                
+                -- Calculate UTF-8 character length
+                local char_count = 0
+                for _ in clean_text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+                    char_count = char_count + 1
+                end
+                
+                table.insert(batch, {
+                    line_index = line_index,
+                    raw_text = raw_text,
+                    clean_text = clean_text,
+                    start_char_offset = current_offset,
+                    char_len = char_count
+                })
+                
+                table.insert(concatenated_tbl, clean_text)
+                current_offset = current_offset + char_count + 2 -- +2 for "\n\n"
+            end
+        end
+    end
+    
+    if #batch == 0 then
+        show_snackbar(T("LTOOL_TEXT_EMPTY"), "warning")
+        return
+    end
+    
+    save_project_data()
+    
+    local full_text = table.concat(concatenated_tbl, "\n\n")
+    
+    local temp_input_file = reaper.GetResourcePath() .. "/Scripts/async_lt_all_in.tmp"
+    local temp_output_file = reaper.GetResourcePath() .. "/Scripts/async_lt_all_out.tmp"
+    
+    local is_windows = reaper.GetOS():match("Win")
+    local write_path = temp_input_file
+    local write_out_path = temp_output_file
+    if is_windows then 
+        write_path = write_path:gsub("/", "\\")
+        write_out_path = write_out_path:gsub("/", "\\")
+    end
+    
+    local f_in = io.open(write_path, "w")
+    if f_in then
+        f_in:write(full_text)
+        f_in:close()
+    else
+        -- Clean up loading status on failure
+        for _, item in ipairs(batch) do
+            SUBASS_LT_RESULT[item.line_index] = nil
+        end
+        save_project_data()
+        show_snackbar(T("LTOOL_TEMP_FILE_ERR"), "error")
+        return
+    end
+    
+    local py_script = OTHER.SCRIPT_DIR .. "stats/subass_languagetool.py"
+    local py_exe = (OTHER.rec_state and OTHER.rec_state.python and OTHER.rec_state.python.executable) or (is_windows and "py -3" or "python3")
+    
+    if is_windows then
+        py_script = py_script:gsub("/", "\\")
+    end
+    
+    local lt_lang = "en-US"
+    if cfg.lng == "ua" or cfg.lng == "uk" then
+        lt_lang = "uk-UA"
+    end
+    local cmd = string.format('"%s" "%s" --text-file "%s" --output-file "%s" --lang "%s"', py_exe, py_script, write_path, write_out_path, lt_lang)
+    
+    run_async_command(cmd, function(output)
+        local file_content = ""
+        local f_out = io.open(write_out_path, "r")
+        if f_out then
+            file_content = f_out:read("*all")
+            f_out:close()
+            os.remove(write_out_path)
+        else
+            file_content = output
+        end
+        os.remove(write_path)
+        
+        local success, result = pcall(function()
+            local json_start = file_content:find("[%[{]")
+            if json_start then
+                file_content = file_content:sub(json_start)
+            end
+            return STATS.json_decode(file_content)
+        end)
+        
+        local is_table = success and type(result) == "table"
+        
+        if not is_table then
+            for _, item in ipairs(batch) do
+                SUBASS_LT_RESULT[item.line_index] = nil
+            end
+            show_snackbar(T("LTOOL_CHECK_FAILED"), "error")
+            save_project_data()
+            return
+        elseif result.error then
+            for _, item in ipairs(batch) do
+                SUBASS_LT_RESULT[item.line_index] = nil
+            end
+            show_snackbar(T("LTOOL_ERROR_PREFIX") .. tostring(result.error), "error")
+            save_project_data()
+            return
+        end
+        
+        local line_issues = {}
+        for _, item in ipairs(batch) do
+            line_issues[item.line_index] = {}
+        end
+        
+        local total_issues = 0
+        for _, match in ipairs(result) do
+            if type(match) == "table" and type(match.offset) == "number" then
+                local offset = match.offset
+                local err_len = type(match.error_length) == "number" and match.error_length or 0
+                
+                for _, item in ipairs(batch) do
+                    local item_start = item.start_char_offset
+                    local item_end = item_start + item.char_len
+                    
+                    if offset >= item_start and (offset + err_len) <= item_end then
+                        local local_match = {}
+                        for k, v in pairs(match) do local_match[k] = v end
+                        local_match.offset = offset - item_start
+                        
+                        table.insert(line_issues[item.line_index], local_match)
+                        total_issues = total_issues + 1
+                        break
+                    end
+                end
+            end
+        end
+        
+        for _, item in ipairs(batch) do
+            SUBASS_LT_RESULT[item.line_index] = {
+                loading = false,
+                original_text = item.raw_text,
+                clean_text = item.clean_text,
+                response = line_issues[item.line_index]
+            }
+        end
+        
+        if total_issues == 0 then
+            show_snackbar(T("LTOOL_NO_ISSUES"), "info")
+        else
+            show_snackbar(string.format(T("LTOOL_ISSUES_FOUND"), total_issues), "warning")
+        end
+        
+        save_project_data()
+    end, true, "Checking all lines...", false)
+end
+
 local function show_panel_preset_dialog(panel_type, idx)
     local is_new = (idx == nil)
     local target_presets = (panel_type == "director") and cfg.director_presets or cfg.fmt_presets
@@ -32055,7 +32654,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                         director_state.input.cursor = #director_state.input.text
                         director_state.input.anchor = director_state.input.cursor
                         director_state.input.focus = true
-                        record_field_history(director_state.input)
+                        INPUT_ST.record_field_history(director_state.input)
                     end
                 end
 
@@ -32358,7 +32957,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                             director_state.input.cursor = #director_state.input.text
                             director_state.input.anchor = director_state.input.cursor
                             director_state.input.focus = true
-                            record_field_history(director_state.input)
+                            INPUT_ST.record_field_history(director_state.input)
                         end
                     end
                 end
@@ -32421,7 +33020,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                     director_state.input.cursor = #director_state.input.text
                     director_state.input.anchor = director_state.input.cursor
                     director_state.input.focus = true
-                    record_field_history(director_state.input)
+                    INPUT_ST.record_field_history(director_state.input)
                     UI_STATE.mouse_handled = true
                 end
             end
@@ -32511,7 +33110,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
         local base_sz = OTHER.FONT_SIZES.normal[cfg.t_corr_size]
         gfx.setfont(corr_font, cfg.p_font, S(base_sz or 18))
         
-        ui_text_input("director", input_draw_x, input_draw_y, input_w, input_h, director_state.input, T("ENTER_RETAKE_TEXT"), input_queue, true, true, corr_font)
+        INPUT_ST.ui_text_input("director", input_draw_x, input_draw_y, input_w, input_h, director_state.input, T("ENTER_RETAKE_TEXT"), input_queue, true, true, corr_font)
     
         -- Check for changes to highlight button
         local has_changes = false
@@ -33241,7 +33840,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             local auto_scroll_mark = cfg.editor_auto_scroll and "• " or ""
             local show_color_mark = cfg.editor_show_actor_color and "• " or ""
             
-            local menu_str = "|>" .. T("SORTING_ACTORS") .. "|" .. alpha_mark .. T("SORTING_ACTORS_AB") .. "|" .. count_mark .. T("SORTING_ACTORS_NL") .. "|<" .. recent_mark .. T("SORTING_ACTORS_LS") .. "|" .. fast_jump_mark .. T("QUICK_JUMP") .. "|" .. auto_scroll_mark .. T("AUTO_SCROLL_TO_ACTOR") .. "|" .. show_color_mark .. T("DISPLAY_ACTOR_COLOR") .. "||" .. T("DELETE_ALL_HIDDEN_COMMENTS") .. "||" .. layout_label .. "|" .. T("CLOSE_WINDOW")
+            local menu_str = "|>" .. T("SORTING_ACTORS") .. "|" .. alpha_mark .. T("SORTING_ACTORS_AB") .. "|" .. count_mark .. T("SORTING_ACTORS_NL") .. "|<" .. recent_mark .. T("SORTING_ACTORS_LS") .. "|" .. fast_jump_mark .. T("QUICK_JUMP") .. "|" .. auto_scroll_mark .. T("AUTO_SCROLL_TO_ACTOR") .. "|" .. show_color_mark .. T("DISPLAY_ACTOR_COLOR") .. "||" .. T("DELETE_ALL_HIDDEN_COMMENTS") .. "||" .. T("LTOOL_CHECK_ALL") .. "||" .. layout_label .. "|" .. T("CLOSE_WINDOW")
             
             gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
             local ret = gfx.showmenu(menu_str)
@@ -33289,10 +33888,13 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     show_snackbar(T("NO_HIDDEN_COMMENTS"), "info")
                 end
             elseif ret == 8 then
+                -- Check all lines for errors
+                UTILS.check_spelling_all()
+            elseif ret == 9 then
                 if cfg.editor_layout == "right" then cfg.editor_layout = "bottom" else cfg.editor_layout = "right" end
                 save_settings()
                 last_layout_state.state_count = -1
-            elseif ret == 9 then
+            elseif ret == 10 then
                 cfg.editor_mode = false
                 save_settings()
             end
@@ -33786,6 +34388,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             { btn = "|", tag = "separator", tip = "FMT_SEPARATOR" },
             { btn = "{/}", tag = "c", tip = "FMT_COMMENT" },
             { btn = "{x}", tag = "x", tip = "FMT_REMOVE_HIDDEN" },
+            { btn = "CR", tag = "corrector", tip = "LTOOL_CORRECTOR" },
             { btn = "TR", tag = "translate_deepl", tip = "DEEPL_TRANSLATE_LINE", hidden = true },
             { btn = "DP", tag = "duplicate_line", tip = "REPEAT_THE_LINE", hidden = true },
             { btn = "DL", tag = "delete_line", tip = "DELETE_LINE", hidden = true },
@@ -33842,6 +34445,38 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                 else
                     show_snackbar(T("NO_HIDDEN_COMMENTS_TO_DELETE"), "warning")
                 end
+            elseif tag == "corrector" then
+                local line_ref = editor_state.last_line_data
+                if not line_ref then
+                    show_snackbar(T("AI_GENERATE_NO_LINES"), "error")
+                    return
+                end
+                
+                local original_pos = line_ref._i
+                local line = ass_lines[original_pos]
+                if not line then
+                    show_snackbar(T("AI_GENERATE_NO_LINES"), "error")
+                    return
+                end
+                
+                local raw_text = editor_state.input.text
+                if not raw_text or raw_text == "" then
+                    show_snackbar(T("LTOOL_TEXT_EMPTY"), "warning")
+                    return
+                end
+                
+                -- Clean text (remove ASS comments, tags, formatting)
+                local clean_text = raw_text:gsub("{.-}", ""):gsub("\\[Nn]", " ")
+                clean_text = clean_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+                
+                if clean_text == "" then
+                    show_snackbar(T("LTOOL_NO_TEXT_AFTER_TAGS"), "warning")
+                    return
+                end
+                
+                local line_index = line_ref.rgn_idx or line.index or original_pos
+                
+                UTILS.check_spelling(line_index, clean_text, raw_text)
             elseif tag == "translate_deepl" then
                 local line_ref = editor_state.last_line_data
                 if line_ref then
@@ -34019,7 +34654,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             inp.focus = true
             inp.needs_focus_nudge = 3 -- Nudge focus for several frames
             inp.suppress_auto_scroll_until = 0 -- Force scroll to cursor if needed
-            record_field_history(inp)
+            INPUT_ST.record_field_history(inp)
             UI_STATE.mouse_handled = true
         end
 
@@ -34061,7 +34696,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             inp.focus = true
             inp.needs_focus_nudge = 3
             inp.suppress_auto_scroll_until = 0
-            record_field_history(inp)
+            INPUT_ST.record_field_history(inp)
             UI_STATE.mouse_handled = true
         end
 
@@ -34093,14 +34728,29 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     gfx.rect(bx + S(2), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
                 else
                     local b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
+                    local button_label = label
+                    local skip_click = false
+                    
+                    if item.tag == "corrector" then
+                        local active_line = editor_state.last_line_data or best_line
+                        local line_id = active_line and (active_line.rgn_idx or active_line.index or active_line._i) or nil
+                        local lt_data = line_id and SUBASS_LT_RESULT and (SUBASS_LT_RESULT[line_id] or SUBASS_LT_RESULT[tostring(line_id)])
+                        if lt_data and lt_data.loading then
+                            button_label = "..."
+                            b_col = UI.C_TAB_INA
+                            skip_click = true
+                        end
+                    end
                     
                     -- Apply styling for preview
-                    if label == "B" then gfx.setfont(F.bld)
-                    elseif label == "I" then gfx.setfont(F.ital)
+                    if button_label == "B" then gfx.setfont(F.bld)
+                    elseif button_label == "I" then gfx.setfont(F.ital)
                     else gfx.setfont(F.std) end
 
-                    if draw_actor_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, label, b_col) then
-                        apply_fmt(item.tag)
+                    if draw_actor_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, button_label, b_col) then
+                        if not skip_click then
+                            apply_fmt(item.tag)
+                        end
                     end
 
                     -- Draw extra lines for U and S
@@ -34385,7 +35035,30 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         end
 
         -- Column 1: Row 2 (Input)
-        ui_text_input("editor_panel", input_draw_x, input_draw_y, left_w, input_row_h, editor_state.input, is_disabled and T("SELECT_AND_GO_REGION") or T("EDITION_THE_LINE"), input_queue, true, false, corr_font)
+        INPUT_ST.ui_text_input("editor_panel", input_draw_x, input_draw_y, left_w, input_row_h, editor_state.input, is_disabled and T("SELECT_AND_GO_REGION") or T("EDITION_THE_LINE"), input_queue, true, false, corr_font)
+
+        if editor_state.input.needs_respell then
+            editor_state.input.needs_respell = nil
+            save_editor_changes()
+            
+            -- Trigger spelling check immediately
+            local line_ref = editor_state.last_line_data
+            if line_ref then
+                local original_pos = line_ref._i
+                local line = ass_lines[original_pos]
+                if line then
+                    local raw_text = editor_state.input.text
+                    if raw_text and raw_text ~= "" then
+                        local clean_text = raw_text:gsub("{.-}", ""):gsub("\\[Nn]", " ")
+                        clean_text = clean_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+                        if clean_text ~= "" then
+                            local line_index = line_ref.rgn_idx or line.index or original_pos
+                            UTILS.check_spelling(line_index, clean_text, raw_text)
+                        end
+                    end
+                end
+            end
+        end
 
         -- Column 2: Large Action Button (Spans both rows)
         local save_x = input_draw_x + left_w + padding
@@ -35324,7 +35997,7 @@ function DRAW_TABS.draw_table(input_queue)
     local filter_placeholder = OTHER.find_replace_state.show 
         and T("TABLE_FILTER_PLACEHOLDER_1") 
         or T("TABLE_FILTER_PLACEHOLDER_2")
-    ui_text_input("table_filter", filter_x, filter_y, filter_w - counter_reserve, filter_h, table_filter_state, filter_placeholder, input_queue)
+    INPUT_ST.ui_text_input("table_filter", filter_x, filter_y, filter_w - counter_reserve, filter_h, table_filter_state, filter_placeholder, input_queue)
     gfx.setfont(F.std)
     -- Display results count in the top-right corner of filter input
     if counter_reserve > 0 then
@@ -35483,7 +36156,7 @@ function DRAW_TABS.draw_table(input_queue)
         local btn_apply_w = S(80)
         local rep_w = gfx.w - S(20) - btn_apply_w - gap
         
-        ui_text_input("replace_field", filter_x, fr_y, rep_w, fr_h, OTHER.find_replace_state.replace, T("TABLE_FILTER_REPLACE_WITH"), input_queue)
+        INPUT_ST.ui_text_input("replace_field", filter_x, fr_y, rep_w, fr_h, OTHER.find_replace_state.replace, T("TABLE_FILTER_REPLACE_WITH"), input_queue)
         gfx.setfont(F.std)
         -- Apply Button
         local apply_x = filter_x + rep_w + gap
@@ -36572,7 +37245,22 @@ function DRAW_TABS.draw_table(input_queue)
                 col_ptr = col_ptr + 1
             end
             
-            draw_highlighted_text(line.text or "", x_off[col_ptr], buf_y_text, gfx.w - x_off[col_ptr] - 10, row_h_dynamic, line.h_text, layout.lines)
+            local text_draw_x = x_off[col_ptr]
+            if SUBASS_LT_RESULT then
+                local lt_data = SUBASS_LT_RESULT[original_idx] or SUBASS_LT_RESULT[tostring(original_idx)]
+                if lt_data and not lt_data.loading and lt_data.original_text == line.text then
+                    local res = lt_data.response
+                    if type(res) == "table" and not res.error and #res > 0 then
+                        set_color(UI.C_RED)
+                        local dot_sz = S(6)
+                        local dot_x = x_off[col_ptr] + S(6)
+                        local dot_y = buf_y + (row_h_dynamic - S(3)) / 2
+                        gfx.circle(dot_x, dot_y, dot_sz, 1)
+                        text_draw_x = text_draw_x + S(16)
+                    end
+                end
+            end
+            draw_highlighted_text(line.text or "", text_draw_x, buf_y_text, gfx.w - text_draw_x - 10, row_h_dynamic, line.h_text, layout.lines)
             
             -- Click logic
             -- FIX: Check bit 1 (Left Mouse) regardless of other flags
