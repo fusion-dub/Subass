@@ -641,7 +641,7 @@ local I18N = {
     AUTO_RUN_2 = { en = "Would you like to enable the plugin to launch automatically when REAPER starts?\n\nThis will ensure the plugin is always ready to use without having to launch it manually.", ua = "Бажаєте активувати автоматичний запуск плагіна при старті REAPER?\n\nЦе дозволить плагіну завжди бути готовим до роботи без необхідності запускати його вручну." },
     AUTO_RUN_3 = { en = "Autostart is enabled!", ua = "Автозапуск активовано!" },
     TABLE_FILTER_PLACEHOLDER_1 = { en = "Filter (Replacement text)...", ua = "Фільтр (Текст для заміни)..." },
-    TABLE_FILTER_PLACEHOLDER_2 = { en = "Filter (Text, Actor, or ID. Condition ‘|’, ‘&’, {%UPPER})...", ua = "Фільтр (Текст, Актор або ID. Умова '|', '&', {%AA})..." },
+    TABLE_FILTER_PLACEHOLDER_2 = { en = "Filter (Text, Actor, or ID. Condition ‘|’, ‘&’, %UC, %CR)...", ua = "Фільтр (Текст, Актор або ID. Умова '|', '&', %UC, %CR)..." },
     TABLE_MENU_COLUMNS = { en = "Columns...", ua = "Колонки..." },
     TABLE_MENU_READER_MODE = { en = "Reader mode", ua = "Режим читача" },
     TABLE_MENU_SHOW_RETAKES = { en = "Reflect retakes in the table", ua = "Відображати правки в таблиці" },
@@ -36633,13 +36633,27 @@ function DRAW_TABS.draw_table(input_queue)
                         local q_clean = strip_accents(q_lower)
                         local text_match, actor_match, index_match, dubber_match = false, false, false, false
                         
-                        -- Special Command: {%UPPER} - All Uppercase (Caps Lock filter)
-                        if q == "{%UPPER}" and not is_replace_mode then
+                        -- Special Command: %UC - All Uppercase (Caps Lock filter)
+                        if q == "%UC" and not is_replace_mode then
                             local visible = target_text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\N", "")
                             -- Remove spaces, punctuation and digits to check only actual letters
                             local letters_only = visible:gsub("%s+", ""):gsub("[%p%d]", "")
                             if #letters_only > 0 and letters_only == utf8_upper(letters_only) then
                                 text_match = true
+                            end
+                        elseif q == "%CR" and not is_replace_mode then
+                            if SUBASS_LT_RESULT then
+                                local line_id = line.rgn_idx or line.index
+                                local lt_data = line_id and (SUBASS_LT_RESULT[line_id] or SUBASS_LT_RESULT[tostring(line_id)])
+                                if not lt_data and line.index then
+                                    lt_data = SUBASS_LT_RESULT[line.index] or SUBASS_LT_RESULT[tostring(line.index)]
+                                end
+                                if lt_data and not lt_data.loading and lt_data.original_text == line.text then
+                                    local res = lt_data.response
+                                    if type(res) == "table" and not res.error and #res > 0 then
+                                        text_match = true
+                                    end
+                                end
                             end
                         elseif use_case then
                             text_match = target_text:find(q, 1, true)
