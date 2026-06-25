@@ -55,6 +55,9 @@ local cfg = {
     next_padding = get_set("next_padding", 30),
     show_next_two = (get_set("show_next_two", "0") == "1" or get_set("show_next_two", 0) == 1),
 
+    director_panel_max_rows = get_set("director_panel_max_rows", 3),
+    editor_panel_max_rows = get_set("editor_panel_max_rows", 3),
+
     wrap_length = get_set("wrap_length", 42),
     always_next = (get_set("always_next", "1") == "1" or get_set("always_next", 1) == 1),
     random_color_actors = (get_set("random_color_actors", "1") == "1" or get_set("random_color_actors", 1) == 1),
@@ -1044,7 +1047,9 @@ local I18N = {
     NO_ACTIVE_PROJ = { en = "There are no active projects. Create a project using the ‘+’ button above.", ua = "Немає активного проєкту. Створіть проєкт за допомогою кнопки '+' вище." },
     OTHER_UPP = { en = "OTHER", ua = "ІНШЕ" },
     FONT_SIZE_MODAL = { en = "Font size of the modal editing window:", ua = "Розмір шрифту модального вікна редагування:" },
-    FONT_SIZE_BOTTOM_BAR = { en = "Font size of the bottom editing bar:", ua = "Розмір шрифту нижньої панелі редагування:" },
+    FONT_SIZE_BOTTOM_BAR = { en = "Font size of the bottom editing bar (Director and Editor modes):", ua = "Розмір шрифту нижньої панелі редагування (режим Режисера та Редактора):" },
+    MAX_ACT_DIR_ROWS_BAR = { en = "Max actor rows in Director mode:", ua = "Максимальна кількість рядків акторів в режимі Режисера:" },
+    MAX_ACT_EDIT_ROWS_BAR = { en = "Max actor rows in Editor mode:", ua = "Максимальна кількість рядків акторів в режимі Редактора:" },
     PROVIDER_AND_VOICE = { en = "Provider and voice:", ua = "Двигун та голос для озвучення:" },
     EMPTY = { en = "<empty>", ua = "<пусто>" },
     COMPACT_RENDER = { en = "Compact render", ua = "Компактний рендер" },
@@ -4279,6 +4284,9 @@ local function save_settings()
     reaper.SetExtState(section_name, "next_attach", cfg.next_attach and "1" or "0", true)
     reaper.SetExtState(section_name, "next_padding", tostring(cfg.next_padding), true)
     reaper.SetExtState(section_name, "show_next_two", cfg.show_next_two and "1" or "0", true)
+
+    reaper.SetExtState(section_name, "editor_panel_max_rows", tostring(cfg.editor_panel_max_rows), true)
+    reaper.SetExtState(section_name, "director_panel_max_rows", tostring(cfg.director_panel_max_rows), true)
     
     reaper.SetExtState(section_name, "p_lheight", tostring(cfg.p_lheight), true)
     reaper.SetExtState(section_name, "n_lheight", tostring(cfg.n_lheight), true)
@@ -30362,6 +30370,39 @@ function DRAW_TABS.draw_settings()
     end
 
     y_cursor = y_cursor + S(60)
+
+    local act_max_rows_options = {1, 2, 3, 4, 5, 6}
+    local act_max_rows_labels = {"1", "2", "3", "4", "5", "6"}
+
+    -- max editor actors lines
+    s_text(x_start, y_cursor, T("MAX_ACT_DIR_ROWS_BAR"))
+    y_cursor = y_cursor + S(25)
+    for i, opt in ipairs(act_max_rows_options) do
+        local bx = x_start + ((i-1) * S(70))
+        local is_sel = (cfg.director_panel_max_rows == opt)
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
+        if s_btn(bx, y_cursor, S(60), S(30), act_max_rows_labels[i], nil, btn_bg) then
+            cfg.director_panel_max_rows = opt
+            save_settings()
+        end
+    end
+
+    y_cursor = y_cursor + S(60)
+
+    -- max editor actors lines
+    s_text(x_start, y_cursor, T("MAX_ACT_EDIT_ROWS_BAR"))
+    y_cursor = y_cursor + S(25)
+    for i, opt in ipairs(act_max_rows_options) do
+        local bx = x_start + ((i-1) * S(70))
+        local is_sel = (cfg.editor_panel_max_rows == opt)
+        local btn_bg = is_sel and UI.C_BTN_MEDIUM or UI.C_BTN
+        if s_btn(bx, y_cursor, S(60), S(30), act_max_rows_labels[i], nil, btn_bg) then
+            cfg.editor_panel_max_rows = opt
+            save_settings()
+        end
+    end
+
+    y_cursor = y_cursor + S(60)
     
     s_text(x_start, y_cursor, T("PROVIDER_AND_VOICE"), F.std)
     y_cursor = y_cursor + S(25)
@@ -31909,7 +31950,7 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
     
     local start_y = is_right_layout and S(8) or S(16)
     local needed_actor_h = start_y + dry_y + btn_h
-    local max_actor_h_limit = is_right_layout and (4 * act_row_h + S(2)) or (3 * act_row_h + S(10))
+    local max_actor_h_limit = is_right_layout and (cfg.director_panel_max_rows * act_row_h + S(2)) or (cfg.director_panel_max_rows * act_row_h + S(10))
     local actor_area_h = math.min(needed_actor_h, max_actor_h_limit)
     local actor_area_bottom = panel_y + actor_area_h
     
@@ -33245,7 +33286,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
 
     -- --- DYNAMIC LAYOUT CALCULATION ---
     local act_row_h = btn_h + S(5)
-    local max_actor_h_limit = is_editor_right and (4 * act_row_h + S(2)) or (3 * act_row_h + S(10))
+    local max_actor_h_limit = is_editor_right and (cfg.editor_panel_max_rows * act_row_h + S(2)) or (cfg.editor_panel_max_rows * act_row_h + S(10))
 
     -- 1. Calculate how much height actors ACTUALLY need (simulating wrap)
     local cur_x = padding
