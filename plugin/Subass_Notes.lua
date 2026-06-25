@@ -852,7 +852,7 @@ local I18N = {
     EDITOR = { en = "Editor", ua = "Редактор" },
     ADD_RESET_M = { en = "Add preset (", ua = "Додати пресет (" },
     EDIT_RESET_M = { en = "Edit preset (", ua = "Редагувати пресет (" },
-    EDIT_PRESET_MENU_T_1 = { en = "Title (3 characters), Content", ua = "Назва (3 симв),Вміст" },
+    EDIT_PRESET_MENU_T_1 = { en = "Title (3 characters), Content (\"&RGN\")", ua = "Назва (3 символа),Вміст (\"&RGN\")" },
     EDIT_PRESET_MENU_T_2 = { en = " (... for selection)", ua = " (... для виділення)" },
     EMPTY_ACT_GLB = { en = "_empty_", ua = "_пусто_" },
     TOOLS = { en = "TOOLS", ua = "ІНСТРУМЕНТИ" },
@@ -32366,9 +32366,39 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
             end
         end
 
+        local function get_director_target_line()
+            local overlapping_lines = UTILS.get_ass_lines_at_time(cur_time, 0.001)
+            
+            if #overlapping_lines == 1 then
+                return overlapping_lines[1]
+            elseif #overlapping_lines > 1 then
+                if ass_lines then
+                    for _, entry in ipairs(overlapping_lines) do
+                        local original_pos = entry._i
+                        local l = ass_lines[original_pos]
+                        if l and table_selection[l.index or original_pos] then
+                            return entry
+                        end
+                    end
+                end
+                return overlapping_lines[#overlapping_lines]
+            end
+            
+            return nil
+        end
+
         for i, p in ipairs(cfg.director_presets) do
-            local btn_w = S(45)
-            if cpx + btn_w <= (panel_x + panel_w - padding) then
+            local is_separator = (p.label == "|" or p.tag == "separator" or p.val == "separator")
+            local btn_w = is_separator and S(5) or S(40)
+            if cpx + btn_w > (panel_x + panel_w - padding) then
+                break
+            end
+
+            if is_separator then
+                -- Draw vertical separator line
+                set_color(UI.C_MEDIUM_GREY, 0.5)
+                gfx.rect(cpx + S(2), preset_row_y + S(4), S(1), control_row_h - S(8), 1)
+            else
                 gfx.setfont(F.std)
                 if draw_actor_btn_inline(cpx, preset_row_y, btn_w, control_row_h, p.label, UI.C_ROW) then
                     local txt = director_state.input.text
@@ -32377,40 +32407,72 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
                     local time_prefix = rem:match("^%d+[:%.][%d:%.]*%s*-%s*") or ""
                     
                     local prefix = actor_prefix .. time_prefix
-                    director_state.input.text = prefix .. p.val
+                    
+                    local rng_text = ""
+                    local best_line = get_director_target_line()
+                    if best_line and best_line.text then
+                        rng_text = best_line.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nn]", " ")
+                        rng_text = rng_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+                    end
+                    local escaped_rng = rng_text:gsub("%%", "%%%%")
+                    local p_val = p.val:gsub("&RNG", escaped_rng)
+
+                    director_state.input.text = prefix .. p_val
                     director_state.input.cursor = #director_state.input.text
                     director_state.input.anchor = director_state.input.cursor
                     director_state.input.focus = true
                     record_field_history(director_state.input)
                     UI_STATE.mouse_handled = true
                 end
+            end
+            
+            -- Tooltip and Right Click Menu
+            local is_h = UI_STATE.window_focused and 
+                         gfx.mouse_x >= cpx and gfx.mouse_x <= cpx + btn_w and 
+                         gfx.mouse_y >= preset_row_y and gfx.mouse_y <= preset_row_y + control_row_h
+            
+            if is_h then
+                local tip_id = "dir_preset_" .. i
+                if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                    UI_STATE.tooltip_state.hover_id = tip_id
+                    UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                end
                 
-                -- Tooltip and Right Click Menu
-                local is_h = UI_STATE.window_focused and 
-                             gfx.mouse_x >= cpx and gfx.mouse_x <= cpx + btn_w and 
-                             gfx.mouse_y >= preset_row_y and gfx.mouse_y <= preset_row_y + control_row_h
-                
-                if is_h then
-                    local tip_id = "dir_preset_" .. i
-                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
-                        UI_STATE.tooltip_state.hover_id = tip_id
-                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                local p_val = p.val
+                if not is_separator and p_val:find("&RNG") then
+                    local rng_text = ""
+                    local best_line = get_director_target_line()
+                    if best_line and best_line.text then
+                        rng_text = best_line.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nn]", " ")
+                        rng_text = rng_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
                     end
-                    UI_STATE.tooltip_state.text = p.val
+                    local escaped_rng = rng_text:gsub("%%", "%%%%")
+                    p_val = p_val:gsub("&RNG", escaped_rng)
+                end
+                UI_STATE.tooltip_state.text = is_separator and T("FMT_SEPARATOR") or p_val
+                
+                if is_right_mouse_clicked() then
+                    UI_STATE.mouse_handled = true
+                    gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
                     
-                    if is_right_mouse_clicked() then
-                        UI_STATE.mouse_handled = true
-                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                        local menu_str = T("EDIT_DELETE_PRESET_MENU") .. (i > 1 and "" or "#") .. T("PRESET_MOVE_LEFT_MENU") .. (i < #cfg.director_presets and "" or "#") .. T("PRESET_MOVE_RIGHT_MENU")
+                    if is_separator then
+                        local menu_str = T("DELETE_SEPARATOR_MENU") .. "||" .. (i > 1 and "" or "#") .. T("PRESET_MOVE_LEFT_MENU") .. (i < #cfg.director_presets and "" or "#") .. T("PRESET_MOVE_RIGHT_MENU")
+                        local sel = gfx.showmenu(menu_str)
+                        if sel == 1 then table.remove(cfg.director_presets, i) save_settings()
+                        elseif sel == 2 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i-1, t) save_settings()
+                        elseif sel == 3 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i+1, t) save_settings() end
+                    else
+                        local menu_str = T("EDIT_DELETE_PRESET_MENU") .. (i > 1 and "" or "#") .. T("PRESET_MOVE_LEFT_MENU") .. (i < #cfg.director_presets and "" or "#") .. T("PRESET_MOVE_RIGHT_MENU") .. "||" .. T("ADD_SEPARATOR_MENU")
                         local sel = gfx.showmenu(menu_str)
                         if sel == 1 then show_panel_preset_dialog("director", i)
                         elseif sel == 2 then table.remove(cfg.director_presets, i) save_settings()
                         elseif sel == 3 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i-1, t) save_settings()
-                        elseif sel == 4 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i+1, t) save_settings() end
+                        elseif sel == 4 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i+1, t) save_settings()
+                        elseif sel == 5 then table.insert(cfg.director_presets, i+1, { label = "|", tag = "separator", val = "separator" }) save_settings() end
                     end
                 end
-                cpx = cpx + btn_w + S(5)
             end
+            cpx = cpx + btn_w + S(5)
         end
         if cpx + S(24) <= (panel_x + panel_w - padding) then
             gfx.setfont(F.std)
@@ -32730,6 +32792,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
     local is_editor_right = (cfg.editor_layout == "right")
     local padding = S(10)
     local btn_h = S(24)
+    local best_line = nil
 
     -- --- AUTO-DETECT CURRENT STATE ---
     local cur_time = reaper.GetPlayState() > 0 and reaper.GetPlayPosition() or reaper.GetCursorPosition()
@@ -32837,7 +32900,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
 
         editor_state.mouse_was_down = (mouse_state == 1)
         -- Pick the best matching line
-        local best_line = nil
+        best_line = nil
         
         -- Priority 1: The one manually selected by user
         if editor_state.last_region_id ~= nil then
@@ -33962,6 +34025,16 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
 
         local function apply_custom_fmt(val)
             if is_disabled then return end
+            
+            -- Replace &RNG with current replica text
+            local rng_text = ""
+            if best_line and best_line.text then
+                rng_text = best_line.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nn]", " ")
+                rng_text = rng_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+            end
+            local escaped_rng = rng_text:gsub("%%", "%%%%")
+            val = val:gsub("&RNG", escaped_rng)
+
             local inp = editor_state.input
             local s_idx = math.min(inp.cursor, inp.anchor)
             local e_idx = math.max(inp.cursor, inp.anchor)
@@ -34197,7 +34270,17 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                             UI_STATE.tooltip_state.hover_id = tip_id
                             UI_STATE.tooltip_state.start_time = reaper.time_precise()
                         end
-                        UI_STATE.tooltip_state.text = p.val
+                        local p_val = p.val
+                        if p_val:find("&RNG") then
+                            local rng_text = ""
+                            if best_line and best_line.text then
+                                rng_text = best_line.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nn]", " ")
+                                rng_text = rng_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+                            end
+                            local escaped_rng = rng_text:gsub("%%", "%%%%")
+                            p_val = p_val:gsub("&RNG", escaped_rng)
+                        end
+                        UI_STATE.tooltip_state.text = p_val
                         
                         if is_mouse_clicked(2) then
                             UI_STATE.mouse_handled = true
