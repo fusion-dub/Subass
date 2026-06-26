@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 8.2
+-- @version 8.3.1
 -- @author Fusion
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v8.2",
+    script_title = "Subass Notes v8.3.1",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -863,7 +863,7 @@ local I18N = {
     EDITOR = { en = "Editor", ua = "Редактор" },
     ADD_RESET_M = { en = "Add preset (", ua = "Додати пресет (" },
     EDIT_RESET_M = { en = "Edit preset (", ua = "Редагувати пресет (" },
-    EDIT_PRESET_MENU_T_1 = { en = "Title (3 characters), Content (\"&RGN\")", ua = "Назва (3 символа),Вміст (\"&RGN\")" },
+    EDIT_PRESET_MENU_T_1 = { en = "Title (3 characters), Content (&RNG)", ua = "Назва (3 символа),Вміст (&RNG)" },
     EDIT_PRESET_MENU_T_2 = { en = " (... for selection)", ua = " (... для виділення)" },
     EMPTY_ACT_GLB = { en = "_empty_", ua = "_пусто_" },
     TOOLS = { en = "TOOLS", ua = "ІНСТРУМЕНТИ" },
@@ -7256,7 +7256,8 @@ function DICT.load(dont_push)
         reaper.SetProjExtState(0, section_name, "dict_last_update", ts)
         DICT.last_update_ts = ts
     else
-        DICT.last_update_ts = reaper.GetProjExtState(0, section_name, "dict_last_update")
+        local _, val = reaper.GetProjExtState(0, section_name, "dict_last_update")
+        DICT.last_update_ts = val
     end
     -- Invalidate lookup cache
     DICT.cached_lookup = nil
@@ -7264,7 +7265,7 @@ function DICT.load(dont_push)
 end
 
 function DICT.check_sync()
-    local external_ts = reaper.GetProjExtState(0, section_name, "dict_last_update")
+    local _, external_ts = reaper.GetProjExtState(0, section_name, "dict_last_update")
     if external_ts ~= "" and external_ts ~= DICT.last_update_ts then
         DICT.load(true)
     end
@@ -7274,7 +7275,7 @@ DICT.load() -- populate dicts at startup
 
 -- Build a flat lookup: { [word_lowercase] = {replacement, comment} } from all active dicts
 function DICT.get_lookup_table()
-    local current_ts = reaper.GetProjExtState(0, section_name, "dict_last_update")
+    local _, current_ts = reaper.GetProjExtState(0, section_name, "dict_last_update")
     if DICT.cached_lookup and DICT.last_update_ts == current_ts then
         return DICT.cached_lookup
     end
@@ -27756,7 +27757,7 @@ function STATS.render_prompter_idle(available_w, content_offset_left, content_of
     return false
 end
 
-function DRAW_WINDOW.draw_cps_warning(active_regions, content_offset_left, available_w)
+function DRAW_WINDOW.draw_cps_warning(active_regions, content_offset_left, available_w, next_rgn)
     if cfg.cps_warning then
         local max_cps = 0
         local regions_to_check = active_regions
@@ -27838,9 +27839,21 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
     
     -- Catch Info Overlay Interaction EARLY to prevent fall-through
     local active_idx = -1
+    local next_rgn = nil
     local play_pos = reaper.GetPlayState() & 1 == 1 and reaper.GetPlayPosition() or reaper.GetCursorPosition()
     for i, rgn in ipairs(regions) do
-        if play_pos >= rgn.pos and play_pos < rgn.rgnend then active_idx = i; break end
+        if play_pos >= rgn.pos and play_pos < rgn.rgnend then 
+            active_idx = i
+            break 
+        end
+    end
+    if active_idx == -1 then
+        for _, rgn in ipairs(regions) do
+            if rgn.pos > play_pos then
+                next_rgn = rgn
+                break
+            end
+        end
     end
     
     local current_active_regions = {}
@@ -27882,7 +27895,7 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
     local state_count = reaper.GetProjectStateChangeCount(0)
     local dict_ts = DICT.last_update_ts or ""
 
-    DRAW_WINDOW.draw_cps_warning(current_active_regions, content_offset_left, available_w)
+    DRAW_WINDOW.draw_cps_warning(current_active_regions, content_offset_left, available_w, next_rgn)
     
     if (prompter_slider_cache.state_count ~= state_count and UTILS.is_markers_regions_changed()) or prompter_slider_cache.state_count == -1 or prompter_slider_cache.w ~= available_w or 
        prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
@@ -28305,7 +28318,7 @@ function DRAW_TABS.draw_prompter(input_queue)
     end
 
     -- CPS Warning Strip
-    DRAW_WINDOW.draw_cps_warning(active_regions, content_offset_left, available_w)
+    DRAW_WINDOW.draw_cps_warning(active_regions, content_offset_left, available_w, next_rgn)
     
     -- Use first active region for interactions (backward compatibility)
     local region_idx = -1
