@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 8.3.1
+-- @version 8.3.2
 -- @author Fusion
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v8.3.1",
+    script_title = "Subass Notes v8.3.2",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -27897,29 +27897,20 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
 
     DRAW_WINDOW.draw_cps_warning(current_active_regions, content_offset_left, available_w, next_rgn)
 
-    local now_time = reaper.time_precise()
-    if prompter_slider_cache.state_count ~= state_count then
-        UI_STATE.prompter_slider_update_time = now_time + 0.3
-        prompter_slider_cache.state_count = state_count
-
-        if UTILS.is_markers_regions_changed() then
-            UI_STATE.prompter_slider_pending_update = true
-        end
-    end
-
-    local trigger_rebuild = false
-    if UI_STATE.prompter_slider_pending_update and now_time >= (UI_STATE.prompter_slider_update_time or 0) then
-        trigger_rebuild = true
-        UI_STATE.prompter_slider_pending_update = false
-    end
+    local trigger_rebuild = prompter_slider_cache.state_count ~= state_count and UTILS.is_markers_regions_changed()
 
     local instant_trigger = prompter_slider_cache.state_count == -1 or prompter_slider_cache.w ~= available_w or 
        prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
        prompter_slider_cache.p_corr ~= cfg.p_corr or prompter_slider_cache.dict_ts ~= dict_ts or
        prompter_slider_cache.p_lheight ~= cfg.p_lheight or prompter_slider_cache.c_lheight ~= cfg.c_lheight or
-       prompter_slider_cache.text_assimilations ~= cfg.text_assimilations or prompter_slider_cache.text_euphonics ~= cfg.text_euphonics
+       prompter_slider_cache.text_assimilations ~= cfg.text_assimilations or prompter_slider_cache.text_euphonics ~= cfg.text_euphonics or
+       prompter_slider_cache.p_soft_n ~= cfg.p_soft_n or prompter_slider_cache.all_caps ~= cfg.all_caps or
+       prompter_slider_cache.all_caps_acute ~= cfg.all_caps_acute or prompter_slider_cache.wrap_length ~= cfg.wrap_length
 
     if trigger_rebuild or instant_trigger then
+        if instant_trigger or not prompter_slider_cache.wrap_cache then
+            prompter_slider_cache.wrap_cache = {}
+        end
         prompter_slider_cache.state_count, prompter_slider_cache.w, prompter_slider_cache.fsize, prompter_slider_cache.font = state_count, available_w, cfg.p_fsize, cfg.p_font
         prompter_slider_cache.project_id = reaper.GetProjectName(0, "")
         prompter_slider_cache.p_corr = cfg.p_corr
@@ -27928,6 +27919,10 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
         prompter_slider_cache.c_lheight = cfg.c_lheight
         prompter_slider_cache.text_assimilations = cfg.text_assimilations
         prompter_slider_cache.text_euphonics = cfg.text_euphonics
+        prompter_slider_cache.p_soft_n = cfg.p_soft_n
+        prompter_slider_cache.all_caps = cfg.all_caps
+        prompter_slider_cache.all_caps_acute = cfg.all_caps_acute
+        prompter_slider_cache.wrap_length = cfg.wrap_length
         prompter_slider_cache.items, prompter_slider_cache.total_h = {}, 0
         
         local raw_items = {}
@@ -27946,57 +27941,90 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
         for _, raw in ipairs(raw_items) do
             if raw.type == "region" then
                 local rgn = raw.data
-                local p_lines = parse_prompter_to_lines(rgn.name)
-                local flattened = {}
-                for i, pl in ipairs(p_lines) do
-                    if i > 1 and #flattened > 0 then table.insert(flattened, {text=" ", is_newline = true}) end
-                    for _, span in ipairs(pl) do table.insert(flattened, span) end
-                end
+                local cache_key = "rgn_" .. tostring(rgn.idx) .. "_" .. rgn.name .. "_" .. (rgn.actor or "")
+                local cached = prompter_slider_cache.wrap_cache[cache_key]
                 
-                local target_fsize = cfg.p_fsize
-                local min_fsize = 12
-                local lines, item_h, lh
-                
-                local actor_indent = 0
-                if cfg.show_actor_name_infront and rgn.actor and rgn.actor ~= "" then
-                    gfx.setfont(F.lrg, cfg.p_font, S(target_fsize - 2))
-                    actor_indent = gfx.measurestr("[" .. rgn.actor .. "] ")
-                end
-
-                repeat
-                    gfx.setfont(F.lrg, cfg.p_font, S(target_fsize))
-                    lh = math.floor(gfx.texth * cfg.p_lheight)
+                local lines, item_h, lh, target_fsize
+                if cached then
+                    lines = cached.lines
+                    item_h = cached.h
+                    lh = cached.lh
+                    target_fsize = cached.fsize
+                else
+                    local p_lines = parse_prompter_to_lines(rgn.name)
+                    local flattened = {}
+                    for i, pl in ipairs(p_lines) do
+                        if i > 1 and #flattened > 0 then table.insert(flattened, {text=" ", is_newline = true}) end
+                        for _, span in ipairs(pl) do table.insert(flattened, span) end
+                    end
                     
-                    local current_actor_indent = 0
-                    if actor_indent > 0 then
+                    target_fsize = cfg.p_fsize
+                    local min_fsize = 12
+                    
+                    local actor_indent = 0
+                    if cfg.show_actor_name_infront and rgn.actor and rgn.actor ~= "" then
                         gfx.setfont(F.lrg, cfg.p_font, S(target_fsize - 2))
-                        current_actor_indent = gfx.measurestr("[" .. rgn.actor .. "] ")
+                        actor_indent = gfx.measurestr("[" .. rgn.actor .. "] ")
                     end
 
-                    lines = wrap_rich_text(flattened, max_w, F.lrg, cfg.p_font, S(target_fsize), false, current_actor_indent)
-                    item_h = #lines * lh + S(40)
-                    if item_h < gfx.h * 0.7 or target_fsize <= min_fsize then break end
-                    target_fsize = target_fsize - 2
-                until false
+                    repeat
+                        gfx.setfont(F.lrg, cfg.p_font, S(target_fsize))
+                        lh = math.floor(gfx.texth * cfg.p_lheight)
+                        
+                        local current_actor_indent = 0
+                        if actor_indent > 0 then
+                            gfx.setfont(F.lrg, cfg.p_font, S(target_fsize - 2))
+                            current_actor_indent = gfx.measurestr("[" .. rgn.actor .. "] ")
+                        end
+
+                        lines = wrap_rich_text(flattened, max_w, F.lrg, cfg.p_font, S(target_fsize), false, current_actor_indent)
+                        item_h = #lines * lh + S(40)
+                        if item_h < gfx.h * 0.7 or target_fsize <= min_fsize then break end
+                        target_fsize = target_fsize - 2
+                    until false
+                    
+                    prompter_slider_cache.wrap_cache[cache_key] = {
+                        lines = lines,
+                        h = item_h,
+                        lh = lh,
+                        fsize = target_fsize
+                    }
+                end
                 
                 table.insert(prompter_slider_cache.items, {type = "region", h = item_h, lines = lines, y = prompter_slider_cache.total_h, fsize = S(target_fsize), lh = lh, region = rgn, region_idx = raw.idx})
                 prompter_slider_cache.total_h = prompter_slider_cache.total_h + item_h
             else
                 -- Correction Item
                 local m = raw.data
-                local name = m.name or ""
-                if name == "" then name = T("EMPTY") end
-                local p_lines = parse_prompter_to_lines(name, true)
-                local flattened = {}
-                for i, pl in ipairs(p_lines) do
-                    if i > 1 and #flattened > 0 then table.insert(flattened, {text=" ", is_newline = true}) end
-                    for _, span in ipairs(pl) do table.insert(flattened, span) end
-                end
+                local cache_key = "corr_" .. tostring(raw.idx) .. "_" .. (m.name or "")
+                local cached = prompter_slider_cache.wrap_cache[cache_key]
                 
-                gfx.setfont(F.cor, cfg.p_font, S(cfg.c_fsize))
-                local lh = math.floor(gfx.texth * (cfg.c_lheight or 1.0))
-                local lines = wrap_rich_text(flattened, max_w, F.cor, cfg.p_font, S(cfg.c_fsize), false, 0)
-                local item_h = #lines * lh + S(20)
+                local lines, item_h, lh
+                if cached then
+                    lines = cached.lines
+                    item_h = cached.h
+                    lh = cached.lh
+                else
+                    local name = m.name or ""
+                    if name == "" then name = T("EMPTY") end
+                    local p_lines = parse_prompter_to_lines(name, true)
+                    local flattened = {}
+                    for i, pl in ipairs(p_lines) do
+                        if i > 1 and #flattened > 0 then table.insert(flattened, {text=" ", is_newline = true}) end
+                        for _, span in ipairs(pl) do table.insert(flattened, span) end
+                    end
+                    
+                    gfx.setfont(F.cor, cfg.p_font, S(cfg.c_fsize))
+                    lh = math.floor(gfx.texth * (cfg.c_lheight or 1.0))
+                    lines = wrap_rich_text(flattened, max_w, F.cor, cfg.p_font, S(cfg.c_fsize), false, 0)
+                    item_h = #lines * lh + S(20)
+                    
+                    prompter_slider_cache.wrap_cache[cache_key] = {
+                        lines = lines,
+                        h = item_h,
+                        lh = lh
+                    }
+                end
                 
                 table.insert(prompter_slider_cache.items, {type = "correction", h = item_h, lines = lines, y = prompter_slider_cache.total_h, fsize = S(cfg.c_fsize), lh = lh, marker = m})
                 prompter_slider_cache.total_h = prompter_slider_cache.total_h + item_h
@@ -29570,12 +29598,10 @@ function DRAW_TABS.draw_settings()
         gfx.drawstr(tostring(cfg.wrap_length))
         if s_btn(x_start + S(200), y_cursor - S(10), S(30), S(30), "－") then
             cfg.wrap_length = math.max(10, cfg.wrap_length - 2)
-            prompter_slider_cache.state_count = -1
             save_settings()
         end
         if s_btn(x_start + S(235), y_cursor - S(10), S(30), S(30), "＋") then
             cfg.wrap_length = math.min(100, cfg.wrap_length + 2)
-            prompter_slider_cache.state_count = -1
             save_settings()
         end
     end
@@ -29752,13 +29778,11 @@ function DRAW_TABS.draw_settings()
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, T("ALL_CAPS"), cfg.all_caps, T("ALL_CAPS_TIP")) then
         cfg.all_caps = not cfg.all_caps
-        prompter_slider_cache.state_count = -1
         save_settings()
     end
     y_cursor = y_cursor + S(35)
     if checkbox(x_start, y_cursor, T("SOFT_HYPHENS"), cfg.p_soft_n, T("SOFT_HYPHENS_TIP")) then
         cfg.p_soft_n = not cfg.p_soft_n
-        prompter_slider_cache.state_count = -1
         save_settings()
     end
     y_cursor = y_cursor + S(35)
@@ -38970,7 +38994,8 @@ local function main()
         table_data_cache.state_count = -1
         prompter_slider_cache.state_count = -1
         prompter_drawer.has_markers_cache.count = -1
-        reaper.Undo_OnStateChangeEx2(0, "Subass: Init marker", -1, -1) 
+        reaper.Undo_OnStateChangeEx2(0, "Subass: Init marker", -1, -1)
+        prompter_slider_cache.wrap_cache = {} 
 
         local proj, filename = reaper.EnumProjects(-1)
         local id_fname = (not filename or filename == "") and "unsaved" or filename
@@ -39025,6 +39050,7 @@ local function main()
         reaper.Undo_OnStateChangeEx2(0, "Subass: Init marker", -1, -1) 
         save_session_state(UI_STATE.last_project_id)
         UI_STATE.last_project_id = current_project_id
+        prompter_slider_cache.wrap_cache = {}
         
         -- Reset and load
         load_project_data()
