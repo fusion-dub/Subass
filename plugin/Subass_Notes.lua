@@ -27896,13 +27896,30 @@ function DRAW_WINDOW.draw_prompter_slider(input_queue)
     local dict_ts = DICT.last_update_ts or ""
 
     DRAW_WINDOW.draw_cps_warning(current_active_regions, content_offset_left, available_w, next_rgn)
-    
-    if (prompter_slider_cache.state_count ~= state_count and UTILS.is_markers_regions_changed()) or prompter_slider_cache.state_count == -1 or prompter_slider_cache.w ~= available_w or 
+
+    local now_time = reaper.time_precise()
+    if prompter_slider_cache.state_count ~= state_count then
+        UI_STATE.prompter_slider_update_time = now_time + 0.3
+        prompter_slider_cache.state_count = state_count
+
+        if UTILS.is_markers_regions_changed() then
+            UI_STATE.prompter_slider_pending_update = true
+        end
+    end
+
+    local trigger_rebuild = false
+    if UI_STATE.prompter_slider_pending_update and now_time >= (UI_STATE.prompter_slider_update_time or 0) then
+        trigger_rebuild = true
+        UI_STATE.prompter_slider_pending_update = false
+    end
+
+    local instant_trigger = prompter_slider_cache.state_count == -1 or prompter_slider_cache.w ~= available_w or 
        prompter_slider_cache.fsize ~= cfg.p_fsize or prompter_slider_cache.font ~= cfg.p_font or prompter_slider_cache.project_id ~= reaper.GetProjectName(0, "") or
        prompter_slider_cache.p_corr ~= cfg.p_corr or prompter_slider_cache.dict_ts ~= dict_ts or
        prompter_slider_cache.p_lheight ~= cfg.p_lheight or prompter_slider_cache.c_lheight ~= cfg.c_lheight or
-       prompter_slider_cache.text_assimilations ~= cfg.text_assimilations or prompter_slider_cache.text_euphonics ~= cfg.text_euphonics then
+       prompter_slider_cache.text_assimilations ~= cfg.text_assimilations or prompter_slider_cache.text_euphonics ~= cfg.text_euphonics
 
+    if trigger_rebuild or instant_trigger then
         prompter_slider_cache.state_count, prompter_slider_cache.w, prompter_slider_cache.fsize, prompter_slider_cache.font = state_count, available_w, cfg.p_fsize, cfg.p_font
         prompter_slider_cache.project_id = reaper.GetProjectName(0, "")
         prompter_slider_cache.p_corr = cfg.p_corr
