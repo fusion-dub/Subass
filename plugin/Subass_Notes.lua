@@ -37121,10 +37121,31 @@ function DRAW_TABS.draw_table(input_queue)
             if #and_terms > 0 then table.insert(queries, and_terms) end
         end
 
+        local function find_all_occurrences(s, query, use_case)
+            if not s or not query or query == "" then return {} end
+            local ranges = {}
+            local offset = 0
+            local current_str = s
+            while true do
+                local start_idx, end_idx
+                if use_case then
+                    start_idx, end_idx = current_str:find(query, 1, true)
+                else
+                    start_idx, end_idx = utf8_find_accent_blind(current_str, query)
+                end
+                if not start_idx then break end
+                table.insert(ranges, {offset + start_idx, offset + end_idx})
+                local step = math.max(1, end_idx)
+                current_str = current_str:sub(step + 1)
+                offset = offset + step
+            end
+            return ranges
+        end
+
         for _, line in ipairs(raw_data) do
             local target_text = line.text or line.name or ""
             local any_match = false
-            local h_text, h_actor, h_index, h_dubber
+            local h_text, h_actor, h_index, h_dubber = {}, {}, {}, {}
             
             if #queries == 0 then
                 any_match = true
@@ -37163,34 +37184,52 @@ function DRAW_TABS.draw_table(input_queue)
                             end
                         elseif use_case then
                             text_match = target_text:find(q, 1, true)
-                            if text_match and not h_text then h_text = {target_text:find(q, 1, true)} end
+                            if text_match then
+                                for _, range in ipairs(find_all_occurrences(target_text, q, true)) do
+                                    table.insert(h_text, range)
+                                end
+                            end
                             if show_actor and line.actor then
                                 actor_match = line.actor:find(q, 1, true)
-                                if actor_match and not h_actor then h_actor = {line.actor:find(q, 1, true)} end
+                                if actor_match then
+                                    for _, range in ipairs(find_all_occurrences(line.actor, q, true)) do
+                                        table.insert(h_actor, range)
+                                    end
+                                end
                             end
                             
                             local dubber_str = act_to_dub[line.actor or ""] or ""
                             if cfg.col_table_dubber and dubber_str ~= "" then
                                 dubber_match = dubber_str:find(q, 1, true)
-                                if dubber_match and not h_dubber then h_dubber = {dubber_str:find(q, 1, true)} end
+                                if dubber_match then
+                                    for _, range in ipairs(find_all_occurrences(dubber_str, q, true)) do
+                                        table.insert(h_dubber, range)
+                                    end
+                                end
                             end
                             
                             index_match = tostring(line.index or ""):find(q, 1, true)
-                            if index_match and not h_index then h_index = {tostring(line.index or ""):find(q, 1, true)} end
+                            if index_match then
+                                for _, range in ipairs(find_all_occurrences(tostring(line.index or ""), q, true)) do
+                                    table.insert(h_index, range)
+                                end
+                            end
                         else
                             local clean_text = strip_accents(utf8_lower((target_text or ""):gsub("\\N", " "):gsub("\\n", " ")))
                             text_match = clean_text:find(q_clean, 1, true)
 
-                            if text_match and not h_text then 
-                                local s, e = utf8_find_accent_blind(target_text, q)
-                                if s then h_text = {s, e} end
+                            if text_match then 
+                                for _, range in ipairs(find_all_occurrences(target_text, q, false)) do
+                                    table.insert(h_text, range)
+                                end
                             end
                             if show_actor and line.actor then
                                 local clean_actor = strip_accents(utf8_lower(line.actor))
                                 actor_match = clean_actor:find(q_clean, 1, true)
-                                if actor_match and not h_actor then
-                                    local s, e = utf8_find_accent_blind(line.actor, q)
-                                    if s then h_actor = {s, e} end
+                                if actor_match then
+                                    for _, range in ipairs(find_all_occurrences(line.actor, q, false)) do
+                                        table.insert(h_actor, range)
+                                    end
                                 end
                             end
                             
@@ -37198,16 +37237,18 @@ function DRAW_TABS.draw_table(input_queue)
                             if cfg.col_table_dubber and dubber_str ~= "" then
                                 local clean_dubber = strip_accents(utf8_lower(dubber_str))
                                 dubber_match = clean_dubber:find(q_clean, 1, true)
-                                if dubber_match and not h_dubber then
-                                    local s, e = utf8_find_accent_blind(dubber_str, q)
-                                    if s then h_dubber = {s, e} end
+                                if dubber_match then
+                                    for _, range in ipairs(find_all_occurrences(dubber_str, q, false)) do
+                                        table.insert(h_dubber, range)
+                                    end
                                 end
                             end
                             local idx_str = tostring(line.index or "")
                             index_match = idx_str:lower():find(q_clean, 1, true)
-                            if index_match and not h_index then
-                                local s, e = idx_str:lower():find(q_clean, 1, true)
-                                if s then h_index = {s, e} end
+                            if index_match then
+                                for _, range in ipairs(find_all_occurrences(idx_str, q, false)) do
+                                    table.insert(h_index, range)
+                                end
                             end
                         end
                         
@@ -37225,10 +37266,10 @@ function DRAW_TABS.draw_table(input_queue)
             end
 
             if any_match then
-                line.h_text = h_text -- Store pre-calculated highlight
-                line.h_actor = h_actor
-                line.h_index = h_index
-                line.h_dubber = h_dubber
+                line.h_text = #h_text > 0 and h_text or nil
+                line.h_actor = #h_actor > 0 and h_actor or nil
+                line.h_index = #h_index > 0 and h_index or nil
+                line.h_dubber = #h_dubber > 0 and h_dubber or nil
                 
                 -- Pre-calculate CPS and strings for table view
                 local duration = (line.t2 or 0) - (line.t1 or 0)
@@ -37707,16 +37748,31 @@ function DRAW_TABS.draw_table(input_queue)
                     display_txt = fit_text_width(display_txt, max_w)
                     
                     if h_range then
-                        local s_start, s_end = h_range[1], h_range[2]
-                        -- Ensure highlight is within visible/truncated text
-                        if s_start <= #display_txt then
-                            local pre_match = display_txt:sub(1, s_start - 1)
-                            local match_str = display_txt:sub(s_start, math.min(s_end, #display_txt))
-                            local pre_w = gfx.measurestr(pre_match)
-                            local match_w = gfx.measurestr(match_str)
-                            set_color(UI.C_HILI_YELLOW, 0.4)
-                            gfx.rect(x + pre_w, y, match_w, gfx.texth, 1)
+                        if type(h_range[1]) == "table" then
+                            for _, range in ipairs(h_range) do
+                                local s_start, s_end = range[1], range[2]
+                                if s_start <= #display_txt then
+                                    local pre_match = display_txt:sub(1, s_start - 1)
+                                    local match_str = display_txt:sub(s_start, math.min(s_end, #display_txt))
+                                    local pre_w = gfx.measurestr(pre_match)
+                                    local match_w = gfx.measurestr(match_str)
+                                    set_color(UI.C_HILI_YELLOW, 0.4)
+                                    gfx.rect(x + pre_w, y, match_w, gfx.texth, 1)
+                                end
+                            end
                             set_color(row_base_color)
+                        else
+                            local s_start, s_end = h_range[1], h_range[2]
+                            -- Ensure highlight is within visible/truncated text
+                            if s_start <= #display_txt then
+                                local pre_match = display_txt:sub(1, s_start - 1)
+                                local match_str = display_txt:sub(s_start, math.min(s_end, #display_txt))
+                                local pre_w = gfx.measurestr(pre_match)
+                                local match_w = gfx.measurestr(match_str)
+                                set_color(UI.C_HILI_YELLOW, 0.4)
+                                gfx.rect(x + pre_w, y, match_w, gfx.texth, 1)
+                                set_color(row_base_color)
+                            end
                         end
                     end
                     gfx.x, gfx.y = x, y
@@ -37726,29 +37782,49 @@ function DRAW_TABS.draw_table(input_queue)
                     local total_text_h = #cached_lines * gfx.texth
                     local cur_y = buf_y + (row_h_passed - total_text_h) / 2
                     local query = table_filter_state.text
-                    local first_match_done = false
+                    
+                    local terms = {}
+                    if #query > 0 then
+                        for part in query:gmatch("[^|&]+") do
+                            local trimmed = part:match("^%s*(.-)%s*$")
+                            if trimmed ~= "" and trimmed ~= "%UC" and trimmed ~= "%CR" then
+                                table.insert(terms, trimmed)
+                            end
+                        end
+                    end
 
                     for _, line_str in ipairs(cached_lines) do
                         local line_h = gfx.texth
                         if cur_y + line_h > buf_y + row_h_passed then break end
                         
-                        if #query > 0 and not first_match_done then
-                            local s_start, s_end
-                            if OTHER.find_replace_state.case_sensitive then
-                                s_start, s_end = line_str:find(query, 1, true)
-                            else
-                                s_start, s_end = utf8_find_accent_blind(line_str, query)
+                        if #terms > 0 then
+                            for _, term in ipairs(terms) do
+                                local start_offset = 1
+                                while true do
+                                    local s_start, s_end
+                                    if OTHER.find_replace_state.case_sensitive then
+                                        s_start, s_end = line_str:find(term, start_offset, true)
+                                    else
+                                        local sub_str = line_str:sub(start_offset)
+                                        local sub_start, sub_end = utf8_find_accent_blind(sub_str, term)
+                                        if sub_start then
+                                            s_start = start_offset + sub_start - 1
+                                            s_end = start_offset + sub_end - 1
+                                        end
+                                    end
+                                    if not s_start then break end
+                                    
+                                    local pre_match = line_str:sub(1, s_start - 1)
+                                    local match_str = line_str:sub(s_start, s_end)
+                                    local pre_w = gfx.measurestr(pre_match)
+                                    local match_w = gfx.measurestr(match_str)
+                                    set_color(UI.C_HILI_YELLOW, 0.4)
+                                    gfx.rect(x + pre_w, cur_y, match_w, line_h, 1)
+                                    
+                                    start_offset = s_end + 1
+                                end
                             end
-                            if s_start then
-                                local pre_match = line_str:sub(1, s_start - 1)
-                                local match_str = line_str:sub(s_start, s_end)
-                                local pre_w = gfx.measurestr(pre_match)
-                                local match_w = gfx.measurestr(match_str)
-                                set_color(UI.C_HILI_YELLOW, 0.4)
-                                gfx.rect(x + pre_w, cur_y, match_w, line_h, 1)
-                                set_color(row_base_color)
-                                first_match_done = true 
-                            end
+                            set_color(row_base_color)
                         end
                         
                         gfx.x, gfx.y = x, cur_y
