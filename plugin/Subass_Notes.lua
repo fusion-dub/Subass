@@ -35323,278 +35323,356 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         local ai_btn_x = input_draw_x + left_w - ai_btn_w
         local ai_b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
 
-        local current_x = input_draw_x
-        for i, item in ipairs(visible_sys_presets) do
-            local label = item.btn
-            local item_w = (item.tag == "separator") and S(5) or fmt_btn_w
+        local function get_item_width(item)
+            if item.tag == "double_separator" then
+                return S(7)
+            elseif item.tag == "separator" then
+                return S(5)
+            elseif item.tag == "plus_btn" then
+                return fmt_btn_w
+            elseif item.is_custom then
+                return S(36)
+            else
+                return fmt_btn_w
+            end
+        end
+
+        local all_visible_items = {}
+        -- 1. Add visible system presets
+        for _, item in ipairs(visible_sys_presets) do
+            table.insert(all_visible_items, {
+                btn = item.btn,
+                tag = item.tag,
+                tip = item.tip,
+                is_custom = false,
+                item_ref = item
+            })
+        end
+        
+        -- 2. Add double separator
+        table.insert(all_visible_items, {
+            tag = "double_separator"
+        })
+        
+        -- 3. Add custom presets
+        for idx, p in ipairs(cfg.fmt_presets) do
+            table.insert(all_visible_items, {
+                btn = p.label or ("P" .. idx),
+                tag = p.val,
+                is_custom = true,
+                custom_idx = idx,
+                preset_ref = p
+            })
+        end
+        
+        -- 4. Add Plus button
+        table.insert(all_visible_items, {
+            tag = "plus_btn"
+        })
+
+        local total_w = 0
+        local preset_widths = {}
+        local total_items = #all_visible_items
+        for i, item in ipairs(all_visible_items) do
+            local item_w = get_item_width(item)
+            preset_widths[i] = item_w
+            total_w = total_w + item_w
+            if i < total_items then
+                total_w = total_w + fmt_gap
+            end
+        end
+
+        local available_w = ai_btn_x - input_draw_x
+        local presets_start_x = input_draw_x
+
+        -- Compute max_scroll
+        local max_scroll = 0
+        for s = 0, total_items - 1 do
+            local sum = 0
+            for i = s + 1, total_items do
+                sum = sum + preset_widths[i]
+                if i < total_items then
+                    sum = sum + fmt_gap
+                end
+            end
+            if sum >= available_w then
+                max_scroll = s + 1
+            else
+                break
+            end
+        end
+        if total_items > 0 then
+            max_scroll = math.min(total_items - 1, max_scroll)
+        else
+            max_scroll = 0
+        end
+
+        editor_state.presets_scroll = math.max(0, math.min(max_scroll, editor_state.presets_scroll or 0))
+
+        -- Wheel scrolling over the presets area
+        local hover_presets = UI_STATE.window_focused and
+                              (gfx.mouse_x >= input_draw_x and gfx.mouse_x < ai_btn_x and
+                               gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
+        if hover_presets and gfx.mouse_hwheel and gfx.mouse_hwheel ~= 0 then
+            local scroll_val = gfx.mouse_hwheel > 0 and 1 or -1
+            gfx.mouse_hwheel = 0 -- Consume
+            editor_state.presets_scroll = math.max(0, math.min(max_scroll, (editor_state.presets_scroll or 0) + scroll_val))
+        end
+
+        local current_x = presets_start_x
+        for i = 1 + editor_state.presets_scroll, total_items do
+            local item = all_visible_items[i]
+            local item_w = preset_widths[i]
             local bx = current_x
             
-            -- Only draw if it does not overlap with the AI button
-            if bx + item_w <= ai_btn_x then
+            if bx + item_w <= presets_start_x + available_w then
                 local is_hover = UI_STATE.window_focused and 
                                  (gfx.mouse_x >= bx and gfx.mouse_x <= bx + item_w and 
                                   gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
 
-                if item.tag == "separator" then
-                    -- Draw vertical separator line
+                -- 1. Draw separator lines first
+                if item.tag == "double_separator" then
                     set_color(UI.C_MEDIUM_GREY, 0.5)
                     gfx.rect(bx + S(2), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
-                else
-                    local b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
-                    local button_label = label
-                    local skip_click = false
-                    
-                    if item.tag == "corrector" then
-                        local active_line = editor_state.last_line_data or best_line
-                        local line_id = active_line and (active_line.rgn_idx or active_line.index or active_line._i) or nil
-                        local lt_data = line_id and SUBASS_LT_RESULT and (SUBASS_LT_RESULT[line_id] or SUBASS_LT_RESULT[tostring(line_id)])
-                        if lt_data and lt_data.loading then
-                            button_label = "..."
-                            b_col = UI.C_TAB_INA
-                            skip_click = true
-                        end
-                    end
-                    
-                    -- Apply styling for preview
-                    if button_label == "B" then gfx.setfont(F.bld)
-                    elseif button_label == "I" then gfx.setfont(F.ital)
-                    else gfx.setfont(F.std) end
-
-                    if draw_actor_btn_inline(bx, control_draw_y, fmt_btn_w, control_row_h, button_label, b_col) then
-                        if not skip_click then
-                            apply_fmt(item.tag)
-                        end
-                    end
-
-                    -- Draw extra lines for U and S
-                    local str_w, str_h = gfx.measurestr(label)
-                    local tx = bx + (fmt_btn_w - str_w) / 2
-                    local ty = control_draw_y + (control_row_h - str_h) / 2
-                    local s1 = S(1)
-                    local s2 = S(2)
-
-                    if label == "U" then
-                        set_color(UI.C_TXT)
-                        gfx.line(tx, ty + str_h - s1, tx + str_w, ty + str_h - s1)
-                    elseif label == "S" then
-                        set_color(UI.C_TXT)
-                        gfx.line(tx - s2, ty + str_h/2 - s2, tx + str_w + s2, ty + str_h/2 - s2)
-                    end
+                    gfx.rect(bx + S(4), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
+                elseif item.tag == "separator" then
+                    set_color(UI.C_MEDIUM_GREY, 0.5)
+                    gfx.rect(bx + S(2), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
                 end
-                
-                if is_hover then 
-                    local tip_id = "fmt_" .. i
-                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
-                        UI_STATE.tooltip_state.hover_id = tip_id
-                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
-                    end
-                    UI_STATE.tooltip_state.text = T(item.tip)
 
-                    if is_mouse_clicked(2) then
+                -- 2. Draw buttons and handle interaction
+                if item.tag == "double_separator" then
+                    -- Double separator has no interaction
+                elseif item.tag == "plus_btn" then
+                    -- Draw Plus button
+                    local b_col = is_disabled and UI.C_TAB_INA or UI.C_ACCENT_SN
+                    gfx.setfont(F.std)
+                    if draw_actor_btn_inline(bx, control_draw_y, item_w, control_row_h, "+", b_col) then
                         UI_STATE.mouse_handled = true
-                        gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                        local move_up_tag = (i > 1) and "" or "#"
-                        local move_down_tag = (i < #visible_sys_presets) and "" or "#"
-                        
-                        local visible_presets_count = 0
-                        for _, p in ipairs(cfg.sys_presets_order) do
-                            if not p.hidden and p.tag ~= "separator" then
-                                visible_presets_count = visible_presets_count + 1
-                            end
+                        show_panel_preset_dialog("editor")
+                    end
+                    
+                    if is_hover then
+                        local tip_id = "preset_add"
+                        if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                            UI_STATE.tooltip_state.hover_id = tip_id
+                            UI_STATE.tooltip_state.start_time = reaper.time_precise()
                         end
-                        local hide_tag = (item.tag ~= "separator" and visible_presets_count <= 1) and "#" or ""
-
-                        local menu_items = {
-                            move_up_tag .. T("PRESET_MOVE_LEFT_MENU") .. move_down_tag .. T("PRESET_MOVE_RIGHT_MENU"),
-                            "",
-                            hide_tag .. (item.tag == "separator" and T("DELETE_SEPARATOR_MENU") or T("HIDE_PRESET_MENU")),
-                            T("ADD_SEPARATOR_MENU")
-                        }
-                        
-                        local hidden_sys = {}
-                        for _, p in ipairs(sys_presets) do
-                            if p.hidden then
-                                table.insert(hidden_sys, p)
+                        UI_STATE.tooltip_state.text = T("ADD_NEW_PRESET")
+                    end
+                elseif item.is_custom then
+                    -- Custom preset or custom separator
+                    if item.tag ~= "separator" then
+                        local b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
+                        gfx.setfont(F.std)
+                        if draw_actor_btn_inline(bx, control_draw_y, item_w, control_row_h, item.btn, b_col) then
+                            UI_STATE.mouse_handled = true
+                            apply_custom_fmt(item.tag)
+                        end
+                    end
+                    
+                    if is_hover then
+                        local tip_id = "preset_" .. item.custom_idx
+                        if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                            UI_STATE.tooltip_state.hover_id = tip_id
+                            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                        end
+                        local p_val = item.tag
+                        if p_val == "separator" then
+                            UI_STATE.tooltip_state.text = T("FMT_SEPARATOR")
+                        else
+                            if p_val:find("&RNG") then
+                                local rng_text = ""
+                                if best_line and best_line.text then
+                                    rng_text = best_line.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nn]", " ")
+                                    rng_text = rng_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+                                end
+                                local escaped_rng = rng_text:gsub("%%", "%%%%")
+                                p_val = p_val:gsub("&RNG", escaped_rng)
                             end
+                            UI_STATE.tooltip_state.text = p_val
                         end
                         
-                        if #hidden_sys > 0 then
-                            table.insert(menu_items, "")
-                            for _, p in ipairs(hidden_sys) do
-                                table.insert(menu_items, T("RESTORE_PRESET") .. ": " .. T(p.tip))
-                            end
-                        end
-                        
-                        local full_menu_str = table.concat(menu_items, "|")
-                        local sel = gfx.showmenu(full_menu_str)
-                        
-                        if sel == 1 then
-                            if i > 1 then
-                                local prev_item = visible_sys_presets[i - 1]
-                                local orig_idx, prev_idx
-                                for idx, p in ipairs(cfg.sys_presets_order) do
-                                    if p == item then orig_idx = idx end
-                                    if p == prev_item then prev_idx = idx end
-                                end
-                                if orig_idx and prev_idx then
-                                    cfg.sys_presets_order[orig_idx], cfg.sys_presets_order[prev_idx] = cfg.sys_presets_order[prev_idx], cfg.sys_presets_order[orig_idx]
-                                    save_settings()
-                                end
-                            end
-                        elseif sel == 2 then
-                            if i < #visible_sys_presets then
-                                local next_item = visible_sys_presets[i + 1]
-                                local orig_idx, next_idx
-                                for idx, p in ipairs(cfg.sys_presets_order) do
-                                    if p == item then orig_idx = idx end
-                                    if p == next_item then next_idx = idx end
-                                end
-                                if orig_idx and next_idx then
-                                    cfg.sys_presets_order[orig_idx], cfg.sys_presets_order[next_idx] = cfg.sys_presets_order[next_idx], cfg.sys_presets_order[orig_idx]
-                                    save_settings()
-                                end
-                            end
-                        elseif sel == 3 then
+                        if is_mouse_clicked(2) then
+                            UI_STATE.mouse_handled = true
+                            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                            local move_up_tag = (item.custom_idx > 1) and "" or "#"
+                            local move_down_tag = (item.custom_idx < #cfg.fmt_presets) and "" or "#"
+                            
+                            local menu_str
                             if item.tag == "separator" then
-                                -- Delete separator entirely
-                                for idx, p in ipairs(cfg.sys_presets_order) do
-                                    if p == item then
-                                        table.remove(cfg.sys_presets_order, idx)
-                                        break
-                                    end
+                                menu_str = T("DELETE_SEPARATOR_MENU") .. "||" .. move_up_tag .. T("PRESET_MOVE_LEFT_MENU") .. move_down_tag .. T("PRESET_MOVE_RIGHT_MENU")
+                            else
+                                menu_str = T("EDIT_DELETE_PRESET_MENU") .. move_up_tag .. T("PRESET_MOVE_LEFT_MENU") .. move_down_tag .. T("PRESET_MOVE_RIGHT_MENU")
+                            end
+                            local sel = gfx.showmenu(menu_str)
+                            
+                            if item.tag == "separator" then
+                                if sel == 1 then
+                                    table.remove(cfg.fmt_presets, item.custom_idx)
+                                    save_settings()
+                                elseif sel == 2 then
+                                    local p = table.remove(cfg.fmt_presets, item.custom_idx)
+                                    table.insert(cfg.fmt_presets, item.custom_idx - 1, p)
+                                    save_settings()
+                                elseif sel == 3 then
+                                    local p = table.remove(cfg.fmt_presets, item.custom_idx)
+                                    table.insert(cfg.fmt_presets, item.custom_idx + 1, p)
+                                    save_settings()
                                 end
                             else
-                                -- Hide preset
-                                for _, p in ipairs(cfg.sys_presets_order) do
-                                    if p == item then
-                                        p.hidden = true
-                                        break
+                                if sel == 1 then 
+                                    show_panel_preset_dialog("editor", item.custom_idx)
+                                elseif sel == 2 then 
+                                    if reaper.MB(T("DELETE_PRESET_MB_1") .. (item.btn or "") .. T("DELETE_PRESET_MB_2"), T("DELETION_THE_PRESET"), 1) == 1 then
+                                        table.remove(cfg.fmt_presets, item.custom_idx)
+                                        save_settings()
                                     end
+                                elseif sel == 3 then
+                                    local p = table.remove(cfg.fmt_presets, item.custom_idx)
+                                    table.insert(cfg.fmt_presets, item.custom_idx - 1, p)
+                                    save_settings()
+                                elseif sel == 4 then
+                                    local p = table.remove(cfg.fmt_presets, item.custom_idx)
+                                    table.insert(cfg.fmt_presets, item.custom_idx + 1, p)
+                                    save_settings()
                                 end
                             end
-                            save_settings()
-                        elseif sel == 4 then
-                            local orig_idx
+                        end
+                    end
+                else
+                    -- Draw/handle system preset
+                    if item.tag ~= "separator" then
+                        local b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
+                        local button_label = item.btn
+                        local skip_click = false
+                        
+                        if item.tag == "corrector" then
+                            local active_line = editor_state.last_line_data or best_line
+                            local line_id = active_line and (active_line.rgn_idx or active_line.index or active_line._i) or nil
+                            local lt_data = line_id and SUBASS_LT_RESULT and (SUBASS_LT_RESULT[line_id] or SUBASS_LT_RESULT[tostring(line_id)])
+                            if lt_data and lt_data.loading then
+                                button_label = "..."
+                                b_col = UI.C_TAB_INA
+                                skip_click = true
+                            end
+                        end
+                        
+                        -- Apply styling for preview
+                        if button_label == "B" then gfx.setfont(F.bld)
+                        elseif button_label == "I" then gfx.setfont(F.ital)
+                        else gfx.setfont(F.std) end
+
+                        if draw_actor_btn_inline(bx, control_draw_y, item_w, control_row_h, button_label, b_col) then
+                            if not skip_click then
+                                apply_fmt(item.tag)
+                            end
+                        end
+
+                        -- Draw extra lines for U and S
+                        local str_w, str_h = gfx.measurestr(item.btn)
+                        local tx = bx + (item_w - str_w) / 2
+                        local ty = control_draw_y + (control_row_h - str_h) / 2
+                        local s1 = S(1)
+                        local s2 = S(2)
+
+                        if item.btn == "U" then
+                            set_color(UI.C_TXT)
+                            gfx.line(tx, ty + str_h - s1, tx + str_w, ty + str_h - s1)
+                        elseif item.btn == "S" then
+                            set_color(UI.C_TXT)
+                            gfx.line(tx - s2, ty + str_h/2 - s2, tx + str_w + s2, ty + str_h/2 - s2)
+                        end
+                    end
+                    
+                    if is_hover then 
+                        local tip_id = "fmt_" .. i
+                        if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                            UI_STATE.tooltip_state.hover_id = tip_id
+                            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                        end
+                        UI_STATE.tooltip_state.text = (item.tag == "separator") and T("FMT_SEPARATOR") or T(item.tip)
+
+                        if is_mouse_clicked(2) then
+                            UI_STATE.mouse_handled = true
+                            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                            
+                            -- Move / hide menu
+                            local orig_idx = nil
                             for idx, p in ipairs(cfg.sys_presets_order) do
-                                if p == item then
-                                    orig_idx = idx
-                                    break
+                                if p == item.item_ref then orig_idx = idx break end
+                            end
+                            
+                            local move_up_tag = (orig_idx and orig_idx > 1) and "" or "#"
+                            local move_down_tag = (orig_idx and orig_idx < #cfg.sys_presets_order) and "" or "#"
+                            
+                            local visible_presets_count = 0
+                            for _, p in ipairs(cfg.sys_presets_order) do
+                                if not p.hidden and p.tag ~= "separator" then
+                                    visible_presets_count = visible_presets_count + 1
                                 end
                             end
-                            if orig_idx then
+                            local hide_tag = (item.tag ~= "separator" and visible_presets_count <= 1) and "#" or ""
+
+                            local menu_items = {
+                                move_up_tag .. T("PRESET_MOVE_LEFT_MENU") .. move_down_tag .. T("PRESET_MOVE_RIGHT_MENU"),
+                                "",
+                                hide_tag .. (item.tag == "separator" and T("DELETE_SEPARATOR_MENU") or T("HIDE_PRESET_MENU")),
+                                T("ADD_SEPARATOR_MENU")
+                            }
+                            
+                            local hidden_sys = {}
+                            for _, p in ipairs(sys_presets) do
+                                if p.hidden then
+                                    table.insert(hidden_sys, p)
+                                end
+                            end
+                            
+                            if #hidden_sys > 0 then
+                                table.insert(menu_items, "")
+                                for _, p in ipairs(hidden_sys) do
+                                    table.insert(menu_items, T("RESTORE_PRESET") .. ": " .. T(p.tip))
+                                end
+                            end
+                            
+                            local full_menu_str = table.concat(menu_items, "|")
+                            local sel = gfx.showmenu(full_menu_str)
+                            
+                            if sel == 1 and orig_idx and orig_idx > 1 then
+                                -- Swap with previous item in sys_presets_order
+                                cfg.sys_presets_order[orig_idx], cfg.sys_presets_order[orig_idx - 1] = cfg.sys_presets_order[orig_idx - 1], cfg.sys_presets_order[orig_idx]
+                                save_settings()
+                            elseif sel == 2 and orig_idx and orig_idx < #cfg.sys_presets_order then
+                                -- Swap with next item in sys_presets_order
+                                cfg.sys_presets_order[orig_idx], cfg.sys_presets_order[orig_idx + 1] = cfg.sys_presets_order[orig_idx + 1], cfg.sys_presets_order[orig_idx]
+                                save_settings()
+                            elseif sel == 3 and orig_idx then
+                                if item.tag == "separator" then
+                                    table.remove(cfg.sys_presets_order, orig_idx)
+                                else
+                                    cfg.sys_presets_order[orig_idx].hidden = true
+                                end
+                                save_settings()
+                            elseif sel == 4 and orig_idx then
                                 table.insert(cfg.sys_presets_order, orig_idx + 1, { btn = "|", tag = "separator", tip = "FMT_SEPARATOR" })
                                 save_settings()
-                            end
-                        elseif sel >= 5 then
-                            local target_item = hidden_sys[sel - 4]
-                            if target_item then
-                                for _, p in ipairs(cfg.sys_presets_order) do
-                                    if p == target_item then
-                                        p.hidden = false
-                                        break
+                            elseif sel >= 5 then
+                                local target_item = hidden_sys[sel - 4]
+                                if target_item then
+                                    for _, p in ipairs(cfg.sys_presets_order) do
+                                        if p == target_item then
+                                            p.hidden = false
+                                            break
+                                        end
                                     end
+                                    save_settings()
                                 end
-                                save_settings()
                             end
                         end
                     end
                 end
             end
             current_x = current_x + item_w + fmt_gap
-        end
-
-        -- Separator and Presets
-        local last_x = current_x
-        if last_x + S(10) <= ai_btn_x then
-            -- Vertical Separator
-            set_color(UI.C_MEDIUM_GREY, 0.5)
-            gfx.rect(last_x + S(2), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
-            gfx.rect(last_x + S(4), control_draw_y + S(4), S(1), control_row_h - S(8), 1)
-            last_x = last_x + S(10)
-            
-            -- Custom Presets
-            local preset_btn_w = S(36)
-            for i, p in ipairs(cfg.fmt_presets) do
-                if last_x + preset_btn_w <= ai_btn_x then
-                    local b_col = is_disabled and UI.C_TAB_INA or UI.C_ROW
-                    gfx.setfont(F.std)
-                    if draw_actor_btn_inline(last_x, control_draw_y, preset_btn_w, control_row_h, p.label, b_col) then
-                        UI_STATE.mouse_handled = true
-                        apply_custom_fmt(p.val)
-                    end
-                    
-                    local is_h = UI_STATE.window_focused and 
-                                 (gfx.mouse_x >= last_x and gfx.mouse_x <= last_x + preset_btn_w and 
-                                  gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
-                    
-                    if is_h then
-                        local tip_id = "preset_" .. i
-                        if UI_STATE.tooltip_state.hover_id ~= tip_id then
-                            UI_STATE.tooltip_state.hover_id = tip_id
-                            UI_STATE.tooltip_state.start_time = reaper.time_precise()
-                        end
-                        local p_val = p.val
-                        if p_val:find("&RNG") then
-                            local rng_text = ""
-                            if best_line and best_line.text then
-                                rng_text = best_line.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nn]", " ")
-                                rng_text = rng_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
-                            end
-                            local escaped_rng = rng_text:gsub("%%", "%%%%")
-                            p_val = p_val:gsub("&RNG", escaped_rng)
-                        end
-                        UI_STATE.tooltip_state.text = p_val
-                        
-                        if is_mouse_clicked(2) then
-                            UI_STATE.mouse_handled = true
-                            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                            local move_up_tag = (i > 1) and "" or "#"
-                            local move_down_tag = (i < #cfg.fmt_presets) and "" or "#"
-                            local sel = gfx.showmenu(T("EDIT_DELETE_PRESET_MENU") .. move_up_tag .. T("PRESET_MOVE_LEFT_MENU") .. move_down_tag .. T("PRESET_MOVE_RIGHT_MENU"))
-                            
-                            if sel == 1 then show_panel_preset_dialog("editor", i)
-                            elseif sel == 2 then 
-                                if reaper.MB(T("DELETE_PRESET_MB_1") .. (p.label or "") .. T("DELETE_PRESET_MB_2"), T("DELETION_THE_PRESET"), 1) == 1 then
-                                    table.remove(cfg.fmt_presets, i)
-                                    save_settings()
-                                end
-                            elseif sel == 3 then
-                                local p = table.remove(cfg.fmt_presets, i)
-                                table.insert(cfg.fmt_presets, i - 1, p)
-                                save_settings()
-                            elseif sel == 4 then
-                                local p = table.remove(cfg.fmt_presets, i)
-                                table.insert(cfg.fmt_presets, i + 1, p)
-                                save_settings()
-                            end
-                        end
-                    end
-                    
-                    last_x = last_x + preset_btn_w + fmt_gap
-                end
-            end
-            
-            -- Plus Button
-            if last_x + fmt_btn_w <= ai_btn_x then
-                local b_col = is_disabled and UI.C_TAB_INA or UI.C_ACCENT_SN
-                gfx.setfont(F.std)
-                if draw_actor_btn_inline(last_x, control_draw_y, fmt_btn_w, control_row_h, "+", b_col) then
-                    UI_STATE.mouse_handled = true
-                    show_panel_preset_dialog("editor")
-                end
-                
-                local is_h = UI_STATE.window_focused and 
-                             (gfx.mouse_x >= last_x and gfx.mouse_x <= last_x + fmt_btn_w and 
-                              gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
-                if is_h then
-                    local tip_id = "preset_add"
-                    if UI_STATE.tooltip_state.hover_id ~= tip_id then
-                        UI_STATE.tooltip_state.hover_id = tip_id
-                        UI_STATE.tooltip_state.start_time = reaper.time_precise()
-                    end
-                    UI_STATE.tooltip_state.text = T("ADD_NEW_PRESET")
-                end
-            end
         end
 
         gfx.setfont(F.std)
@@ -39999,6 +40077,12 @@ local function main()
     UTILS.monitor_compact_imports(play_state)
     OTHER.highlight_marker_with_end_time()
 
+    if gfx.mouse_hwheel and gfx.mouse_hwheel ~= 0 then
+        gfx.mouse_hwheel = 0
+    end
+    if gfx.mouse_wheel ~= 0 then
+        gfx.mouse_wheel = 0
+    end
     gfx.update()
 
     -- Coroutine Handling (for heavy sync tasks like Dictionary scan)
