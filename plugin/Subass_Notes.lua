@@ -791,6 +791,7 @@ local I18N = {
     FMT_LOWERCASE = { en = "Convert selected text to lowercase", ua = "Перевести виділений текст у нижній регістр" },
     FMT_COMMENT = { en = "Enclose in curly brackets, comment: { ... }", ua = "Огорнути у фігурні дужки, коментар: { ... }" },
     FMT_REMOVE_HIDDEN = { en = "Delete hidden comments {{ ... }}", ua = "Видалити приховані коментарі {{ ... }}" },
+    FMT_REMOVE_TAGS = { en = "Remove all formatting tags", ua = "Видалити всі теги форматування" },
     NO_HIDDEN_COMMENTS_TO_DELETE = { en = "No hidden comments {{}} were found to delete.", ua = "Не знайдено приховані коментарі {{}} для видалення." },
     SPLIT_NL_NOT_FOUND_ERR = { en = "No newline character found to split.", ua = "Не знайдено новий рядок для розділення." },
     FMT_SPLIT_NL_EST = { en = "Split by newline (estimate duration)", ua = "Розділити за новим рядком (приблизна тривалість)" },
@@ -923,7 +924,7 @@ local I18N = {
     AUTO_FIX_CP1251 = { en = "Automatically correct incorrect encoding (CP1251)", ua = "Автоматично виправляти невірне кодування (CP1251)" },
     AUTO_FIX_CP1251_TIP = { en = "If a file contains broken CP1251 encoding, it will be automatically corrected.\n!!This may result in the loss of some characters!!", ua = "Якщо файл містить побите кодування CP1251, він буде автоматично виправлений.\n!!Це може призвести до втрати деяких символів!!\nПриклад: перетворить це \"œŒ¯Û, ÏÂÏ.\" в це \"ПрОшу, мем.\"" },
     AUTO_UNPACK_COMPACT = { en = "Auto-unpack compact renders on drag-and-drop", ua = "Авторозпаковка компактних рендерів при перетягуванні" },
-    AUTO_UNPACK_COMPACT_TIP = { en = "Automatically unpack compact render files containing Subass metadata when they are dragged and dropped onto project tracks.", ua = "Автоматично розпаковувати компакт-рендери з метаданими Subass при їх перетягуванні на треки проєкту." },
+    AUTO_UNPACK_COMPACT_TIP = { en = "Automatically unpack compact render files containing Subass metadata when they are dragged and dropped onto project tracks (if the filename contains the word \"compact\").", ua = "Автоматично розпаковувати компакт-рендери з метаданими Subass при їх перетягуванні на треки проєкту (якщо іʼмя файлу містить слово \"compact\")." },
     SYSTEM = { en = "SYSTEM", ua = "СИСТЕМА" },
     AUTOSTART_WITH_REAPER = { en = "Autostart with REAPER", ua = "Автозапуск разом із REAPER" },
     AUTOSTART_WITH_REAPER_TIP = { en = "The script will run automatically when the program starts.", ua = "Скрипт буде запускатися автоматично при старті програми." },
@@ -2976,6 +2977,7 @@ function OTHER.load_other_exts()
         { btn = "/==", tag = "split_nl_prev", tip = "FMT_SPLIT_NL_PREV", hidden = true },
         { btn = "UC", tag = "uppercase", tip = "FMT_UPPERCASE", hidden = true },
         { btn = "LC", tag = "lowercase", tip = "FMT_LOWERCASE", hidden = true },
+        { btn = "RT", tag = "remove_tags", tip = "FMT_REMOVE_TAGS", hidden = true },
     }
     local raw_sys_presets = reaper.GetExtState(section_name, "fmt_sys_presets_ext")
     if raw_sys_presets ~= "" then
@@ -18583,7 +18585,7 @@ function INPUT_ST.ui_text_input(id, x, y, w, h, state, placeholder, input_queue,
             bracket_end = state.text:find("]") or -1
         end
 
-        -- Highlight detection ({...} yellow, {{...}} pink)
+        -- Highlight detection ({...} yellow, {{...}} pink, <...> yellow)
         local highlight_ranges = {}
         if state.text then
             local s_idx = 1
@@ -18595,6 +18597,14 @@ function INPUT_ST.ui_text_input(id, x, y, w, h, state, placeholder, input_queue,
                     color = UI.C_HILI_PINK
                 end
                 table.insert(highlight_ranges, {s = s - 1, e = e, color = color})
+                s_idx = e + 1
+            end
+            
+            s_idx = 1
+            while true do
+                local s, e = state.text:find("%b<>", s_idx)
+                if not s then break end
+                table.insert(highlight_ranges, {s = s - 1, e = e, color = UI.C_HILI_YELLOW})
                 s_idx = e + 1
             end
         end
@@ -34942,6 +34952,7 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
             { btn = "/==", tag = "split_nl_prev", tip = "FMT_SPLIT_NL_PREV", hidden = true },
             { btn = "UC", tag = "uppercase", tip = "FMT_UPPERCASE", hidden = true },
             { btn = "LC", tag = "lowercase", tip = "FMT_LOWERCASE", hidden = true },
+            { btn = "RT", tag = "remove_tags", tip = "FMT_REMOVE_TAGS", hidden = true },
         }
         local visible_sys_presets = {}
         for _, item in ipairs(sys_presets) do
@@ -35020,6 +35031,32 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
                     if inp.anchor > #new_txt then inp.anchor = #new_txt end
                 else
                     show_snackbar(T("NO_HIDDEN_COMMENTS_TO_DELETE"), "warning")
+                end
+            elseif tag == "remove_tags" then
+                local function clean_tags(s)
+                    local changed = true
+                    while changed do
+                        local before = s
+                        s = s:gsub("{[^{}]-}", ""):gsub("<[^<>]->", "")
+                        if s == before then
+                            changed = false
+                        end
+                    end
+                    return s
+                end
+
+                if s_idx ~= e_idx then
+                    local selected = txt:sub(s_idx + 1, e_idx)
+                    local cleaned = clean_tags(selected)
+                    local new_txt = txt:sub(1, s_idx) .. cleaned .. txt:sub(e_idx + 1)
+                    inp.text = new_txt
+                    inp.cursor = s_idx + #cleaned
+                    inp.anchor = inp.cursor
+                else
+                    local cleaned = clean_tags(txt)
+                    inp.text = cleaned
+                    inp.cursor = #cleaned
+                    inp.anchor = inp.cursor
                 end
             elseif tag == "corrector" then
                 local line_ref = editor_state.last_line_data
