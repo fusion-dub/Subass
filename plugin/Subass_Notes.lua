@@ -64,6 +64,7 @@ local cfg = {
     text_assimilations = (get_set("text_assimilations", "1") == "1" or get_set("text_assimilations", 1) == 1),
     text_euphonics = (get_set("text_euphonics", "0") == "1" or get_set("text_euphonics", 0) == 1),
     fix_CP1251 = (get_set("fix_CP1251", "0") == "1" or get_set("fix_CP1251", 0) == 1),
+    auto_unpack_compact = (get_set("auto_unpack_compact", "0") == "1" or get_set("auto_unpack_compact", 0) == 1),
 
     karaoke_mode = (get_set("karaoke_mode", "0") == "1" or get_set("karaoke_mode", 0) == 1),
     all_caps = (get_set("all_caps", "0") == "1" or get_set("all_caps", 0) == 1),
@@ -921,6 +922,8 @@ local I18N = {
     SHOW_EUPHONIC_HITS_TIP = { en = "Show euphonic suggestions: display the variants в/у, й/і, з/зі/із and б/би based on the surrounding text.", ua = "Відображати евфонічні підказки: відображати варіант в/у, й/і, з/зі/із та б/би на основі оточення." },
     AUTO_FIX_CP1251 = { en = "Automatically correct incorrect encoding (CP1251)", ua = "Автоматично виправляти невірне кодування (CP1251)" },
     AUTO_FIX_CP1251_TIP = { en = "If a file contains broken CP1251 encoding, it will be automatically corrected.\n!!This may result in the loss of some characters!!", ua = "Якщо файл містить побите кодування CP1251, він буде автоматично виправлений.\n!!Це може призвести до втрати деяких символів!!\nПриклад: перетворить це \"œŒ¯Û, ÏÂÏ.\" в це \"ПрОшу, мем.\"" },
+    AUTO_UNPACK_COMPACT = { en = "Auto-unpack compact renders on drag-and-drop", ua = "Авторозпаковка компактних рендерів при перетягуванні" },
+    AUTO_UNPACK_COMPACT_TIP = { en = "Automatically unpack compact render files containing Subass metadata when they are dragged and dropped onto project tracks.", ua = "Автоматично розпаковувати компакт-рендери з метаданими Subass при їх перетягуванні на треки проєкту." },
     SYSTEM = { en = "SYSTEM", ua = "СИСТЕМА" },
     AUTOSTART_WITH_REAPER = { en = "Autostart with REAPER", ua = "Автозапуск разом із REAPER" },
     AUTOSTART_WITH_REAPER_TIP = { en = "The script will run automatically when the program starts.", ua = "Скрипт буде запускатися автоматично при старті програми." },
@@ -4312,6 +4315,7 @@ local function save_settings()
     reaper.SetExtState(section_name, "text_assimilations", cfg.text_assimilations and "1" or "0", true)
     reaper.SetExtState(section_name, "text_euphonics", cfg.text_euphonics and "1" or "0", true)
     reaper.SetExtState(section_name, "fix_CP1251", cfg.fix_CP1251 and "1" or "0", true)
+    reaper.SetExtState(section_name, "auto_unpack_compact", cfg.auto_unpack_compact and "1" or "0", true)
     reaper.SetExtState(section_name, "p_soft_n", cfg.p_soft_n and "1" or "0", true)
 
     reaper.SetExtState(section_name, "karaoke_mode", cfg.karaoke_mode and "1" or "0", true)
@@ -12530,15 +12534,14 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
 
     reaper.PreventUIRefresh(1)
 
-    -- Determine where to insert the track
-    local dest_idx = reaper.CountTracks(0)
+    -- Determine where to insert or reuse the track
+    local dest_idx
     local parent_color = 0
     if parent_track then
-        local parent_idx = reaper.GetMediaTrackInfo_Value(parent_track, "IP_TRACKNUMBER") -- 1-based
-        reaper.InsertTrackAtIndex(parent_idx, true)
-        dest_idx = parent_idx
+        dest_idx = math.floor(reaper.GetMediaTrackInfo_Value(parent_track, "IP_TRACKNUMBER") - 1)
         parent_color = reaper.GetTrackColor(parent_track)
     else
+        dest_idx = reaper.CountTracks(0)
         reaper.InsertTrackAtIndex(dest_idx, true)
     end
 
@@ -12555,8 +12558,19 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
     local select_track = nil
 
     if M <= 1 then
-        local dest_track = reaper.GetTrack(0, dest_idx)
-        reaper.GetSetMediaTrackInfo_String(dest_track, "P_NAME", track_name, true)
+        local dest_track
+        if parent_track then
+            dest_track = parent_track
+        else
+            dest_track = reaper.GetTrack(0, dest_idx)
+        end
+        
+        -- Smart renaming: only rename if empty or has default name
+        local _, cur_name = reaper.GetTrackName(dest_track)
+        if cur_name == "" or cur_name:match("^Track %d+$") then
+            reaper.GetSetMediaTrackInfo_String(dest_track, "P_NAME", track_name, true)
+        end
+        
         if parent_color ~= 0 then
             reaper.SetTrackColor(dest_track, parent_color)
         end
@@ -12567,7 +12581,11 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
         for k = 1, M do
             local track
             if k == 1 then
-                track = reaper.GetTrack(0, dest_idx)
+                if parent_track then
+                    track = parent_track
+                else
+                    track = reaper.GetTrack(0, dest_idx)
+                end
             else
                 reaper.InsertTrackAtIndex(dest_idx + k - 1, true)
                 track = reaper.GetTrack(0, dest_idx + k - 1)
@@ -12584,7 +12602,19 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
                 final_name = track_name .. "_" .. trk_info.name
             end
             
-            reaper.GetSetMediaTrackInfo_String(track, "P_NAME", final_name, true)
+            -- Smart renaming for first reused track
+            local should_rename = true
+            if k == 1 and parent_track then
+                local _, cur_name = reaper.GetTrackName(parent_track)
+                if cur_name ~= "" and not cur_name:match("^Track %d+$") then
+                    should_rename = false
+                end
+            end
+            
+            if should_rename then
+                reaper.GetSetMediaTrackInfo_String(track, "P_NAME", final_name, true)
+            end
+            
             if parent_color ~= 0 then
                 reaper.SetTrackColor(track, parent_color)
             end
@@ -12668,6 +12698,145 @@ function UTILS.import_compact_wav(dropped_file)
         return false, msg
     end
 end
+
+UTILS.known_items = {}
+UTILS.mcr_last_project_id = ""
+UTILS.mcr_last_processed_state_count = -1
+
+function UTILS.monitor_compact_imports(play_state)
+    if not cfg.auto_unpack_compact then
+        return
+    end
+
+    -- If REAPER is recording, do nothing
+    if (play_state & 4) ~= 0 then
+        return
+    end
+
+    -- If project switched (using UI_STATE.last_project_id), reset cache and populate known_items
+    if UI_STATE.last_project_id ~= UTILS.mcr_last_project_id then
+        UTILS.mcr_last_project_id = UI_STATE.last_project_id
+        UTILS.mcr_last_processed_state_count = proj_change_count
+        UTILS.known_items = {}
+        
+        -- Populate known_items with all items currently in the project so we don't scan them
+        local total_tracks = reaper.CountTracks(0)
+        for i = 0, total_tracks - 1 do
+            local track = reaper.GetTrack(0, i)
+            local item_count = reaper.CountTrackMediaItems(track)
+            for j = 0, item_count - 1 do
+                local item = reaper.GetTrackMediaItem(track, j)
+                if item then
+                    local _, guid = reaper.GetSetMediaItemInfo_String(item, "GUID", "", false)
+                    if guid ~= "" then
+                        UTILS.known_items[guid] = true
+                    end
+                end
+            end
+        end
+        return
+    end
+
+    -- If no undo/state changes occurred, do nothing
+    if proj_change_count == UTILS.mcr_last_processed_state_count then
+        return
+    end
+    UTILS.mcr_last_processed_state_count = proj_change_count
+
+    local last_action = reaper.Undo_CanUndo2(0)
+
+    if last_action and not last_action:lower():find("insert media items") then
+        return
+    end
+
+    -- Scan for new items
+    local current_items = {}
+    local new_items = {}
+    local total_tracks = reaper.CountTracks(0)
+    for i = 0, total_tracks - 1 do
+        local track = reaper.GetTrack(0, i)
+        local item_count = reaper.CountTrackMediaItems(track)
+        for j = 0, item_count - 1 do
+            local item = reaper.GetTrackMediaItem(track, j)
+            if item then
+                local _, guid = reaper.GetSetMediaItemInfo_String(item, "GUID", "", false)
+                if guid ~= "" then
+                    current_items[guid] = true
+                    if not UTILS.known_items[guid] then
+                        table.insert(new_items, { item = item, track = track })
+                    end
+                end
+            end
+        end
+    end
+
+    -- Update known items
+    UTILS.known_items = current_items
+
+    -- Process new items
+    for _, info in ipairs(new_items) do
+        local take = reaper.GetActiveTake(info.item)
+        if take then
+            local source = reaper.GetMediaItemTake_Source(take)
+            if source then
+                local source_type = reaper.GetMediaSourceType(source)
+                if source_type == "WAV" or source_type == "WAVE" then
+                    local file_path = reaper.GetMediaSourceFileName(source, "")
+                    if file_path ~= "" then
+                        -- Check if it actually has our metadata
+                        local xml_data = UTILS.read_ixml_from_wav(file_path)
+                        if xml_data then
+                            local trk_name, metadata_items = UTILS.parse_subass_xml(xml_data)
+                            if metadata_items and #metadata_items > 0 then
+                                -- Reconstruct the compact render in an undo block
+                                reaper.Undo_BeginBlock()
+                                
+                                -- Delete the imported compact item first
+                                reaper.DeleteTrackMediaItem(info.track, info.item)
+                                
+                                -- Check if the track is now empty
+                                local num_items_left = reaper.CountTrackMediaItems(info.track)
+                                local reuse_track = nil
+                                if num_items_left == 0 then
+                                    reuse_track = info.track
+                                end
+                                
+                                local ok, msg = UTILS.reconstruct_compact_render(file_path, reuse_track)
+                                if ok then
+                                    reaper.Undo_EndBlock(T("IMPORT_OF_COMPACT_RENDER_DG"), -1)
+                                    show_snackbar(msg, "success")
+                                else
+                                    reaper.Undo_EndBlock(T("IMPORT_OF_COMPACT_RENDER_DG"), -1)
+                                    show_snackbar(msg, "error")
+                                end
+                                
+                                -- Repopulate known_items to include all the newly created items
+                                UTILS.known_items = {}
+                                local total_tracks_rec = reaper.CountTracks(0)
+                                for i = 0, total_tracks_rec - 1 do
+                                    local track = reaper.GetTrack(0, i)
+                                    local item_count = reaper.CountTrackMediaItems(track)
+                                    for j = 0, item_count - 1 do
+                                        local item = reaper.GetTrackMediaItem(track, j)
+                                        if item then
+                                            local _, guid = reaper.GetSetMediaItemInfo_String(item, "GUID", "", false)
+                                            if guid ~= "" then
+                                                UTILS.known_items[guid] = true
+                                            end
+                                        end
+                                    end
+                                end
+                                UTILS.mcr_last_processed_state_count = reaper.GetProjectStateChangeCount(0)
+                                break -- Process one file at a time per state change to be safe
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 
 --- LUFS Normalization (ITU-R BS.1770-4 via SWS Extension)
 --- Uses true LUFS measurement with K-weighting and integrated gating.
@@ -29924,6 +30093,11 @@ function DRAW_TABS.draw_settings()
         cfg.fix_CP1251 = not cfg.fix_CP1251
         save_settings()
     end
+    y_cursor = y_cursor + S(35)
+    if checkbox(x_start, y_cursor, T("AUTO_UNPACK_COMPACT"), cfg.auto_unpack_compact, T("AUTO_UNPACK_COMPACT_TIP")) then
+        cfg.auto_unpack_compact = not cfg.auto_unpack_compact
+        save_settings()
+    end
     y_cursor = y_cursor + S(60)
 
     -- ═══════════════════════════════════════════
@@ -38899,8 +39073,7 @@ function OTHER.highlight_marker_with_end_time()
 end
 
 --- Automatically trim start/end and check for clipping of newly recorded items
-function OTHER.process_post_recording()
-    local play_state = reaper.GetPlayState()
+function OTHER.process_post_recording(play_state)
     local is_recording = (play_state & 4) == 4
     
     -- Track duration sessions
@@ -39706,8 +39879,11 @@ local function main()
     end
 
     draw_loader()
-    
-    OTHER.process_post_recording()
+
+    local play_state = reaper.GetPlayState()
+
+    OTHER.process_post_recording(play_state)
+    UTILS.monitor_compact_imports(play_state)
     OTHER.highlight_marker_with_end_time()
 
     gfx.update()
