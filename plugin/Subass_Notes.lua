@@ -11876,11 +11876,76 @@ function UTILS.compact_render()
         return false
     end
 
+    local function get_child_tracks(parent_track)
+        local children = {}
+        local parent_idx = reaper.GetMediaTrackInfo_Value(parent_track, "IP_TRACKNUMBER") -- 1-based index
+        local parent_depth = reaper.GetTrackDepth(parent_track)
+        local num_tracks = reaper.CountTracks(0)
+        for idx = parent_idx, num_tracks - 1 do
+            local t = reaper.GetTrack(0, idx)
+            local depth = reaper.GetTrackDepth(t)
+            if depth > parent_depth then
+                table.insert(children, t)
+            else
+                break
+            end
+        end
+        return children
+    end
+
+    local active_cache = {}
+    local function is_track_active(track, candidate_set)
+        if active_cache[track] ~= nil then
+            return active_cache[track]
+        end
+        
+        -- If track itself is muted, it is not active
+        if reaper.GetMediaTrackInfo_Value(track, "B_MUTE") ~= 0 then
+            active_cache[track] = false
+            return false
+        end
+        
+        -- Check for unmuted items on this track
+        local item_count = reaper.CountTrackMediaItems(track)
+        local has_unmuted_item = false
+        for idx = 0, item_count - 1 do
+            local item = reaper.GetTrackMediaItem(track, idx)
+            if reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
+                has_unmuted_item = true
+                break
+            end
+        end
+        
+        if has_unmuted_item then
+            active_cache[track] = true
+            return true
+        end
+        
+        -- Check if it is a parent track with at least one active child track (which is also in candidates)
+        local children = get_child_tracks(track)
+        for _, child in ipairs(children) do
+            if candidate_set[child] and is_track_active(child, candidate_set) then
+                active_cache[track] = true
+                return true
+            end
+        end
+        
+        active_cache[track] = false
+        return false
+    end
+
+    local candidates = {}
+    for i = 0, reaper.CountTracks(0) - 1 do
+        local track = reaper.GetTrack(0, i)
+        if is_track_or_parent_selected(track) then
+            candidates[track] = true
+        end
+    end
+
     local selected_tracks = {}
     for i = 0, reaper.CountTracks(0) - 1 do
         local track = reaper.GetTrack(0, i)
-        local _, trk_name = reaper.GetTrackName(track)
-        if is_track_or_parent_selected(track) then
+        if candidates[track] and is_track_active(track, candidates) then
             table.insert(selected_tracks, track)
         end
     end
@@ -11890,16 +11955,34 @@ function UTILS.compact_render()
         return
     end
 
-    -- Check total media items across all selected tracks
+    -- Check total active media items across all selected tracks
     local total_items = 0
     for _, track in ipairs(selected_tracks) do
-        total_items = total_items + reaper.CountTrackMediaItems(track)
+        local count = reaper.CountTrackMediaItems(track)
+        for j = 0, count - 1 do
+            local item = reaper.GetTrackMediaItem(track, j)
+            if reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
+                total_items = total_items + 1
+            end
+        end
     end
 
     if total_items == 0 then
         reaper.MB(T("CR_ERR_NO_MEDIA_ON_TRACK"), T("COMPACT_RENDER"), 0)
         return
     end
+
+    -- Save original track colors and paint selected tracks red for visualization
+    local original_colors = {}
+    for _, track in ipairs(selected_tracks) do
+        original_colors[track] = reaper.GetTrackColor(track)
+    end
+
+    local red_color = reaper.ColorToNative(255, 0, 0) | 0x1000000
+    for _, track in ipairs(selected_tracks) do
+        reaper.SetMediaTrackInfo_Value(track, "I_CUSTOMCOLOR", red_color)
+    end
+    reaper.UpdateArrange()
 
     -- ── 1. Determine Default Filename and Directory ──────────────────────
     local display_name = (cfg.dubber_name and cfg.dubber_name ~= "") and cfg.dubber_name or (os.getenv("USER") or os.getenv("USERNAME") or T("USER"))
@@ -11936,6 +12019,15 @@ function UTILS.compact_render()
     -- ── 2. Ask user where to save the rendered WAV file ───────────────────
     local retval, file_path = reaper.JS_Dialog_BrowseForSaveFile(T("CR_SAVE_CR"), default_dir, default_filename, "WAV files (.wav)\0*.wav\0All Files (*.*)\0*.*\0")
     if retval ~= 1 or file_path == "" then
+        -- Restore original track colors
+        for track, color in pairs(original_colors) do
+            if not color or color == 0 then
+                reaper.SetMediaTrackInfo_Value(track, "I_CUSTOMCOLOR", 0)
+            else
+                reaper.SetMediaTrackInfo_Value(track, "I_CUSTOMCOLOR", color)
+            end
+        end
+        reaper.UpdateArrange()
         return -- User cancelled
     end
     if not file_path:match("%.wav$") then file_path = file_path .. ".wav" end
@@ -11983,9 +12075,18 @@ function UTILS.compact_render()
     end
 
     if #entries == 0 then
+        -- Restore original track colors
+        for track, color in pairs(original_colors) do
+            if not color or color == 0 then
+                reaper.SetMediaTrackInfo_Value(track, "I_CUSTOMCOLOR", 0)
+            else
+                reaper.SetMediaTrackInfo_Value(track, "I_CUSTOMCOLOR", color)
+            end
+        end
         reaper.PreventUIRefresh(-1)
         reaper.Undo_EndBlock(T("COMPACT_RENDER"), -1)
         reaper.MB(T("CR_ERR_NO_MEDIA_ON_TRACK"), T("COMPACT_RENDER"), 0)
+        reaper.UpdateArrange()
         return
     end
 
@@ -12253,6 +12354,16 @@ function UTILS.compact_render()
     else
         reaper.MB(T("CR_COMPLETE_BUT_ERR_SAVE_META") .. tostring(err), T("COMPACT_RENDER"), 0)
     end
+
+    -- Restore original track colors
+    for track, color in pairs(original_colors) do
+        if not color or color == 0 then
+            reaper.SetMediaTrackInfo_Value(track, "I_CUSTOMCOLOR", 0)
+        else
+            reaper.SetMediaTrackInfo_Value(track, "I_CUSTOMCOLOR", color)
+        end
+    end
+    reaper.UpdateArrange()
 end
 
 -- ── Helpers for parsing/reading compact render iXML metadata ─────────────
