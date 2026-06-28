@@ -33603,10 +33603,18 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
         local hover_presets = UI_STATE.window_focused and
                               (gfx.mouse_x >= presets_start_x and gfx.mouse_x < (panel_x + panel_w - padding) and
                                gfx.mouse_y >= preset_row_y and gfx.mouse_y <= preset_row_y + control_row_h)
-        if hover_presets and gfx.mouse_hwheel and gfx.mouse_hwheel ~= 0 then
-            local scroll_val = gfx.mouse_hwheel > 0 and 1 or -1
-            gfx.mouse_hwheel = 0 -- Consume
-            director_state.presets_scroll = math.max(0, math.min(max_scroll, (director_state.presets_scroll or 0) + scroll_val))
+        if hover_presets then
+            local scroll_val = 0
+            if gfx.mouse_hwheel and gfx.mouse_hwheel ~= 0 then
+                scroll_val = gfx.mouse_hwheel > 0 and 1 or -1
+                gfx.mouse_hwheel = 0 -- Consume
+            elseif gfx.mouse_wheel and gfx.mouse_wheel ~= 0 then
+                scroll_val = gfx.mouse_wheel < 0 and 1 or -1
+                gfx.mouse_wheel = 0 -- Consume
+            end
+            if scroll_val ~= 0 then
+                director_state.presets_scroll = math.max(0, math.min(max_scroll, (director_state.presets_scroll or 0) + scroll_val))
+            end
         end
 
         local current_x = presets_start_x
@@ -35494,10 +35502,18 @@ function DRAW_WINDOW.draw_editor_panel(panel_x, panel_y, panel_w, panel_h, input
         local hover_presets = UI_STATE.window_focused and
                               (gfx.mouse_x >= input_draw_x and gfx.mouse_x < ai_btn_x and
                                gfx.mouse_y >= control_draw_y and gfx.mouse_y <= control_draw_y + control_row_h)
-        if hover_presets and gfx.mouse_hwheel and gfx.mouse_hwheel ~= 0 then
-            local scroll_val = gfx.mouse_hwheel > 0 and 1 or -1
-            gfx.mouse_hwheel = 0 -- Consume
-            editor_state.presets_scroll = math.max(0, math.min(max_scroll, (editor_state.presets_scroll or 0) + scroll_val))
+        if hover_presets then
+            local scroll_val = 0
+            if gfx.mouse_hwheel and gfx.mouse_hwheel ~= 0 then
+                scroll_val = gfx.mouse_hwheel > 0 and 1 or -1
+                gfx.mouse_hwheel = 0 -- Consume
+            elseif gfx.mouse_wheel and gfx.mouse_wheel ~= 0 then
+                scroll_val = gfx.mouse_wheel < 0 and 1 or -1
+                gfx.mouse_wheel = 0 -- Consume
+            end
+            if scroll_val ~= 0 then
+                editor_state.presets_scroll = math.max(0, math.min(max_scroll, (editor_state.presets_scroll or 0) + scroll_val))
+            end
         end
 
         local current_x = presets_start_x
