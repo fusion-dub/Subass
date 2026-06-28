@@ -33542,111 +33542,192 @@ function DRAW_WINDOW.draw_director_panel(panel_x, panel_y, panel_w, panel_h, inp
             return nil
         end
 
-        for i, p in ipairs(cfg.director_presets) do
-            local is_separator = (p.label == "|" or p.tag == "separator" or p.val == "separator")
-            local btn_w = is_separator and S(5) or S(40)
-            if cpx + btn_w > (panel_x + panel_w - padding) then
+        local all_visible_items = {}
+        for idx, p in ipairs(cfg.director_presets) do
+            table.insert(all_visible_items, {
+                btn = p.label or ("P" .. idx),
+                tag = p.val,
+                custom_idx = idx,
+                preset_ref = p
+            })
+        end
+        table.insert(all_visible_items, {
+            tag = "plus_btn"
+        })
+
+        local function get_item_width(item)
+            if item.tag == "plus_btn" then
+                return S(24)
+            elseif item.tag == "separator" or item.btn == "|" then
+                return S(5)
+            else
+                return S(40)
+            end
+        end
+
+        local total_items = #all_visible_items
+        local preset_widths = {}
+        for i, item in ipairs(all_visible_items) do
+            preset_widths[i] = get_item_width(item)
+        end
+
+        local available_w = (panel_x + panel_w - padding) - cpx
+        local presets_start_x = cpx
+        local fmt_gap = S(5)
+
+        -- Compute max_scroll
+        local max_scroll = 0
+        for s = 0, total_items - 1 do
+            local sum = 0
+            for i = s + 1, total_items do
+                sum = sum + preset_widths[i]
+                if i < total_items then
+                    sum = sum + fmt_gap
+                end
+            end
+            if sum >= available_w then
+                max_scroll = s + 1
+            else
                 break
             end
-
-            if is_separator then
-                -- Draw vertical separator line
-                set_color(UI.C_MEDIUM_GREY, 0.5)
-                gfx.rect(cpx + S(2), preset_row_y + S(4), S(1), control_row_h - S(8), 1)
-            else
-                gfx.setfont(F.std)
-                if draw_actor_btn_inline(cpx, preset_row_y, btn_w, control_row_h, p.label, UI.C_ROW) then
-                    local txt = director_state.input.text
-                    local actor_prefix = txt:match("^%[.-%]%s*") or ""
-                    local rem = txt:sub(#actor_prefix + 1)
-                    local time_prefix = rem:match("^%d+[:%.][%d:%.]*%s*-%s*") or ""
-                    
-                    local prefix = actor_prefix .. time_prefix
-                    
-                    local rng_text = ""
-                    local best_line = get_director_target_line()
-                    if best_line and best_line.text then
-                        rng_text = best_line.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nn]", " ")
-                        rng_text = rng_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
-                    end
-                    local escaped_rng = rng_text:gsub("%%", "%%%%")
-                    local p_val = p.val:gsub("&RNG", escaped_rng)
-
-                    director_state.input.text = prefix .. p_val
-                    director_state.input.cursor = #director_state.input.text
-                    director_state.input.anchor = director_state.input.cursor
-                    director_state.input.focus = true
-                    INPUT_ST.record_field_history(director_state.input)
-                    UI_STATE.mouse_handled = true
-                end
-            end
-            
-            -- Tooltip and Right Click Menu
-            local is_h = UI_STATE.window_focused and 
-                         gfx.mouse_x >= cpx and gfx.mouse_x <= cpx + btn_w and 
-                         gfx.mouse_y >= preset_row_y and gfx.mouse_y <= preset_row_y + control_row_h
-            
-            if is_h then
-                local tip_id = "dir_preset_" .. i
-                if UI_STATE.tooltip_state.hover_id ~= tip_id then
-                    UI_STATE.tooltip_state.hover_id = tip_id
-                    UI_STATE.tooltip_state.start_time = reaper.time_precise()
-                end
-                
-                local p_val = p.val
-                if not is_separator and p_val:find("&RNG") then
-                    local rng_text = ""
-                    local best_line = get_director_target_line()
-                    if best_line and best_line.text then
-                        rng_text = best_line.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nn]", " ")
-                        rng_text = rng_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
-                    end
-                    local escaped_rng = rng_text:gsub("%%", "%%%%")
-                    p_val = p_val:gsub("&RNG", escaped_rng)
-                end
-                UI_STATE.tooltip_state.text = is_separator and T("FMT_SEPARATOR") or p_val
-                
-                if is_right_mouse_clicked() then
-                    UI_STATE.mouse_handled = true
-                    gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
-                    
-                    if is_separator then
-                        local menu_str = T("DELETE_SEPARATOR_MENU") .. "||" .. (i > 1 and "" or "#") .. T("PRESET_MOVE_LEFT_MENU") .. (i < #cfg.director_presets and "" or "#") .. T("PRESET_MOVE_RIGHT_MENU")
-                        local sel = gfx.showmenu(menu_str)
-                        if sel == 1 then table.remove(cfg.director_presets, i) save_settings()
-                        elseif sel == 2 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i-1, t) save_settings()
-                        elseif sel == 3 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i+1, t) save_settings() end
-                    else
-                        local menu_str = T("EDIT_DELETE_PRESET_MENU") .. (i > 1 and "" or "#") .. T("PRESET_MOVE_LEFT_MENU") .. (i < #cfg.director_presets and "" or "#") .. T("PRESET_MOVE_RIGHT_MENU") .. "||" .. T("ADD_SEPARATOR_MENU")
-                        local sel = gfx.showmenu(menu_str)
-                        if sel == 1 then show_panel_preset_dialog("director", i)
-                        elseif sel == 2 then table.remove(cfg.director_presets, i) save_settings()
-                        elseif sel == 3 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i-1, t) save_settings()
-                        elseif sel == 4 then local t = table.remove(cfg.director_presets, i) table.insert(cfg.director_presets, i+1, t) save_settings()
-                        elseif sel == 5 then table.insert(cfg.director_presets, i+1, { label = "|", tag = "separator", val = "separator" }) save_settings() end
-                    end
-                end
-            end
-            cpx = cpx + btn_w + S(5)
         end
-        if cpx + S(24) <= (panel_x + panel_w - padding) then
-            gfx.setfont(F.std)
-            if draw_actor_btn_inline(cpx, preset_row_y, S(24), control_row_h, "+", UI.C_ACCENT_SN) then
-                show_panel_preset_dialog("director")
-            end
+        if total_items > 0 then
+            max_scroll = math.min(total_items - 1, max_scroll)
+        else
+            max_scroll = 0
+        end
+
+        director_state.presets_scroll = math.max(0, math.min(max_scroll, director_state.presets_scroll or 0))
+
+        -- Wheel scrolling over the presets area
+        local hover_presets = UI_STATE.window_focused and
+                              (gfx.mouse_x >= presets_start_x and gfx.mouse_x < (panel_x + panel_w - padding) and
+                               gfx.mouse_y >= preset_row_y and gfx.mouse_y <= preset_row_y + control_row_h)
+        if hover_presets and gfx.mouse_hwheel and gfx.mouse_hwheel ~= 0 then
+            local scroll_val = gfx.mouse_hwheel > 0 and 1 or -1
+            gfx.mouse_hwheel = 0 -- Consume
+            director_state.presets_scroll = math.max(0, math.min(max_scroll, (director_state.presets_scroll or 0) + scroll_val))
+        end
+
+        local current_x = presets_start_x
+        for i = 1 + director_state.presets_scroll, total_items do
+            local item = all_visible_items[i]
+            local item_w = preset_widths[i]
+            local bx = current_x
             
-            -- Tooltip for Add Preset
-            local is_h = UI_STATE.window_focused and 
-                         gfx.mouse_x >= cpx and gfx.mouse_x <= cpx + S(24) and 
-                         gfx.mouse_y >= preset_row_y and gfx.mouse_y <= preset_row_y + control_row_h
-            if is_h then
-                local tip_id = "dir_add_preset"
-                if UI_STATE.tooltip_state.hover_id ~= tip_id then
-                    UI_STATE.tooltip_state.hover_id = tip_id
-                    UI_STATE.tooltip_state.start_time = reaper.time_precise()
+            if bx + item_w <= presets_start_x + available_w then
+                local is_hover = UI_STATE.window_focused and 
+                                 (gfx.mouse_x >= bx and gfx.mouse_x <= bx + item_w and 
+                                  gfx.mouse_y >= preset_row_y and gfx.mouse_y <= preset_row_y + control_row_h)
+
+                if item.tag == "separator" or item.btn == "|" then
+                    -- Draw single vertical separator line
+                    set_color(UI.C_MEDIUM_GREY, 0.5)
+                    gfx.rect(bx + S(2), preset_row_y + S(4), S(1), control_row_h - S(8), 1)
+                    
+                    if is_hover then
+                        local tip_id = "dir_preset_" .. item.custom_idx
+                        if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                            UI_STATE.tooltip_state.hover_id = tip_id
+                            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                        end
+                        UI_STATE.tooltip_state.text = T("FMT_SEPARATOR")
+                        
+                        if is_right_mouse_clicked() then
+                            UI_STATE.mouse_handled = true
+                            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                            local move_up_tag = (item.custom_idx > 1) and "" or "#"
+                            local move_down_tag = (item.custom_idx < #cfg.director_presets) and "" or "#"
+                            
+                            local menu_str = T("DELETE_SEPARATOR_MENU") .. "||" .. move_up_tag .. T("PRESET_MOVE_LEFT_MENU") .. move_down_tag .. T("PRESET_MOVE_RIGHT_MENU")
+                            local sel = gfx.showmenu(menu_str)
+                            if sel == 1 then table.remove(cfg.director_presets, item.custom_idx) save_settings()
+                            elseif sel == 2 then local t = table.remove(cfg.director_presets, item.custom_idx) table.insert(cfg.director_presets, item.custom_idx - 1, t) save_settings()
+                            elseif sel == 3 then local t = table.remove(cfg.director_presets, item.custom_idx) table.insert(cfg.director_presets, item.custom_idx + 1, t) save_settings() end
+                        end
+                    end
+                elseif item.tag == "plus_btn" then
+                    -- Draw Plus button
+                    gfx.setfont(F.std)
+                    if draw_actor_btn_inline(bx, preset_row_y, item_w, control_row_h, "+", UI.C_ACCENT_SN) then
+                        UI_STATE.mouse_handled = true
+                        show_panel_preset_dialog("director")
+                    end
+                    
+                    if is_hover then
+                        local tip_id = "dir_preset_add"
+                        if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                            UI_STATE.tooltip_state.hover_id = tip_id
+                            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                        end
+                        UI_STATE.tooltip_state.text = T("ADD_NEW_PRESET")
+                    end
+                else
+                    -- Draw custom preset
+                    gfx.setfont(F.std)
+                    if draw_actor_btn_inline(bx, preset_row_y, item_w, control_row_h, item.btn, UI.C_ROW) then
+                        local txt = director_state.input.text
+                        local actor_prefix = txt:match("^%[.-%]%s*") or ""
+                        local rem = txt:sub(#actor_prefix + 1)
+                        local time_prefix = rem:match("^%d+[:%.][%d:%.]*%s*-%s*") or ""
+                        
+                        local prefix = actor_prefix .. time_prefix
+                        
+                        local rng_text = ""
+                        local best_line = get_director_target_line()
+                        if best_line and best_line.text then
+                            rng_text = best_line.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nn]", " ")
+                            rng_text = rng_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+                        end
+                        local escaped_rng = rng_text:gsub("%%", "%%%%")
+                        local p_val = item.tag:gsub("&RNG", escaped_rng)
+
+                        director_state.input.text = prefix .. p_val
+                        director_state.input.cursor = #director_state.input.text
+                        director_state.input.anchor = director_state.input.cursor
+                        director_state.input.focus = true
+                        INPUT_ST.record_field_history(director_state.input)
+                        UI_STATE.mouse_handled = true
+                    end
+                    
+                    if is_hover then
+                        local tip_id = "dir_preset_" .. item.custom_idx
+                        if UI_STATE.tooltip_state.hover_id ~= tip_id then
+                            UI_STATE.tooltip_state.hover_id = tip_id
+                            UI_STATE.tooltip_state.start_time = reaper.time_precise()
+                        end
+                        
+                        local p_val = item.tag
+                        if p_val:find("&RNG") then
+                            local rng_text = ""
+                            local best_line = get_director_target_line()
+                            if best_line and best_line.text then
+                                rng_text = best_line.text:gsub("{{+.-}}+", ""):gsub("{.-}", ""):gsub("\\[Nn]", " ")
+                                rng_text = rng_text:gsub("^%s+", ""):gsub("%s+$", ""):gsub("%s+", " ")
+                            end
+                            local escaped_rng = rng_text:gsub("%%", "%%%%")
+                            p_val = p_val:gsub("&RNG", escaped_rng)
+                        end
+                        UI_STATE.tooltip_state.text = p_val
+                        
+                        if is_right_mouse_clicked() then
+                            UI_STATE.mouse_handled = true
+                            gfx.x, gfx.y = gfx.mouse_x, gfx.mouse_y
+                            local move_up_tag = (item.custom_idx > 1) and "" or "#"
+                            local move_down_tag = (item.custom_idx < #cfg.director_presets) and "" or "#"
+                            
+                            local menu_str = T("EDIT_DELETE_PRESET_MENU") .. (item.custom_idx > 1 and "" or "#") .. T("PRESET_MOVE_LEFT_MENU") .. (item.custom_idx < #cfg.director_presets and "" or "#") .. T("PRESET_MOVE_RIGHT_MENU") .. "||" .. T("ADD_SEPARATOR_MENU")
+                            local sel = gfx.showmenu(menu_str)
+                            if sel == 1 then show_panel_preset_dialog("director", item.custom_idx)
+                            elseif sel == 2 then table.remove(cfg.director_presets, item.custom_idx) save_settings()
+                            elseif sel == 3 then local t = table.remove(cfg.director_presets, item.custom_idx) table.insert(cfg.director_presets, item.custom_idx - 1, t) save_settings()
+                            elseif sel == 4 then local t = table.remove(cfg.director_presets, item.custom_idx) table.insert(cfg.director_presets, item.custom_idx + 1, t) save_settings()
+                            elseif sel == 5 then table.insert(cfg.director_presets, item.custom_idx + 1, { label = "|", tag = "separator", val = "separator" }) save_settings() end
+                        end
+                    end
                 end
-                UI_STATE.tooltip_state.text = T("ADD_NEW_PRESET")
             end
+            current_x = current_x + item_w + fmt_gap
         end
     end
     
