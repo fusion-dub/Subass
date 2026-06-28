@@ -1,5 +1,5 @@
 -- @description Subass Notes (SRT Manager - Native GFX)
--- @version 8.3.2
+-- @version 8.3.3
 -- @author Fusion
 -- @about Subtitle manager using native Reaper GFX. (required: SWS, ReaImGui, js_ReaScriptAPI)
 
@@ -10,7 +10,7 @@ local section_name = "Subass_Notes"
 local section_ach_name = "Subass_Achievements"
 
 local GL = {
-    script_title = "Subass Notes v8.3.2",
+    script_title = "Subass Notes v8.3.3",
     last_dock_state = reaper.GetExtState(section_name, "dock"),
     last_dock_id = reaper.GetExtState(section_name, "dock_id"),
 }
@@ -1418,6 +1418,7 @@ local I18N = {
     EBU_ERR_SWS_2 = { en = "This feature requires the SWS Extension.\n\nDownload and install it from:\nhttps://www.sws-extension.org/", ua = "Ця функція потребує SWS Extension.\n\nЗавантажте та встановіть з:\nhttps://www.sws-extension.org/" },
     EBU_ERR_SWS_3 = { en = "SWS Extension not found", ua = "SWS Extension не знайдено" },
     EBU_SELECT_M_ITEMS_T = { en = "Select Media Item or Tracks", ua = "Виберіть Media Item або Треки" },
+    MULTIPLE_TRACKS = { en = "Multiple Tracks", ua = "Кілька треків" },
     EBU_DIALOG_S_1 = { en = "LUFS Normalization", ua = "Нормалізація реплік (LUFS)" },
     EBU_DIALOG_S_2 = { en = "Target LUFS level (-5 to -40):,extrawidth=50", ua = "Цільова гучність LUFS (-5 до -40):,extrawidth=50" },
     EBU_DIALOG_ERR_1 = { en = "Please enter a number between -5 and -40 LUFS", ua = "Будь ласка, введіть число від -5 до -40 LUFS" },
@@ -1436,10 +1437,9 @@ local I18N = {
     CR_SUCC_DONE = { en = "Compact rendering completed successfully! Metadata saved in WAV.", ua = "Компактний рендер успішно завершено! Метадані збережено в WAV." },
     CR_UNABLE_OPEN_TO_WRITE_META = { en = "Unable to open the file to write metadata: ", ua = "Не вдалося відкрити файл для запису метаданих: " },
     CR_SAVE_CR = { en = "Save the compact render", ua = "Зберегти компактний рендер" },
-    CR_ERR_NO_MEDIA_ON_TRACK = { en = "There are no media elements on the selected track.", ua = "На обраному треку немає медіа-елементів." },
-    CR_ERR_TRACK_SERVICE = { en = "You cannot run a compact render for the SUBASS_RENDER service track.\nPlease select a working track for the actor.", ua = "Не можна запускати компактний рендер для службового треку SUBASS_RENDER.\nБудь ласка, оберіть робочий трек актора." },
+    CR_ERR_NO_MEDIA_ON_TRACK = { en = "There are no media elements on the selected tracks.", ua = "На обраних треках немає медіа-елементів." },
     CR_ERR_SELECT_ONE_T = { en = "The compact renderer supports only one track at a time.\nSelect only one track.", ua = "Компактний рендер підтримує лише один трек за раз.\nОберіть тільки один трек." },
-    CR_ERR_SELECT_TRACK = { en = "Please select a track for the compact render.", ua = "Будь ласка, оберіть трек для компактного рендеру." },
+    CR_ERR_SELECT_TRACK = { en = "Please select one or more tracks for the compact render.", ua = "Будь ласка, оберіть один або кілька треків для компактного рендеру." },
     IN_TEXT_I_SUCC = { en = "%d text items have been created on the track '%s'", ua = "Створено %d Text Items на треку '%s'" },
     NO_REGIONS_IN_PROJ = { en = "There are no regions in the project", ua = "У проєкті немає регіонів" },
     NO_ACCENTS_WERE_FOUND_FOR_A = { en = "No accents were found for the selected actors", ua = "Наголосів не знайдено для вибраних акторів" },
@@ -11854,8 +11854,7 @@ function UTILS.generate_full_video_processor_code(styles_data)
 end
 
 --- Compact render for selected tracks
---- Packs all items from the selected track one after another onto a new
---- SUBASS_RENDER track (no gaps), copies FX, sets Time Selection, solos the track,
+--- Packs all items from the selected track (no gaps), sets Time Selection, solos the track,
 --- renders immediately to a WAV file chosen by the user, and embeds iXML metadata
 --- with the original item positions for restoration on import.
 function UTILS.compact_render()
@@ -11865,22 +11864,39 @@ function UTILS.compact_render()
         reaper.MB(T("CR_ERR_SELECT_TRACK"), T("COMPACT_RENDER"), 0)
         return
     end
-    if sel_count > 1 then
-        reaper.MB(
-            T("CR_ERR_SELECT_ONE_T"),
-            T("COMPACT_RENDER"), 0)
+
+    local function is_track_or_parent_selected(track)
+        local t = track
+        while t do
+            if reaper.IsTrackSelected(t) then
+                return true
+            end
+            t = reaper.GetParentTrack(t)
+        end
+        return false
+    end
+
+    local selected_tracks = {}
+    for i = 0, reaper.CountTracks(0) - 1 do
+        local track = reaper.GetTrack(0, i)
+        local _, trk_name = reaper.GetTrackName(track)
+        if is_track_or_parent_selected(track) then
+            table.insert(selected_tracks, track)
+        end
+    end
+
+    if #selected_tracks == 0 then
+        reaper.MB(T("CR_ERR_SELECT_TRACK"), T("COMPACT_RENDER"), 0)
         return
     end
 
-    local src_track  = reaper.GetSelectedTrack(0, 0)
-    local _, trk_name = reaper.GetTrackName(src_track)
-    if trk_name == "SUBASS_RENDER" then
-        reaper.MB(T("CR_ERR_TRACK_SERVICE"), T("COMPACT_RENDER"), 0)
-        return
+    -- Check total media items across all selected tracks
+    local total_items = 0
+    for _, track in ipairs(selected_tracks) do
+        total_items = total_items + reaper.CountTrackMediaItems(track)
     end
-    local item_count = reaper.CountTrackMediaItems(src_track)
 
-    if item_count == 0 then
+    if total_items == 0 then
         reaper.MB(T("CR_ERR_NO_MEDIA_ON_TRACK"), T("COMPACT_RENDER"), 0)
         return
     end
@@ -11906,8 +11922,13 @@ function UTILS.compact_render()
     local clean_user = display_name:gsub('[\\/:*?"<>|]', "_")
     local clean_proj = proj_name:gsub('[\\/:*?"<>|]', "_")
     local clean_trk = ""
-    if trk_name and trk_name ~= "" and not trk_name:match("^Track %d+$") then
-        clean_trk = "_" .. trk_name:gsub('[\\/:*?"<>|]', "_")
+    if #selected_tracks == 1 then
+        local _, trk_name = reaper.GetTrackName(selected_tracks[1])
+        if trk_name and trk_name ~= "" and not trk_name:match("^Track %d+$") then
+            clean_trk = "_" .. trk_name:gsub('[\\/:*?"<>|]', "_")
+        end
+    elseif #selected_tracks > 1 then
+        clean_trk = "_multiple"
     end
     local default_filename = clean_user .. "_" .. clean_proj .. clean_trk .. "_compact.wav"
     local default_path = default_dir .. "/" .. default_filename
@@ -11935,19 +11956,38 @@ function UTILS.compact_render()
     reaper.Undo_BeginBlock()
     reaper.PreventUIRefresh(1)
 
-    -- ── 3. Collect & sort items by position ───────────────────────────────
+    -- ── 3. Collect & sort items by track and position ───────────────────────────────
     local entries = {}
-    for i = 0, item_count - 1 do
-        local item = reaper.GetTrackMediaItem(src_track, i)
-        if reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
-            table.insert(entries, {
-                item = item,
-                pos  = reaper.GetMediaItemInfo_Value(item, "D_POSITION"),
-                len  = reaper.GetMediaItemInfo_Value(item, "D_LENGTH"),
-            })
+    for idx, track in ipairs(selected_tracks) do
+        local track_entries = {}
+        local item_count = reaper.CountTrackMediaItems(track)
+        for i = 0, item_count - 1 do
+            local item = reaper.GetTrackMediaItem(track, i)
+            if reaper.GetMediaItemInfo_Value(item, "B_MUTE") == 0 then
+                table.insert(track_entries, {
+                    item = item,
+                    track = track,
+                    track_idx = idx,
+                    pos  = reaper.GetMediaItemInfo_Value(item, "D_POSITION"),
+                    len  = reaper.GetMediaItemInfo_Value(item, "D_LENGTH"),
+                })
+            end
+        end
+        -- Sort items on this track by their original position
+        table.sort(track_entries, function(a, b) return a.pos < b.pos end)
+        
+        -- Append to main list
+        for _, entry in ipairs(track_entries) do
+            table.insert(entries, entry)
         end
     end
-    table.sort(entries, function(a, b) return a.pos < b.pos end)
+
+    if #entries == 0 then
+        reaper.PreventUIRefresh(-1)
+        reaper.Undo_EndBlock(T("COMPACT_RENDER"), -1)
+        reaper.MB(T("CR_ERR_NO_MEDIA_ON_TRACK"), T("COMPACT_RENDER"), 0)
+        return
+    end
 
     -- ── 4. Зберігаємо стан кросфейдів та вимикаємо їх ─────────────────────
     local auto_xfade = reaper.GetToggleCommandState(40041) == 1
@@ -11955,7 +11995,7 @@ function UTILS.compact_render()
         reaper.Main_OnCommand(40041, 0) -- Toggle off
     end
 
-    -- ── 5. Compact items on the source track ──────────────────────────────────
+    -- ── 5. Compact items on the tracks ──────────────────────────────────
     local cursor = 0.0
     local metadata_items = {}
     
@@ -12008,11 +12048,12 @@ function UTILS.compact_render()
             original_pos = e.pos,
             length       = e.len,
             start_offset = start_offset_project,
-            full_length     = render_len,
-            fade_in         = fade_in,
-            fade_out        = fade_out,
-            fade_in_auto    = fade_in_auto,
-            fade_out_auto   = fade_out_auto
+            full_length  = render_len,
+            fade_in      = fade_in,
+            fade_out     = fade_out,
+            fade_in_auto = fade_in_auto,
+            fade_out_auto= fade_out_auto,
+            track_index  = e.track_idx
         })
 
         cursor = cursor + render_len
@@ -12021,11 +12062,13 @@ function UTILS.compact_render()
     -- ── 6. Set Time Selection from 0 to end of last item ──────────────────
     reaper.GetSet_LoopTimeRange(true, false, 0.0, cursor, false)
 
-    -- ── 7. Solo: clear all tracks, solo only the source track ────────────
+    -- ── 7. Solo: clear all tracks, solo only target tracks ────────────
     for i = 0, reaper.CountTracks(0) - 1 do
         reaper.SetMediaTrackInfo_Value(reaper.GetTrack(0, i), "I_SOLO", 0)
     end
-    reaper.SetMediaTrackInfo_Value(src_track, "I_SOLO", 1)
+    for _, track in ipairs(selected_tracks) do
+        reaper.SetMediaTrackInfo_Value(track, "I_SOLO", 1)
+    end
 
     -- ── 11. Render settings: Time Selection + WAV format + 48000Hz mono ───
     reaper.GetSetProjectInfo(0, "RENDER_BOUNDSFLAG", 2, true) -- Time Selection
@@ -12048,21 +12091,59 @@ function UTILS.compact_render()
     reaper.TrackList_AdjustWindows(false)
     reaper.UpdateArrange()
 
-    reaper.Undo_EndBlock(T("COMPACT_RENDER") .. ": " .. trk_name, -1)
+    local main_trk_name = ""
+    if #selected_tracks == 1 then
+        local _, name = reaper.GetTrackName(selected_tracks[1])
+        main_trk_name = name
+    else
+        main_trk_name = T("MULTIPLE_TRACKS")
+    end
+
+    reaper.Undo_EndBlock(T("COMPACT_RENDER") .. ": " .. main_trk_name, -1)
 
     -- ── 13. Perform Render ────────────────────────────────────────────────
     -- File: Render project, using the most recent render settings (silent/immediate)
     reaper.Main_OnCommand(41824, 0)
+
+    -- Build track metadata list
+    local min_depth = 999999
+    for _, track in ipairs(selected_tracks) do
+        local depth = reaper.GetTrackDepth(track)
+        if depth < min_depth then
+            min_depth = depth
+        end
+    end
+    if min_depth == 999999 then min_depth = 0 end
+
+    local metadata_tracks = {}
+    for idx, track in ipairs(selected_tracks) do
+        local _, name = reaper.GetTrackName(track)
+        local depth = reaper.GetTrackDepth(track)
+        table.insert(metadata_tracks, {
+            index = idx,
+            name = name,
+            depth = depth - min_depth
+        })
+    end
 
     -- ── 14. Embed iXML metadata into the rendered WAV file ────────────────
     -- Prepare XML payload
     local xml_parts = {
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<SUBASS_METADATA>',
-        '  <SOURCE_TRACK>' .. trk_name:gsub("[<&>]", {["<"]="&lt;", [">"]="&gt;", ["&"]="&amp;"}) .. '</SOURCE_TRACK>',
+        '  <SOURCE_TRACK>' .. main_trk_name:gsub("[<&>]", {["<"]="&lt;", [">"]="&gt;", ["&"]="&amp;"}) .. '</SOURCE_TRACK>',
         '  <ITEMS_COUNT>' .. #metadata_items .. '</ITEMS_COUNT>',
-        '  <ITEMS>'
+        '  <TRACKS>'
     }
+    for _, trk in ipairs(metadata_tracks) do
+        table.insert(xml_parts, '    <TRACK>')
+        table.insert(xml_parts, '      <INDEX>' .. trk.index .. '</INDEX>')
+        table.insert(xml_parts, '      <NAME>' .. trk.name:gsub("[<&>]", {["<"]="&lt;", [">"]="&gt;", ["&"]="&amp;"}) .. '</NAME>')
+        table.insert(xml_parts, '      <DEPTH>' .. trk.depth .. '</DEPTH>')
+        table.insert(xml_parts, '    </TRACK>')
+    end
+    table.insert(xml_parts, '  </TRACKS>')
+    table.insert(xml_parts, '  <ITEMS>')
     for _, item in ipairs(metadata_items) do
         table.insert(xml_parts, '    <ITEM>')
         table.insert(xml_parts, '      <INDEX>' .. item.index .. '</INDEX>')
@@ -12076,6 +12157,7 @@ function UTILS.compact_render()
         table.insert(xml_parts, '      <FADE_OUT>'      .. string.format("%.6f", item.fade_out      or 0.0) .. '</FADE_OUT>')
         table.insert(xml_parts, '      <FADE_IN_AUTO>'  .. string.format("%.6f", item.fade_in_auto  or 0.0) .. '</FADE_IN_AUTO>')
         table.insert(xml_parts, '      <FADE_OUT_AUTO>' .. string.format("%.6f", item.fade_out_auto or 0.0) .. '</FADE_OUT_AUTO>')
+        table.insert(xml_parts, '      <TRACK_INDEX>'   .. item.track_index .. '</TRACK_INDEX>')
         table.insert(xml_parts, '    </ITEM>')
     end
     table.insert(xml_parts, '  </ITEMS>')
@@ -12229,11 +12311,37 @@ end
 
 function UTILS.parse_subass_xml(xml_str)
     if not xml_str:find("<SUBASS_METADATA>") then
-        return nil, nil, T("NO_SUBASS_META_IN_FILE")
+        return nil, nil, nil, T("NO_SUBASS_META_IN_FILE")
     end
     local items = {}
     local trk_name = xml_str:match("<SOURCE_TRACK>(.-)</SOURCE_TRACK>") or "Restored Track"
     trk_name = trk_name:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&")
+
+    -- Parse Tracks if they exist
+    local tracks = {}
+    local tracks_xml = xml_str:match("<TRACKS>(.-)</TRACKS>")
+    if tracks_xml then
+        for trk_xml in tracks_xml:gmatch("<TRACK>(.-)</TRACK>") do
+            local index = tonumber(trk_xml:match("<INDEX>(.-)</INDEX>")) or 1
+            local name = trk_xml:match("<NAME>(.-)</NAME>") or "Track"
+            name = name:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&amp;", "&")
+            local depth = tonumber(trk_xml:match("<DEPTH>(.-)</DEPTH>")) or 0
+            tracks[index] = {
+                index = index,
+                name = name,
+                depth = depth
+            }
+        end
+    end
+
+    -- If no tracks section (old files), create default track list based on SOURCE_TRACK
+    if not next(tracks) then
+        tracks[1] = {
+            index = 1,
+            name = trk_name,
+            depth = 0
+        }
+    end
 
     for item_xml in xml_str:gmatch("<ITEM>(.-)</ITEM>") do
         local index = tonumber(item_xml:match("<INDEX>(.-)</INDEX>")) or 0
@@ -12248,6 +12356,7 @@ function UTILS.parse_subass_xml(xml_str)
         local fade_out     = tonumber(item_xml:match("<FADE_OUT>(.-)</FADE_OUT>"))          or 0.0
         local fade_in_auto = tonumber(item_xml:match("<FADE_IN_AUTO>(.-)</FADE_IN_AUTO>"))  or 0.0
         local fade_out_auto= tonumber(item_xml:match("<FADE_OUT_AUTO>(.-)</FADE_OUT_AUTO>"))or 0.0
+        local track_index  = tonumber(item_xml:match("<TRACK_INDEX>(.-)</TRACK_INDEX>"))   or 1
         table.insert(items, {
             index         = index,
             name          = name,
@@ -12259,10 +12368,11 @@ function UTILS.parse_subass_xml(xml_str)
             fade_in       = fade_in,
             fade_out      = fade_out,
             fade_in_auto  = fade_in_auto,
-            fade_out_auto = fade_out_auto
+            fade_out_auto = fade_out_auto,
+            track_index   = track_index
         })
     end
-    return trk_name, items
+    return trk_name, items, tracks
 end
 
 function UTILS.reconstruct_compact_render(file_path, parent_track)
@@ -12295,7 +12405,7 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
         return false, err
     end
 
-    local trk_name, metadata_items = UTILS.parse_subass_xml(xml_data)
+    local trk_name, metadata_items, metadata_tracks = UTILS.parse_subass_xml(xml_data)
     if not metadata_items then
         return false, trk_name or T("UNABLE_PARSE_METADATA")
     end
@@ -12324,15 +12434,72 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
     local filename = file_path:match("([^/\\]+)$") or "compact"
     local track_name = filename:gsub("%.[Ww][Aa][Vv]$", "")
 
-    local dest_track = reaper.GetTrack(0, dest_idx)
-    reaper.GetSetMediaTrackInfo_String(dest_track, "P_NAME", track_name, true)
-    if parent_color ~= 0 then
-        reaper.SetTrackColor(dest_track, parent_color)
+    -- Get track list length
+    local M = 0
+    if metadata_tracks then
+        for _ in pairs(metadata_tracks) do M = M + 1 end
+    end
+
+    local tracks = {}
+    local select_track = nil
+
+    if M <= 1 then
+        local dest_track = reaper.GetTrack(0, dest_idx)
+        reaper.GetSetMediaTrackInfo_String(dest_track, "P_NAME", track_name, true)
+        if parent_color ~= 0 then
+            reaper.SetTrackColor(dest_track, parent_color)
+        end
+        tracks[1] = dest_track
+        select_track = dest_track
+    else
+        -- Recreate tracks directly without a main folder wrapper
+        for k = 1, M do
+            local track
+            if k == 1 then
+                track = reaper.GetTrack(0, dest_idx)
+            else
+                reaper.InsertTrackAtIndex(dest_idx + k - 1, true)
+                track = reaper.GetTrack(0, dest_idx + k - 1)
+            end
+            
+            local trk_info = metadata_tracks[k]
+            
+            -- Smart track naming for multi-track files:
+            local final_name
+            local start_idx, end_idx = string.find(track_name, "[Mm][Uu][Ll][Tt][Ii][Pp][Ll][Ee]")
+            if start_idx then
+                final_name = track_name:sub(1, start_idx - 1) .. trk_info.name .. track_name:sub(end_idx + 1)
+            else
+                final_name = track_name .. "_" .. trk_info.name
+            end
+            
+            reaper.GetSetMediaTrackInfo_String(track, "P_NAME", final_name, true)
+            if parent_color ~= 0 then
+                reaper.SetTrackColor(track, parent_color)
+            end
+            
+            -- Calculate and set folder depth
+            local change = 0
+            if k < M then
+                local diff = metadata_tracks[k+1].depth - trk_info.depth
+                if diff > 0 then
+                    change = 1
+                else
+                    change = diff
+                end
+            else
+                change = -trk_info.depth
+            end
+            reaper.SetMediaTrackInfo_Value(track, "I_FOLDERDEPTH", change)
+            tracks[trk_info.index] = track
+        end
+        select_track = tracks[1]
     end
 
     local created_items = {}
     for _, info in ipairs(metadata_items) do
-        local new_item = reaper.AddMediaItemToTrack(dest_track)
+        local target_track = tracks[info.track_index] or tracks[1]
+        local new_item = reaper.AddMediaItemToTrack(target_track)
         reaper.SetMediaItemInfo_Value(new_item, "D_POSITION", info.original_pos)
         reaper.SetMediaItemInfo_Value(new_item, "D_LENGTH",   info.length)
         -- Restore original manual fade-in / fade-out values
@@ -12371,7 +12538,7 @@ function UTILS.reconstruct_compact_render(file_path, parent_track)
 
     reaper.PreventUIRefresh(-1)
 
-    reaper.SetOnlyTrackSelected(dest_track)
+    reaper.SetOnlyTrackSelected(select_track)
     reaper.TrackList_AdjustWindows(false)
     reaper.UpdateArrange()
 
